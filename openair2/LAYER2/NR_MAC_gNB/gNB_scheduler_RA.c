@@ -275,7 +275,7 @@ static void schedule_nr_MsgA_pusch(NR_UplinkConfigCommon_t *uplinkConfigCommon,
   pusch_pdu->transform_precoding = *msgacc->msgA_PUSCH_Config_r16->msgA_TransformPrecoder_r16;
   pusch_pdu->rb_bitmap[0] = 0;
   pusch_pdu->rb_start = msgA_PUSCH_Resource->frequencyStartMsgA_PUSCH_r16; // rb_start depends on the RO
-  int locationAndBandwidth = uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth;
+  int locationAndBandwidth = uplinkConfigCommon->initialUplinkBWP->genericParameters->locationAndBandwidth;
   pusch_pdu->bwp_size = NRRIV2BW(locationAndBandwidth, MAX_BWP_SIZE);
   pusch_pdu->bwp_start = NRRIV2PRBOFFSET(locationAndBandwidth, MAX_BWP_SIZE);
   pusch_pdu->subcarrier_spacing = uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
@@ -286,8 +286,8 @@ static void schedule_nr_MsgA_pusch(NR_UplinkConfigCommon_t *uplinkConfigCommon,
   NR_MsgA_PUSCH_Config_r16_t *msgA_pusch_cfg = msgacc->msgA_PUSCH_Config_r16;
   pusch_pdu->data_scrambling_id =
       msgA_pusch_cfg->msgA_DataScramblingIndex_r16 ? *msgA_pusch_cfg->msgA_DataScramblingIndex_r16 : physCellId;
-  pusch_pdu->ul_dmrs_scrambling_id = msgA_PUSCH_Resource->msgA_DMRS_Config_r16.msgA_ScramblingID0_r16
-                                         ? *msgA_PUSCH_Resource->msgA_DMRS_Config_r16.msgA_ScramblingID0_r16
+  pusch_pdu->ul_dmrs_scrambling_id = msgA_PUSCH_Resource->msgA_DMRS_Config_r16->msgA_ScramblingID0_r16
+                                         ? *msgA_PUSCH_Resource->msgA_DMRS_Config_r16->msgA_ScramblingID0_r16
                                          : physCellId;
   pusch_pdu->scid = 0; // n_SCID from DMRS resource mapping (TS 38.213 8.1A); only resource 0 scheduled (nrofDMRS-Sequences = 1)
   pusch_pdu->pusch_identity = 0;
@@ -387,7 +387,7 @@ void schedule_nr_prach(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t frameP,
   nfapi_nr_config_request_scf_t *cfg = &cell->config;
 
   if (is_ul_slot(slotP, &cell->frame_structure)) {
-    const NR_RACH_ConfigGeneric_t *rach_ConfigGeneric = &rach_ConfigCommon->rach_ConfigGeneric;
+    const NR_RACH_ConfigGeneric_t *rach_ConfigGeneric = rach_ConfigCommon->rach_ConfigGeneric;
     uint8_t config_index = 0;
     ssb_ro_preambles_t ssb_ro;
     float num_ssb_per_RO = 0;
@@ -396,7 +396,7 @@ void schedule_nr_prach(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t frameP,
     get_config_index_and_ssb_ro(msgacc, rach_ConfigCommon, &config_index, &ssb_ro);
     num_ssb_per_RO = ssb_ro.ssb_per_ro;
 
-    int bwp_start = NRRIV2PRBOFFSET(initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+    int bwp_start = NRRIV2PRBOFFSET(initialUplinkBWP->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
 
     uint8_t fdm = cfg->prach_config.num_prach_fd_occasions.value;
     const int ul_mu = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
@@ -711,8 +711,8 @@ static unsigned int get_slot_RA(const NR_ServingCellConfigCommon_t *scc,
                                 frame_type_t frame_type,
                                 int slot)
 {
-  uint8_t index = msgacc ? *msgacc->rach_ConfigCommonTwoStepRA_r16.rach_ConfigGenericTwoStepRA_r16.msgA_PRACH_ConfigurationIndex_r16
-                         : rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
+  uint8_t index = msgacc ? *msgacc->rach_ConfigCommonTwoStepRA_r16->rach_ConfigGenericTwoStepRA_r16->msgA_PRACH_ConfigurationIndex_r16
+                         : rach_ConfigCommon->rach_ConfigGeneric->prach_ConfigurationIndex;
   uint16_t prach_format =
     get_nr_prach_format_from_index(index, scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA, frame_type);
   unsigned int slot_RA;
@@ -1648,7 +1648,7 @@ static bool nr_generate_Msg2(gNB_MAC_INST *nr_mac,
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   NR_RA_t *ra = UE->ra;
   long rrc_ra_ResponseWindow =
-      scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric.ra_ResponseWindow;
+      scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric->ra_ResponseWindow;
   const int n_slots_frame = cell->frame_structure.numb_slots_frame;
   if (!msg2_in_response_window(ra->preamble_frame, ra->preamble_slot, n_slots_frame, rrc_ra_ResponseWindow, frameP, slotP)) {
     LOG_E(NR_MAC,

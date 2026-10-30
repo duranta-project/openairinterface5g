@@ -73,16 +73,16 @@ schedule_SIB1_MBMS(module_id_t module_idP,
   for (CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
     cc = &eNB->common_channels[CC_id];
     vrb_map = (void *) &cc->vrb_map;
-    N_RB_DL = to_prb(cc->mib->message.dl_Bandwidth);
+    N_RB_DL = to_prb(cc->mib->message->dl_Bandwidth);
     dl_req = &eNB->DL_req[CC_id].dl_config_request_body;
     int foffset = cc->physCellId & 1;
     int sfoffset = (cc->tdd_Config == NULL) ? 0 : 1;
 
     // Time-domain scheduling
-    if (cc->mib->message.schedulingInfoSIB1_BR_r13 == 0)
+    if (cc->mib->message->schedulingInfoSIB1_BR_r13 == 0)
       continue;
     else
-      switch ((cc->mib->message.schedulingInfoSIB1_BR_r13 - 1) % 3) {
+      switch ((cc->mib->message->schedulingInfoSIB1_BR_r13 - 1) % 3) {
         case 0:   // repetition 4
           k = (frameP >> 1) & 3;
 
@@ -175,13 +175,13 @@ schedule_SIB1_MBMS(module_id_t module_idP,
     if(Sj)
       n_NB = Sj[((cc->physCellId % N_S_NB) + (i * N_S_NB / m)) % N_S_NB];
     bcch_sdu_length = mac_rrc_data_req(module_idP, CC_id, frameP, BCCH_SIB1_BR, 1, &cc->BCCH_BR_pdu[0].payload[0], 0);  // not used in this case
-    AssertFatal(cc->mib->message.schedulingInfoSIB1_BR_r13 < 19,
+    AssertFatal(cc->mib->message->schedulingInfoSIB1_BR_r13 < 19,
                 "schedulingInfoSIB1_BR_r13 %d > 18\n",
-                (int) cc->mib->message.schedulingInfoSIB1_BR_r13);
+                (int) cc->mib->message->schedulingInfoSIB1_BR_r13);
     AssertFatal(bcch_sdu_length > 0,
                 "RRC returned 0 bytes for SIB1-BR\n");
     TBS =
-      SIB1_BR_TBS_table[(cc->mib->message.schedulingInfoSIB1_BR_r13 -
+      SIB1_BR_TBS_table[(cc->mib->message->schedulingInfoSIB1_BR_r13 -
                          1) / 3] >> 3;
     AssertFatal(bcch_sdu_length <= TBS,
                 "length returned by RRC %d is not compatible with the TBS %d from MIB\n",
@@ -225,7 +225,7 @@ schedule_SIB1_MBMS(module_id_t module_idP,
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa = 4; // 0 dB
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index = 0;
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap = 0;
-    dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize(cc->mib->message.dl_Bandwidth);  // ignored
+    dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize(cc->mib->message->dl_Bandwidth);  // ignored
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode = (cc->p_eNB == 1) ? 1 : 2;
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband = 1;
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector = 1;
@@ -303,16 +303,16 @@ schedule_SIB1_BR(module_id_t module_idP,
   for (CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
     cc = &eNB->common_channels[CC_id];
     vrb_map = (void *) &cc->vrb_map;
-    N_RB_DL = to_prb(cc->mib->message.dl_Bandwidth);
+    N_RB_DL = to_prb(cc->mib->message->dl_Bandwidth);
     dl_req = &eNB->DL_req[CC_id].dl_config_request_body;
     int foffset = cc->physCellId & 1;
     int sfoffset = (cc->tdd_Config == NULL) ? 0 : 1;
 
     // Time-domain scheduling
-    if (cc->mib->message.schedulingInfoSIB1_BR_r13 == 0)
+    if (cc->mib->message->schedulingInfoSIB1_BR_r13 == 0)
       continue;
     else
-      switch ((cc->mib->message.schedulingInfoSIB1_BR_r13 - 1) % 3) {
+      switch ((cc->mib->message->schedulingInfoSIB1_BR_r13 - 1) % 3) {
         case 0:   // repetition 4
           k = (frameP >> 1) & 3;
 
@@ -405,13 +405,13 @@ schedule_SIB1_BR(module_id_t module_idP,
     if(Sj)
       n_NB = Sj[((cc->physCellId % N_S_NB) + (i * N_S_NB / m)) % N_S_NB];
     bcch_sdu_length = mac_rrc_data_req(module_idP, CC_id, frameP, BCCH_SIB1_BR, 0xFFFF, 1, &cc->BCCH_BR_pdu[0].payload[0], 0);  // not used in this case
-    AssertFatal(cc->mib->message.schedulingInfoSIB1_BR_r13 < 19,
+    AssertFatal(cc->mib->message->schedulingInfoSIB1_BR_r13 < 19,
                 "schedulingInfoSIB1_BR_r13 %d > 18\n",
-                (int) cc->mib->message.schedulingInfoSIB1_BR_r13);
+                (int) cc->mib->message->schedulingInfoSIB1_BR_r13);
     AssertFatal(bcch_sdu_length > 0,
                 "RRC returned 0 bytes for SIB1-BR\n");
     TBS =
-      SIB1_BR_TBS_table[(cc->mib->message.schedulingInfoSIB1_BR_r13 -
+      SIB1_BR_TBS_table[(cc->mib->message->schedulingInfoSIB1_BR_r13 -
                          1) / 3] >> 3;
     AssertFatal(bcch_sdu_length <= TBS,
                 "length returned by RRC %d is not compatible with the TBS %d from MIB\n",
@@ -455,7 +455,7 @@ schedule_SIB1_BR(module_id_t module_idP,
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa = 4; // 0 dB
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index = 0;
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap = 0;
-    dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize(cc->mib->message.dl_Bandwidth);  // ignored
+    dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize(cc->mib->message->dl_Bandwidth);  // ignored
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode = (cc->p_eNB == 1) ? 1 : 2;
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband = 1;
     dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector = 1;
@@ -532,11 +532,11 @@ schedule_SI_BR(module_id_t module_idP, frame_t frameP,
   for (CC_id=0; CC_id<MAX_NUM_CCs; CC_id++) {
     cc              = &eNB->common_channels[CC_id];
     vrb_map         = (void *)&cc->vrb_map;
-    N_RB_DL         = to_prb(cc->mib->message.dl_Bandwidth);
+    N_RB_DL         = to_prb(cc->mib->message->dl_Bandwidth);
     dl_req          = &eNB->DL_req[CC_id].dl_config_request_body;
 
     // Time-domain scheduling
-    if (cc->mib->message.schedulingInfoSIB1_BR_r13==0) continue;
+    if (cc->mib->message->schedulingInfoSIB1_BR_r13==0) continue;
     else  {
       AssertFatal(cc->sib1_v13ext->bandwidthReducedAccessRelatedInfo_r13!=NULL,
                   "sib_v13ext->bandwidthReducedAccessRelatedInfo_r13 is null\n");
@@ -648,7 +648,7 @@ schedule_SI_BR(module_id_t module_idP, frame_t frameP,
             dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa                                     = 4; // 0 dB
             dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index               = 0;
             dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap                                   = 0;
-            dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message.dl_Bandwidth); // ignored
+            dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message->dl_Bandwidth); // ignored
             dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode                      = (cc->p_eNB==1 ) ? 1 : 2;
             dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband                 = 1;
             dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector                          = 1;
@@ -723,7 +723,7 @@ schedule_SI_MBMS(module_id_t module_idP, frame_t frameP,
       cc = &eNB->common_channels[CC_id];
       //printf("*cc->sib1_MBMS->si_WindowLength_r14 %d \n", *cc->sib1_MBMS->si_WindowLength_r14);
       vrb_map = (void *) &cc->vrb_map;
-      N_RB_DL = to_prb(cc->mib->message.dl_Bandwidth);
+      N_RB_DL = to_prb(cc->mib->message->dl_Bandwidth);
       dl_config_request = &eNB->DL_req[CC_id];
       dl_req = &eNB->DL_req[CC_id].dl_config_request_body;
       bcch_sdu_length = mac_rrc_data_req(module_idP, CC_id, frameP, BCCH_SI_MBMS,0xFFFF, 1, &cc->BCCH_MBMS_pdu.payload[0], 0);  // not used in this case
@@ -837,7 +837,7 @@ schedule_SI_MBMS(module_id_t module_idP, frame_t frameP,
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa                                     = 4; // 0 dB
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index               = 0;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap                                   = 0;
-          dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message.dl_Bandwidth);  // ignored
+          dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message->dl_Bandwidth);  // ignored
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode                      = (cc->p_eNB == 1) ? 1 : 2;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband                 = 1;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector                          = 1;
@@ -935,7 +935,7 @@ schedule_fembms_mib(module_id_t module_idP, frame_t frameP, sub_frame_t subframe
         LOG_D(MAC,
               "[eNB %d] Frame %d : MIB->BCH  CC_id %d, Received %d bytes (cc->mib->message.schedulingInfoSIB1_BR_r13 %d)\n",
               module_idP, frameP, CC_id, mib_sdu_length,
-              (int) cc->mib->message.schedulingInfoSIB1_BR_r13);
+              (int) cc->mib->message->schedulingInfoSIB1_BR_r13);
 
       dl_config_pdu = &dl_req->dl_config_pdu_list[dl_req->number_pdu];
       memset((void *) dl_config_pdu, 0,
@@ -994,7 +994,7 @@ schedule_mib(module_id_t module_idP, frame_t frameP, sub_frame_t subframeP) {
         LOG_D(MAC,
               "[eNB %d] Frame %d : MIB->BCH  CC_id %d, Received %d bytes (cc->mib->message.schedulingInfoSIB1_BR_r13 %d)\n",
               module_idP, frameP, CC_id, mib_sdu_length,
-              (int) cc->mib->message.schedulingInfoSIB1_BR_r13);
+              (int) cc->mib->message->schedulingInfoSIB1_BR_r13);
 
       dl_config_pdu = &dl_req->dl_config_pdu_list[dl_req->number_pdu];
       memset((void *) dl_config_pdu, 0,
@@ -1051,7 +1051,7 @@ schedule_SI(module_id_t module_idP, frame_t frameP, sub_frame_t subframeP)
     for (CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
       cc = &eNB->common_channels[CC_id];
       vrb_map = (void *) &cc->vrb_map;
-      N_RB_DL = to_prb(cc->mib->message.dl_Bandwidth);
+      N_RB_DL = to_prb(cc->mib->message->dl_Bandwidth);
       dl_config_request = &eNB->DL_req[CC_id];
       dl_req = &eNB->DL_req[CC_id].dl_config_request_body;
       bcch_sdu_length = mac_rrc_data_req(module_idP, CC_id, frameP, BCCH, 0xFFFF,1, &cc->BCCH_pdu.payload[0], 0); // not used in this case
@@ -1168,7 +1168,7 @@ schedule_SI(module_id_t module_idP, frame_t frameP, sub_frame_t subframeP)
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa                                     = 4; // 0 dB
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index               = 0;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap                                   = 0;
-          dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message.dl_Bandwidth);  // ignored
+          dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message->dl_Bandwidth);  // ignored
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode                      = (cc->p_eNB == 1) ? 1 : 2;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband                 = 1;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector                          = 1;

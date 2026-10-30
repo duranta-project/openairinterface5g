@@ -39,6 +39,7 @@
 #include "xer_encoder.h"
 #include "ds/byte_array.h"
 #include "intertask_interface.h"
+#include "NGAP_ProtocolIE-Container.h"
 /** @brief Selects the AMF instance for a given UE based on identity information.
  *         It attempts to select an AMF using the following prioritized criteria:
  *         1. GUAMI, if provided and valid (via Region ID, Set ID, Pointer).
@@ -163,7 +164,7 @@ int ngap_gNB_handle_nas_first_req(instance_t instance, ngap_nas_first_req_t *UEf
   head->procedureCode = NGAP_ProcedureCode_id_InitialUEMessage;
   head->criticality = NGAP_Criticality_ignore;
   head->value.present = NGAP_InitiatingMessage__value_PR_InitialUEMessage;
-  NGAP_InitialUEMessage_t *out = &head->value.choice.InitialUEMessage;
+  NGAP_InitialUEMessage_t *out = (head->value.choice.InitialUEMessage = calloc_or_fail(1, sizeof(*head->value.choice.InitialUEMessage)));
 
   /* Create and store NGAP UE context */
   ngap_gNB_ue_context_t ue_desc_p = {
@@ -174,72 +175,94 @@ int ngap_gNB_handle_nas_first_req(instance_t instance, ngap_nas_first_req_t *UEf
 
   // RAN UE NGAP ID (M)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialUEMessage_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialUEMessage_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_InitialUEMessage_IEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = ue_desc_p.gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, ue_desc_p.gNB_ue_ngap_id);
   }
 
   /* NAS-PDU (M): transferred transparently */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialUEMessage_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialUEMessage_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_NAS_PDU;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_InitialUEMessage_IEs__value_PR_NAS_PDU;
-    OCTET_STRING_fromBuf(&ie->value.choice.NAS_PDU, (const char *)UEfirstReq->nas_pdu.buf, UEfirstReq->nas_pdu.len);
+    OCTET_STRING_fromBuf((ie->value.choice.NAS_PDU = calloc_or_fail(1, sizeof(*ie->value.choice.NAS_PDU))), (const char *)UEfirstReq->nas_pdu.buf, UEfirstReq->nas_pdu.len);
   }
 
   // User Location Information (M)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialUEMessage_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialUEMessage_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_UserLocationInformation;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_InitialUEMessage_IEs__value_PR_UserLocationInformation;
-    ie->value.choice.UserLocationInformation.present = NGAP_UserLocationInformation_PR_userLocationInformationNR;
-    asn1cCalloc(ie->value.choice.UserLocationInformation.choice.userLocationInformationNR, userinfo_nr_p);
+    if (!ie->value.choice.UserLocationInformation)
+      ie->value.choice.UserLocationInformation = calloc_or_fail(1, sizeof(*ie->value.choice.UserLocationInformation));
+    ie->value.choice.UserLocationInformation->present = NGAP_UserLocationInformation_PR_userLocationInformationNR;
+    asn1cCalloc(ie->value.choice.UserLocationInformation->choice.userLocationInformationNR, userinfo_nr_p);
+    if (!userinfo_nr_p->nR_CGI)
+      userinfo_nr_p->nR_CGI = calloc_or_fail(1, sizeof(*userinfo_nr_p->nR_CGI));
 
     /* NR CGI: use gNB ID and Cell ID passed from RRC */
-    MACRO_GNB_ID_TO_CELL_IDENTITY(instance_p->gNB_id, UEfirstReq->nr_cell_id, &userinfo_nr_p->nR_CGI.nRCellIdentity);
+    MACRO_GNB_ID_TO_CELL_IDENTITY(instance_p->gNB_id, UEfirstReq->nr_cell_id, &userinfo_nr_p->nR_CGI->nRCellIdentity);
 
     /* Use UE's selected PLMN for nR-CGI (from Initial UE Message) */
     plmn_id_t *plmn = &UEfirstReq->plmn;
-    MCC_MNC_TO_TBCD(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &userinfo_nr_p->nR_CGI.pLMNIdentity);
+    if (!userinfo_nr_p->nR_CGI)
+      userinfo_nr_p->nR_CGI = calloc_or_fail(1, sizeof(*userinfo_nr_p->nR_CGI));
+    MCC_MNC_TO_TBCD(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &userinfo_nr_p->nR_CGI->pLMNIdentity);
 
     /* Set TAI - use UE's selected PLMN */
-    INT24_TO_OCTET_STRING(instance_p->tac, &userinfo_nr_p->tAI.tAC);
-    MCC_MNC_TO_PLMNID(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &userinfo_nr_p->tAI.pLMNIdentity);
+    if (!userinfo_nr_p->tAI)
+      userinfo_nr_p->tAI = calloc_or_fail(1, sizeof(*userinfo_nr_p->tAI));
+    INT24_TO_OCTET_STRING(instance_p->tac, &userinfo_nr_p->tAI->tAC);
+    MCC_MNC_TO_PLMNID(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &userinfo_nr_p->tAI->pLMNIdentity);
   }
 
   // RRC Establishment Cause (M)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialUEMessage_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialUEMessage_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RRCEstablishmentCause;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialUEMessage_IEs__value_PR_RRCEstablishmentCause;
-    ie->value.choice.RRCEstablishmentCause = rrc2ngap_establishment_cause(UEfirstReq->establishment_cause);
+    asn1cCallocOne(ie->value.choice.RRCEstablishmentCause, rrc2ngap_establishment_cause(UEfirstReq->establishment_cause));
   }
 
   // 5G-S-TMSI (O)
   if (UEfirstReq->ue_identity.presenceMask & NGAP_UE_IDENTITIES_FiveG_s_tmsi) {
     NGAP_DEBUG("FIVEG_S_TMSI_PRESENT\n");
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialUEMessage_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialUEMessage_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_FiveG_S_TMSI;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_InitialUEMessage_IEs__value_PR_FiveG_S_TMSI;
-    AMF_SETID_TO_BIT_STRING(UEfirstReq->ue_identity.s_tmsi.amf_set_id, &ie->value.choice.FiveG_S_TMSI.aMFSetID);
-    AMF_POINTER_TO_BIT_STRING(UEfirstReq->ue_identity.s_tmsi.amf_pointer, &ie->value.choice.FiveG_S_TMSI.aMFPointer);
-    M_TMSI_TO_OCTET_STRING(UEfirstReq->ue_identity.s_tmsi.m_tmsi, &ie->value.choice.FiveG_S_TMSI.fiveG_TMSI);
+    if (!ie->value.choice.FiveG_S_TMSI)
+      ie->value.choice.FiveG_S_TMSI = calloc_or_fail(1, sizeof(*ie->value.choice.FiveG_S_TMSI));
+    AMF_SETID_TO_BIT_STRING(UEfirstReq->ue_identity.s_tmsi.amf_set_id, &ie->value.choice.FiveG_S_TMSI->aMFSetID);
+    AMF_POINTER_TO_BIT_STRING(UEfirstReq->ue_identity.s_tmsi.amf_pointer, &ie->value.choice.FiveG_S_TMSI->aMFPointer);
+    M_TMSI_TO_OCTET_STRING(UEfirstReq->ue_identity.s_tmsi.m_tmsi, &ie->value.choice.FiveG_S_TMSI->fiveG_TMSI);
   }
 
   /* UE Context Request (O): instruct the AMF to trigger an
      Initial Context Setup procedure towards the NG-RAN node. */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialUEMessage_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialUEMessage_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_UEContextRequest;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialUEMessage_IEs__value_PR_UEContextRequest;
-    ie->value.choice.UEContextRequest = NGAP_UEContextRequest_requested;
+    asn1cCallocOne(ie->value.choice.UEContextRequest, NGAP_UEContextRequest_requested);
   }
 
   if (ngap_gNB_encode_pdu(&pdu, &buffer, &length) < 0) {
@@ -306,15 +329,15 @@ int ngap_gNB_handle_nas_downlink(sctp_assoc_t assoc_id, uint32_t stream, NGAP_NG
 
   ngap_gNB_instance = amf_desc_p->ngap_gNB_instance;
   /* Prepare the NGAP message to encode */
-  container = &pdu->choice.initiatingMessage->value.choice.DownlinkNASTransport;
+  container = pdu->choice.initiatingMessage->value.choice.DownlinkNASTransport;
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_DownlinkNASTransport_IEs_t, ie, container,
                              NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID, true);
-  asn_INTEGER2ulong(&(ie->value.choice.AMF_UE_NGAP_ID), &amf_ue_ngap_id);
+  asn_INTEGER2ulong((ie->value.choice.AMF_UE_NGAP_ID), &amf_ue_ngap_id);
 
 
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_DownlinkNASTransport_IEs_t, ie, container,
                              NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID, true);
-  gnb_ue_ngap_id = ie->value.choice.RAN_UE_NGAP_ID;
+  gnb_ue_ngap_id = *ie->value.choice.RAN_UE_NGAP_ID;
 
   if ((ue_desc_p = ngap_get_ue_context(gnb_ue_ngap_id)) == NULL) {
     NGAP_ERROR("[SCTP %u] Received NAS downlink message for non existing UE context gNB_UE_NGAP_ID: 0x%lx\n",
@@ -350,8 +373,8 @@ int ngap_gNB_handle_nas_downlink(sctp_assoc_t assoc_id, uint32_t stream, NGAP_NG
   ngap_gNB_itti_send_nas_downlink_ind(ngap_gNB_instance->instance,
                                       ue_desc_p->gNB_ue_ngap_id,
                                       ue_desc_p->amf_ue_ngap_id,
-                                      ie->value.choice.NAS_PDU.buf,
-                                      ie->value.choice.NAS_PDU.size);
+                                      ie->value.choice.NAS_PDU->buf,
+                                      ie->value.choice.NAS_PDU->size);
 
   return 0;
 }
@@ -394,55 +417,73 @@ int ngap_gNB_nas_uplink(instance_t instance, ngap_uplink_nas_t *ngap_uplink_nas_
   head->procedureCode = NGAP_ProcedureCode_id_UplinkNASTransport;
   head->criticality = NGAP_Criticality_ignore;
   head->value.present = NGAP_InitiatingMessage__value_PR_UplinkNASTransport;
-  NGAP_UplinkNASTransport_t *out = &head->value.choice.UplinkNASTransport;
+  NGAP_UplinkNASTransport_t *out = (head->value.choice.UplinkNASTransport = calloc_or_fail(1, sizeof(*head->value.choice.UplinkNASTransport)));
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkNASTransport_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkNASTransport_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkNASTransport_IEs__value_PR_AMF_UE_NGAP_ID;
     // ie->value.choice.AMF_UE_NGAP_ID = ue_context_p->amf_ue_ngap_id;
-    asn_uint642INTEGER(&ie->value.choice.AMF_UE_NGAP_ID, ue_context_p->amf_ue_ngap_id);
+    asn_uint642INTEGER((ie->value.choice.AMF_UE_NGAP_ID = calloc_or_fail(1, sizeof(*ie->value.choice.AMF_UE_NGAP_ID))), ue_context_p->amf_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkNASTransport_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkNASTransport_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkNASTransport_IEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = ue_context_p->gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, ue_context_p->gNB_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkNASTransport_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkNASTransport_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_NAS_PDU;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkNASTransport_IEs__value_PR_NAS_PDU;
-    ie->value.choice.NAS_PDU.buf = ngap_uplink_nas_p->nas_pdu.buf;
-    ie->value.choice.NAS_PDU.size = ngap_uplink_nas_p->nas_pdu.len;
+    if (!ie->value.choice.NAS_PDU)
+      ie->value.choice.NAS_PDU = calloc_or_fail(1, sizeof(*ie->value.choice.NAS_PDU));
+    ie->value.choice.NAS_PDU->buf = ngap_uplink_nas_p->nas_pdu.buf;
+    ie->value.choice.NAS_PDU->size = ngap_uplink_nas_p->nas_pdu.len;
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkNASTransport_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkNASTransport_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_UserLocationInformation;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_UplinkNASTransport_IEs__value_PR_UserLocationInformation;
 
-    ie->value.choice.UserLocationInformation.present = NGAP_UserLocationInformation_PR_userLocationInformationNR;
-    asn1cCalloc(ie->value.choice.UserLocationInformation.choice.userLocationInformationNR, userinfo_nr_p);
+    if (!ie->value.choice.UserLocationInformation)
+      ie->value.choice.UserLocationInformation = calloc_or_fail(1, sizeof(*ie->value.choice.UserLocationInformation));
+    ie->value.choice.UserLocationInformation->present = NGAP_UserLocationInformation_PR_userLocationInformationNR;
+    asn1cCalloc(ie->value.choice.UserLocationInformation->choice.userLocationInformationNR, userinfo_nr_p);
+    if (!userinfo_nr_p->nR_CGI)
+      userinfo_nr_p->nR_CGI = calloc_or_fail(1, sizeof(*userinfo_nr_p->nR_CGI));
 
     /* Set nRCellIdentity: use gNB ID and Cell ID */
     MACRO_GNB_ID_TO_CELL_IDENTITY(ngap_gNB_instance_p->gNB_id,
                                   ngap_uplink_nas_p->nr_cell_id,
-                                  &userinfo_nr_p->nR_CGI.nRCellIdentity);
+                                  &userinfo_nr_p->nR_CGI->nRCellIdentity);
 
     /* NR CGI */
     plmn_id_t *plmn = &ngap_uplink_nas_p->plmn;
-    MCC_MNC_TO_TBCD(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &userinfo_nr_p->nR_CGI.pLMNIdentity);
+    if (!userinfo_nr_p->nR_CGI)
+      userinfo_nr_p->nR_CGI = calloc_or_fail(1, sizeof(*userinfo_nr_p->nR_CGI));
+    MCC_MNC_TO_TBCD(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &userinfo_nr_p->nR_CGI->pLMNIdentity);
 
     /* TAI */
-    INT24_TO_OCTET_STRING(ngap_uplink_nas_p->tac, &userinfo_nr_p->tAI.tAC);
-    MCC_MNC_TO_PLMNID(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &userinfo_nr_p->tAI.pLMNIdentity);
+    if (!userinfo_nr_p->tAI)
+      userinfo_nr_p->tAI = calloc_or_fail(1, sizeof(*userinfo_nr_p->tAI));
+    INT24_TO_OCTET_STRING(ngap_uplink_nas_p->tac, &userinfo_nr_p->tAI->tAC);
+    MCC_MNC_TO_PLMNID(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &userinfo_nr_p->tAI->pLMNIdentity);
   }
 
   if (ngap_gNB_encode_pdu(&pdu, &buffer, &length) < 0) {
@@ -491,41 +532,53 @@ int ngap_gNB_nas_non_delivery_ind(instance_t instance,
   head->procedureCode = NGAP_ProcedureCode_id_NASNonDeliveryIndication;
   head->criticality = NGAP_Criticality_ignore;
   head->value.present = NGAP_InitiatingMessage__value_PR_NASNonDeliveryIndication;
-  NGAP_NASNonDeliveryIndication_t *out = &head->value.choice.NASNonDeliveryIndication;
+  NGAP_NASNonDeliveryIndication_t *out = (head->value.choice.NASNonDeliveryIndication = calloc_or_fail(1, sizeof(*head->value.choice.NASNonDeliveryIndication)));
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_NASNonDeliveryIndication_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_NASNonDeliveryIndication_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_NASNonDeliveryIndication_IEs__value_PR_AMF_UE_NGAP_ID;
-    asn_uint642INTEGER(&ie->value.choice.AMF_UE_NGAP_ID, ue_context_p->amf_ue_ngap_id);
+    asn_uint642INTEGER((ie->value.choice.AMF_UE_NGAP_ID = calloc_or_fail(1, sizeof(*ie->value.choice.AMF_UE_NGAP_ID))), ue_context_p->amf_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_NASNonDeliveryIndication_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_NASNonDeliveryIndication_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_NASNonDeliveryIndication_IEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = ue_context_p->gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, ue_context_p->gNB_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_NASNonDeliveryIndication_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_NASNonDeliveryIndication_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_NAS_PDU;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_NASNonDeliveryIndication_IEs__value_PR_NAS_PDU;
-    ie->value.choice.NAS_PDU.buf = ngap_nas_non_delivery_ind->nas_pdu.buf;
-    ie->value.choice.NAS_PDU.size = ngap_nas_non_delivery_ind->nas_pdu.len;
+    if (!ie->value.choice.NAS_PDU)
+      ie->value.choice.NAS_PDU = calloc_or_fail(1, sizeof(*ie->value.choice.NAS_PDU));
+    ie->value.choice.NAS_PDU->buf = ngap_nas_non_delivery_ind->nas_pdu.buf;
+    ie->value.choice.NAS_PDU->size = ngap_nas_non_delivery_ind->nas_pdu.len;
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_NASNonDeliveryIndication_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_NASNonDeliveryIndication_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_Cause;
     ie->criticality = NGAP_Criticality_ignore;
     /* Send a dummy cause */
     ie->value.present = NGAP_NASNonDeliveryIndication_IEs__value_PR_Cause;
-    ie->value.choice.Cause.present = NGAP_Cause_PR_radioNetwork;
-    ie->value.choice.Cause.choice.radioNetwork = NGAP_CauseRadioNetwork_radio_connection_with_ue_lost;
+    if (!ie->value.choice.Cause)
+      ie->value.choice.Cause = calloc_or_fail(1, sizeof(*ie->value.choice.Cause));
+    ie->value.choice.Cause->present = NGAP_Cause_PR_radioNetwork;
+    ie->value.choice.Cause->choice.radioNetwork = NGAP_CauseRadioNetwork_radio_connection_with_ue_lost;
   }
 
   if (ngap_gNB_encode_pdu(&pdu, &buffer, &length) < 0) {
@@ -585,32 +638,40 @@ int ngap_gNB_initial_ctxt_resp(instance_t instance, ngap_initial_context_setup_r
   head->procedureCode = NGAP_ProcedureCode_id_InitialContextSetup;
   head->criticality = NGAP_Criticality_reject;
   head->value.present = NGAP_SuccessfulOutcome__value_PR_InitialContextSetupResponse;
-  NGAP_InitialContextSetupResponse_t *out = &head->value.choice.InitialContextSetupResponse;
+  NGAP_InitialContextSetupResponse_t *out = (head->value.choice.InitialContextSetupResponse = calloc_or_fail(1, sizeof(*head->value.choice.InitialContextSetupResponse)));
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialContextSetupResponseIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialContextSetupResponseIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialContextSetupResponseIEs__value_PR_AMF_UE_NGAP_ID;
     // ie->value.choice.AMF_UE_NGAP_ID = ue_context_p->amf_ue_ngap_id;
-    asn_uint642INTEGER(&ie->value.choice.AMF_UE_NGAP_ID, ue_context_p->amf_ue_ngap_id);
+    asn_uint642INTEGER((ie->value.choice.AMF_UE_NGAP_ID = calloc_or_fail(1, sizeof(*ie->value.choice.AMF_UE_NGAP_ID))), ue_context_p->amf_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialContextSetupResponseIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialContextSetupResponseIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialContextSetupResponseIEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = initial_ctxt_resp_p->gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, initial_ctxt_resp_p->gNB_ue_ngap_id);
   }
   /* optional */
   if (initial_ctxt_resp_p->nb_of_pdusessions){
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialContextSetupResponseIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialContextSetupResponseIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_PDUSessionResourceSetupListCxtRes;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialContextSetupResponseIEs__value_PR_PDUSessionResourceSetupListCxtRes;
     for (i = 0; i < initial_ctxt_resp_p->nb_of_pdusessions; i++) {
-      asn1cSequenceAdd(ie->value.choice.PDUSessionResourceSetupListCxtRes.list, NGAP_PDUSessionResourceSetupItemCxtRes_t, item);
+      if (!ie->value.choice.PDUSessionResourceSetupListCxtRes)
+        ie->value.choice.PDUSessionResourceSetupListCxtRes = calloc_or_fail(1, sizeof(*ie->value.choice.PDUSessionResourceSetupListCxtRes));
+      asn1cSequenceAdd(ie->value.choice.PDUSessionResourceSetupListCxtRes->list, NGAP_PDUSessionResourceSetupItemCxtRes_t, item);
       /* pDUSessionID */
       item->pDUSessionID = initial_ctxt_resp_p->pdusessions[i].pdusession_id;
       // PDU Session Resource Setup Response Transfer (Mandatory)
@@ -626,13 +687,17 @@ int ngap_gNB_initial_ctxt_resp(instance_t instance, ngap_initial_context_setup_r
   }
   /* optional */
   if (initial_ctxt_resp_p->nb_of_pdusessions_failed) {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialContextSetupResponseIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialContextSetupResponseIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_PDUSessionResourceFailedToSetupListCxtRes;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialContextSetupResponseIEs__value_PR_PDUSessionResourceFailedToSetupListCxtRes;
 
     for (i = 0; i < initial_ctxt_resp_p->nb_of_pdusessions_failed; i++) {
-      asn1cSequenceAdd(ie->value.choice.PDUSessionResourceFailedToSetupListCxtRes.list, NGAP_PDUSessionResourceFailedToSetupItemCxtRes_t, item);
+      if (!ie->value.choice.PDUSessionResourceFailedToSetupListCxtRes)
+        ie->value.choice.PDUSessionResourceFailedToSetupListCxtRes = calloc_or_fail(1, sizeof(*ie->value.choice.PDUSessionResourceFailedToSetupListCxtRes));
+      asn1cSequenceAdd(ie->value.choice.PDUSessionResourceFailedToSetupListCxtRes->list, NGAP_PDUSessionResourceFailedToSetupItemCxtRes_t, item);
       /* pDUSessionID */
       item->pDUSessionID = initial_ctxt_resp_p->pdusessions_failed[i].pdusession_id;
       NGAP_INFO("initial context setup response: failed pdusession ID %ld\n", item->pDUSessionID);
@@ -650,7 +715,9 @@ int ngap_gNB_initial_ctxt_resp(instance_t instance, ngap_initial_context_setup_r
 
   /* optional */
   if (0) {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_InitialContextSetupResponseIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_InitialContextSetupResponseIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_CriticalityDiagnostics;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialContextSetupResponseIEs__value_PR_CriticalityDiagnostics;
@@ -715,31 +782,37 @@ int ngap_gNB_initial_ctxt_fail(instance_t instance, ngap_initial_context_setup_f
   out->procedureCode = NGAP_ProcedureCode_id_InitialContextSetup;
   out->criticality = NGAP_Criticality_reject;
   out->value.present = NGAP_UnsuccessfulOutcome__value_PR_InitialContextSetupFailure;
-  NGAP_InitialContextSetupFailure_t *fail = &out->value.choice.InitialContextSetupFailure;
+  NGAP_InitialContextSetupFailure_t *fail = (out->value.choice.InitialContextSetupFailure = calloc_or_fail(1, sizeof(*out->value.choice.InitialContextSetupFailure)));
   /* mandatory */
   {
-    asn1cSequenceAdd(fail->protocolIEs.list, NGAP_InitialContextSetupFailureIEs_t, ie);
+    if (!fail->protocolIEs)
+      fail->protocolIEs = calloc_or_fail(1, sizeof(*fail->protocolIEs));
+    asn1cSequenceAdd(fail->protocolIEs->list, NGAP_InitialContextSetupFailureIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialContextSetupFailureIEs__value_PR_AMF_UE_NGAP_ID;
     // ie->value.choice.AMF_UE_NGAP_ID = ue_context_p->amf_ue_ngap_id;
-    asn_uint642INTEGER(&ie->value.choice.AMF_UE_NGAP_ID, ue_context_p->amf_ue_ngap_id);
+    asn_uint642INTEGER((ie->value.choice.AMF_UE_NGAP_ID = calloc_or_fail(1, sizeof(*ie->value.choice.AMF_UE_NGAP_ID))), ue_context_p->amf_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(fail->protocolIEs.list, NGAP_InitialContextSetupFailureIEs_t, ie);
+    if (!fail->protocolIEs)
+      fail->protocolIEs = calloc_or_fail(1, sizeof(*fail->protocolIEs));
+    asn1cSequenceAdd(fail->protocolIEs->list, NGAP_InitialContextSetupFailureIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialContextSetupFailureIEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = initial_ctxt_fail->gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, initial_ctxt_fail->gNB_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(fail->protocolIEs.list, NGAP_InitialContextSetupFailureIEs_t, ie);
+    if (!fail->protocolIEs)
+      fail->protocolIEs = calloc_or_fail(1, sizeof(*fail->protocolIEs));
+    asn1cSequenceAdd(fail->protocolIEs->list, NGAP_InitialContextSetupFailureIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_Cause;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_InitialContextSetupFailureIEs__value_PR_Cause;
-    encode_ngap_cause(&ie->value.choice.Cause, &initial_ctxt_fail->cause);
+    encode_ngap_cause((ie->value.choice.Cause = calloc_or_fail(1, sizeof(*ie->value.choice.Cause))), &initial_ctxt_fail->cause);
   }
   if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
     xer_fprint(stdout, &asn_DEF_NGAP_NGAP_PDU, &pdu);
@@ -799,31 +872,39 @@ int ngap_gNB_ue_capabilities(instance_t instance, ngap_ue_cap_info_ind_t *ue_cap
   head->procedureCode = NGAP_ProcedureCode_id_UERadioCapabilityInfoIndication;
   head->criticality = NGAP_Criticality_ignore;
   head->value.present = NGAP_InitiatingMessage__value_PR_UERadioCapabilityInfoIndication;
-  NGAP_UERadioCapabilityInfoIndication_t *out = &head->value.choice.UERadioCapabilityInfoIndication;
+  NGAP_UERadioCapabilityInfoIndication_t *out = (head->value.choice.UERadioCapabilityInfoIndication = calloc_or_fail(1, sizeof(*head->value.choice.UERadioCapabilityInfoIndication)));
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UERadioCapabilityInfoIndicationIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UERadioCapabilityInfoIndicationIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UERadioCapabilityInfoIndicationIEs__value_PR_AMF_UE_NGAP_ID;
-    asn_uint642INTEGER(&ie->value.choice.AMF_UE_NGAP_ID, ue_context_p->amf_ue_ngap_id);
+    asn_uint642INTEGER((ie->value.choice.AMF_UE_NGAP_ID = calloc_or_fail(1, sizeof(*ie->value.choice.AMF_UE_NGAP_ID))), ue_context_p->amf_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UERadioCapabilityInfoIndicationIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UERadioCapabilityInfoIndicationIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UERadioCapabilityInfoIndicationIEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = (int64_t)ue_cap_info_ind_p->gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, (int64_t)ue_cap_info_ind_p->gNB_ue_ngap_id);
   }
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UERadioCapabilityInfoIndicationIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UERadioCapabilityInfoIndicationIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_UERadioCapability;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_UERadioCapabilityInfoIndicationIEs__value_PR_UERadioCapability;
-    ie->value.choice.UERadioCapability.buf = ue_cap_info_ind_p->ue_radio_cap.buf;
-    ie->value.choice.UERadioCapability.size = ue_cap_info_ind_p->ue_radio_cap.len;
+    if (!ie->value.choice.UERadioCapability)
+      ie->value.choice.UERadioCapability = calloc_or_fail(1, sizeof(*ie->value.choice.UERadioCapability));
+    ie->value.choice.UERadioCapability->buf = ue_cap_info_ind_p->ue_radio_cap.buf;
+    ie->value.choice.UERadioCapability->size = ue_cap_info_ind_p->ue_radio_cap.len;
   }
   /* optional */
   //NGAP_UERadioCapabilityForPaging TBD

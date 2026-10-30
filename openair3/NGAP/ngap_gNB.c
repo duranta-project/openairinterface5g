@@ -44,6 +44,11 @@
 #include "s1ap_messages_types.h"
 #include "sctp_messages_types.h"
 #include "tree.h"
+#include "NGAP_SD.h"
+#include "NGAP_GNB-ID.h"
+#include "NGAP_BroadcastPLMNList.h"
+#include "NGAP_ProtocolIE-Container.h"
+#include "NGAP_SliceSupportList.h"
 
 #ifdef E2_AGENT
 #include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
@@ -760,28 +765,36 @@ static int ngap_gNB_generate_ng_setup_request(
   pdu.choice.initiatingMessage->procedureCode = NGAP_ProcedureCode_id_NGSetup;
   pdu.choice.initiatingMessage->criticality = NGAP_Criticality_reject;
   pdu.choice.initiatingMessage->value.present = NGAP_InitiatingMessage__value_PR_NGSetupRequest;
-  out = &pdu.choice.initiatingMessage->value.choice.NGSetupRequest;
+  pdu.choice.initiatingMessage->value.choice.NGSetupRequest =
+      calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage->value.choice.NGSetupRequest));
+  out = pdu.choice.initiatingMessage->value.choice.NGSetupRequest;
   /* mandatory */
   ie = calloc_or_fail(1, sizeof(NGAP_NGSetupRequestIEs_t));
   ie->id = NGAP_ProtocolIE_ID_id_GlobalRANNodeID;
   ie->criticality = NGAP_Criticality_reject;
   ie->value.present = NGAP_NGSetupRequestIEs__value_PR_GlobalRANNodeID;
-  ie->value.choice.GlobalRANNodeID.present = NGAP_GlobalRANNodeID_PR_globalGNB_ID;
-  ie->value.choice.GlobalRANNodeID.choice.globalGNB_ID = CALLOC(1, sizeof(struct NGAP_GlobalGNB_ID));
+  if (!ie->value.choice.GlobalRANNodeID)
+    ie->value.choice.GlobalRANNodeID = calloc_or_fail(1, sizeof(*ie->value.choice.GlobalRANNodeID));
+  ie->value.choice.GlobalRANNodeID->present = NGAP_GlobalRANNodeID_PR_globalGNB_ID;
+  ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID = CALLOC(1, sizeof(struct NGAP_GlobalGNB_ID));
   plmn_id_t *plmn_id = &instance_p->plmn[ngap_amf_data_p->broadcast_plmn_index[0]].plmn;
   MCC_MNC_TO_PLMNID(plmn_id->mcc,
                     plmn_id->mnc,
                     plmn_id->mnc_digit_length,
-                    &(ie->value.choice.GlobalRANNodeID.choice.globalGNB_ID->pLMNIdentity));
-  ie->value.choice.GlobalRANNodeID.choice.globalGNB_ID->gNB_ID.present = NGAP_GNB_ID_PR_gNB_ID;
+                    &(ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->pLMNIdentity));
+  if (!ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID)
+    ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID = calloc_or_fail(1, sizeof(*ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID));
+  ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID->present = NGAP_GNB_ID_PR_gNB_ID;
   MACRO_GNB_ID_TO_BIT_STRING(instance_p->gNB_id,
-                             &ie->value.choice.GlobalRANNodeID.choice.globalGNB_ID->gNB_ID.choice.gNB_ID);
+                             &ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID->choice.gNB_ID);
   NGAP_INFO("%u -> %02x%02x%02x%02x\n", instance_p->gNB_id,
-            ie->value.choice.GlobalRANNodeID.choice.globalGNB_ID->gNB_ID.choice.gNB_ID.buf[0],
-            ie->value.choice.GlobalRANNodeID.choice.globalGNB_ID->gNB_ID.choice.gNB_ID.buf[1],
-            ie->value.choice.GlobalRANNodeID.choice.globalGNB_ID->gNB_ID.choice.gNB_ID.buf[2],
-            ie->value.choice.GlobalRANNodeID.choice.globalGNB_ID->gNB_ID.choice.gNB_ID.buf[3]);
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+            ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID->choice.gNB_ID.buf[0],
+            ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID->choice.gNB_ID.buf[1],
+            ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID->choice.gNB_ID.buf[2],
+            ie->value.choice.GlobalRANNodeID->choice.globalGNB_ID->gNB_ID->choice.gNB_ID.buf[3]);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* optional */
   if (instance_p->gNB_name) {
@@ -789,9 +802,9 @@ static int ngap_gNB_generate_ng_setup_request(
     ie->id = NGAP_ProtocolIE_ID_id_RANNodeName;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_NGSetupRequestIEs__value_PR_RANNodeName;
-    OCTET_STRING_fromBuf(&ie->value.choice.RANNodeName, instance_p->gNB_name,
+    OCTET_STRING_fromBuf((ie->value.choice.RANNodeName = calloc_or_fail(1, sizeof(*ie->value.choice.RANNodeName))), instance_p->gNB_name,
                          strlen(instance_p->gNB_name));
-    asn1cSeqAdd(&out->protocolIEs.list, ie);
+    asn1cSeqAdd(&out->protocolIEs->list, ie);
   }
 
   /* mandatory */
@@ -811,35 +824,43 @@ static int ngap_gNB_generate_ng_setup_request(
 
         for (int si = 0; si < plmn_req->num_nssai; si++) {
           ssi = (NGAP_SliceSupportItem_t *)calloc_or_fail(1, sizeof(NGAP_SliceSupportItem_t));
-          INT8_TO_OCTET_STRING(plmn_req->s_nssai[si].sst, &ssi->s_NSSAI.sST);
+          if (!ssi->s_NSSAI)
+            ssi->s_NSSAI = calloc_or_fail(1, sizeof(*ssi->s_NSSAI));
+          INT8_TO_OCTET_STRING(plmn_req->s_nssai[si].sst, &ssi->s_NSSAI->sST);
 
           const uint32_t sd = plmn_req->s_nssai[si].sd;
           if (sd != 0xffffff) {
-            ssi->s_NSSAI.sD = calloc_or_fail(1, sizeof(NGAP_SD_t));
-            ssi->s_NSSAI.sD->buf = calloc_or_fail(3, sizeof(uint8_t));
-            ssi->s_NSSAI.sD->size = 3;
-            ssi->s_NSSAI.sD->buf[0] = (sd & 0xff0000) >> 16;
-            ssi->s_NSSAI.sD->buf[1] = (sd & 0x00ff00) >> 8;
-            ssi->s_NSSAI.sD->buf[2] = (sd & 0x0000ff);
+            ssi->s_NSSAI->sD = calloc_or_fail(1, sizeof(NGAP_SD_t));
+            ssi->s_NSSAI->sD->buf = calloc_or_fail(3, sizeof(uint8_t));
+            ssi->s_NSSAI->sD->size = 3;
+            ssi->s_NSSAI->sD->buf[0] = (sd & 0xff0000) >> 16;
+            ssi->s_NSSAI->sD->buf[1] = (sd & 0x00ff00) >> 8;
+            ssi->s_NSSAI->sD->buf[2] = (sd & 0x0000ff);
           }
 
-          asn1cSeqAdd(&plmn->tAISliceSupportList.list, ssi);
+          if (!plmn->tAISliceSupportList)
+            plmn->tAISliceSupportList = calloc_or_fail(1, sizeof(*plmn->tAISliceSupportList));
+          asn1cSeqAdd(&plmn->tAISliceSupportList->list, ssi);
         }
 
-        asn1cSeqAdd(&ta->broadcastPLMNList.list, plmn);
+        if (!ta->broadcastPLMNList)
+          ta->broadcastPLMNList = calloc_or_fail(1, sizeof(*ta->broadcastPLMNList));
+        asn1cSeqAdd(&ta->broadcastPLMNList->list, plmn);
       }
     }
-    asn1cSeqAdd(&ie->value.choice.SupportedTAList.list, ta);
+    if (!ie->value.choice.SupportedTAList)
+      ie->value.choice.SupportedTAList = calloc_or_fail(1, sizeof(*ie->value.choice.SupportedTAList));
+    asn1cSeqAdd(&ie->value.choice.SupportedTAList->list, ta);
   }
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
   
   /* mandatory */
   ie = calloc_or_fail(1, sizeof(NGAP_NGSetupRequestIEs_t));
   ie->id = NGAP_ProtocolIE_ID_id_DefaultPagingDRX;
   ie->criticality = NGAP_Criticality_ignore;
   ie->value.present = NGAP_NGSetupRequestIEs__value_PR_PagingDRX;
-  ie->value.choice.PagingDRX = instance_p->default_drx;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cCallocOne(ie->value.choice.PagingDRX, instance_p->default_drx);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
 
   if (ngap_gNB_encode_pdu(&pdu, &buffer, &len) < 0) {

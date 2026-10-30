@@ -751,9 +751,11 @@ static NR_ReportConfigToAddMod_t *prepare_periodic_event_report(gNB_RRC_UE_t *ue
   prc->rsType = NR_NR_RS_Type_ssb;
   prc->reportInterval = NR_ReportInterval_ms1024;
   prc->reportAmount = NR_PeriodicalReportConfig__reportAmount_infinity;
-  prc->reportQuantityCell.rsrp = true;
-  prc->reportQuantityCell.rsrq = true;
-  prc->reportQuantityCell.sinr = true;
+  if (!prc->reportQuantityCell)
+    prc->reportQuantityCell = calloc_or_fail(1, sizeof(*prc->reportQuantityCell));
+  prc->reportQuantityCell->rsrp = true;
+  prc->reportQuantityCell->rsrq = true;
+  prc->reportQuantityCell->sinr = true;
   prc->reportQuantityRS_Indexes = calloc(1, sizeof(*prc->reportQuantityRS_Indexes));
   prc->reportQuantityRS_Indexes->rsrp = true;
   prc->reportQuantityRS_Indexes->rsrq = true;
@@ -786,9 +788,11 @@ static NR_ReportConfigToAddMod_t *prepare_a2_event_report(gNB_RRC_UE_t *ue, cons
   etrc_A2->rsType = NR_NR_RS_Type_ssb;
   etrc_A2->reportInterval = NR_ReportInterval_ms480;
   etrc_A2->reportAmount = NR_EventTriggerConfig__reportAmount_r4;
-  etrc_A2->reportQuantityCell.rsrp = true;
-  etrc_A2->reportQuantityCell.rsrq = true;
-  etrc_A2->reportQuantityCell.sinr = true;
+  if (!etrc_A2->reportQuantityCell)
+    etrc_A2->reportQuantityCell = calloc_or_fail(1, sizeof(*etrc_A2->reportQuantityCell));
+  etrc_A2->reportQuantityCell->rsrp = true;
+  etrc_A2->reportQuantityCell->rsrq = true;
+  etrc_A2->reportQuantityCell->sinr = true;
   asn1cCallocOne(etrc_A2->maxNrofRS_IndexesToReport, 4);
   etrc_A2->maxReportCells = 1;
   etrc_A2->includeBeamMeasurements = false;
@@ -818,9 +822,11 @@ static NR_ReportConfigToAddMod_t *prepare_a3_event_report(const nr_a3_event_t *a
   etrc_A3->rsType = NR_NR_RS_Type_ssb;
   etrc_A3->reportInterval = NR_ReportInterval_ms1024;
   etrc_A3->reportAmount = NR_EventTriggerConfig__reportAmount_r4;
-  etrc_A3->reportQuantityCell.rsrp = true;
-  etrc_A3->reportQuantityCell.rsrq = true;
-  etrc_A3->reportQuantityCell.sinr = true;
+  if (!etrc_A3->reportQuantityCell)
+    etrc_A3->reportQuantityCell = calloc_or_fail(1, sizeof(*etrc_A3->reportQuantityCell));
+  etrc_A3->reportQuantityCell->rsrp = true;
+  etrc_A3->reportQuantityCell->rsrq = true;
+  etrc_A3->reportQuantityCell->sinr = true;
   asn1cCallocOne(etrc_A3->maxNrofRS_IndexesToReport, 4);
   etrc_A3->maxReportCells = 4;
   etrc_A3->includeBeamMeasurements = false;
@@ -1387,33 +1393,33 @@ static void rrc_handle_RRCSetupRequest(gNB_RRC_INST *rrc,
                                        const f1ap_initial_ul_rrc_message_t *msg)
 {
   rrc_gNB_ue_context_t *ue_context_p = NULL;
-  if (NR_InitialUE_Identity_PR_randomValue == rrcSetupRequest->ue_Identity.present) {
+  if (NR_InitialUE_Identity_PR_randomValue == rrcSetupRequest->ue_Identity->present) {
     /* randomValue                         BIT STRING (SIZE (39)) */
-    if (rrcSetupRequest->ue_Identity.choice.randomValue.size != 5) { // 39-bit random value
+    if (rrcSetupRequest->ue_Identity->choice.randomValue.size != 5) { // 39-bit random value
       LOG_E(NR_RRC,
             "wrong InitialUE-Identity randomValue size, expected 5, provided %lu",
-            (long unsigned int)rrcSetupRequest->ue_Identity.choice.randomValue.size);
+            (long unsigned int)rrcSetupRequest->ue_Identity->choice.randomValue.size);
       return;
     }
     uint64_t random_value = 0;
     memcpy(((uint8_t *)&random_value) + 3,
-           rrcSetupRequest->ue_Identity.choice.randomValue.buf,
-           rrcSetupRequest->ue_Identity.choice.randomValue.size);
+           rrcSetupRequest->ue_Identity->choice.randomValue.buf,
+           rrcSetupRequest->ue_Identity->choice.randomValue.size);
 
     ue_context_p = rrc_gNB_create_ue_context(assoc_id, msg->crnti, rrc, random_value, msg->gNB_DU_ue_id);
     if (!ue_context_p)
       return;
-  } else if (NR_InitialUE_Identity_PR_ng_5G_S_TMSI_Part1 == rrcSetupRequest->ue_Identity.present) {
+  } else if (NR_InitialUE_Identity_PR_ng_5G_S_TMSI_Part1 == rrcSetupRequest->ue_Identity->present) {
     /* <5G-S-TMSI> = <AMF Set ID><AMF Pointer><5G-TMSI> 48-bit */
     /* ng-5G-S-TMSI-Part1                  BIT STRING (SIZE (39)) */
-    if (rrcSetupRequest->ue_Identity.choice.ng_5G_S_TMSI_Part1.size != 5) {
+    if (rrcSetupRequest->ue_Identity->choice.ng_5G_S_TMSI_Part1.size != 5) {
       LOG_E(NR_RRC,
             "wrong ng_5G_S_TMSI_Part1 size, expected 5, provided %lu \n",
-            (long unsigned int)rrcSetupRequest->ue_Identity.choice.ng_5G_S_TMSI_Part1.size);
+            (long unsigned int)rrcSetupRequest->ue_Identity->choice.ng_5G_S_TMSI_Part1.size);
       return;
     }
 
-    uint64_t s_tmsi_part1 = BIT_STRING_to_uint64(&rrcSetupRequest->ue_Identity.choice.ng_5G_S_TMSI_Part1);
+    uint64_t s_tmsi_part1 = BIT_STRING_to_uint64(&rrcSetupRequest->ue_Identity->choice.ng_5G_S_TMSI_Part1);
     LOG_I(NR_RRC, "Received UE 5G-S-TMSI-Part1 %ld\n", s_tmsi_part1);
 
     ue_context_p = rrc_gNB_create_ue_context(assoc_id, msg->crnti, rrc, s_tmsi_part1, msg->gNB_DU_ue_id);
@@ -1425,8 +1431,8 @@ static void rrc_handle_RRCSetupRequest(gNB_RRC_INST *rrc,
   } else {
     uint64_t random_value = 0;
     memcpy(((uint8_t *)&random_value) + 3,
-           rrcSetupRequest->ue_Identity.choice.randomValue.buf,
-           rrcSetupRequest->ue_Identity.choice.randomValue.size);
+           rrcSetupRequest->ue_Identity->choice.randomValue.buf,
+           rrcSetupRequest->ue_Identity->choice.randomValue.size);
 
     ue_context_p = rrc_gNB_create_ue_context(assoc_id, msg->crnti, rrc, random_value, msg->gNB_DU_ue_id);
     if (!ue_context_p)
@@ -1528,9 +1534,9 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
 
   uint64_t random_value = 0;
   const char *scause = get_reestab_cause(req->reestablishmentCause);
-  const long physCellId = req->ue_Identity.physCellId;
+  const long physCellId = req->ue_Identity->physCellId;
   long ngap_cause = NGAP_CAUSE_RADIO_NETWORK_UNSPECIFIED; /* cause in case of NGAP release req */
-  const rnti_t old_rnti = req->ue_Identity.c_RNTI;
+  const rnti_t old_rnti = req->ue_Identity->c_RNTI;
   rrc_gNB_ue_context_t *ue_context_p = NULL;
   ue_serving_cell_t *added = NULL;
   LOG_I(NR_RRC,
@@ -1739,15 +1745,15 @@ static void nr_rrc_count_ss_sinr_dist(gNB_RRC_INST *rrc, const NR_MeasResults_t 
 {
   if (rrc == NULL || mr == NULL)
     return;
-  if (mr->measResultServingMOList.list.count == 0 || mr->measResultServingMOList.list.array == NULL)
+  if (mr->measResultServingMOList->list.count == 0 || mr->measResultServingMOList->list.array == NULL)
     return;
 
-  for (int i = 0; i < mr->measResultServingMOList.list.count; i++) {
-    const NR_MeasResultServMO_t *serv_mo = mr->measResultServingMOList.list.array[i];
+  for (int i = 0; i < mr->measResultServingMOList->list.count; i++) {
+    const NR_MeasResultServMO_t *serv_mo = mr->measResultServingMOList->list.array[i];
     if (serv_mo == NULL)
       continue;
     const struct NR_MeasResultNR__measResult__cellResults *cr =
-        &serv_mo->measResultServingCell.measResult.cellResults;
+        &serv_mo->measResultServingCell->measResult.cellResults;
     if (cr->resultsSSB_Cell == NULL || cr->resultsSSB_Cell->sinr == NULL)
       continue;
     const long encoded = *cr->resultsSSB_Cell->sinr;
@@ -1761,9 +1767,10 @@ static void process_Periodical_Measurement_Report(gNB_RRC_UE_t *ue_ctxt, NR_Meas
   ASN_STRUCT_FREE(asn_DEF_NR_MeasResults, ue_ctxt->measResults);
   ue_ctxt->measResults = NULL;
 
-  const NR_MeasId_t id = measurementReport->criticalExtensions.choice.measurementReport->measResults.measId;
+  const NR_MeasId_t id = measurementReport->criticalExtensions.choice.measurementReport->measResults->measId;
   AssertFatal(id, "unexpected MeasResult for MeasurementId %ld received\n", id);
-  asn1cCallocOne(ue_ctxt->measResults, measurementReport->criticalExtensions.choice.measurementReport->measResults);
+  ue_ctxt->measResults = measurementReport->criticalExtensions.choice.measurementReport->measResults;
+  measurementReport->criticalExtensions.choice.measurementReport->measResults = NULL;
   /* we "keep" the measurement report, so set to 0 */
   free(measurementReport->criticalExtensions.choice.measurementReport);
   measurementReport->criticalExtensions.choice.measurementReport = NULL;
@@ -1792,15 +1799,15 @@ static void process_Event_Based_Measurement_Report(gNB_RRC_INST *rrc,
         LOG_E(NR_RRC, "HO LOG: Event A3 Report: measurementReport is null\n");
         break;
       }
-      const NR_MeasResults_t *measResults = &measurementReport->criticalExtensions.choice.measurementReport->measResults;
+      const NR_MeasResults_t *measResults = measurementReport->criticalExtensions.choice.measurementReport->measResults;
 
-      for (int serving_cell_idx = 0; serving_cell_idx < measResults->measResultServingMOList.list.count; serving_cell_idx++) {
-        const NR_MeasResultServMO_t *meas_result_serv_MO = measResults->measResultServingMOList.list.array[serving_cell_idx];
-        scell_pci = *(meas_result_serv_MO->measResultServingCell.physCellId);
-        if (meas_result_serv_MO->measResultServingCell.measResult.cellResults.resultsSSB_Cell) {
-          servingCellRSRP = *(meas_result_serv_MO->measResultServingCell.measResult.cellResults.resultsSSB_Cell->rsrp) - 157;
+      for (int serving_cell_idx = 0; serving_cell_idx < measResults->measResultServingMOList->list.count; serving_cell_idx++) {
+        const NR_MeasResultServMO_t *meas_result_serv_MO = measResults->measResultServingMOList->list.array[serving_cell_idx];
+        scell_pci = *(meas_result_serv_MO->measResultServingCell->physCellId);
+        if (meas_result_serv_MO->measResultServingCell->measResult.cellResults.resultsSSB_Cell) {
+          servingCellRSRP = *(meas_result_serv_MO->measResultServingCell->measResult.cellResults.resultsSSB_Cell->rsrp) - 157;
         } else {
-          servingCellRSRP = *(meas_result_serv_MO->measResultServingCell.measResult.cellResults.resultsCSI_RS_Cell->rsrp) - 157;
+          servingCellRSRP = *(meas_result_serv_MO->measResultServingCell->measResult.cellResults.resultsCSI_RS_Cell->rsrp) - 157;
         }
         LOG_D(NR_RRC, "Serving Cell RSRP: %d\n", servingCellRSRP);
       }
@@ -1909,7 +1916,7 @@ static void rrc_gNB_process_MeasurementReport(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
   }
 
   NR_MeasurementReport_IEs_t *measurementReport_IEs = measurementReport->criticalExtensions.choice.measurementReport;
-  const NR_MeasId_t measId = measurementReport_IEs->measResults.measId;
+  const NR_MeasId_t measId = measurementReport_IEs->measResults->measId;
 
   /* check NR-DC measurement */
   if (measId == get_scg_measurement_id(UE)) {
@@ -1945,7 +1952,7 @@ static void rrc_gNB_process_MeasurementReport(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
   }
 
   if (report_config->choice.reportConfigNR->reportType.present == NR_ReportConfigNR__reportType_PR_periodical) {
-    nr_rrc_count_ss_sinr_dist(rrc, &measurementReport->criticalExtensions.choice.measurementReport->measResults);
+    nr_rrc_count_ss_sinr_dist(rrc, measurementReport->criticalExtensions.choice.measurementReport->measResults);
     process_Periodical_Measurement_Report(UE, measurementReport);
     return;
   }
@@ -2065,8 +2072,8 @@ static void handle_ueCapabilityInformation(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, 
           UE->redcap_cap = calloc_or_fail(1, sizeof(*UE->redcap_cap));
           UE->redcap_cap->support_of_redcap_r17 = redcap_p->supportOfRedCap_r17 != NULL;
           UE->redcap_cap->support_of_16drb_redcap_r17 = redcap_p->supportOf16DRB_RedCap_r17 != NULL;
-          if (UE->UE_Capability_nr->pdcp_Parameters.ext2)
-            UE->redcap_cap->pdcp_drb_long_sn_redcap_r17 = UE->UE_Capability_nr->pdcp_Parameters.ext2->longSN_RedCap_r17 != NULL;
+          if (UE->UE_Capability_nr->pdcp_Parameters->ext2)
+            UE->redcap_cap->pdcp_drb_long_sn_redcap_r17 = UE->UE_Capability_nr->pdcp_Parameters->ext2->longSN_RedCap_r17 != NULL;
           if (UE->UE_Capability_nr->rlc_Parameters && UE->UE_Capability_nr->rlc_Parameters->ext2)
             UE->redcap_cap->rlc_am_drb_long_sn_redcap_r17 =
                 UE->UE_Capability_nr->rlc_Parameters->ext2->am_WithLongSN_RedCap_r17 != NULL;
@@ -2346,32 +2353,32 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
     xer_fprint(stdout, &asn_DEF_NR_UL_DCCH_Message, (void *)ul_dcch_msg);
   }
 
-  if (ul_dcch_msg->message.present == NR_UL_DCCH_MessageType_PR_c1) {
+  if (ul_dcch_msg->message->present == NR_UL_DCCH_MessageType_PR_c1) {
 #ifdef E2_AGENT
     // 38.331 Sec 6.2.1: message index of UL-DCCH-Message
-    const uint32_t rrc_msg_id = ul_dcch_msg->message.choice.c1->present;
+    const uint32_t rrc_msg_id = ul_dcch_msg->message->choice.c1->present;
     byte_array_t buffer_ba = {.len = msg->rrc_container_length};
     buffer_ba.buf = msg->rrc_container;
     signal_rrc_msg(UL_DCCH_NR_RRC_CLASS, rrc_msg_id, buffer_ba);
 #endif
-    switch (ul_dcch_msg->message.choice.c1->present) {
+    switch (ul_dcch_msg->message->choice.c1->present) {
       case NR_UL_DCCH_MessageType__c1_PR_NOTHING:
         LOG_I(NR_RRC, "Received PR_NOTHING on UL-DCCH-Message\n");
         break;
 
       case NR_UL_DCCH_MessageType__c1_PR_rrcReconfigurationComplete:
         LOG_UE_UL_EVENT(UE, "Received RRCReconfigurationComplete\n");
-        handle_rrcReconfigurationComplete(rrc, UE, ul_dcch_msg->message.choice.c1->choice.rrcReconfigurationComplete);
+        handle_rrcReconfigurationComplete(rrc, UE, ul_dcch_msg->message->choice.c1->choice.rrcReconfigurationComplete);
         break;
 
       case NR_UL_DCCH_MessageType__c1_PR_rrcSetupComplete:
         LOG_UE_UL_EVENT(UE, "Received RRCSetupComplete (RRC_CONNECTED reached)\n");
-        handle_rrcSetupComplete(rrc, UE, ul_dcch_msg->message.choice.c1->choice.rrcSetupComplete);
+        handle_rrcSetupComplete(rrc, UE, ul_dcch_msg->message->choice.c1->choice.rrcSetupComplete);
         break;
 
       case NR_UL_DCCH_MessageType__c1_PR_measurementReport:
-        if (ul_dcch_msg->message.choice.c1->choice.measurementReport != NULL) {
-          rrc_gNB_process_MeasurementReport(rrc, UE, ul_dcch_msg->message.choice.c1->choice.measurementReport);
+        if (ul_dcch_msg->message->choice.c1->choice.measurementReport != NULL) {
+          rrc_gNB_process_MeasurementReport(rrc, UE, ul_dcch_msg->message->choice.c1->choice.measurementReport);
         } else {
           LOG_E(NR_RRC, "UE %d: No measurementReport CHOICE is given\n", ue_context_p->ue_context.rrc_ue_id);
         }
@@ -2421,17 +2428,17 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
         break;
 
       case NR_UL_DCCH_MessageType__c1_PR_ueCapabilityInformation:
-        handle_ueCapabilityInformation(rrc, UE, ul_dcch_msg->message.choice.c1->choice.ueCapabilityInformation);
+        handle_ueCapabilityInformation(rrc, UE, ul_dcch_msg->message->choice.c1->choice.ueCapabilityInformation);
         break;
 
       case NR_UL_DCCH_MessageType__c1_PR_rrcReestablishmentComplete:
         LOG_UE_UL_EVENT(UE, "Received RRCReestablishmentComplete\n");
-        const NR_RRCReestablishmentComplete_t *rc = ul_dcch_msg->message.choice.c1->choice.rrcReestablishmentComplete;
+        const NR_RRCReestablishmentComplete_t *rc = ul_dcch_msg->message->choice.c1->choice.rrcReestablishmentComplete;
         handle_rrcReestablishmentComplete(rrc, UE, rc);
         break;
 
       case NR_UL_DCCH_MessageType__c1_PR_scgFailureInformation: {
-        long type = ul_dcch_msg->message.choice.c1->choice.scgFailureInformation->criticalExtensions.choice.scgFailureInformation->failureReportSCG->failureType;
+        long type = ul_dcch_msg->message->choice.c1->choice.scgFailureInformation->criticalExtensions.choice.scgFailureInformation->failureReportSCG->failureType;
         char *cause[] = {
           "NR_FailureReportSCG__failureType_t310_Expiry",
           "NR_FailureReportSCG__failureType_randomAccessProblem",
@@ -2444,7 +2451,7 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
         };
         LOG_E(NR_RRC, "scg failure cause %s\n", type >= 0 && type <= 7 ? cause[type] : "unknown");
         LOG_UE_UL_EVENT(UE, "received scg failure cause %s\n", type >= 0 && type <= 7 ? cause[type] : "unknown");
-        nrdc_handle_scg_failure_information(rrc, UE, ul_dcch_msg->message.choice.c1->choice.scgFailureInformation);
+        nrdc_handle_scg_failure_information(rrc, UE, ul_dcch_msg->message->choice.c1->choice.scgFailureInformation);
         break;
       }
 
@@ -2475,15 +2482,15 @@ void rrc_gNB_process_initial_ul_rrc_message(sctp_assoc_t assoc_id, const f1ap_in
     return;
   }
 
-  if (ul_ccch_msg->message.present == NR_UL_CCCH_MessageType_PR_c1) {
-    switch (ul_ccch_msg->message.choice.c1->present) {
+  if (ul_ccch_msg->message->present == NR_UL_CCCH_MessageType_PR_c1) {
+    switch (ul_ccch_msg->message->choice.c1->present) {
       case NR_UL_CCCH_MessageType__c1_PR_NOTHING:
         LOG_W(NR_RRC, "Received PR_NOTHING on UL-CCCH-Message, ignoring message\n");
         break;
 
       case NR_UL_CCCH_MessageType__c1_PR_rrcSetupRequest:
         LOG_D(NR_RRC, "Received RRCSetupRequest on UL-CCCH-Message (UE rnti %04x)\n", ul_rrc->crnti);
-        rrc_handle_RRCSetupRequest(rrc, assoc_id, &ul_ccch_msg->message.choice.c1->choice.rrcSetupRequest->rrcSetupRequest, ul_rrc);
+        rrc_handle_RRCSetupRequest(rrc, assoc_id, ul_ccch_msg->message->choice.c1->choice.rrcSetupRequest->rrcSetupRequest, ul_rrc);
         break;
 
       case NR_UL_CCCH_MessageType__c1_PR_rrcResumeRequest:
@@ -2495,7 +2502,7 @@ void rrc_gNB_process_initial_ul_rrc_message(sctp_assoc_t assoc_id, const f1ap_in
         rrc_handle_RRCReestablishmentRequest(
             rrc,
             assoc_id,
-            &ul_ccch_msg->message.choice.c1->choice.rrcReestablishmentRequest->rrcReestablishmentRequest,
+            ul_ccch_msg->message->choice.c1->choice.rrcReestablishmentRequest->rrcReestablishmentRequest,
             ul_rrc);
       } break;
 
@@ -3713,12 +3720,12 @@ static void print_meas_result_quantity(FILE *f, const NR_MeasQuantityResults_t *
 
 static void print_rrc_meas(FILE *f, const NR_MeasResults_t *measresults)
 {
-  DevAssert(measresults->measResultServingMOList.list.count >= 1);
-  if (measresults->measResultServingMOList.list.count > 1)
-    LOG_W(RRC, "Received %d MeasResultServMO, but handling only 1!\n", measresults->measResultServingMOList.list.count);
+  DevAssert(measresults->measResultServingMOList->list.count >= 1);
+  if (measresults->measResultServingMOList->list.count > 1)
+    LOG_W(RRC, "Received %d MeasResultServMO, but handling only 1!\n", measresults->measResultServingMOList->list.count);
 
-  NR_MeasResultServMO_t *measresultservmo = measresults->measResultServingMOList.list.array[0];
-  NR_MeasResultNR_t *measresultnr = &measresultservmo->measResultServingCell;
+  NR_MeasResultServMO_t *measresultservmo = measresults->measResultServingMOList->list.array[0];
+  NR_MeasResultNR_t *measresultnr = measresultservmo->measResultServingCell;
   if (measresultnr->physCellId)
     fprintf(f,
             "    servingCellId %ld MeasResultNR for phyCellId %ld:\n",

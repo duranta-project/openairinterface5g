@@ -2791,7 +2791,7 @@ int get_dlbw_tbslbrm(int scc_bwpsize, const NR_ServingCellConfig_t *servingCellC
     if (servingCellConfig->downlinkBWP_ToAddModList) {
       const struct NR_ServingCellConfig__downlinkBWP_ToAddModList *BWP_list = servingCellConfig->downlinkBWP_ToAddModList;
       for (int i = 0; i < BWP_list->list.count; i++) {
-        NR_BWP_t genericParameters = BWP_list->list.array[i]->bwp_Common->genericParameters;
+        NR_BWP_t genericParameters = *BWP_list->list.array[i]->bwp_Common->genericParameters;
         int curr_bw = NRRIV2BW(genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
         if (curr_bw > bw)
           bw = curr_bw;
@@ -2808,7 +2808,7 @@ int get_ulbw_tbslbrm(int scc_bwpsize, const NR_ServingCellConfig_t *servingCellC
     if (servingCellConfig->uplinkConfig && servingCellConfig->uplinkConfig->uplinkBWP_ToAddModList) {
       const struct NR_UplinkConfig__uplinkBWP_ToAddModList *BWP_list = servingCellConfig->uplinkConfig->uplinkBWP_ToAddModList;
       for (int i = 0; i < BWP_list->list.count; i++) {
-        NR_BWP_t genericParameters = BWP_list->list.array[i]->bwp_Common->genericParameters;
+        NR_BWP_t genericParameters = *BWP_list->list.array[i]->bwp_Common->genericParameters;
         int curr_bw = NRRIV2BW(genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
         if (curr_bw > bw)
           bw = curr_bw;
@@ -3076,31 +3076,31 @@ void configure_UE_BWP(nr_cell_sched_t *cell,
     UL_BWP->tdaList_Common = scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList;
 
   // setting generic parameters
-  NR_BWP_t dl_genericParameters = (DL_BWP->bwp_id > 0 && dl_bwp) ?
+  NR_BWP_t dl_genericParameters = *((DL_BWP->bwp_id > 0 && dl_bwp) ?
     dl_bwp->bwp_Common->genericParameters:
-    scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
+    scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters);
 
   DL_BWP->scs = dl_genericParameters.subcarrierSpacing;
   DL_BWP->cyclicprefix = dl_genericParameters.cyclicPrefix;
   DL_BWP->BWPSize = NRRIV2BW(dl_genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   DL_BWP->BWPStart = NRRIV2PRBOFFSET(dl_genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   sc_info->initial_dl_BWPSize =
-      NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+      NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
   sc_info->initial_dl_BWPStart =
-      NRRIV2PRBOFFSET(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+      NRRIV2PRBOFFSET(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
 
-  NR_BWP_t ul_genericParameters = (UL_BWP->bwp_id > 0 && ul_bwp) ?
+  NR_BWP_t ul_genericParameters = *((UL_BWP->bwp_id > 0 && ul_bwp) ?
     ul_bwp->bwp_Common->genericParameters:
-    scc->uplinkConfigCommon->initialUplinkBWP->genericParameters;
+    scc->uplinkConfigCommon->initialUplinkBWP->genericParameters);
 
   UL_BWP->scs = ul_genericParameters.subcarrierSpacing;
   UL_BWP->cyclicprefix = ul_genericParameters.cyclicPrefix;
   UL_BWP->BWPSize = NRRIV2BW(ul_genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   UL_BWP->BWPStart = NRRIV2PRBOFFSET(ul_genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   sc_info->initial_ul_BWPSize =
-      NRRIV2BW(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+      NRRIV2BW(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
   sc_info->initial_ul_BWPStart =
-      NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+      NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
 
   sc_info->dl_bw_tbslbrm = get_dlbw_tbslbrm(sc_info->initial_dl_BWPSize, servingCellConfig);
   sc_info->ul_bw_tbslbrm = get_ulbw_tbslbrm(sc_info->initial_ul_BWPSize, servingCellConfig);
@@ -3582,7 +3582,7 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
           if (!nzpcsi)
             continue;
 
-          NR_CSI_RS_ResourceMapping_t resourceMapping = nzpcsi->resourceMapping;
+          NR_CSI_RS_ResourceMapping_t resourceMapping = *nzpcsi->resourceMapping;
           int period, offset;
           csi_period_offset(NULL, nzpcsi->periodicityAndOffset, &period, &offset);
 
@@ -3602,7 +3602,7 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
 
           nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csirs_pdu_rel15 = &dl_tti_csirs_pdu->csi_rs_pdu.csi_rs_pdu_rel15;
           csirs_pdu_rel15->precodingAndBeamforming.num_prgs = 1;
-          csirs_pdu_rel15->precodingAndBeamforming.prg_size = resourceMapping.freqBand.nrofRBs; //1 PRG of max size
+          csirs_pdu_rel15->precodingAndBeamforming.prg_size = resourceMapping.freqBand->nrofRBs; //1 PRG of max size
           csirs_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = 1;
           csirs_pdu_rel15->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
           const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, &cell->beam_info);
@@ -3625,15 +3625,15 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
             csirs_pdu_rel15->cyclic_prefix = 0;
 
           // According to last paragraph of TS 38.214 5.2.2.3.1
-          if (resourceMapping.freqBand.startingRB < dl_bwp->BWPStart) {
+          if (resourceMapping.freqBand->startingRB < dl_bwp->BWPStart) {
             csirs_pdu_rel15->start_rb = dl_bwp->BWPStart;
           } else {
-            csirs_pdu_rel15->start_rb = resourceMapping.freqBand.startingRB;
+            csirs_pdu_rel15->start_rb = resourceMapping.freqBand->startingRB;
           }
-          if (resourceMapping.freqBand.nrofRBs > (dl_bwp->BWPStart + dl_bwp->BWPSize - csirs_pdu_rel15->start_rb)) {
+          if (resourceMapping.freqBand->nrofRBs > (dl_bwp->BWPStart + dl_bwp->BWPSize - csirs_pdu_rel15->start_rb)) {
             csirs_pdu_rel15->nr_of_rbs = dl_bwp->BWPStart + dl_bwp->BWPSize - csirs_pdu_rel15->start_rb;
           } else {
-            csirs_pdu_rel15->nr_of_rbs = resourceMapping.freqBand.nrofRBs;
+            csirs_pdu_rel15->nr_of_rbs = resourceMapping.freqBand->nrofRBs;
           }
           AssertFatal(csirs_pdu_rel15->nr_of_rbs >= 24, "CSI-RS has %d RBs, but the minimum is 24\n", csirs_pdu_rel15->nr_of_rbs);
 

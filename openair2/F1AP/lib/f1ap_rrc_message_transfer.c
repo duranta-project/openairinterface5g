@@ -12,6 +12,7 @@
 #include "openair3/UTILS/conversions.h"
 #include "common/utils/oai_asn1.h"
 #include "common/utils/utils.h"
+#include "F1AP_ProtocolIE-Container.h"
 
 /* ====================================
  * F1AP Initial UL RRC Message Transfer
@@ -30,60 +31,64 @@ F1AP_F1AP_PDU_t *encode_initial_ul_rrc_message_transfer(const f1ap_initial_ul_rr
   tmp->procedureCode = F1AP_ProcedureCode_id_InitialULRRCMessageTransfer;
   tmp->criticality = F1AP_Criticality_ignore;
   tmp->value.present = F1AP_InitiatingMessage__value_PR_InitialULRRCMessageTransfer;
-  F1AP_InitialULRRCMessageTransfer_t *out = &tmp->value.choice.InitialULRRCMessageTransfer;
+  F1AP_InitialULRRCMessageTransfer_t *out = (tmp->value.choice.InitialULRRCMessageTransfer = calloc_or_fail(1, sizeof(*tmp->value.choice.InitialULRRCMessageTransfer)));
 
   /* mandatory */
   /* c1. GNB_DU_UE_F1AP_ID */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_InitialULRRCMessageTransferIEs_t, ie1);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_InitialULRRCMessageTransferIEs_t, ie1);
   ie1->id = F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID;
   ie1->criticality = F1AP_Criticality_reject;
   ie1->value.present = F1AP_InitialULRRCMessageTransferIEs__value_PR_GNB_DU_UE_F1AP_ID;
-  ie1->value.choice.GNB_DU_UE_F1AP_ID = msg->gNB_DU_ue_id;
+  asn1cCallocOne(ie1->value.choice.GNB_DU_UE_F1AP_ID, msg->gNB_DU_ue_id);
 
   /* mandatory */
   /* c2. NRCGI */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_InitialULRRCMessageTransferIEs_t, ie2);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_InitialULRRCMessageTransferIEs_t, ie2);
   ie2->id = F1AP_ProtocolIE_ID_id_NRCGI;
   ie2->criticality = F1AP_Criticality_reject;
   ie2->value.present = F1AP_InitialULRRCMessageTransferIEs__value_PR_NRCGI;
-  MCC_MNC_TO_PLMNID(msg->plmn.mcc, msg->plmn.mnc, msg->plmn.mnc_digit_length, &ie2->value.choice.NRCGI.pLMN_Identity);
-  NR_CELL_ID_TO_BIT_STRING(msg->nr_cellid, &ie2->value.choice.NRCGI.nRCellIdentity);
+  if (!ie2->value.choice.NRCGI)
+    ie2->value.choice.NRCGI = calloc_or_fail(1, sizeof(*ie2->value.choice.NRCGI));
+  MCC_MNC_TO_PLMNID(msg->plmn.mcc, msg->plmn.mnc, msg->plmn.mnc_digit_length, &ie2->value.choice.NRCGI->pLMN_Identity);
+  NR_CELL_ID_TO_BIT_STRING(msg->nr_cellid, &ie2->value.choice.NRCGI->nRCellIdentity);
 
   /* mandatory */
   /* c3. C_RNTI */ // 16
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_InitialULRRCMessageTransferIEs_t, ie3);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_InitialULRRCMessageTransferIEs_t, ie3);
   ie3->id = F1AP_ProtocolIE_ID_id_C_RNTI;
   ie3->criticality = F1AP_Criticality_reject;
   ie3->value.present = F1AP_InitialULRRCMessageTransferIEs__value_PR_C_RNTI;
-  ie3->value.choice.C_RNTI = msg->crnti;
+  asn1cCallocOne(ie3->value.choice.C_RNTI, msg->crnti);
 
   /* mandatory */
   /* c4. RRCContainer */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_InitialULRRCMessageTransferIEs_t, ie4);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_InitialULRRCMessageTransferIEs_t, ie4);
   ie4->id = F1AP_ProtocolIE_ID_id_RRCContainer;
   ie4->criticality = F1AP_Criticality_reject;
   ie4->value.present = F1AP_InitialULRRCMessageTransferIEs__value_PR_RRCContainer;
-  OCTET_STRING_fromBuf(&ie4->value.choice.RRCContainer, (const char *)msg->rrc_container, msg->rrc_container_length);
+  OCTET_STRING_fromBuf((ie4->value.choice.RRCContainer = calloc_or_fail(1, sizeof(*ie4->value.choice.RRCContainer))), (const char *)msg->rrc_container, msg->rrc_container_length);
 
   /* optional */
   /* c5. DUtoCURRCContainer */
   if (msg->du2cu_rrc_container != NULL) {
-    asn1cSequenceAdd(out->protocolIEs.list, F1AP_InitialULRRCMessageTransferIEs_t, ie5);
+    asn1cSequenceAdd(out->protocolIEs->list, F1AP_InitialULRRCMessageTransferIEs_t, ie5);
     ie5->id = F1AP_ProtocolIE_ID_id_DUtoCURRCContainer;
     ie5->criticality = F1AP_Criticality_reject;
     ie5->value.present = F1AP_InitialULRRCMessageTransferIEs__value_PR_DUtoCURRCContainer;
-    OCTET_STRING_fromBuf(&ie5->value.choice.DUtoCURRCContainer,
+    OCTET_STRING_fromBuf((ie5->value.choice.DUtoCURRCContainer = calloc_or_fail(1, sizeof(*ie5->value.choice.DUtoCURRCContainer))),
                          (const char *)msg->du2cu_rrc_container,
                          msg->du2cu_rrc_container_length);
   }
 
   /* mandatory */
   /* c6. Transaction ID (integer value) */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_InitialULRRCMessageTransferIEs_t, ie6);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_InitialULRRCMessageTransferIEs_t, ie6);
   ie6->id = F1AP_ProtocolIE_ID_id_TransactionID;
   ie6->criticality = F1AP_Criticality_ignore;
   ie6->value.present = F1AP_InitialULRRCMessageTransferIEs__value_PR_TransactionID;
-  ie6->value.choice.TransactionID = msg->transaction_id;
+  asn1cCallocOne(ie6->value.choice.TransactionID, msg->transaction_id);
 
   return pdu;
 }
@@ -96,29 +101,29 @@ bool decode_initial_ul_rrc_message_transfer(const F1AP_F1AP_PDU_t *pdu, f1ap_ini
   DevAssert(out != NULL);
   memset(out, 0, sizeof(*out));
 
-  F1AP_InitialULRRCMessageTransfer_t *container = &pdu->choice.initiatingMessage->value.choice.InitialULRRCMessageTransfer;
-  F1AP_ProtocolIE_Container_10986P31_t *pIEs = &container->protocolIEs;
+  F1AP_InitialULRRCMessageTransfer_t *container = pdu->choice.initiatingMessage->value.choice.InitialULRRCMessageTransfer;
+  F1AP_ProtocolIE_Container_10986P31_t *pIEs = container->protocolIEs;
   F1AP_InitialULRRCMessageTransferIEs_t *ie;
 
   F1AP_LIB_FIND_IE(F1AP_InitialULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID, true);
-  out->gNB_DU_ue_id = ie->value.choice.GNB_DU_UE_F1AP_ID;
+  out->gNB_DU_ue_id = *ie->value.choice.GNB_DU_UE_F1AP_ID;
 
   F1AP_LIB_FIND_IE(F1AP_InitialULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_NRCGI, true);
-  PLMNID_TO_MCC_MNC(&ie->value.choice.NRCGI.pLMN_Identity, out->plmn.mcc, out->plmn.mnc, out->plmn.mnc_digit_length);
-  BIT_STRING_TO_NR_CELL_IDENTITY(&ie->value.choice.NRCGI.nRCellIdentity, out->nr_cellid);
+  PLMNID_TO_MCC_MNC(&ie->value.choice.NRCGI->pLMN_Identity, out->plmn.mcc, out->plmn.mnc, out->plmn.mnc_digit_length);
+  BIT_STRING_TO_NR_CELL_IDENTITY(&ie->value.choice.NRCGI->nRCellIdentity, out->nr_cellid);
 
   F1AP_LIB_FIND_IE(F1AP_InitialULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_C_RNTI, true);
-  out->crnti = ie->value.choice.C_RNTI;
+  out->crnti = *ie->value.choice.C_RNTI;
 
   F1AP_LIB_FIND_IE(F1AP_InitialULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_RRCContainer, true);
-  out->rrc_container = cp_octet_string(&ie->value.choice.RRCContainer, &out->rrc_container_length);
+  out->rrc_container = cp_octet_string(ie->value.choice.RRCContainer, &out->rrc_container_length);
 
   F1AP_LIB_FIND_IE(F1AP_InitialULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_DUtoCURRCContainer, false);
   if (ie != NULL)
-    out->du2cu_rrc_container = cp_octet_string(&ie->value.choice.DUtoCURRCContainer, &out->du2cu_rrc_container_length);
+    out->du2cu_rrc_container = cp_octet_string(ie->value.choice.DUtoCURRCContainer, &out->du2cu_rrc_container_length);
 
   F1AP_LIB_FIND_IE(F1AP_InitialULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_TransactionID, true);
-  out->transaction_id = ie->value.choice.TransactionID;
+  out->transaction_id = *ie->value.choice.TransactionID;
 
   return true;
 }
@@ -202,31 +207,33 @@ F1AP_F1AP_PDU_t *encode_ul_rrc_message_transfer(const f1ap_ul_rrc_message_t *msg
   tmp->procedureCode = F1AP_ProcedureCode_id_ULRRCMessageTransfer;
   tmp->criticality = F1AP_Criticality_ignore;
   tmp->value.present = F1AP_InitiatingMessage__value_PR_ULRRCMessageTransfer;
-  F1AP_ULRRCMessageTransfer_t *out = &tmp->value.choice.ULRRCMessageTransfer;
+  F1AP_ULRRCMessageTransfer_t *out = (tmp->value.choice.ULRRCMessageTransfer = calloc_or_fail(1, sizeof(*tmp->value.choice.ULRRCMessageTransfer)));
   // gNB-CU UE F1AP ID (M)
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_ULRRCMessageTransferIEs_t, ie1);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_ULRRCMessageTransferIEs_t, ie1);
   ie1->id = F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID;
   ie1->criticality = F1AP_Criticality_reject;
   ie1->value.present = F1AP_ULRRCMessageTransferIEs__value_PR_GNB_CU_UE_F1AP_ID;
-  ie1->value.choice.GNB_CU_UE_F1AP_ID = msg->gNB_CU_ue_id;
+  asn1cCallocOne(ie1->value.choice.GNB_CU_UE_F1AP_ID, msg->gNB_CU_ue_id);
   // gNB-DU UE F1AP ID (M)
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_ULRRCMessageTransferIEs_t, ie2);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_ULRRCMessageTransferIEs_t, ie2);
   ie2->id = F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID;
   ie2->criticality = F1AP_Criticality_reject;
   ie2->value.present = F1AP_ULRRCMessageTransferIEs__value_PR_GNB_DU_UE_F1AP_ID;
-  ie2->value.choice.GNB_DU_UE_F1AP_ID = msg->gNB_DU_ue_id;
+  asn1cCallocOne(ie2->value.choice.GNB_DU_UE_F1AP_ID, msg->gNB_DU_ue_id);
   // SRB ID (M)
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_ULRRCMessageTransferIEs_t, ie3);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_ULRRCMessageTransferIEs_t, ie3);
   ie3->id = F1AP_ProtocolIE_ID_id_SRBID;
   ie3->criticality = F1AP_Criticality_reject;
   ie3->value.present = F1AP_ULRRCMessageTransferIEs__value_PR_SRBID;
-  ie3->value.choice.SRBID = msg->srb_id;
+  asn1cCallocOne(ie3->value.choice.SRBID, msg->srb_id);
   // RRC-Container (M)
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_ULRRCMessageTransferIEs_t, ie4);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_ULRRCMessageTransferIEs_t, ie4);
   ie4->id = F1AP_ProtocolIE_ID_id_RRCContainer;
   ie4->criticality = F1AP_Criticality_reject;
   ie4->value.present = F1AP_ULRRCMessageTransferIEs__value_PR_RRCContainer;
-  OCTET_STRING_fromBuf(&ie4->value.choice.RRCContainer, (const char *)msg->rrc_container, msg->rrc_container_length);
+  OCTET_STRING_fromBuf((ie4->value.choice.RRCContainer = calloc_or_fail(1, sizeof(*ie4->value.choice.RRCContainer))), (const char *)msg->rrc_container, msg->rrc_container_length);
 
   return pdu;
 }
@@ -241,22 +248,22 @@ bool decode_ul_rrc_message_transfer(const F1AP_F1AP_PDU_t *pdu, f1ap_ul_rrc_mess
   memset(out, 0, sizeof(*out));
   DevAssert(pdu != NULL);
 
-  F1AP_ULRRCMessageTransfer_t *container = &pdu->choice.initiatingMessage->value.choice.ULRRCMessageTransfer;
-  F1AP_ProtocolIE_Container_10986P33_t *pIEs = &container->protocolIEs;
+  F1AP_ULRRCMessageTransfer_t *container = pdu->choice.initiatingMessage->value.choice.ULRRCMessageTransfer;
+  F1AP_ProtocolIE_Container_10986P33_t *pIEs = container->protocolIEs;
   F1AP_ULRRCMessageTransferIEs_t *ie;
 
   // gNB-CU UE F1AP ID (M)
   F1AP_LIB_FIND_IE(F1AP_ULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID, true);
-  out->gNB_CU_ue_id = ie->value.choice.GNB_CU_UE_F1AP_ID;
+  out->gNB_CU_ue_id = *ie->value.choice.GNB_CU_UE_F1AP_ID;
   // gNB-DU UE F1AP ID (M)
   F1AP_LIB_FIND_IE(F1AP_ULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID, true);
-  out->gNB_DU_ue_id = ie->value.choice.GNB_DU_UE_F1AP_ID;
+  out->gNB_DU_ue_id = *ie->value.choice.GNB_DU_UE_F1AP_ID;
   // SRB ID (M)
   F1AP_LIB_FIND_IE(F1AP_ULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_SRBID, true);
-  out->srb_id = ie->value.choice.SRBID;
+  out->srb_id = *ie->value.choice.SRBID;
   // RRC-Container (M)
   F1AP_LIB_FIND_IE(F1AP_ULRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_RRCContainer, true);
-  out->rrc_container = cp_octet_string(&ie->value.choice.RRCContainer, &out->rrc_container_length);
+  out->rrc_container = cp_octet_string(ie->value.choice.RRCContainer, &out->rrc_container_length);
 
   return true;
 }
@@ -321,47 +328,49 @@ F1AP_F1AP_PDU_t *encode_dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *msg
   tmp->procedureCode = F1AP_ProcedureCode_id_DLRRCMessageTransfer;
   tmp->criticality = F1AP_Criticality_ignore;
   tmp->value.present = F1AP_InitiatingMessage__value_PR_DLRRCMessageTransfer;
-  F1AP_DLRRCMessageTransfer_t *out = &tmp->value.choice.DLRRCMessageTransfer;
+  F1AP_DLRRCMessageTransfer_t *out = (tmp->value.choice.DLRRCMessageTransfer = calloc_or_fail(1, sizeof(*tmp->value.choice.DLRRCMessageTransfer)));
   // gNB-CU UE F1AP ID (M)
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_DLRRCMessageTransferIEs_t, ie1);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_DLRRCMessageTransferIEs_t, ie1);
   ie1->id = F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID;
   ie1->criticality = F1AP_Criticality_reject;
   ie1->value.present = F1AP_DLRRCMessageTransferIEs__value_PR_GNB_CU_UE_F1AP_ID;
-  ie1->value.choice.GNB_CU_UE_F1AP_ID = msg->gNB_CU_ue_id;
+  asn1cCallocOne(ie1->value.choice.GNB_CU_UE_F1AP_ID, msg->gNB_CU_ue_id);
   // gNB-DU UE F1AP ID (M)
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_DLRRCMessageTransferIEs_t, ie2);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_DLRRCMessageTransferIEs_t, ie2);
   ie2->id = F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID;
   ie2->criticality = F1AP_Criticality_reject;
   ie2->value.present = F1AP_DLRRCMessageTransferIEs__value_PR_GNB_DU_UE_F1AP_ID;
-  ie2->value.choice.GNB_DU_UE_F1AP_ID = msg->gNB_DU_ue_id;
+  asn1cCallocOne(ie2->value.choice.GNB_DU_UE_F1AP_ID, msg->gNB_DU_ue_id);
   // old gNB-DU UE F1AP ID (O)
   if (msg->old_gNB_DU_ue_id) {
-    asn1cSequenceAdd(out->protocolIEs.list, F1AP_DLRRCMessageTransferIEs_t, ie3);
+    asn1cSequenceAdd(out->protocolIEs->list, F1AP_DLRRCMessageTransferIEs_t, ie3);
     ie3->id = F1AP_ProtocolIE_ID_id_oldgNB_DU_UE_F1AP_ID;
     ie3->criticality = F1AP_Criticality_reject;
     ie3->value.present = F1AP_DLRRCMessageTransferIEs__value_PR_GNB_DU_UE_F1AP_ID_1;
-    ie3->value.choice.GNB_DU_UE_F1AP_ID_1 = *msg->old_gNB_DU_ue_id;
+    asn1cCallocOne(ie3->value.choice.GNB_DU_UE_F1AP_ID_1, *msg->old_gNB_DU_ue_id);
   }
   // SRB ID (M)
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_DLRRCMessageTransferIEs_t, ie4);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_DLRRCMessageTransferIEs_t, ie4);
   ie4->id = F1AP_ProtocolIE_ID_id_SRBID;
   ie4->criticality = F1AP_Criticality_reject;
   ie4->value.present = F1AP_DLRRCMessageTransferIEs__value_PR_SRBID;
-  ie4->value.choice.SRBID = msg->srb_id;
+  asn1cCallocOne(ie4->value.choice.SRBID, msg->srb_id);
   // Execute Duplication (O)
   if (msg->execute_duplication) {
-    asn1cSequenceAdd(out->protocolIEs.list, F1AP_DLRRCMessageTransferIEs_t, ie5);
+    asn1cSequenceAdd(out->protocolIEs->list, F1AP_DLRRCMessageTransferIEs_t, ie5);
     ie5->id = F1AP_ProtocolIE_ID_id_ExecuteDuplication;
     ie5->criticality = F1AP_Criticality_ignore;
     ie5->value.present = F1AP_DLRRCMessageTransferIEs__value_PR_ExecuteDuplication;
-    ie5->value.choice.ExecuteDuplication = F1AP_ExecuteDuplication_true;
+    asn1cCallocOne(ie5->value.choice.ExecuteDuplication, F1AP_ExecuteDuplication_true);
   }
   // RRC-Container (M)
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_DLRRCMessageTransferIEs_t, ie6);
+  asn1cSequenceAdd(out->protocolIEs->list, F1AP_DLRRCMessageTransferIEs_t, ie6);
   ie6->id = F1AP_ProtocolIE_ID_id_RRCContainer;
   ie6->criticality = F1AP_Criticality_reject;
   ie6->value.present = F1AP_DLRRCMessageTransferIEs__value_PR_RRCContainer;
-  OCTET_STRING_fromBuf(&ie6->value.choice.RRCContainer, (const char *)msg->rrc_container, msg->rrc_container_length);
+  OCTET_STRING_fromBuf((ie6->value.choice.RRCContainer = calloc_or_fail(1, sizeof(*ie6->value.choice.RRCContainer))), (const char *)msg->rrc_container, msg->rrc_container_length);
 
   return pdu;
 }
@@ -376,33 +385,33 @@ bool decode_dl_rrc_message_transfer(const F1AP_F1AP_PDU_t *pdu, f1ap_dl_rrc_mess
   memset(out, 0, sizeof(*out));
 
   DevAssert(pdu != NULL);
-  F1AP_DLRRCMessageTransfer_t *container = &pdu->choice.initiatingMessage->value.choice.DLRRCMessageTransfer;
-  F1AP_ProtocolIE_Container_10986P32_t *pIEs = &container->protocolIEs;
+  F1AP_DLRRCMessageTransfer_t *container = pdu->choice.initiatingMessage->value.choice.DLRRCMessageTransfer;
+  F1AP_ProtocolIE_Container_10986P32_t *pIEs = container->protocolIEs;
   F1AP_DLRRCMessageTransferIEs_t *ie;
   // gNB-CU UE F1AP ID (M)
   F1AP_LIB_FIND_IE(F1AP_DLRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID, true);
-  out->gNB_CU_ue_id = ie->value.choice.GNB_CU_UE_F1AP_ID;
+  out->gNB_CU_ue_id = *ie->value.choice.GNB_CU_UE_F1AP_ID;
   // gNB-DU UE F1AP ID (M)
   F1AP_LIB_FIND_IE(F1AP_DLRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID, true);
-  out->gNB_DU_ue_id = ie->value.choice.GNB_DU_UE_F1AP_ID;
+  out->gNB_DU_ue_id = *ie->value.choice.GNB_DU_UE_F1AP_ID;
   // old gNB-DU UE F1AP ID (O)
   out->old_gNB_DU_ue_id = NULL;
   F1AP_LIB_FIND_IE(F1AP_DLRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_oldgNB_DU_UE_F1AP_ID, false);
   if (ie) {
     out->old_gNB_DU_ue_id = malloc_or_fail(sizeof(*out->old_gNB_DU_ue_id));
-    *out->old_gNB_DU_ue_id = ie->value.choice.GNB_DU_UE_F1AP_ID_1;
+    *out->old_gNB_DU_ue_id = *ie->value.choice.GNB_DU_UE_F1AP_ID_1;
   }
   // SRB ID (M)
   F1AP_LIB_FIND_IE(F1AP_DLRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_SRBID, true);
-  out->srb_id = ie->value.choice.SRBID;
+  out->srb_id = *ie->value.choice.SRBID;
   // Execute Duplication (O)
   F1AP_LIB_FIND_IE(F1AP_DLRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_ExecuteDuplication, false);
   if (ie) {
-    out->execute_duplication = ie->value.choice.ExecuteDuplication;
+    out->execute_duplication = *ie->value.choice.ExecuteDuplication;
   }
   // RRC-Container (M)
   F1AP_LIB_FIND_IE(F1AP_DLRRCMessageTransferIEs_t, ie, &pIEs->list, F1AP_ProtocolIE_ID_id_RRCContainer, true);
-  out->rrc_container = cp_octet_string(&ie->value.choice.RRCContainer, &out->rrc_container_length);
+  out->rrc_container = cp_octet_string(ie->value.choice.RRCContainer, &out->rrc_container_length);
 
   return true;
 }

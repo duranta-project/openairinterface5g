@@ -29,7 +29,7 @@ int DU_handle_RESET(instance_t instance, sctp_assoc_t assoc_id, uint32_t stream,
   F1AP_Reset_t  *container;
   F1AP_ResetIEs_t *ie;
   DevAssert(pdu != NULL);
-  container = &pdu->choice.initiatingMessage->value.choice.Reset;
+  container = pdu->choice.initiatingMessage->value.choice.Reset;
 
   /* Reset == Non UE-related procedure -> stream 0 */
   if (stream != 0) {
@@ -43,32 +43,32 @@ int DU_handle_RESET(instance_t instance, sctp_assoc_t assoc_id, uint32_t stream,
 
   /* Transaction ID */
   F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_ResetIEs_t, ie, container, F1AP_ProtocolIE_ID_id_TransactionID, true);
-  f1ap_reset->transaction_id = ie->value.choice.TransactionID;
+  f1ap_reset->transaction_id = *ie->value.choice.TransactionID;
   LOG_D(F1AP, "req->transaction_id %lu \n", f1ap_reset->transaction_id);
   
   /* Cause */
   F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_ResetIEs_t, ie, container, F1AP_ProtocolIE_ID_id_Cause, true);
-  switch(ie->value.choice.Cause.present) 
+  switch(ie->value.choice.Cause->present) 
   {
     case F1AP_Cause_PR_radioNetwork:
       LOG_D(F1AP, "Cause: Radio Network\n");
       f1ap_reset->cause = F1AP_CAUSE_RADIO_NETWORK;
-      f1ap_reset->cause_value = ie->value.choice.Cause.choice.radioNetwork;
+      f1ap_reset->cause_value = ie->value.choice.Cause->choice.radioNetwork;
       break;
     case F1AP_Cause_PR_transport:
       LOG_D(F1AP, "Cause: Transport\n");
       f1ap_reset->cause = F1AP_CAUSE_TRANSPORT;
-      f1ap_reset->cause_value = ie->value.choice.Cause.choice.transport;
+      f1ap_reset->cause_value = ie->value.choice.Cause->choice.transport;
       break;
     case F1AP_Cause_PR_protocol:
       LOG_D(F1AP, "Cause: Protocol\n");
       f1ap_reset->cause = F1AP_CAUSE_PROTOCOL;
-      f1ap_reset->cause_value = ie->value.choice.Cause.choice.protocol;
+      f1ap_reset->cause_value = ie->value.choice.Cause->choice.protocol;
       break;
     case F1AP_Cause_PR_misc:
       LOG_D(F1AP, "Cause: Misc\n");
       f1ap_reset->cause = F1AP_CAUSE_MISC;
-      f1ap_reset->cause_value = ie->value.choice.Cause.choice.misc;
+      f1ap_reset->cause_value = ie->value.choice.Cause->choice.misc;
       break;
     default:
       AssertFatal(1==0,"Unknown cause\n");
@@ -76,7 +76,7 @@ int DU_handle_RESET(instance_t instance, sctp_assoc_t assoc_id, uint32_t stream,
 
   /* ResetType */
   F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_ResetIEs_t, ie, container, F1AP_ProtocolIE_ID_id_ResetType, true);
-  switch(ie->value.choice.ResetType.present) {
+  switch(ie->value.choice.ResetType->present) {
     case F1AP_ResetType_PR_f1_Interface:
       LOG_D(F1AP, "ResetType: F1 Interface\n");
       f1ap_reset->reset_type = F1AP_RESET_ALL;

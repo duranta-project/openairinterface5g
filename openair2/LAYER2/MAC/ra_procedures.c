@@ -50,7 +50,7 @@ get_prach_resources(module_id_t module_idP,
               "[UE %d] FATAL  radioResourceConfigCommon is NULL !!!\n",
               module_idP);
   rach_ConfigCommon =
-    &UE_mac_inst[module_idP].radioResourceConfigCommon->
+    UE_mac_inst[module_idP].radioResourceConfigCommon->
     rach_ConfigCommon;
   numberOfRA_Preambles =
     (1 + rach_ConfigCommon->preambleInfo.numberOfRA_Preambles) << 2;
@@ -301,7 +301,7 @@ PRACH_RESOURCES_t *ue_get_rach(module_id_t module_idP, int CC_id,
 
     if (UE_mac_inst[module_idP].radioResourceConfigCommon) {
       rach_ConfigCommon =
-        &UE_mac_inst[module_idP].
+        UE_mac_inst[module_idP].
         radioResourceConfigCommon->rach_ConfigCommon;
     } else {
       return (NULL);
@@ -310,7 +310,7 @@ PRACH_RESOURCES_t *ue_get_rach(module_id_t module_idP, int CC_id,
     if (UE_mac_inst[module_idP].RA_active == 0) {
       LOG_I(MAC, "RA not active\n");
       if (UE_rrc_inst[module_idP].Info[eNB_indexP].T300_cnt
-          != T300[UE_rrc_inst[module_idP].sib2[eNB_indexP]->ue_TimersAndConstants.t300]) {
+          != T300[UE_rrc_inst[module_idP].sib2[eNB_indexP]->ue_TimersAndConstants->t300]) {
             /* Calling rrc_ue_generate_RRCConnectionRequest here to ensure that
                every time we fill the UE_mac_inst context we generate new random
                values in msg3. When the T300 timer has expired, rrc_common.c will
@@ -521,7 +521,7 @@ PRACH_RESOURCES_t *ue_get_rach(module_id_t module_idP, int CC_id,
         UE_mac_inst[module_idP].RA_tx_frame = frameP;
         UE_mac_inst[module_idP].RA_tx_subframe = subframeP;
         UE_mac_inst[module_idP].RA_PREAMBLE_TRANSMISSION_COUNTER++;
-        UE_mac_inst[module_idP].RA_prach_resources.ra_PREAMBLE_RECEIVED_TARGET_POWER += (rach_ConfigCommon->powerRampingParameters.powerRampingStep << 1);  // 2dB increments in ASN.1 definition
+        UE_mac_inst[module_idP].RA_prach_resources.ra_PREAMBLE_RECEIVED_TARGET_POWER += (rach_ConfigCommon->powerRampingParameters->powerRampingStep << 1);  // 2dB increments in ASN.1 definition
         int preambleTransMax = -1;
 
         switch (rach_ConfigCommon->ra_SupervisionInfo.

@@ -166,7 +166,7 @@ TEST(test_init_ra, four_step_cbra)
   dl_bwp.bwp_id = 0;
   current_bwp.channel_bandwidth = 40;
   nr_rach_ConfigCommon.msg1_SubcarrierSpacing = &scs;
-  nr_rach_ConfigCommon.rach_ConfigGeneric = rach_ConfigGeneric;
+  nr_rach_ConfigCommon.rach_ConfigGeneric = &rach_ConfigGeneric;
   current_bwp.rach_ConfigCommon = &nr_rach_ConfigCommon;
   ra->rach_ConfigDedicated = &rach_ConfigDedicated;
   mac.p_Max = 23;
@@ -200,7 +200,7 @@ TEST(test_init_ra, four_step_cfra)
   dl_bwp.bwp_id = 0;
   current_bwp.channel_bandwidth = 40;
   nr_rach_ConfigCommon.msg1_SubcarrierSpacing = &scs;
-  nr_rach_ConfigCommon.rach_ConfigGeneric = rach_ConfigGeneric;
+  nr_rach_ConfigCommon.rach_ConfigGeneric = &rach_ConfigGeneric;
   current_bwp.rach_ConfigCommon = &nr_rach_ConfigCommon;
   mac.p_Max = 23;
   mac.nr_band = 78;

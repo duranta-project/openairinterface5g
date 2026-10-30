@@ -2686,23 +2686,23 @@ int check_plmn_identity(rrc_eNB_carrier_data_t *carrier,uint16_t mcc,uint16_t mn
 
   // check if mcc is different and return failure if so
   if (mcc !=
-      (*plmn_Identity_info->plmn_Identity.mcc->list.array[0]*100)+
-      (*plmn_Identity_info->plmn_Identity.mcc->list.array[1]*10) +
-      (*plmn_Identity_info->plmn_Identity.mcc->list.array[2])) return(0);
+      (*plmn_Identity_info->plmn_Identity->mcc->list.array[0]*100)+
+      (*plmn_Identity_info->plmn_Identity->mcc->list.array[1]*10) +
+      (*plmn_Identity_info->plmn_Identity->mcc->list.array[2])) return(0);
 
   // check that mnc digit length is different and return failure if so
-  if (mnc_digit_length != plmn_Identity_info->plmn_Identity.mnc.list.count) return 0;
+  if (mnc_digit_length != plmn_Identity_info->plmn_Identity->mnc->list.count) return 0;
 
   // check that 2 digit mnc is different and return failure if so
   if (mnc_digit_length == 2 &&
       (mnc !=
-       (*plmn_Identity_info->plmn_Identity.mnc.list.array[0]*10) +
-       (*plmn_Identity_info->plmn_Identity.mnc.list.array[1]))) return(0);
+       (*plmn_Identity_info->plmn_Identity->mnc->list.array[0]*10) +
+       (*plmn_Identity_info->plmn_Identity->mnc->list.array[1]))) return(0);
   else if (mnc_digit_length == 3 &&
            (mnc !=
-            (*plmn_Identity_info->plmn_Identity.mnc.list.array[0]*100) +
-            (*plmn_Identity_info->plmn_Identity.mnc.list.array[1]*10) +
-            (*plmn_Identity_info->plmn_Identity.mnc.list.array[2]))) return(0);
+            (*plmn_Identity_info->plmn_Identity->mnc->list.array[0]*100) +
+            (*plmn_Identity_info->plmn_Identity->mnc->list.array[1]*10) +
+            (*plmn_Identity_info->plmn_Identity->mnc->list.array[2]))) return(0);
 
   // if we're here, the mcc/mnc match so return success
   return(1);
@@ -2728,22 +2728,22 @@ void extract_and_decode_SI(int inst,int si_ind,uint8_t *si_container,int si_cont
                 dec_rval.consumed );
   }
 
-  if (bcch_message->message.present == LTE_BCCH_DL_SCH_MessageType_PR_c1) {
-    switch (bcch_message->message.choice.c1.present) {
+  if (bcch_message->message->present == LTE_BCCH_DL_SCH_MessageType_PR_c1) {
+    switch (bcch_message->message->choice.c1.present) {
       case LTE_BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1:
         AssertFatal(1==0,"Should have received SIB1 from CU\n");
         break;
 
       case LTE_BCCH_DL_SCH_MessageType__c1_PR_systemInformation: {
-        LTE_SystemInformation_t *si = &bcch_message->message.choice.c1.choice.systemInformation;
+        LTE_SystemInformation_t *si = &bcch_message->message->choice.c1.choice.systemInformation;
 
         for (int i=0; i<si->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
           LOG_I(ENB_APP,"Extracting SI %d/%d\n",i,si->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count);
-          struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *typeandinfo;
+          struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *typeandinfo;
           typeandinfo = si->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
 
           switch(typeandinfo->present) {
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib2:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2:
               carrier->sib2 = &typeandinfo->choice.sib2;
               carrier->SIB23 = (uint8_t *)malloc(64);
               memcpy((void *)carrier->SIB23,(void *)si_container,si_container_length);
@@ -2751,75 +2751,75 @@ void extract_and_decode_SI(int inst,int si_ind,uint8_t *si_container,int si_cont
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB2\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib3:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib3:
               carrier->sib3 = &typeandinfo->choice.sib3;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB3\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib4:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib4:
               //carrier->sib4 = &typeandinfo->choice.sib4;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB4\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib5:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib5:
               //carrier->sib5 = &typeandinfo->choice.sib5;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB5\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib6:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib6:
               //carrier->sib6 = &typeandinfo->choice.sib6;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB6\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib7:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib7:
               //carrier->sib7 = &typeandinfo->choice.sib7;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB7\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib8:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib8:
               //carrier->sib8 = &typeandinfo->choice.sib8;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB8\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib9:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib9:
               //carrier->sib9 = &typeandinfo->choice.sib9;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB9\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib10:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib10:
               //carrier->sib10 = &typeandinfo->choice.sib10;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB10\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib11:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib11:
               //carrier->sib11 = &typeandinfo->choice.sib11;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB11\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib12_v920:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib12_v920:
               //carrier->sib12 = &typeandinfo->choice.sib12;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB12\n", inst);
               break;
 
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920:
               carrier->sib13 = &typeandinfo->choice.sib13_v920;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB13\n", inst);
               break;
 
             //SIB18
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib18_v1250:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib18_v1250:
               carrier->sib18 = &typeandinfo->choice.sib18_v1250;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB18\n", inst);
               break;
 
             //SIB19
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib19_v1250:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1250:
               carrier->sib19 = &typeandinfo->choice.sib19_v1250;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB19\n", inst);
               break;
 
             //SIB21
-            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib21_v1430:
+            case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib21_v1430:
               carrier->sib21 = &typeandinfo->choice.sib21_v1430;
               LOG_I( ENB_APP, "[RRC %"PRIu8"] Found SIB21\n", inst);
               break;
@@ -2852,16 +2852,16 @@ void configure_du_mac(int inst) {
   tmp.dl_CarrierFreq = carrier->dl_CarrierFreq;
   tmp.pbch_repetition = carrier->pbch_repetition;
   tmp.mib = &carrier->mib;
-  tmp.radioResourceConfigCommon = &carrier->sib2->radioResourceConfigCommon;
-  tmp.LTE_radioResourceConfigCommon_BR = &carrier->sib2_BR->radioResourceConfigCommon;
+  tmp.radioResourceConfigCommon = carrier->sib2->radioResourceConfigCommon;
+  tmp.LTE_radioResourceConfigCommon_BR = carrier->sib2_BR->radioResourceConfigCommon;
   tmp.tdd_Config = carrier->sib1->tdd_Config;
-  tmp.schedulingInfoList = &carrier->sib1->schedulingInfoList;
+  tmp.schedulingInfoList = carrier->sib1->schedulingInfoList;
   tmp.ul_CarrierFreq = carrier->ul_CarrierFreq;
   tmp.ul_Bandwidth = carrier->sib2->freqInfo.ul_Bandwidth;
   tmp.additionalSpectrumEmission = &carrier->sib2->freqInfo.additionalSpectrumEmission;
   tmp.mbsfn_SubframeConfigList = carrier->sib2->mbsfn_SubframeConfigList;
   tmp.MBMS_Flag = carrier->MBMS_flag;
-  tmp.mbsfn_AreaInfoList = &carrier->sib13->mbsfn_AreaInfoList_r9;
+  tmp.mbsfn_AreaInfoList = carrier->sib13->mbsfn_AreaInfoList_r9;
   rrc_mac_config_req_eNB(inst, &tmp);
 }
 

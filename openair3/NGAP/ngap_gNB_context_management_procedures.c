@@ -24,6 +24,7 @@
 #include "ngap_gNB_management_procedures.h"
 #include "ngap_gNB_ue_context.h"
 #include "oai_asn1.h"
+#include "NGAP_ProtocolIE-Container.h"
 
 int ngap_ue_context_release_complete(instance_t instance,
                                      ngap_ue_release_complete_t *ue_release_complete_p)
@@ -53,33 +54,39 @@ int ngap_ue_context_release_complete(instance_t instance,
   head->procedureCode = NGAP_ProcedureCode_id_UEContextRelease;
   head->criticality = NGAP_Criticality_reject;
   head->value.present = NGAP_SuccessfulOutcome__value_PR_UEContextReleaseComplete;
-  NGAP_UEContextReleaseComplete_t *out = &head->value.choice.UEContextReleaseComplete;
+  NGAP_UEContextReleaseComplete_t *out = (head->value.choice.UEContextReleaseComplete = calloc_or_fail(1, sizeof(*head->value.choice.UEContextReleaseComplete)));
 
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UEContextReleaseComplete_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UEContextReleaseComplete_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_UEContextReleaseComplete_IEs__value_PR_AMF_UE_NGAP_ID;
-    asn_uint642INTEGER(&ie->value.choice.AMF_UE_NGAP_ID, ue_context_p->amf_ue_ngap_id);
+    asn_uint642INTEGER((ie->value.choice.AMF_UE_NGAP_ID = calloc_or_fail(1, sizeof(*ie->value.choice.AMF_UE_NGAP_ID))), ue_context_p->amf_ue_ngap_id);
   }
 
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UEContextReleaseComplete_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UEContextReleaseComplete_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_UEContextReleaseComplete_IEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = ue_release_complete_p->gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, ue_release_complete_p->gNB_ue_ngap_id);
   }
 
   /* number of PDU sessions */
   if (ue_release_complete_p->num_pdu_sessions > 0) {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UEContextReleaseComplete_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UEContextReleaseComplete_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_PDUSessionResourceListCxtRelCpl;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UEContextReleaseComplete_IEs__value_PR_PDUSessionResourceListCxtRelCpl;
-    NGAP_PDUSessionResourceListCxtRelCpl_t *l = &ie->value.choice.PDUSessionResourceListCxtRelCpl;
+    NGAP_PDUSessionResourceListCxtRelCpl_t *l = (ie->value.choice.PDUSessionResourceListCxtRelCpl = calloc_or_fail(1, sizeof(*ie->value.choice.PDUSessionResourceListCxtRelCpl)));
     DevAssert(ue_release_complete_p->num_pdu_sessions <= 256);
     for (int i = 0; i < ue_release_complete_p->num_pdu_sessions; ++i) {
       asn1cSequenceAdd(l->list, NGAP_PDUSessionResourceItemCxtRelCpl_t, pdu);
@@ -141,29 +148,35 @@ int ngap_ue_context_release_req(instance_t instance,
   head->procedureCode = NGAP_ProcedureCode_id_UEContextReleaseRequest;
   head->criticality = NGAP_Criticality_ignore;
   head->value.present = NGAP_InitiatingMessage__value_PR_UEContextReleaseRequest;
-  NGAP_UEContextReleaseRequest_t *out = &head->value.choice.UEContextReleaseRequest;
+  NGAP_UEContextReleaseRequest_t *out = (head->value.choice.UEContextReleaseRequest = calloc_or_fail(1, sizeof(*head->value.choice.UEContextReleaseRequest)));
 
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UEContextReleaseRequest_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UEContextReleaseRequest_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UEContextReleaseRequest_IEs__value_PR_AMF_UE_NGAP_ID;
-    asn_uint642INTEGER(&ie->value.choice.AMF_UE_NGAP_ID, ue_context_p->amf_ue_ngap_id);
+    asn_uint642INTEGER((ie->value.choice.AMF_UE_NGAP_ID = calloc_or_fail(1, sizeof(*ie->value.choice.AMF_UE_NGAP_ID))), ue_context_p->amf_ue_ngap_id);
   }
 
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UEContextReleaseRequest_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UEContextReleaseRequest_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UEContextReleaseRequest_IEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = ue_release_req_p->gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, ue_release_req_p->gNB_ue_ngap_id);
   }
 
   /* optional */
   if (ue_release_req_p->nb_of_pdusessions > 0) {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UEContextReleaseRequest_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UEContextReleaseRequest_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_PDUSessionResourceListCxtRelReq;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UEContextReleaseRequest_IEs__value_PR_PDUSessionResourceListCxtRelReq;
@@ -171,18 +184,22 @@ int ngap_ue_context_release_req(instance_t instance,
       NGAP_PDUSessionResourceItemCxtRelReq_t     *item;
       item = (NGAP_PDUSessionResourceItemCxtRelReq_t *)calloc(1,sizeof(NGAP_PDUSessionResourceItemCxtRelReq_t));
       item->pDUSessionID = ue_release_req_p->pdusession_ids[i];
-      asn1cSeqAdd(&ie->value.choice.PDUSessionResourceListCxtRelReq.list, item);
+      if (!ie->value.choice.PDUSessionResourceListCxtRelReq)
+        ie->value.choice.PDUSessionResourceListCxtRelReq = calloc_or_fail(1, sizeof(*ie->value.choice.PDUSessionResourceListCxtRelReq));
+      asn1cSeqAdd(&ie->value.choice.PDUSessionResourceListCxtRelReq->list, item);
     }
   }
 
   /* mandatory */
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UEContextReleaseRequest_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UEContextReleaseRequest_IEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_Cause;
     ie->criticality = NGAP_Criticality_ignore;
     ie->value.present = NGAP_UEContextReleaseRequest_IEs__value_PR_Cause;
     DevAssert(ue_release_req_p->cause.type <= NGAP_CAUSE_MISC);
-    encode_ngap_cause(&ie->value.choice.Cause, &ue_release_req_p->cause);
+    encode_ngap_cause((ie->value.choice.Cause = calloc_or_fail(1, sizeof(*ie->value.choice.Cause))), &ue_release_req_p->cause);
   }
 
   if (ngap_gNB_encode_pdu(&pdu, &buffer, &length) < 0) {

@@ -11,6 +11,7 @@
 #include "openair3/UTILS/conversions.h"
 #include "e1ap_messages_types.h"
 #include "common/utils/eq_check.h"
+#include "E1AP_ProtocolIE-Container.h"
 
 #define CHECK_E1AP_DEC(exp)                                                             \
   do {                                                                                  \
@@ -24,8 +25,8 @@
 #define E1AP_LIB_FIND_IE(IE_TYPE, ie, container, IE_ID, mandatory)                                           \
   do {                                                                                                       \
     ie = NULL;                                                                                               \
-    for (int i = 0; i < (container)->protocolIEs.list.count; ++i) {                                          \
-      IE_TYPE *current_ie = (container)->protocolIEs.list.array[i];                                          \
+    for (int i = 0; i < (container)->protocolIEs->list.count; ++i) {                                          \
+      IE_TYPE *current_ie = (container)->protocolIEs->list.array[i];                                          \
       if (current_ie->id == (IE_ID)) {                                                                       \
         ie = current_ie;                                                                                     \
         break;                                                                                               \

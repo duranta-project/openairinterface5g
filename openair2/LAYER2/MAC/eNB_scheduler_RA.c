@@ -219,7 +219,7 @@ void generate_Msg2(module_id_t module_idP,
   vrb_map = cc[CC_idP].vrb_map;
   dl_req_body = &mac->DL_req[CC_idP].dl_config_request_body;
   dl_config_pdu = &dl_req_body->dl_config_pdu_list[dl_req_body->number_pdu];
-  N_RB_DL = to_prb(cc[CC_idP].mib->message.dl_Bandwidth);
+  N_RB_DL = to_prb(cc[CC_idP].mib->message->dl_Bandwidth);
   uint8_t PUSCH_Rep_Level;
   int             rmax = 0;
   int             rep = 0;
@@ -242,9 +242,9 @@ void generate_Msg2(module_id_t module_idP,
     return; // we're not ready yet
   }
 
-  if (cc[CC_idP].mib->message.schedulingInfoSIB1_BR_r13 > 0 && cc[CC_idP].radioResourceConfigCommon_BR) {
+  if (cc[CC_idP].mib->message->schedulingInfoSIB1_BR_r13 > 0 && cc[CC_idP].radioResourceConfigCommon_BR) {
     ext4_prach = cc[CC_idP].radioResourceConfigCommon_BR->ext4->prach_ConfigCommon_v1310;
-    prach_ParametersListCE_r13 = &ext4_prach->prach_ParametersListCE_r13;
+    prach_ParametersListCE_r13 = ext4_prach->prach_ParametersListCE_r13;
 
     switch (prach_ParametersListCE_r13->list.count) {
       case 4:
@@ -406,7 +406,7 @@ void generate_Msg2(module_id_t module_idP,
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa = 4; // 0 dB
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index = 0;
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap = 0;
-        dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize(cc[CC_idP].mib->message.dl_Bandwidth); // ignored
+        dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize(cc[CC_idP].mib->message->dl_Bandwidth); // ignored
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode = (cc[CC_idP].p_eNB == 1) ? 1 : 2;
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband = 1;
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector = 1;
@@ -502,7 +502,7 @@ void generate_Msg2(module_id_t module_idP,
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa                                     = 4; // 0 dB
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index               = 0;
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap                                   = 0;
-        dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message.dl_Bandwidth);  // ignored
+        dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message->dl_Bandwidth);  // ignored
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode                      = (cc->p_eNB == 1) ? 1 : 2;
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband                 = 1;
         dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector                          = 1;
@@ -586,9 +586,9 @@ generate_Msg4(module_id_t module_idP,
   int             pucchreps[4] = { 1, 1, 1, 1 };
   int             n1pucchan[4] = { 0, 0, 0, 0 };
 
-  if (cc[CC_idP].mib->message.schedulingInfoSIB1_BR_r13 > 0 && cc[CC_idP].radioResourceConfigCommon_BR) {
+  if (cc[CC_idP].mib->message->schedulingInfoSIB1_BR_r13 > 0 && cc[CC_idP].radioResourceConfigCommon_BR) {
     ext4_prach = cc[CC_idP].radioResourceConfigCommon_BR->ext4->prach_ConfigCommon_v1310;
-    prach_ParametersListCE_r13 = &ext4_prach->prach_ParametersListCE_r13;
+    prach_ParametersListCE_r13 = ext4_prach->prach_ParametersListCE_r13;
     ext4_pucch = cc[CC_idP].radioResourceConfigCommon_BR->ext4->pucch_ConfigCommon_v1310;
     pucch_N1PUCCH_AN_InfoList_r13 = ext4_pucch->n1PUCCH_AN_InfoList_r13;
     AssertFatal (prach_ParametersListCE_r13 != NULL, "prach_ParametersListCE_r13 is null\n");
@@ -631,7 +631,7 @@ generate_Msg4(module_id_t module_idP,
   dl_req        = &mac->DL_req[CC_idP];
   dl_req_body   = &dl_req->dl_config_request_body;
   dl_config_pdu = &dl_req_body->dl_config_pdu_list[dl_req_body->number_pdu];
-  N_RB_DL = to_prb(cc[CC_idP].mib->message.dl_Bandwidth);
+  N_RB_DL = to_prb(cc[CC_idP].mib->message->dl_Bandwidth);
   UE_id = find_UE_id(module_idP, ra->rnti);
 
   if (UE_id < 0) {
@@ -788,7 +788,7 @@ generate_Msg4(module_id_t module_idP,
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa = 4; // 0 dB
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index = 0;
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap = 0;
-      dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize (cc[CC_idP].mib->message.dl_Bandwidth); // ignored
+      dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize (cc[CC_idP].mib->message->dl_Bandwidth); // ignored
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode = (cc[CC_idP].p_eNB == 1) ? 1 : 2;
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband = 1;
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector = 1;
@@ -1113,7 +1113,7 @@ check_Msg4_retransmission(module_id_t module_idP, int CC_idP,
   dl_req = &mac->DL_req[CC_idP];
   dl_req_body = &dl_req->dl_config_request_body;
   dl_config_pdu = &dl_req_body->dl_config_pdu_list[dl_req_body->number_pdu];
-  N_RB_DL = to_prb(cc[CC_idP].mib->message.dl_Bandwidth);
+  N_RB_DL = to_prb(cc[CC_idP].mib->message->dl_Bandwidth);
   LOG_D(MAC,
         "[eNB %d][RAPROC] CC_id %d Frame %d, subframeP %d: Checking if Msg4 for harq_pid %d was acknowledged (round %d), UE_id: %d \n",
         module_idP, CC_idP, frameP, subframeP, ra->harq_pid, round, UE_id);
@@ -1267,12 +1267,12 @@ initiate_ra_proc(module_id_t module_idP,
   struct LTE_PRACH_ConfigSIB_v1310 *ext4_prach = NULL;
   LTE_PRACH_ParametersListCE_r13_t *prach_ParametersListCE_r13 = NULL;
 
-  if (cc->mib->message.schedulingInfoSIB1_BR_r13>0) {
+  if (cc->mib->message->schedulingInfoSIB1_BR_r13>0) {
     AssertFatal(cc->radioResourceConfigCommon_BR != NULL,"radioResourceConfigCommon_BR is null\n");
     AssertFatal(cc->radioResourceConfigCommon_BR->ext4 != NULL, "radioResourceConfigCommon_BR->ext4 is null\n");
     ext4_prach = cc->radioResourceConfigCommon_BR->ext4->prach_ConfigCommon_v1310;
     AssertFatal(ext4_prach!=NULL,"ext4_prach is null\n");
-    prach_ParametersListCE_r13 = &ext4_prach->prach_ParametersListCE_r13;
+    prach_ParametersListCE_r13 = ext4_prach->prach_ParametersListCE_r13;
   }
 
   LOG_D(MAC,

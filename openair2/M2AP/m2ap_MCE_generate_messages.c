@@ -21,6 +21,7 @@
 
 #include "assertions.h"
 #include "conversions.h"
+#include "M2AP_ProtocolIE-Container.h"
 
 int m2ap_MCE_generate_m2_setup_request(
   m2ap_MCE_instance_t *instance_p, m2ap_MCE_data_t *m2ap_MCE_data_p)
@@ -44,10 +45,12 @@ int m2ap_MCE_generate_m2_setup_request(
   /* Prepare the M2AP message to encode */
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_initiatingMessage;
-  pdu.choice.initiatingMessage.procedureCode = M2AP_ProcedureCode_id_m2Setup;
-  pdu.choice.initiatingMessage.criticality = M2AP_Criticality_reject;
-  pdu.choice.initiatingMessage.value.present = M2AP_InitiatingMessage__value_PR_M2SetupRequest;
-  out = &pdu.choice.initiatingMessage.value.choice.M2SetupRequest;
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = M2AP_ProcedureCode_id_m2Setup;
+  pdu.choice.initiatingMessage->criticality = M2AP_Criticality_reject;
+  pdu.choice.initiatingMessage->value.present = M2AP_InitiatingMessage__value_PR_M2SetupRequest;
+  out = &pdu.choice.initiatingMessage->value.choice.M2SetupRequest;
 
   /* mandatory */
   ie = (M2AP_M2SetupRequest_Ies_t *)calloc(1, sizeof(M2AP_M2SetupRequest_Ies_t));
@@ -63,7 +66,9 @@ int m2ap_MCE_generate_m2_setup_request(
   //          ie->value.choice.GlobalMCE_ID.MCE_ID.choice.macro_MCE_ID.buf[0],
   //          ie->value.choice.GlobalMCE_ID.MCE_ID.choice.macro_MCE_ID.buf[1],
   //          ie->value.choice.GlobalMCE_ID.MCE_ID.choice.macro_MCE_ID.buf[2]);
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   ie = (M2AP_M2SetupRequest_Ies_t *)calloc(1, sizeof(M2AP_M2SetupRequest_Ies_t));
@@ -129,7 +134,7 @@ int m2ap_MCE_generate_m2_setup_request(
   //    asn1cSeqAdd(&ie->value.choice.ServedCells.list, servedCellMember);
   //  }
   //}
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   ie = (M2AP_M2SetupRequest_Ies_t *)calloc(1, sizeof(M2AP_M2SetupRequest_Ies_t));
@@ -146,7 +151,7 @@ int m2ap_MCE_generate_m2_setup_request(
   //  }
   //  asn1cSeqAdd(&ie->value.choice.GUGroupIDList.list, gu);
   //}
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   if (m2ap_encode_pdu(&pdu, &buffer, &len) < 0) {
     M2AP_ERROR("Failed to encode M2 setup request\n");
@@ -177,10 +182,12 @@ int m2ap_MCE_generate_m2_setup_response(m2ap_MCE_instance_t *instance_p, m2ap_MC
   /* Prepare the M2AP message to encode */
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_successfulOutcome;
-  pdu.choice.successfulOutcome.procedureCode = M2AP_ProcedureCode_id_m2Setup;
-  pdu.choice.successfulOutcome.criticality = M2AP_Criticality_reject;
-  pdu.choice.successfulOutcome.value.present = M2AP_SuccessfulOutcome__value_PR_M2SetupResponse;
-  out = &pdu.choice.successfulOutcome.value.choice.M2SetupResponse;
+  if (!pdu.choice.successfulOutcome)
+    pdu.choice.successfulOutcome = calloc_or_fail(1, sizeof(*pdu.choice.successfulOutcome));
+  pdu.choice.successfulOutcome->procedureCode = M2AP_ProcedureCode_id_m2Setup;
+  pdu.choice.successfulOutcome->criticality = M2AP_Criticality_reject;
+  pdu.choice.successfulOutcome->value.present = M2AP_SuccessfulOutcome__value_PR_M2SetupResponse;
+  out = &pdu.choice.successfulOutcome->value.choice.M2SetupResponse;
 
   /* mandatory */
   ie = (M2AP_M2SetupResponse_Ies_t *)calloc(1, sizeof(M2AP_M2SetupResponse_Ies_t));
@@ -196,7 +203,9 @@ int m2ap_MCE_generate_m2_setup_response(m2ap_MCE_instance_t *instance_p, m2ap_MC
   //          ie->value.choice.GlobalMCE_ID.MCE_ID.choice.macro_MCE_ID.buf[0],
   //          ie->value.choice.GlobalMCE_ID.MCE_ID.choice.macro_MCE_ID.buf[1],
   //          ie->value.choice.GlobalMCE_ID.MCE_ID.choice.macro_MCE_ID.buf[2]);
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   ie = (M2AP_M2SetupResponse_Ies_t *)calloc(1, sizeof(M2AP_M2SetupResponse_Ies_t));
@@ -262,7 +271,7 @@ int m2ap_MCE_generate_m2_setup_response(m2ap_MCE_instance_t *instance_p, m2ap_MC
   //    asn1cSeqAdd(&ie->value.choice.ServedCells.list, servedCellMember);
   //  }
   //}
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   ie = (M2AP_M2SetupResponse_Ies_t *)calloc(1, sizeof(M2AP_M2SetupResponse_Ies_t));
@@ -279,7 +288,7 @@ int m2ap_MCE_generate_m2_setup_response(m2ap_MCE_instance_t *instance_p, m2ap_MC
   //  }
   //  asn1cSeqAdd(&ie->value.choice.GUGroupIDList.list, gu);
   //}
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   if (m2ap_encode_pdu(&pdu, &buffer, &len) < 0) {
     M2AP_ERROR("Failed to encode M2 setup response\n");
@@ -310,10 +319,12 @@ int m2ap_MCE_generate_m2_setup_failure(instance_t instance,
   /* Prepare the M2AP message to encode */
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_unsuccessfulOutcome;
-  pdu.choice.unsuccessfulOutcome.procedureCode = M2AP_ProcedureCode_id_m2Setup;
-  pdu.choice.unsuccessfulOutcome.criticality = M2AP_Criticality_reject;
-  pdu.choice.unsuccessfulOutcome.value.present = M2AP_UnsuccessfulOutcome__value_PR_M2SetupFailure;
-  out = &pdu.choice.unsuccessfulOutcome.value.choice.M2SetupFailure;
+  if (!pdu.choice.unsuccessfulOutcome)
+    pdu.choice.unsuccessfulOutcome = calloc_or_fail(1, sizeof(*pdu.choice.unsuccessfulOutcome));
+  pdu.choice.unsuccessfulOutcome->procedureCode = M2AP_ProcedureCode_id_m2Setup;
+  pdu.choice.unsuccessfulOutcome->criticality = M2AP_Criticality_reject;
+  pdu.choice.unsuccessfulOutcome->value.present = M2AP_UnsuccessfulOutcome__value_PR_M2SetupFailure;
+  out = &pdu.choice.unsuccessfulOutcome->value.choice.M2SetupFailure;
 
   /* mandatory */
   ie = (M2AP_M2SetupFailure_Ies_t *)calloc(1, sizeof(M2AP_M2SetupFailure_Ies_t));
@@ -323,7 +334,9 @@ int m2ap_MCE_generate_m2_setup_failure(instance_t instance,
 
   //m2ap_MCE_set_cause (&ie->value.choice.Cause, cause_type, cause_value);
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* optional: consider to handle this later */
   ie = (M2AP_M2SetupFailure_Ies_t *)calloc(1, sizeof(M2AP_M2SetupFailure_Ies_t));
@@ -335,7 +348,7 @@ int m2ap_MCE_generate_m2_setup_failure(instance_t instance,
   //  ie->value.choice.TimeToWait = time_to_wait;
   //}
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   if (m2ap_encode_pdu(&pdu, &buffer, &len) < 0) {
     M2AP_ERROR("Failed to encode M2 setup failure\n");

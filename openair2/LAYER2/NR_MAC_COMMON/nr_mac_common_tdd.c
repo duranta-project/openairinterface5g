@@ -54,7 +54,7 @@ static float get_tdd_periodicity(NR_TDD_UL_DL_Pattern_t *pattern)
 int get_tdd_period_idx(NR_TDD_UL_DL_ConfigCommon_t *tdd)
 {
   int tdd_period_idx = 0;
-  float pattern1_ms = get_tdd_periodicity(&tdd->pattern1);
+  float pattern1_ms = get_tdd_periodicity(tdd->pattern1);
   float pattern2_ms = tdd->pattern2 ? get_tdd_periodicity(tdd->pattern2) : 0.0;
   bool found_match = false;
   // Find matching TDD period in the predefined list of periodicities
@@ -159,7 +159,7 @@ static void config_tdd_patterns(const NR_TDD_UL_DL_ConfigCommon_t *tdd, frame_st
   pc->num_dl_slots = 0;
   pc->num_ul_slots = 0;
   // Pattern1
-  uint8_t nb_slots_p1 = set_tdd_bmap_period(&tdd->pattern1, pc, 0);
+  uint8_t nb_slots_p1 = set_tdd_bmap_period(tdd->pattern1, pc, 0);
   // Pattern2
   if (tdd->pattern2) {
     num_of_patterns++;

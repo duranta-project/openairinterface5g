@@ -811,7 +811,7 @@ rlc_op_status_t rrc_rlc_config_asn1_req (const protocol_ctxt_t   * const ctxt_pP
     //LTE_DRB_Identity_t*    pdrb_id         = NULL;
 
     for (i=0; i<pmch_InfoList_r9_pP->list.count; i++) {
-      mbms_SessionInfoList_r9_p = &(pmch_InfoList_r9_pP->list.array[i]->mbms_SessionInfoList_r9);
+      mbms_SessionInfoList_r9_p = (pmch_InfoList_r9_pP->list.array[i]->mbms_SessionInfoList_r9);
 
       for (j=0; j<mbms_SessionInfoList_r9_p->list.count; j++) {
         MBMS_SessionInfo_p = mbms_SessionInfoList_r9_p->list.array[j];
@@ -820,7 +820,7 @@ rlc_op_status_t rrc_rlc_config_asn1_req (const protocol_ctxt_t   * const ctxt_pP
         else
           mbms_session_id  = MBMS_SessionInfo_p->logicalChannelIdentity_r9;
         lc_id              = mbms_session_id;
-        mbms_service_id    = MBMS_SessionInfo_p->tmgi_r9.serviceId_r9.buf[2]; //serviceId is 3-octet string
+        mbms_service_id    = MBMS_SessionInfo_p->tmgi_r9->serviceId_r9.buf[2]; //serviceId is 3-octet string
 //        mbms_service_id    = j;
 
 #if 0

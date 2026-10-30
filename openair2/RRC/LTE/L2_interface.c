@@ -122,7 +122,9 @@ mac_rrc_data_req(
   }
 
   if( (Srb_id & RAB_OFFSET ) == MIBCH) {
-    mib->message.systemFrameNumber.buf = &sfn;
+    if (!mib->message)
+      mib->message = calloc_or_fail(1, sizeof(*mib->message));
+    mib->message->systemFrameNumber.buf = &sfn;
     enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_BCCH_BCH_Message,
                                      NULL,
                                      (void *)mib,
@@ -138,13 +140,15 @@ mac_rrc_data_req(
   }
 
   if( (Srb_id & RAB_OFFSET ) == MIBCH_MBMS) {
-    mib_fembms->message.systemFrameNumber_r14.buf = &sfn_fembms;
+    if (!mib_fembms->message)
+      mib_fembms->message = calloc_or_fail(1, sizeof(*mib_fembms->message));
+    mib_fembms->message->systemFrameNumber_r14.buf = &sfn_fembms;
     enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_BCCH_BCH_Message_MBMS,
                                      NULL,
                                      (void *)mib_fembms,
                                      carrier->MIB_FeMBMS,
                                      24);
-    LOG_I(RRC,"Encoded MIB MBMS for frame %d (%p), bits %lu %x,%x,%x %x bits_unused %d\n",sfn_fembms>>2,carrier->MIB_FeMBMS,enc_rval.encoded,carrier->MIB_FeMBMS[0],carrier->MIB_FeMBMS[1],carrier->MIB_FeMBMS[2],mib_fembms->message.systemFrameNumber_r14.buf[0],mib_fembms->message.systemFrameNumber_r14.bits_unused);
+    LOG_I(RRC,"Encoded MIB MBMS for frame %d (%p), bits %lu %x,%x,%x %x bits_unused %d\n",sfn_fembms>>2,carrier->MIB_FeMBMS,enc_rval.encoded,carrier->MIB_FeMBMS[0],carrier->MIB_FeMBMS[1],carrier->MIB_FeMBMS[2],mib_fembms->message->systemFrameNumber_r14.buf[0],mib_fembms->message->systemFrameNumber_r14.bits_unused);
     buffer_pP[0]=carrier->MIB_FeMBMS[0];
     buffer_pP[1]=carrier->MIB_FeMBMS[1];
     buffer_pP[2]=carrier->MIB_FeMBMS[2];

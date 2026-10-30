@@ -439,11 +439,11 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
 
   /* PCCH-Config is in SIB1 (DownlinkConfigCommonSIB) */
   DevAssert(cc->sib1);
-  DevAssert(cc->sib1->message.choice.c1);
-  NR_SIB1_t *sib1 = cc->sib1->message.choice.c1->choice.systemInformationBlockType1;
+  DevAssert(cc->sib1->message->choice.c1);
+  NR_SIB1_t *sib1 = cc->sib1->message->choice.c1->choice.systemInformationBlockType1;
   DevAssert(sib1);
   DevAssert(sib1->servingCellConfigCommon);
-  const NR_PCCH_Config_t *pcch = &sib1->servingCellConfigCommon->downlinkConfigCommon.pcch_Config;
+  const NR_PCCH_Config_t *pcch = sib1->servingCellConfigCommon->downlinkConfigCommon->pcch_Config;
 
   nr_mac_pcch_po_ctx_t po_ctx = {
       .frame = frameP,
@@ -531,7 +531,7 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
    * configured by pagingSearchSpace in PDCCH-ConfigCommon for DCI format 1_0 with CRC scrambled by P-RNTI
    * on the primary cell of the MCG. Aggregation levels and PDCCH candidates follow TS 38.213 §10.1 and Table 10.1-1;
    * PRBs used by this PDCCH are then reserved in the VRB map. */
-  NR_BWP_t *initial_dl_bwp = &scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
+  NR_BWP_t *initial_dl_bwp = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
   NR_sched_pdcch_t sched_pdcch = set_pdcch_structure(cell, ss, coreset, scc, initial_dl_bwp, cell->type0_PDCCH_CSS_config);
   int aggregation_level = 0;
   int CCEIndex = get_cce_index(cell, slotP, 0, &aggregation_level, beam.idx, ss, coreset, &sched_pdcch, 0.0f);

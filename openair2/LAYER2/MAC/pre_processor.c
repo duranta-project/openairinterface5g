@@ -36,7 +36,7 @@ int next_ue_list_looped(UE_list_t* list, int UE_id) {
 
 int get_rbg_size_last(module_id_t Mod_id, int CC_id) {
   const int RBGsize = get_min_rb_unit(Mod_id, CC_id);
-  const int N_RB_DL = to_prb(RC.mac[Mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  const int N_RB_DL = to_prb(RC.mac[Mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
   if (N_RB_DL == 15 || N_RB_DL == 25 || N_RB_DL == 50 || N_RB_DL == 75)
     return RBGsize - 1;
   else
@@ -51,7 +51,7 @@ bool try_allocate_harq_retransmission(module_id_t Mod_id,
                                       int start_rbg,
                                       int *n_rbg_sched,
                                       uint8_t *rbgalloc_mask) {
-  const int N_RBG = to_rbg(RC.mac[Mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  const int N_RBG = to_rbg(RC.mac[Mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
   const int RBGsize = get_min_rb_unit(Mod_id, CC_id);
   const int RBGlastsize = get_rbg_size_last(Mod_id, CC_id);
   UE_info_t *UE_info = &RC.mac[Mod_id]->UE_info;
@@ -148,7 +148,7 @@ int rr_dl_run(module_id_t Mod_id,
               void *data) {
   DevAssert(UE_list->head >= 0);
   DevAssert(n_rbg_sched > 0);
-  const int N_RBG = to_rbg(RC.mac[Mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  const int N_RBG = to_rbg(RC.mac[Mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
   const int RBGsize = get_min_rb_unit(Mod_id, CC_id);
   const int RBGlastsize = get_rbg_size_last(Mod_id, CC_id);
   UE_info_t *UE_info = &RC.mac[Mod_id]->UE_info;
@@ -280,7 +280,7 @@ int pf_wbcqi_dl_run(module_id_t Mod_id,
                     void *data) {
   DevAssert(UE_list->head >= 0);
   DevAssert(n_rbg_sched > 0);
-  const int N_RBG = to_rbg(RC.mac[Mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  const int N_RBG = to_rbg(RC.mac[Mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
   const int RBGsize = get_min_rb_unit(Mod_id, CC_id);
   const int RBGlastsize = get_rbg_size_last(Mod_id, CC_id);
   UE_info_t *UE_info = &RC.mac[Mod_id]->UE_info;
@@ -399,7 +399,7 @@ int mt_wbcqi_dl_run(module_id_t Mod_id,
                     void *data) {
   DevAssert(UE_list->head >= 0);
   DevAssert(n_rbg_sched > 0);
-  const int N_RBG = to_rbg(RC.mac[Mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  const int N_RBG = to_rbg(RC.mac[Mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
   const int RBGsize = get_min_rb_unit(Mod_id, CC_id);
   const int RBGlastsize = get_rbg_size_last(Mod_id, CC_id);
   UE_info_t *UE_info = &RC.mac[Mod_id]->UE_info;
@@ -583,7 +583,7 @@ dlsch_scheduler_pre_processor(module_id_t Mod_id,
                               sub_frame_t subframeP) {
   eNB_MAC_INST *mac = RC.mac[Mod_id];
   UE_info_t *UE_info = &mac->UE_info;
-  const int N_RBG = to_rbg(mac->common_channels[CC_id].mib->message.dl_Bandwidth);
+  const int N_RBG = to_rbg(mac->common_channels[CC_id].mib->message->dl_Bandwidth);
   const int RBGsize = get_min_rb_unit(Mod_id, CC_id);
 
   store_dlsch_buffer(Mod_id, CC_id, frameP, subframeP);

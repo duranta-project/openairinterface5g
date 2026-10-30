@@ -487,7 +487,7 @@ static void get_ue_cap_and_source_cg_from_ho_prep_info(uint8_t *buf,
              == NR_HandoverPreparationInformation__criticalExtensions__c1_PR_handoverPreparationInformation
       && hpi->criticalExtensions.choice.c1->choice.handoverPreparationInformation != NULL) {
     const NR_HandoverPreparationInformation_IEs_t *hpi_ie = hpi->criticalExtensions.choice.c1->choice.handoverPreparationInformation;
-    *ue_cap = get_nr_cap(&hpi_ie->ue_CapabilityRAT_List);
+    *ue_cap = get_nr_cap(hpi_ie->ue_CapabilityRAT_List);
     if (hpi_ie->sourceConfig)
       *src_cg = get_source_cellgroup(hpi_ie->sourceConfig);
   }

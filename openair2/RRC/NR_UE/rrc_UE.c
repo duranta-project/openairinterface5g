@@ -291,63 +291,63 @@ static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si,
 
   NR_SIB19_r17_t *sib19 = NULL;
   for (int i = 0; i < si->criticalExtensions.choice.systemInformation->sib_TypeAndInfo.list.count; i++) {
-    SystemInformation_IEs__sib_TypeAndInfo__Member *typeandinfo;
+    NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *typeandinfo;
     typeandinfo = si->criticalExtensions.choice.systemInformation->sib_TypeAndInfo.list.array[i];
     LOG_A(NR_RRC, "Found SIB%d\n", typeandinfo->present + 1);
     switch(typeandinfo->present) {
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib2:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2:
         SI_info->sib2_validity = true;
         nr_timer_start(&SI_info->sib2_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib3:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib3:
         SI_info->sib3_validity = true;
         nr_timer_start(&SI_info->sib3_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib4:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib4:
         SI_info->sib4_validity = true;
         nr_timer_start(&SI_info->sib4_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib5:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib5:
         SI_info->sib5_validity = true;
         nr_timer_start(&SI_info->sib5_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib6:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib6:
         SI_info->sib6_validity = true;
         nr_timer_start(&SI_info->sib6_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib7:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib7:
         SI_info->sib7_validity = true;
         nr_timer_start(&SI_info->sib7_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib8:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib8:
         SI_info->sib8_validity = true;
         nr_timer_start(&SI_info->sib8_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib9:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib9:
         SI_info->sib9_validity = true;
         nr_timer_start(&SI_info->sib9_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib10_v1610:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib10_v1610:
         SI_info->sib10_validity = true;
         nr_timer_start(&SI_info->sib10_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib11_v1610:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib11_v1610:
         SI_info->sib11_validity = true;
         nr_timer_start(&SI_info->sib11_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib12_v1610:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib12_v1610:
         SI_info->sib12_validity = true;
         nr_timer_start(&SI_info->sib12_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib13_v1610:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v1610:
         SI_info->sib13_validity = true;
         nr_timer_start(&SI_info->sib13_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib14_v1610:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib14_v1610:
         SI_info->sib14_validity = true;
         nr_timer_start(&SI_info->sib14_timer);
         break;
-      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700:
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1700:
         sib19 = typeandinfo->choice.sib19_v1700;
         if (g_log->log_component[NR_RRC].level >= OAILOG_DEBUG)
           xer_fprint(stdout, &asn_DEF_NR_SIB19_r17, (const void *)sib19);
@@ -403,8 +403,8 @@ static void nr_rrc_configure_default_SI(NR_UE_RRC_SI_INFO *SI_info,
     AssertFatal(nb_groups <= MAX_SI_GROUPS, "Exceeding max number of SI groups configured\n");
     for (int i = 0; i < nb_groups; i++) {
       NR_SchedulingInfo_t *schedulingInfo = si_SchedulingInfo->schedulingInfoList.list.array[i];
-      for (int j = 0; j < schedulingInfo->sib_MappingInfo.list.count; j++) {
-        NR_SIB_TypeInfo_t *sib_Type = schedulingInfo->sib_MappingInfo.list.array[j];
+      for (int j = 0; j < schedulingInfo->sib_MappingInfo->list.count; j++) {
+        NR_SIB_TypeInfo_t *sib_Type = schedulingInfo->sib_MappingInfo->list.array[j];
         SI_info->default_otherSI_map[i] |= 1 << sib_Type->type;
       }
     }
@@ -416,8 +416,8 @@ static void nr_rrc_configure_default_SI(NR_UE_RRC_SI_INFO *SI_info,
     AssertFatal(nb_groups <= MAX_SI_GROUPS, "Exceeding max number of SI groups configured\n");
     for (int i = 0; i < si_SchedulingInfo_v1700->schedulingInfoList2_r17.list.count; i++) {
       NR_SchedulingInfo2_r17_t *schedulingInfo2 = si_SchedulingInfo_v1700->schedulingInfoList2_r17.list.array[i];
-      for (int j = 0; j < schedulingInfo2->sib_MappingInfo_r17.list.count; j++) {
-        NR_SIB_TypeInfo_v1700_t *sib_TypeInfo_v1700 = schedulingInfo2->sib_MappingInfo_r17.list.array[j];
+      for (int j = 0; j < schedulingInfo2->sib_MappingInfo_r17->list.count; j++) {
+        NR_SIB_TypeInfo_v1700_t *sib_TypeInfo_v1700 = schedulingInfo2->sib_MappingInfo_r17->list.array[j];
         if (sib_TypeInfo_v1700->sibType_r17.present == NR_SIB_TypeInfo_v1700__sibType_r17_PR_type1_r17) {
           SI_info->default_otherSI_map[start_idx + i] |= 1 << (sib_TypeInfo_v1700->sibType_r17.choice.type1_r17 + 13);
         }
@@ -452,8 +452,8 @@ static void get_sib19_schedinfo(NR_UE_RRC_SI_INFO *SI_info, NR_SI_SchedulingInfo
     int count_v17 = si_SchedInfo_v1700->schedulingInfoList2_r17.list.count;
     for (int i = 0; i < count_v17; i++) {
       struct NR_SchedulingInfo2_r17 *schedulingInfo2 = si_SchedInfo_v1700->schedulingInfoList2_r17.list.array[i];
-      for (int j = 0; j < schedulingInfo2->sib_MappingInfo_r17.list.count; j++) {
-        struct NR_SIB_TypeInfo_v1700 *sib_TypeInfo_v1700 = schedulingInfo2->sib_MappingInfo_r17.list.array[j];
+      for (int j = 0; j < schedulingInfo2->sib_MappingInfo_r17->list.count; j++) {
+        struct NR_SIB_TypeInfo_v1700 *sib_TypeInfo_v1700 = schedulingInfo2->sib_MappingInfo_r17->list.array[j];
         if (sib_TypeInfo_v1700->sibType_r17.present == NR_SIB_TypeInfo_v1700__sibType_r17_PR_type1_r17) {
           if (sib_TypeInfo_v1700->sibType_r17.choice.type1_r17 == NR_SIB_TypeInfo_v1700__sibType_r17__type1_r17_sibType19) {
             SI_info->sib19_periodicity = 8 << schedulingInfo2->si_Periodicity_r17;
@@ -477,26 +477,26 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   /* selected_plmn_identity is one-indexed */
   AssertFatal(rrc->selected_plmn_identity > 0, "No PLMN selected");
   /* only one PLMN info block is currently supported*/
-  NR_PLMN_Identity_t *plmn = sib1->cellAccessRelatedInfo.plmn_IdentityInfoList.list.array[0]
+  NR_PLMN_Identity_t *plmn = sib1->cellAccessRelatedInfo->plmn_IdentityInfoList->list.array[0]
                                  ->plmn_IdentityList.list.array[rrc->selected_plmn_identity - 1];
 
   /* Convert MCC */
   plmn_id->mcc = (*plmn->mcc->list.array[0]) * 100 + (*plmn->mcc->list.array[1]) * 10 + (*plmn->mcc->list.array[2]);
 
-  plmn_id->mnc_digit_length = plmn->mnc.list.count;
+  plmn_id->mnc_digit_length = plmn->mnc->list.count;
 
   /* Convert MNC (2 or 3 digits) */
-  if (plmn->mnc.list.count == 3) {
-    plmn_id->mnc = (*plmn->mnc.list.array[0]) * 100 + (*plmn->mnc.list.array[1]) * 10 + (*plmn->mnc.list.array[2]);
+  if (plmn->mnc->list.count == 3) {
+    plmn_id->mnc = (*plmn->mnc->list.array[0]) * 100 + (*plmn->mnc->list.array[1]) * 10 + (*plmn->mnc->list.array[2]);
   } else {
-    plmn_id->mnc = (*plmn->mnc.list.array[0]) * 10 + (*plmn->mnc.list.array[1]);
+    plmn_id->mnc = (*plmn->mnc->list.array[0]) * 10 + (*plmn->mnc->list.array[1]);
   }
 
   nr_ue_nas_t *nas = get_ue_nas_info(rrc->ue_id);
   nas->sn_id = plmn_id;
 
   /* Extract 36-bit NR Cell Identity */
-  const NR_CellIdentity_t *ci = &sib1->cellAccessRelatedInfo.plmn_IdentityInfoList.list.array[0]->cellIdentity;
+  const NR_CellIdentity_t *ci = &sib1->cellAccessRelatedInfo->plmn_IdentityInfoList->list.array[0]->cellIdentity;
   rrc->cell_identity = BIT_STRING_to_uint64(ci);
 
   nr_timer_start(&SI_info->sib1_timer);
@@ -515,7 +515,7 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   }
 
   AssertFatal(sib1->servingCellConfigCommon, "configuration issue in SIB1\n");
-  SI_info->scs = sib1->servingCellConfigCommon->downlinkConfigCommon.initialDownlinkBWP.genericParameters.subcarrierSpacing;
+  SI_info->scs = sib1->servingCellConfigCommon->downlinkConfigCommon->initialDownlinkBWP->genericParameters->subcarrierSpacing;
   SI_info->si_windowlength = (sib1->si_SchedulingInfo) ? sib1->si_SchedulingInfo->si_WindowLength : 0;
   // configure default SI
   nr_rrc_configure_default_SI(SI_info, sib1->si_SchedulingInfo, si_SchedInfo_v1700);
@@ -1315,8 +1315,8 @@ static void update_nr_measobj(NR_MeasObjectNR_t *source, NR_MeasObjectNR_t *targ
   else
     asn1cFreeStruc(asn_DEF_NR_SSB_MTC2, target->smtc2);
   UPDATE_IE(target->refFreqCSI_RS, source->refFreqCSI_RS, NR_ARFCN_ValueNR_t);
-  if (source->referenceSignalConfig.ssb_ConfigMobility)
-    update_ssb_configmob(source->referenceSignalConfig.ssb_ConfigMobility, target->referenceSignalConfig.ssb_ConfigMobility);
+  if (source->referenceSignalConfig->ssb_ConfigMobility)
+    update_ssb_configmob(source->referenceSignalConfig->ssb_ConfigMobility, target->referenceSignalConfig->ssb_ConfigMobility);
   UPDATE_IE(target->absThreshSS_BlocksConsolidation, source->absThreshSS_BlocksConsolidation, NR_ThresholdNR_t);
   UPDATE_IE(target->absThreshCSI_RS_Consolidation, source->absThreshCSI_RS_Consolidation, NR_ThresholdNR_t);
   UPDATE_IE(target->nrofSS_BlocksToAverage, source->nrofSS_BlocksToAverage, long);
@@ -1423,12 +1423,12 @@ static void handle_quantityconfig(rrcPerNB_t *rrc, NR_QuantityConfig_t *quantity
       rrc->QuantityConfig[i]->quantityConfigCell = quantityNR->quantityConfigCell;
       // TODO: It remains to compute ssb_filter_coeff_rsrp and csi_RS_filter_coeff_rsrp for multiple quantityConfig
       // TS 38.331 - 5.5.3.2 Layer 3 filtering
-      NR_QuantityConfigRS_t *qcc = &quantityNR->quantityConfigCell;
+      NR_QuantityConfigRS_t *qcc = quantityNR->quantityConfigCell;
       l3_measurements_t *l3_measurements = &rrc->l3_measurements;
-      if (qcc->ssb_FilterConfig.filterCoefficientRSRP)
-        l3_measurements->ssb_filter_coeff_rsrp = 1. / pow(2, (*qcc->ssb_FilterConfig.filterCoefficientRSRP) / 4);
-      if (qcc->csi_RS_FilterConfig.filterCoefficientRSRP)
-        l3_measurements->csi_RS_filter_coeff_rsrp = 1. / pow(2, (*qcc->csi_RS_FilterConfig.filterCoefficientRSRP) / 4);
+      if (qcc->ssb_FilterConfig->filterCoefficientRSRP)
+        l3_measurements->ssb_filter_coeff_rsrp = 1. / pow(2, (*qcc->ssb_FilterConfig->filterCoefficientRSRP) / 4);
+      if (qcc->csi_RS_FilterConfig->filterCoefficientRSRP)
+        l3_measurements->csi_RS_filter_coeff_rsrp = 1. / pow(2, (*qcc->csi_RS_FilterConfig->filterCoefficientRSRP) / 4);
       if (quantityNR->quantityConfigRS_Index)
         UPDATE_IE(rrc->QuantityConfig[i]->quantityConfigRS_Index, quantityNR->quantityConfigRS_Index, struct NR_QuantityConfigRS);
     }
@@ -1524,7 +1524,7 @@ static void start_periodical_report(rrcPerNB_t *rrc, NR_PeriodicalReportConfig_t
                     true);
 
   params->reports_sent = 0;
-  params->report_rsrp = periodical_config->reportQuantityCell.rsrp;
+  params->report_rsrp = periodical_config->reportQuantityCell->rsrp;
   params->max_report_cells = periodical_config->maxReportCells;
 
   // Start the periodic report timer
@@ -2092,17 +2092,17 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
   }
 
   NR_UE_RRC_SI_INFO *SI_info = &rrc->perNB[gNB_index].SInfo;
-  bool barred = rrc->access_barred || bcch_message->message.choice.mib->cellBarred == NR_MIB__cellBarred_barred;
+  bool barred = rrc->access_barred || bcch_message->message->choice.mib->cellBarred == NR_MIB__cellBarred_barred;
   int get_sib = 0;
   if (IS_SA_MODE(get_softmodem_params())
       && !SI_info->sib_pending
-      && bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib
+      && bcch_message->message->present == NR_BCCH_BCH_MessageType_PR_mib
       && !barred
       && rrc->nrRrcState != RRC_STATE_DETACH_NR) {
     // to schedule MAC to get SI if required
     get_sib = check_si_status(SI_info);
   }
-  if (bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib) {
+  if (bcch_message->message->present == NR_BCCH_BCH_MessageType_PR_mib) {
     nr_mac_rrc_message_t rrc_msg = {0};
     rrc_msg.payload_type = NR_MAC_RRC_CONFIG_MIB;
     nr_mac_rrc_config_mib_t *config_mib = &rrc_msg.payload.config_mib;
@@ -2272,16 +2272,18 @@ static void nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(NR_UE_RRC_INST_t *rrc,
     xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message,(void *)bcch_message);
   }
 
-  if (bcch_message->message.present == NR_BCCH_DL_SCH_MessageType_PR_c1) {
-    switch (bcch_message->message.choice.c1->present) {
+  if (bcch_message->message->present == NR_BCCH_DL_SCH_MessageType_PR_c1) {
+    switch (bcch_message->message->choice.c1->present) {
       case NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1:
-        nr_rrc_process_sib1(rrc, SI_info, bcch_message->message.choice.c1->choice.systemInformationBlockType1, false);
+        nr_rrc_process_sib1(rrc, SI_info, bcch_message->message->choice.c1->choice.systemInformationBlockType1, false);
         // mac layer will free after usage the sib1
-        bcch_message->message.choice.c1->choice.systemInformationBlockType1 = NULL;
+        if (!bcch_message->message)
+          bcch_message->message = calloc_or_fail(1, sizeof(*bcch_message->message));
+        bcch_message->message->choice.c1->choice.systemInformationBlockType1 = NULL;
         break;
       case NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformation:
         RRCLOG_I("%d:%d Decoding SI\n", frame, slot);
-        NR_SystemInformation_t *si = bcch_message->message.choice.c1->choice.systemInformation;
+        NR_SystemInformation_t *si = bcch_message->message->choice.c1->choice.systemInformation;
         nr_decode_SI(SI_info, si, rrc, hfn, frame);
         break;
       case NR_BCCH_DL_SCH_MessageType__c1_PR_NOTHING:
@@ -2413,7 +2415,7 @@ static void nr_rrc_process_rrcsetup(NR_UE_RRC_INST_t *rrc, const NR_RRCSetup_t *
   if (!ret)
     return;
   // perform the radio bearer configuration procedure in accordance with the received radioBearerConfig
-  nr_rrc_ue_process_RadioBearerConfig(rrc, &rrcSetup->criticalExtensions.choice.rrcSetup->radioBearerConfig);
+  nr_rrc_ue_process_RadioBearerConfig(rrc, rrcSetup->criticalExtensions.choice.rrcSetup->radioBearerConfig);
 
   // TODO (not handled) if stored, discard the cell reselection priority information provided by
   // the cellReselectionPriorities or inherited from another RAT
@@ -2503,8 +2505,8 @@ static int8_t nr_rrc_ue_decode_ccch(NR_UE_RRC_INST_t *rrc, const NRRrcMacCcchDat
     return -1;
    }
 
-   if (dl_ccch_msg->message.present == NR_DL_CCCH_MessageType_PR_c1) {
-     switch (dl_ccch_msg->message.choice.c1->present) {
+   if (dl_ccch_msg->message->present == NR_DL_CCCH_MessageType_PR_c1) {
+     switch (dl_ccch_msg->message->choice.c1->present) {
        case NR_DL_CCCH_MessageType__c1_PR_NOTHING:
          RRCLOG_I("Received PR_NOTHING on DL-CCCH-Message\n");
          rval = 0;
@@ -2512,13 +2514,13 @@ static int8_t nr_rrc_ue_decode_ccch(NR_UE_RRC_INST_t *rrc, const NRRrcMacCcchDat
 
        case NR_DL_CCCH_MessageType__c1_PR_rrcReject:
          RRCLOG_W("Logical Channel DL-CCCH (SRB0), Received RRCReject \n");
-         nr_rrc_process_rrcreject(rrc, dl_ccch_msg->message.choice.c1->choice.rrcReject);
+         nr_rrc_process_rrcreject(rrc, dl_ccch_msg->message->choice.c1->choice.rrcReject);
          rval = 0;
          break;
 
        case NR_DL_CCCH_MessageType__c1_PR_rrcSetup:
          RRCLOG_I("[RAPROC] Logical Channel DL-CCCH (SRB0), Received NR_RRCSetup\n");
-         nr_rrc_process_rrcsetup(rrc, dl_ccch_msg->message.choice.c1->choice.rrcSetup);
+         nr_rrc_process_rrcsetup(rrc, dl_ccch_msg->message->choice.c1->choice.rrcSetup);
          rval = 0;
          break;
 
@@ -2583,32 +2585,32 @@ static void nr_rrc_ue_process_securityModeCommand(NR_UE_RRC_INST_t *rrc,
         securityModeCommand->criticalExtensions.present);
 
   NR_SecurityConfigSMC_t *securityConfigSMC =
-      &securityModeCommand->criticalExtensions.choice.securityModeCommand->securityConfigSMC;
+      securityModeCommand->criticalExtensions.choice.securityModeCommand->securityConfigSMC;
 
-  switch (securityConfigSMC->securityAlgorithmConfig.cipheringAlgorithm) {
+  switch (securityConfigSMC->securityAlgorithmConfig->cipheringAlgorithm) {
     case NR_CipheringAlgorithm_nea0:
     case NR_CipheringAlgorithm_nea1:
     case NR_CipheringAlgorithm_nea2:
-      RRCLOG_I("Security algorithm is set to nea%ld\n", securityConfigSMC->securityAlgorithmConfig.cipheringAlgorithm);
+      RRCLOG_I("Security algorithm is set to nea%ld\n", securityConfigSMC->securityAlgorithmConfig->cipheringAlgorithm);
       break;
     default:
       AssertFatal(0, "Security algorithm not known/supported\n");
   }
-  rrc->cipheringAlgorithm = securityConfigSMC->securityAlgorithmConfig.cipheringAlgorithm;
+  rrc->cipheringAlgorithm = securityConfigSMC->securityAlgorithmConfig->cipheringAlgorithm;
 
   rrc->integrityProtAlgorithm = 0;
-  if (securityConfigSMC->securityAlgorithmConfig.integrityProtAlgorithm != NULL) {
-    switch (*securityConfigSMC->securityAlgorithmConfig.integrityProtAlgorithm) {
+  if (securityConfigSMC->securityAlgorithmConfig->integrityProtAlgorithm != NULL) {
+    switch (*securityConfigSMC->securityAlgorithmConfig->integrityProtAlgorithm) {
       case NR_IntegrityProtAlgorithm_nia0:
       case NR_IntegrityProtAlgorithm_nia1:
       case NR_IntegrityProtAlgorithm_nia2:
         RRCLOG_I("Integrity protection algorithm is set to nia%ld\n",
-                 *securityConfigSMC->securityAlgorithmConfig.integrityProtAlgorithm);
+                 *securityConfigSMC->securityAlgorithmConfig->integrityProtAlgorithm);
         break;
       default:
         AssertFatal(0, "Integrity algorithm not known/supported\n");
     }
-    rrc->integrityProtAlgorithm = *securityConfigSMC->securityAlgorithmConfig.integrityProtAlgorithm;
+    rrc->integrityProtAlgorithm = *securityConfigSMC->securityAlgorithmConfig->integrityProtAlgorithm;
   }
 
   nr_pdcp_entity_security_keys_and_algos_t security_parameters;
@@ -2628,8 +2630,10 @@ static void nr_rrc_ue_process_securityModeCommand(NR_UE_RRC_INST_t *rrc,
 
   NR_UL_DCCH_Message_t ul_dcch_msg = {0};
 
-  ul_dcch_msg.message.present = NR_UL_DCCH_MessageType_PR_c1;
-  asn1cCalloc(ul_dcch_msg.message.choice.c1, c1);
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present = NR_UL_DCCH_MessageType_PR_c1;
+  asn1cCalloc(ul_dcch_msg.message->choice.c1, c1);
 
   // the SecurityModeCommand message needs to pass the integrity protection check
   // for the UE to declare AS security to be activated
@@ -2801,14 +2805,20 @@ static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECa
   NR_UL_DCCH_Message_t ul_dcch_msg = {0};
   RRCLOG_I("Receiving from SRB1 (DL-DCCH), Processing UECapabilityEnquiry\n");
 
-  ul_dcch_msg.message.present = NR_UL_DCCH_MessageType_PR_c1;
-  asn1cCalloc(ul_dcch_msg.message.choice.c1, c1);
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present = NR_UL_DCCH_MessageType_PR_c1;
+  asn1cCalloc(ul_dcch_msg.message->choice.c1, c1);
   c1->present = NR_UL_DCCH_MessageType__c1_PR_ueCapabilityInformation;
   asn1cCalloc(c1->choice.ueCapabilityInformation, info);
   info->rrc_TransactionIdentifier = UECapabilityEnquiry->rrc_TransactionIdentifier;
   if (!rrc->UECap.UE_NR_Capability) {
     rrc->UECap.UE_NR_Capability = CALLOC(1, sizeof(NR_UE_NR_Capability_t));
-    asn1cSequenceAdd(rrc->UECap.UE_NR_Capability->rf_Parameters.supportedBandListNR.list, NR_BandNR_t, nr_bandnr);
+    rrc->UECap.UE_NR_Capability->pdcp_Parameters = calloc_or_fail(1, sizeof(*rrc->UECap.UE_NR_Capability->pdcp_Parameters));
+    rrc->UECap.UE_NR_Capability->phy_Parameters = calloc_or_fail(1, sizeof(*rrc->UECap.UE_NR_Capability->phy_Parameters));
+    if (!rrc->UECap.UE_NR_Capability->rf_Parameters)
+      rrc->UECap.UE_NR_Capability->rf_Parameters = calloc_or_fail(1, sizeof(*rrc->UECap.UE_NR_Capability->rf_Parameters));
+    asn1cSequenceAdd(rrc->UECap.UE_NR_Capability->rf_Parameters->supportedBandListNR.list, NR_BandNR_t, nr_bandnr);
     nr_bandnr->bandNR = 1;
   }
   xer_fprint(stdout, &asn_DEF_NR_UE_NR_Capability, (void *)rrc->UECap.UE_NR_Capability);
@@ -2826,14 +2836,14 @@ static void nr_rrc_ue_process_ueCapabilityEnquiry(NR_UE_RRC_INST_t *rrc, NR_UECa
               "UECapabilityEnquiry->criticalExtensions.present (%d) != UECapabilityEnquiry__criticalExtensions_PR_c1 (%d)\n",
               UECapabilityEnquiry->criticalExtensions.present,NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry);
 
-  NR_UECapabilityInformation_t *ueCapabilityInformation = ul_dcch_msg.message.choice.c1->choice.ueCapabilityInformation;
+  NR_UECapabilityInformation_t *ueCapabilityInformation = ul_dcch_msg.message->choice.c1->choice.ueCapabilityInformation;
   ueCapabilityInformation->criticalExtensions.present = NR_UECapabilityInformation__criticalExtensions_PR_ueCapabilityInformation;
   asn1cCalloc(ueCapabilityInformation->criticalExtensions.choice.ueCapabilityInformation, infoIE);
   asn1cCalloc(infoIE->ue_CapabilityRAT_ContainerList, UEcapList);
   UEcapList->list.count = 0;
 
-  for (int i = 0; i < ueCapabilityEnquiry_ie->ue_CapabilityRAT_RequestList.list.count; i++) {
-    if (ueCapabilityEnquiry_ie->ue_CapabilityRAT_RequestList.list.array[i]->rat_Type == NR_RAT_Type_nr) {
+  for (int i = 0; i < ueCapabilityEnquiry_ie->ue_CapabilityRAT_RequestList->list.count; i++) {
+    if (ueCapabilityEnquiry_ie->ue_CapabilityRAT_RequestList->list.array[i]->rat_Type == NR_RAT_Type_nr) {
       /* RAT Container */
       NR_UE_CapabilityRAT_Container_t *ue_CapabilityRAT_Container = CALLOC(1, sizeof(NR_UE_CapabilityRAT_Container_t));
       ue_CapabilityRAT_Container->rat_Type = NR_RAT_Type_nr;
@@ -2882,9 +2892,9 @@ static int nr_rrc_ue_decode_dcch(NR_UE_RRC_INST_t *rrc,
     xer_fprint(stdout, &asn_DEF_NR_DL_DCCH_Message, (void *)dl_dcch_msg);
   }
 
-  switch (dl_dcch_msg->message.present) {
+  switch (dl_dcch_msg->message->present) {
     case NR_DL_DCCH_MessageType_PR_c1: {
-      struct NR_DL_DCCH_MessageType__c1 *c1 = dl_dcch_msg->message.choice.c1;
+      struct NR_DL_DCCH_MessageType__c1 *c1 = dl_dcch_msg->message->choice.c1;
       switch (c1->present) {
         case NR_DL_DCCH_MessageType__c1_PR_NOTHING:
           RRCLOG_I("Received PR_NOTHING on DL-DCCH-Message\n");
@@ -2924,7 +2934,7 @@ static int nr_rrc_ue_decode_dcch(NR_UE_RRC_INST_t *rrc,
         case NR_DL_DCCH_MessageType__c1_PR_rrcRelease:
           RRCLOG_I("Received RRCRelease (gNB %d)\n", gNB_indexP);
           // delay the actions 60 ms from the moment the RRCRelease message was received
-          UPDATE_IE(rrc->RRCRelease, dl_dcch_msg->message.choice.c1->choice.rrcRelease, NR_RRCRelease_t);
+          UPDATE_IE(rrc->RRCRelease, dl_dcch_msg->message->choice.c1->choice.rrcRelease, NR_RRCRelease_t);
           nr_timer_setup(&rrc->release_timer, 60, 10); // 10ms step
           nr_timer_start(&rrc->release_timer);
           break;
@@ -3048,7 +3058,7 @@ static void setup_meas_trigger(l3_measurements_t *l3_measurements,
                     event_config->reportInterval,
                     neighbor_cell_valid);
 
-  params->report_rsrp = event_config->reportQuantityCell.rsrp;
+  params->report_rsrp = event_config->reportQuantityCell->rsrp;
   params->max_report_cells = event_config->maxReportCells;
 }
 

@@ -776,7 +776,7 @@ int rrc_gNB_process_NGAP_DOWNLINK_NAS(MessageDef *msg_p, instance_t instance)
 
 void rrc_gNB_send_NGAP_UPLINK_NAS(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const NR_UL_DCCH_Message_t *const ul_dcch_msg)
 {
-  NR_ULInformationTransfer_t *ulInformationTransfer = ul_dcch_msg->message.choice.c1->choice.ulInformationTransfer;
+  NR_ULInformationTransfer_t *ulInformationTransfer = ul_dcch_msg->message->choice.c1->choice.ulInformationTransfer;
 
   NR_ULInformationTransfer__criticalExtensions_PR p = ulInformationTransfer->criticalExtensions.present;
   if (p != NR_ULInformationTransfer__criticalExtensions_PR_ulInformationTransfer) {

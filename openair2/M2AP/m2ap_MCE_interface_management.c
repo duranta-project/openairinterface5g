@@ -13,6 +13,11 @@
 #include "m2ap_MCE_interface_management.h"
 
 #include "conversions.h"
+#include "M2AP_ECGI.h"
+#include "M2AP_ENB-ID.h"
+#include "M2AP_MBMSsessionListPerPMCH-Item.h"
+#include "M2AP_PMCH-Configuration.h"
+#include "M2AP_ProtocolIE-Container.h"
 
 extern m2ap_setup_req_t *m2ap_mce_data_from_enb;
 
@@ -41,10 +46,12 @@ int MCE_send_MBMS_SESSION_START_REQUEST(instance_t instance /*, sctp_assoc_t ass
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_initiatingMessage;
   //pdu.choice.initiatingMessage = (M2AP_InitiatingMessage_t *)calloc(1, sizeof(M2AP_InitiatingMessage_t));
-  pdu.choice.initiatingMessage.procedureCode = M2AP_ProcedureCode_id_sessionStart;
-  pdu.choice.initiatingMessage.criticality   = M2AP_Criticality_reject;
-  pdu.choice.initiatingMessage.value.present = M2AP_InitiatingMessage__value_PR_SessionStartRequest;
-  out = &pdu.choice.initiatingMessage.value.choice.SessionStartRequest;  
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = M2AP_ProcedureCode_id_sessionStart;
+  pdu.choice.initiatingMessage->criticality   = M2AP_Criticality_reject;
+  pdu.choice.initiatingMessage->value.present = M2AP_InitiatingMessage__value_PR_SessionStartRequest;
+  out = &pdu.choice.initiatingMessage->value.choice.SessionStartRequest;  
 
   /* mandatory */
   /* c1. MCE_MBMS_M2AP_ID (integer value) */ //long
@@ -53,7 +60,9 @@ int MCE_send_MBMS_SESSION_START_REQUEST(instance_t instance /*, sctp_assoc_t ass
   ie->criticality               = M2AP_Criticality_reject;
   ie->value.present             = M2AP_SessionStartRequest_Ies__value_PR_MCE_MBMS_M2AP_ID;
   //ie->value.choice.MCE_MBMS_M2AP_ID = 0;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   /* c2. TMGI (integrer value) */
@@ -67,7 +76,7 @@ int MCE_send_MBMS_SESSION_START_REQUEST(instance_t instance /*, sctp_assoc_t ass
  
                        //&ie->choice.TMGI.pLMN_Identity);
   //INT16_TO_OCTET_STRING(0,&ie->choice.TMGI.serviceId);
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   /* c3. MBMS_Session_ID (integrer value) */ //OCTET_STRING
@@ -77,7 +86,7 @@ int MCE_send_MBMS_SESSION_START_REQUEST(instance_t instance /*, sctp_assoc_t ass
 	  ie->criticality               = M2AP_Criticality_reject;
 	  ie->value.present             = M2AP_SessionStartRequest_Ies__value_PR_MBMS_Session_ID;
   	  //INT16_TO_OCTET_STRING(0,&ie->choice.MBMS_Session_ID);
-	  asn1cSeqAdd(&out->protocolIEs.list, ie);
+	  asn1cSeqAdd(&out->protocolIEs->list, ie);
   }
 
   /* mandatory */
@@ -90,7 +99,7 @@ int MCE_send_MBMS_SESSION_START_REQUEST(instance_t instance /*, sctp_assoc_t ass
                          //strlen(m2ap_setup_resp->MCEname));
   //INT16_TO_OCTET_STRING(0,&ie->choice.TMGI.serviceId);
   ie->value.choice.MBMS_Service_Area.buf = calloc(3,sizeof(uint8_t));
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
 
   /* mandatory */
@@ -108,7 +117,7 @@ int MCE_send_MBMS_SESSION_START_REQUEST(instance_t instance /*, sctp_assoc_t ass
   OCTET_STRING_fromBuf(&ie->value.choice.TNL_Information.iPMCAddress, "1204",strlen("1234"));
   OCTET_STRING_fromBuf(&ie->value.choice.TNL_Information.iPSourceAddress, "1204",strlen("1234"));
   
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   if(0){
 	 // /* optional */
@@ -139,15 +148,15 @@ int MCE_handle_MBMS_SESSION_START_RESPONSE(instance_t instance, sctp_assoc_t ass
 
    AssertFatal(pdu->present == M2AP_M2AP_PDU_PR_successfulOutcome,
 	       "pdu->present != M2AP_M2AP_PDU_PR_successfulOutcome\n");
-   AssertFatal(pdu->choice.successfulOutcome.procedureCode  == M2AP_ProcedureCode_id_sessionStart,
+   AssertFatal(pdu->choice.successfulOutcome->procedureCode  == M2AP_ProcedureCode_id_sessionStart,
 	       "pdu->choice.successfulOutcome->procedureCode != M2AP_ProcedureCode_id_sessionStart\n");
-   AssertFatal(pdu->choice.successfulOutcome.criticality  == M2AP_Criticality_reject,
+   AssertFatal(pdu->choice.successfulOutcome->criticality  == M2AP_Criticality_reject,
 	       "pdu->choice.successfulOutcome->criticality != M2AP_Criticality_reject\n");
-   AssertFatal(pdu->choice.successfulOutcome.value.present  == M2AP_SuccessfulOutcome__value_PR_SessionStartResponse,
+   AssertFatal(pdu->choice.successfulOutcome->value.present  == M2AP_SuccessfulOutcome__value_PR_SessionStartResponse,
 	       "pdu->choice.successfulOutcome.value.present != M2AP_SuccessfulOutcome__value_PR_SessionStartResponse\n");
 
 
-  M2AP_SessionStartResponse_t    *in = &pdu->choice.successfulOutcome.value.choice.SessionStartResponse;
+  M2AP_SessionStartResponse_t    *in = &pdu->choice.successfulOutcome->value.choice.SessionStartResponse;
   M2AP_SessionStartResponse_Ies_t  *ie;
   int MCE_MBMS_M2AP_ID=-1;
   int ENB_MBMS_M2AP_ID=-1;
@@ -156,9 +165,9 @@ int MCE_handle_MBMS_SESSION_START_RESPONSE(instance_t instance, sctp_assoc_t ass
   MessageDef *msg_g = itti_alloc_new_message(TASK_M2AP_MCE, 0,M2AP_MBMS_SESSION_START_RESP); //TODO
 
   LOG_D(M2AP, "M2AP: SessionStart-Resp: protocolIEs.list.count %d\n",
-         in->protocolIEs.list.count);
-  for (int i=0;i < in->protocolIEs.list.count; i++) {
-     ie = in->protocolIEs.list.array[i];
+         in->protocolIEs->list.count);
+  for (int i=0;i < in->protocolIEs->list.count; i++) {
+     ie = in->protocolIEs->list.array[i];
      switch (ie->id) {
      case M2AP_ProtocolIE_ID_id_MCE_MBMS_M2AP_ID:
        AssertFatal(ie->criticality == M2AP_Criticality_reject,
@@ -218,10 +227,12 @@ int MCE_send_MBMS_SESSION_STOP_REQUEST(instance_t instance, m2ap_session_stop_re
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_initiatingMessage;
   //pdu.choice.initiatingMessage = (M2AP_InitiatingMessage_t *)calloc(1, sizeof(M2AP_InitiatingMessage_t));
-  pdu.choice.initiatingMessage.procedureCode = M2AP_ProcedureCode_id_sessionStop;
-  pdu.choice.initiatingMessage.criticality   = M2AP_Criticality_reject;
-  pdu.choice.initiatingMessage.value.present = M2AP_InitiatingMessage__value_PR_SessionStopRequest;
-  out = &pdu.choice.initiatingMessage.value.choice.SessionStopRequest; 
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = M2AP_ProcedureCode_id_sessionStop;
+  pdu.choice.initiatingMessage->criticality   = M2AP_Criticality_reject;
+  pdu.choice.initiatingMessage->value.present = M2AP_InitiatingMessage__value_PR_SessionStopRequest;
+  out = &pdu.choice.initiatingMessage->value.choice.SessionStopRequest; 
 
   /* mandatory */
   /* c1. MCE_MBMS_M2AP_ID (integer value) */ //long
@@ -230,7 +241,9 @@ int MCE_send_MBMS_SESSION_STOP_REQUEST(instance_t instance, m2ap_session_stop_re
   ie->criticality               = M2AP_Criticality_reject;
   ie->value.present             = M2AP_SessionStopRequest_Ies__value_PR_MCE_MBMS_M2AP_ID;
   ie->value.choice.MCE_MBMS_M2AP_ID = 0;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   /* c2. ENB_MBMS_M2AP_ID (integer value) */ //long
@@ -240,7 +253,7 @@ int MCE_send_MBMS_SESSION_STOP_REQUEST(instance_t instance, m2ap_session_stop_re
   ie->value.present             = M2AP_SessionStopRequest_Ies__value_PR_ENB_MBMS_M2AP_ID;
   ie->value.choice.ENB_MBMS_M2AP_ID = 0;
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
 
   /* encode */
@@ -263,15 +276,15 @@ int MCE_handle_MBMS_SESSION_STOP_RESPONSE(instance_t instance, sctp_assoc_t asso
 
    AssertFatal(pdu->present == M2AP_M2AP_PDU_PR_successfulOutcome,
 	       "pdu->present != M2AP_M2AP_PDU_PR_successfulOutcome\n");
-   AssertFatal(pdu->choice.successfulOutcome.procedureCode  == M2AP_ProcedureCode_id_sessionStop,
+   AssertFatal(pdu->choice.successfulOutcome->procedureCode  == M2AP_ProcedureCode_id_sessionStop,
 	       "pdu->choice.successfulOutcome->procedureCode != M2AP_ProcedureCode_id_sessionStop\n");
-   AssertFatal(pdu->choice.successfulOutcome.criticality  == M2AP_Criticality_reject,
+   AssertFatal(pdu->choice.successfulOutcome->criticality  == M2AP_Criticality_reject,
 	       "pdu->choice.successfulOutcome->criticality != M2AP_Criticality_reject\n");
-   AssertFatal(pdu->choice.successfulOutcome.value.present  == M2AP_SuccessfulOutcome__value_PR_SessionStopResponse,
+   AssertFatal(pdu->choice.successfulOutcome->value.present  == M2AP_SuccessfulOutcome__value_PR_SessionStopResponse,
 	       "pdu->choice.successfulOutcome->value.present != M2AP_SuccessfulOutcome__value_PR_SessionStopResponse\n");
 
 
-  M2AP_SessionStopResponse_t    *in = &pdu->choice.successfulOutcome.value.choice.SessionStopResponse;
+  M2AP_SessionStopResponse_t    *in = &pdu->choice.successfulOutcome->value.choice.SessionStopResponse;
   M2AP_SessionStopResponse_Ies_t  *ie;
   int MCE_MBMS_M2AP_ID=-1;
   int ENB_MBMS_M2AP_ID=-1;
@@ -280,9 +293,9 @@ int MCE_handle_MBMS_SESSION_STOP_RESPONSE(instance_t instance, sctp_assoc_t asso
   MessageDef *msg_g = itti_alloc_new_message(TASK_M2AP_MCE, 0,M2AP_MBMS_SESSION_STOP_RESP); //TODO
 
   LOG_D(M2AP, "M2AP: SessionStop-Resp: protocolIEs.list.count %d\n",
-         in->protocolIEs.list.count);
-  for (int i=0;i < in->protocolIEs.list.count; i++) {
-     ie = in->protocolIEs.list.array[i];
+         in->protocolIEs->list.count);
+  for (int i=0;i < in->protocolIEs->list.count; i++) {
+     ie = in->protocolIEs->list.array[i];
      switch (ie->id) {
      case M2AP_ProtocolIE_ID_id_MCE_MBMS_M2AP_ID:
        AssertFatal(ie->criticality == M2AP_Criticality_reject,
@@ -361,10 +374,12 @@ int MCE_send_MBMS_SCHEDULING_INFORMATION(instance_t instance, /*sctp_assoc_t ass
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_initiatingMessage;
   //pdu.choice.initiatingMessage = (M2AP_InitiatingMessage_t *)calloc(1, sizeof(M2AP_InitiatingMessage_t));
-  pdu.choice.initiatingMessage.procedureCode = M2AP_ProcedureCode_id_mbmsSchedulingInformation;
-  pdu.choice.initiatingMessage.criticality   = M2AP_Criticality_reject;
-  pdu.choice.initiatingMessage.value.present = M2AP_InitiatingMessage__value_PR_MbmsSchedulingInformation;
-  out = &pdu.choice.initiatingMessage.value.choice.MbmsSchedulingInformation; 
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = M2AP_ProcedureCode_id_mbmsSchedulingInformation;
+  pdu.choice.initiatingMessage->criticality   = M2AP_Criticality_reject;
+  pdu.choice.initiatingMessage->value.present = M2AP_InitiatingMessage__value_PR_MbmsSchedulingInformation;
+  out = &pdu.choice.initiatingMessage->value.choice.MbmsSchedulingInformation; 
 
   /* mandatory */
   /* c1. MCCH_Update_Time */ //long
@@ -375,7 +390,9 @@ int MCE_send_MBMS_SCHEDULING_INFORMATION(instance_t instance, /*sctp_assoc_t ass
   //ie->value.choice.MCCH_Update_Time =  ; 
   ie->value.choice.MCCH_Update_Time = m2ap_mbms_scheduling_information->mcch_update_time;
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);  
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);  
 
   /* mandatory */
   /* c2. MBSFN_Area_Configuration_List */ //long
@@ -403,12 +420,14 @@ int MCE_send_MBMS_SCHEDULING_INFORMATION(instance_t instance, /*sctp_assoc_t ass
       	M2AP_PMCH_Configuration_Item_t * pmch_configuration_item;/* = (M2AP_PMCH_Configuration_Item_t*)calloc(1,sizeof(M2AP_PMCH_Configuration_Item_t));*/
       	pmch_configuration_item = &pmch_configuration_item_ies->value.choice.PMCH_Configuration_Item;
       	{
-            pmch_configuration_item->pmch_Configuration.dataMCS = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].data_mcs;
-            pmch_configuration_item->pmch_Configuration.mchSchedulingPeriod = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mch_scheduling_period;
-	    pmch_configuration_item->pmch_Configuration.allocatedSubframesEnd = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].allocated_sf_end;
+            if (!pmch_configuration_item->pmch_Configuration)
+              pmch_configuration_item->pmch_Configuration = calloc_or_fail(1, sizeof(*pmch_configuration_item->pmch_Configuration));
+            pmch_configuration_item->pmch_Configuration->dataMCS = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].data_mcs;
+            pmch_configuration_item->pmch_Configuration->mchSchedulingPeriod = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mch_scheduling_period;
+	    pmch_configuration_item->pmch_Configuration->allocatedSubframesEnd = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].allocated_sf_end;
             for(k=0; k < m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].num_mbms_session_list; k++){
-            	MBMSsessionListPerPMCH_Item__Member *member;
-            	member = (MBMSsessionListPerPMCH_Item__Member*)calloc(1,sizeof(MBMSsessionListPerPMCH_Item__Member));
+            	M2AP_MBMSsessionListPerPMCH_Item__MBMSsessionListPerPMCH_Item_Member *member;
+            	member = (M2AP_MBMSsessionListPerPMCH_Item__MBMSsessionListPerPMCH_Item_Member*)calloc(1,sizeof(M2AP_MBMSsessionListPerPMCH_Item__MBMSsessionListPerPMCH_Item_Member));
             	MCC_MNC_TO_PLMNID(
             			  m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].mcc,
             			  m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].mnc,
@@ -435,7 +454,9 @@ int MCE_send_MBMS_SCHEDULING_INFORMATION(instance_t instance, /*sctp_assoc_t ass
                 member->lcid = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].lcid;
 		//member->lcid = (M2AP_LCID_t*)calloc(1,sizeof(M2AP_LCID_t));
 		
-            	asn1cSeqAdd(&pmch_configuration_item->mbms_Session_List.list,member);
+            	if (!pmch_configuration_item->mbms_Session_List)
+            	  pmch_configuration_item->mbms_Session_List = calloc_or_fail(1, sizeof(*pmch_configuration_item->mbms_Session_List));
+            	asn1cSeqAdd(&pmch_configuration_item->mbms_Session_List->list,member);
             }
       
       	}
@@ -527,7 +548,7 @@ ASN_SET_ADD(&ie->value.choice.MBSFN_Area_Configuration_List,m2ap_mbsfn_area_conf
   }
 
 
- asn1cSeqAdd(&out->protocolIEs.list, ie);  
+ asn1cSeqAdd(&out->protocolIEs->list, ie);  
 
  
  
@@ -548,11 +569,11 @@ ASN_SET_ADD(&ie->value.choice.MBSFN_Area_Configuration_List,m2ap_mbsfn_area_conf
 
    AssertFatal(pdu->present == M2AP_M2AP_PDU_PR_successfulOutcome,
 	       "pdu->present != M2AP_M2AP_PDU_PR_successfulOutcome\n");
-   AssertFatal(pdu->choice.successfulOutcome.procedureCode  == M2AP_ProcedureCode_id_mbmsSchedulingInformation,
+   AssertFatal(pdu->choice.successfulOutcome->procedureCode  == M2AP_ProcedureCode_id_mbmsSchedulingInformation,
 	       "pdu->choice.successfulOutcome->procedureCode != M2AP_ProcedureCode_id_mbmsSchedulingInformation\n");
-   AssertFatal(pdu->choice.successfulOutcome.criticality  == M2AP_Criticality_reject,
+   AssertFatal(pdu->choice.successfulOutcome->criticality  == M2AP_Criticality_reject,
 	       "pdu->choice.successfulOutcome->criticality != M2AP_Criticality_reject\n");
-   AssertFatal(pdu->choice.successfulOutcome.value.present  == M2AP_SuccessfulOutcome__value_PR_MbmsSchedulingInformationResponse,
+   AssertFatal(pdu->choice.successfulOutcome->value.present  == M2AP_SuccessfulOutcome__value_PR_MbmsSchedulingInformationResponse,
 	       "pdu->choice.successfulOutcome->value.present != M2AP_SuccessfulOutcome__value_PR_MbmsSchedulingInformationResponse\n");
 
 
@@ -640,7 +661,7 @@ int MCE_handle_M2_SETUP_REQUEST(instance_t instance, sctp_assoc_t assoc_id, uint
 
   DevAssert(pdu != NULL);
 
-  container = &pdu->choice.initiatingMessage.value.choice.M2SetupRequest;
+  container = &pdu->choice.initiatingMessage->value.choice.M2SetupRequest;
 
   /* M2 Setup Request == Non UE-related procedure -> stream 0 */
   if (stream != 0) {
@@ -659,9 +680,9 @@ int MCE_handle_M2_SETUP_REQUEST(instance_t instance, sctp_assoc_t assoc_id, uint
                              M2AP_ProtocolIE_ID_id_GlobalENB_ID, true);
   //asn_INTEGER2ulong(&ie->value.choice.GlobalENB_ID.eNB_ID, &M2AP_SETUP_REQ(message_p).GlobalENB_ID);
   if(ie!=NULL){
-  if(ie->value.choice.GlobalENB_ID.eNB_ID.present == M2AP_ENB_ID_PR_macro_eNB_ID){
-  }else if(ie->value.choice.GlobalENB_ID.eNB_ID.present == M2AP_ENB_ID_PR_short_Macro_eNB_ID){
-  }else if(ie->value.choice.GlobalENB_ID.eNB_ID.present == M2AP_ENB_ID_PR_long_Macro_eNB_ID){
+  if(ie->value.choice.GlobalENB_ID.eNB_ID->present == M2AP_ENB_ID_PR_macro_eNB_ID){
+  }else if(ie->value.choice.GlobalENB_ID.eNB_ID->present == M2AP_ENB_ID_PR_short_Macro_eNB_ID){
+  }else if(ie->value.choice.GlobalENB_ID.eNB_ID->present == M2AP_ENB_ID_PR_long_Macro_eNB_ID){
   }
   }
 
@@ -696,7 +717,7 @@ int MCE_handle_M2_SETUP_REQUEST(instance_t instance, sctp_assoc_t assoc_id, uint
 	    /* eCGI */
 	       //mbms_configuration_item_p->eCGI ... (M2AP_ECGI_t)
 
-	    OCTET_STRING_TO_INT16(&(mbms_configuration_item_p->eCGI.pLMN_Identity),M2AP_SETUP_REQ(message_p).plmn_identity[i]);
+	    OCTET_STRING_TO_INT16(&(mbms_configuration_item_p->eCGI->pLMN_Identity),M2AP_SETUP_REQ(message_p).plmn_identity[i]);
 	    //OCTET_STRING_TO_INT16(&(mbms_configuration_item_p->eCGI.eUTRANcellIdentifier),M2AP_SETUP_REQ(message_p).eutran_cell_identifier[i]);
 	    /* mbsfnSynchronisationArea */
 	       //mbms_configuration_item_p->mbsfnSynchronisationArea ... (M2AP_MBSFN_SynchronisationArea_ID_t)
@@ -811,10 +832,12 @@ int MCE_send_M2_SETUP_RESPONSE(instance_t instance, /*sctp_assoc_t assoc_id,*/
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_successfulOutcome;
   //pdu.choice.successfulOutcome = (M2AP_SuccessfulOutcome_t *)calloc(1, sizeof(M2AP_SuccessfulOutcome_t));
-  pdu.choice.successfulOutcome.procedureCode = M2AP_ProcedureCode_id_m2Setup;
-  pdu.choice.successfulOutcome.criticality   = M2AP_Criticality_reject;
-  pdu.choice.successfulOutcome.value.present = M2AP_SuccessfulOutcome__value_PR_M2SetupResponse;
-  out = &pdu.choice.successfulOutcome.value.choice.M2SetupResponse;
+  if (!pdu.choice.successfulOutcome)
+    pdu.choice.successfulOutcome = calloc_or_fail(1, sizeof(*pdu.choice.successfulOutcome));
+  pdu.choice.successfulOutcome->procedureCode = M2AP_ProcedureCode_id_m2Setup;
+  pdu.choice.successfulOutcome->criticality   = M2AP_Criticality_reject;
+  pdu.choice.successfulOutcome->value.present = M2AP_SuccessfulOutcome__value_PR_M2SetupResponse;
+  out = &pdu.choice.successfulOutcome->value.choice.M2SetupResponse;
   
   /* mandatory */
   /* c1. GlobalMCE ID (integer value)*/
@@ -832,7 +855,9 @@ int MCE_send_M2_SETUP_RESPONSE(instance_t instance, /*sctp_assoc_t assoc_id,*/
   ie->value.choice.GlobalMCE_ID.mCE_ID.size=2;
   //ie->value.choice.GlobalMCE_ID.mCE_ID.bits_unused=0;
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
  
   /* optional */
   /* c2. MCEname */
@@ -843,7 +868,7 @@ int MCE_send_M2_SETUP_RESPONSE(instance_t instance, /*sctp_assoc_t assoc_id,*/
     ie->value.present             = M2AP_M2SetupResponse_Ies__value_PR_MCEname;
     OCTET_STRING_fromBuf(&ie->value.choice.MCEname, m2ap_setup_resp->MCE_name,
                          strlen(m2ap_setup_resp->MCE_name));
-    asn1cSeqAdd(&out->protocolIEs.list, ie);
+    asn1cSeqAdd(&out->protocolIEs->list, ie);
   }
 
   /* mandatory */
@@ -892,7 +917,7 @@ int MCE_send_M2_SETUP_RESPONSE(instance_t instance, /*sctp_assoc_t assoc_id,*/
 
   }
  
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
   
 
   /* encode */
@@ -927,10 +952,12 @@ int MCE_send_M2_SETUP_FAILURE(instance_t instance,m2ap_setup_failure_t* m2ap_set
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_unsuccessfulOutcome;
   //pdu.choice.unsuccessfulOutcome = (M2AP_UnsuccessfulOutcome_t *)calloc(1, sizeof(M2AP_UnsuccessfulOutcome_t));
-  pdu.choice.unsuccessfulOutcome.procedureCode = M2AP_ProcedureCode_id_m2Setup;
-  pdu.choice.unsuccessfulOutcome.criticality   = M2AP_Criticality_reject;
-  pdu.choice.unsuccessfulOutcome.value.present = M2AP_UnsuccessfulOutcome__value_PR_M2SetupFailure;
-  out = &pdu.choice.unsuccessfulOutcome.value.choice.M2SetupFailure;
+  if (!pdu.choice.unsuccessfulOutcome)
+    pdu.choice.unsuccessfulOutcome = calloc_or_fail(1, sizeof(*pdu.choice.unsuccessfulOutcome));
+  pdu.choice.unsuccessfulOutcome->procedureCode = M2AP_ProcedureCode_id_m2Setup;
+  pdu.choice.unsuccessfulOutcome->criticality   = M2AP_Criticality_reject;
+  pdu.choice.unsuccessfulOutcome->value.present = M2AP_UnsuccessfulOutcome__value_PR_M2SetupFailure;
+  out = &pdu.choice.unsuccessfulOutcome->value.choice.M2SetupFailure;
 
   /* mandatory */
   /* c1. Transaction ID (integer value)*/
@@ -949,7 +976,9 @@ int MCE_send_M2_SETUP_FAILURE(instance_t instance,m2ap_setup_failure_t* m2ap_set
   ie->value.present             = M2AP_M2SetupFailure_Ies__value_PR_Cause;
   ie->value.choice.Cause.present = M2AP_Cause_PR_radioNetwork;
   ie->value.choice.Cause.choice.radioNetwork = M2AP_CauseRadioNetwork_unspecified;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* optional */
   /* c3. TimeToWait */
@@ -959,7 +988,7 @@ int MCE_send_M2_SETUP_FAILURE(instance_t instance,m2ap_setup_failure_t* m2ap_set
     ie->criticality               = M2AP_Criticality_ignore;
     ie->value.present             = M2AP_M2SetupFailure_Ies__value_PR_TimeToWait;
     ie->value.choice.TimeToWait = M2AP_TimeToWait_v10s;
-    asn1cSeqAdd(&out->protocolIEs.list, ie);
+    asn1cSeqAdd(&out->protocolIEs->list, ie);
   }
 
   /* optional */
@@ -977,7 +1006,7 @@ int MCE_send_M2_SETUP_FAILURE(instance_t instance,m2ap_setup_failure_t* m2ap_set
     *ie->value.choice.CriticalityDiagnostics.procedureCriticality = M2AP_Criticality_reject;
     //ie->value.choice.CriticalityDiagnostics.transactionID = (M2AP_TransactionID_t *)calloc(1, sizeof(M2AP_TransactionID_t));
     //*ie->value.choice.CriticalityDiagnostics.transactionID = 0;
-    asn1cSeqAdd(&out->protocolIEs.list, ie);
+    asn1cSeqAdd(&out->protocolIEs->list, ie);
   }
 
   /* encode */
@@ -1014,10 +1043,12 @@ int MCE_send_MCE_CONFIGURATION_UPDATE(instance_t instance, module_id_t du_mod_id
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_initiatingMessage;
   //pdu.choice.initiatingMessage = (M2AP_InitiatingMessage_t *)calloc(1, sizeof(M2AP_InitiatingMessage_t));
-  pdu.choice.initiatingMessage.procedureCode = M2AP_ProcedureCode_id_mCEConfigurationUpdate;
-  pdu.choice.initiatingMessage.criticality   = M2AP_Criticality_reject;
-  pdu.choice.initiatingMessage.value.present = M2AP_InitiatingMessage__value_PR_MCEConfigurationUpdate;
-  out = &pdu.choice.initiatingMessage.value.choice.MCEConfigurationUpdate;
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = M2AP_ProcedureCode_id_mCEConfigurationUpdate;
+  pdu.choice.initiatingMessage->criticality   = M2AP_Criticality_reject;
+  pdu.choice.initiatingMessage->value.present = M2AP_InitiatingMessage__value_PR_MCEConfigurationUpdate;
+  out = &pdu.choice.initiatingMessage->value.choice.MCEConfigurationUpdate;
  
   /* mandatory */
   /* c1. Transaction ID (integer value)*/
@@ -1033,7 +1064,9 @@ int MCE_send_MCE_CONFIGURATION_UPDATE(instance_t instance, module_id_t du_mod_id
   ie->value.choice.GlobalMCE_ID.mCE_ID.size=2;
   //ie->value.choice.GlobalMCE_ID.mCE_ID.bits_unused=6;
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
  
   /* optional */
   /* c2. MCEname */
@@ -1078,7 +1111,7 @@ int MCE_send_MCE_CONFIGURATION_UPDATE(instance_t instance, module_id_t du_mod_id
 	asn1cSeqAdd(&ie->value.choice.MCCHrelatedBCCH_ConfigPerMBSFNArea.list,mcch_related_bcch_config_per_mbsfn_area_item_ies);
   }
   
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
   
 
   /* encode */
@@ -1103,7 +1136,7 @@ int MCE_handle_MCE_CONFIGURATION_UPDATE_FAILURE(instance_t instance, sctp_assoc_
 
     LOG_D(M2AP, "MCE_handle_MCE_CONFIGURATION_UPDATE_FAILURE\n");
 
-  M2AP_MCEConfigurationUpdateFailure_t    *in = &pdu->choice.unsuccessfulOutcome.value.choice.MCEConfigurationUpdateFailure;
+  M2AP_MCEConfigurationUpdateFailure_t    *in = &pdu->choice.unsuccessfulOutcome->value.choice.MCEConfigurationUpdateFailure;
 
 
    //M2AP_MCEConfigurationUpdateFailure_Ies_t *ie;
@@ -1112,7 +1145,7 @@ int MCE_handle_MCE_CONFIGURATION_UPDATE_FAILURE(instance_t instance, sctp_assoc_
   MessageDef *msg_p = itti_alloc_new_message (TASK_M2AP_MCE, 0, M2AP_MCE_CONFIGURATION_UPDATE_FAILURE);
 
    LOG_D(M2AP, "M2AP: MCEConfigurationUpdate-Failure: protocolIEs.list.count %d\n",
-         in->protocolIEs.list.count);
+         in->protocolIEs->list.count);
   // for (int i=0;i < in->protocolIEs.list.count; i++) {
   //   ie = in->protocolIEs.list.array[i];
   //  // switch (ie->id) {
@@ -1273,15 +1306,15 @@ int MCE_handle_MBMS_SERVICE_COUNTING_RESPONSE(instance_t instance, sctp_assoc_t 
 
    AssertFatal(pdu->present == M2AP_M2AP_PDU_PR_successfulOutcome,
 	       "pdu->present != M2AP_M2AP_PDU_PR_successfulOutcome\n");
-   AssertFatal(pdu->choice.successfulOutcome.procedureCode  == M2AP_ProcedureCode_id_mbmsServiceCounting,
+   AssertFatal(pdu->choice.successfulOutcome->procedureCode  == M2AP_ProcedureCode_id_mbmsServiceCounting,
 	       "pdu->choice.successfulOutcome->procedureCode != M2AP_ProcedureCode_id_mbmsServiceCounting\n");
-   AssertFatal(pdu->choice.successfulOutcome.criticality  == M2AP_Criticality_reject,
+   AssertFatal(pdu->choice.successfulOutcome->criticality  == M2AP_Criticality_reject,
 	       "pdu->choice.successfulOutcome->criticality != M2AP_Criticality_reject\n");
-   AssertFatal(pdu->choice.successfulOutcome.value.present  == M2AP_SuccessfulOutcome__value_PR_MbmsServiceCountingResponse,
+   AssertFatal(pdu->choice.successfulOutcome->value.present  == M2AP_SuccessfulOutcome__value_PR_MbmsServiceCountingResponse,
 	       "pdu->choice.successfulOutcome.value.present != M2AP_SuccessfulOutcome__value_PR_MbmsServiceCountingResponse\n");
 
 
-  M2AP_MbmsServiceCountingResponse_t    *in = &pdu->choice.successfulOutcome.value.choice.MbmsServiceCountingResponse;
+  M2AP_MbmsServiceCountingResponse_t    *in = &pdu->choice.successfulOutcome->value.choice.MbmsServiceCountingResponse;
   //M2AP_MbmsServiceCountingResponse_Ies_t  *ie;
   //int MCE_MBMS_M2AP_ID=-1;
   //int ENB_MBMS_M2AP_ID=-1;
@@ -1290,8 +1323,8 @@ int MCE_handle_MBMS_SERVICE_COUNTING_RESPONSE(instance_t instance, sctp_assoc_t 
   MessageDef *msg_g = itti_alloc_new_message(TASK_M2AP_MCE, 0,M2AP_MBMS_SERVICE_COUNTING_RESP); //TODO
 
   LOG_D(M2AP, "M2AP: MbmsServiceCounting-Resp: protocolIEs.list.count %d\n",
-         in->protocolIEs.list.count);
-  for (int i=0;i < in->protocolIEs.list.count; i++) {
+         in->protocolIEs->list.count);
+  for (int i=0;i < in->protocolIEs->list.count; i++) {
      //ie = in->protocolIEs.list.array[i];
     // switch (ie->id) {
     // case M2AP_ProtocolIE_ID_id_MCE_MBMS_M2AP_ID:
@@ -1345,10 +1378,12 @@ int MCE_handle_MBMS_SESSION_COUNTING_FAILURE(instance_t instance,  module_id_t d
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_initiatingMessage;
   //pdu.choice.initiatingMessage = (M2AP_InitiatingMessage_t *)calloc(1, sizeof(M2AP_InitiatingMessage_t));
-  pdu.choice.initiatingMessage.procedureCode = M2AP_ProcedureCode_id_mbmsServiceCounting;
-  pdu.choice.initiatingMessage.criticality   = M2AP_Criticality_reject;
-  pdu.choice.initiatingMessage.value.present = M2AP_InitiatingMessage__value_PR_MbmsServiceCountingRequest;
-  out = &pdu.choice.initiatingMessage.value.choice.MbmsServiceCountingRequest;  
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = M2AP_ProcedureCode_id_mbmsServiceCounting;
+  pdu.choice.initiatingMessage->criticality   = M2AP_Criticality_reject;
+  pdu.choice.initiatingMessage->value.present = M2AP_InitiatingMessage__value_PR_MbmsServiceCountingRequest;
+  out = &pdu.choice.initiatingMessage->value.choice.MbmsServiceCountingRequest;  
 
   /* mandatory */
   /* c1. MCCH_Update_Time */ //long
@@ -1359,7 +1394,9 @@ int MCE_handle_MBMS_SESSION_COUNTING_FAILURE(instance_t instance,  module_id_t d
   //ie->value.choice.MCCH_Update_Time =  ; 
   //ie->value.choice.MCCH_Update_Time = m2ap_mbms_scheduling_information->mcch_update_time;
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);  
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);  
 
 
   /* mandatory */
@@ -1369,7 +1406,7 @@ int MCE_handle_MBMS_SESSION_COUNTING_FAILURE(instance_t instance,  module_id_t d
   ie->criticality               = M2AP_Criticality_reject;
   ie->value.present             = M2AP_MbmsServiceCountingRequest_Ies__value_PR_MBSFN_Area_ID;
   //ie->value.choice.MCE_MBMS_M2AP_ID = 0;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   /* c2. TMGI (integrer value) */
@@ -1382,7 +1419,7 @@ int MCE_handle_MBMS_SESSION_COUNTING_FAILURE(instance_t instance,  module_id_t d
 
                         //&ie->choice.TMGI.pLMN_Identity);
   //INT16_TO_OCTET_STRING(0,&ie->choice.TMGI.serviceId);
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   if (m2ap_encode_pdu(&pdu, &buffer, &len) < 0) {
     LOG_E(M2AP, "Failed to encode MBMS Service Counting Results Report\n");

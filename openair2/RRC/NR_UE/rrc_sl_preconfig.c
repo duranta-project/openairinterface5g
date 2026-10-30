@@ -315,7 +315,7 @@ NR_SL_PreconfigurationNR_r16_t *prepare_NR_SL_PRECONFIGURATION(uint16_t num_tx_p
 {
 
   NR_SL_PreconfigurationNR_r16_t *sl_preconfiguration = CALLOC(1, sizeof(NR_SL_PreconfigurationNR_r16_t));
-  NR_SidelinkPreconfigNR_r16_t *sl_preconfig = &sl_preconfiguration->sidelinkPreconfigNR_r16;
+  NR_SidelinkPreconfigNR_r16_t *sl_preconfig = (sl_preconfiguration->sidelinkPreconfigNR_r16 = calloc_or_fail(1, sizeof(*sl_preconfiguration->sidelinkPreconfigNR_r16)));
 
   //FILL in Frequency config common
   NR_SL_FreqConfigCommon_r16_t *freqcfgcommon = calloc(1, sizeof(*freqcfgcommon));
@@ -360,7 +360,9 @@ NR_SL_PreconfigurationNR_r16_t *prepare_NR_SL_PRECONFIGURATION(uint16_t num_tx_p
   sl_preconfig->sl_PreconfigGeneral_r16 = calloc(1, sizeof(NR_SL_PreconfigGeneral_r16_t));
   sl_preconfig->sl_PreconfigGeneral_r16->sl_TDD_Configuration_r16 = calloc(1, sizeof(NR_TDD_UL_DL_ConfigCommon_t));
   NR_TDD_UL_DL_ConfigCommon_t *tdd_uldl_cfg = sl_preconfig->sl_PreconfigGeneral_r16->sl_TDD_Configuration_r16;
-  tdd_uldl_cfg->pattern1.ext1 = NULL;
+  if (!tdd_uldl_cfg->pattern1)
+    tdd_uldl_cfg->pattern1 = calloc_or_fail(1, sizeof(*tdd_uldl_cfg->pattern1));
+  tdd_uldl_cfg->pattern1->ext1 = NULL;
   tdd_uldl_cfg->pattern2 = NULL;
 
   char aprefix[MAX_OPTNAME_SIZE*2 + 8];
@@ -464,8 +466,8 @@ void nr_rrc_ue_decode_NR_SBCCH_SL_BCH_Message(NR_UE_RRC_INST_t *rrc,
   DevAssert(rrc->sl_preconfig);
 
   NR_SL_FreqConfigCommon_r16_t *fcfg = NULL;
-  if (rrc->sl_preconfig->sidelinkPreconfigNR_r16.sl_PreconfigFreqInfoList_r16)
-    fcfg = rrc->sl_preconfig->sidelinkPreconfigNR_r16.sl_PreconfigFreqInfoList_r16->list.array[0];
+  if (rrc->sl_preconfig->sidelinkPreconfigNR_r16->sl_PreconfigFreqInfoList_r16)
+    fcfg = rrc->sl_preconfig->sidelinkPreconfigNR_r16->sl_PreconfigFreqInfoList_r16->list.array[0];
   DevAssert(fcfg);
 
   NR_SL_SSB_TimeAllocation_r16_t *sl_SSB_TimeAllocation = NULL;
@@ -508,8 +510,8 @@ void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
   NR_SL_SSB_TimeAllocation_r16_t *ssb_ta = NULL;
   NR_SL_FreqConfigCommon_r16_t *fcfg = NULL;
   NR_SL_SyncConfig_r16_t *synccfg = NULL;
-  if (sl_preconfig->sidelinkPreconfigNR_r16.sl_PreconfigFreqInfoList_r16)
-    fcfg = sl_preconfig->sidelinkPreconfigNR_r16.sl_PreconfigFreqInfoList_r16->list.array[0];
+  if (sl_preconfig->sidelinkPreconfigNR_r16->sl_PreconfigFreqInfoList_r16)
+    fcfg = sl_preconfig->sidelinkPreconfigNR_r16->sl_PreconfigFreqInfoList_r16->list.array[0];
   AssertFatal(fcfg, "Fcfg cannot be NULL\n");
   if (fcfg->sl_SyncConfigList_r16)
     synccfg = fcfg->sl_SyncConfigList_r16->list.array[0];

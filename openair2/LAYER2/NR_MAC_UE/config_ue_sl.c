@@ -185,12 +185,12 @@ static void  sl_prepare_phy_config(int module_id,
     // TDD Table Configuration
     sl_set_tdd_config_nr_ue(&phycfg->tdd_table,
                             phycfg->sl_bwp_config.sl_scs,
-                            &sl_TDD_config->pattern1);
+                            sl_TDD_config->pattern1);
 
     LOG_I(NR_MAC, "SIDELINK CONFIGs: tdd config period:%ld, mu:%ld, DLslots:%ld,ULslots:%ld Mixedslotsym DL:UL %ld:%ld\n",
-                          sl_TDD_config->pattern1.dl_UL_TransmissionPeriodicity, sl_TDD_config->referenceSubcarrierSpacing,
-                          sl_TDD_config->pattern1.nrofDownlinkSlots, sl_TDD_config->pattern1.nrofUplinkSlots,
-                          sl_TDD_config->pattern1.nrofDownlinkSymbols,sl_TDD_config->pattern1.nrofUplinkSymbols);
+                          sl_TDD_config->pattern1->dl_UL_TransmissionPeriodicity, sl_TDD_config->referenceSubcarrierSpacing,
+                          sl_TDD_config->pattern1->nrofDownlinkSlots, sl_TDD_config->pattern1->nrofUplinkSlots,
+                          sl_TDD_config->pattern1->nrofDownlinkSymbols,sl_TDD_config->pattern1->nrofUplinkSymbols);
 
   } else if (sync_source == SL_SYNC_SOURCE_NONE) {
     //Only Carrier config, BWP config sent
@@ -243,7 +243,7 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
 
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
 
-  NR_SidelinkPreconfigNR_r16_t *sl_preconfig = &sl_preconfiguration->sidelinkPreconfigNR_r16;
+  NR_SidelinkPreconfigNR_r16_t *sl_preconfig = sl_preconfiguration->sidelinkPreconfigNR_r16;
 
   //Only one entry supported in rel16.
   //Carrier freq config used for Sidelink
@@ -480,17 +480,19 @@ void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
     if (ret == 0) {
       //sl_tdd_config bytes are all 1's - no TDD config present use all slots for sidelink.
       //Spec not clear -- TBD...
-      sl_mac->sl_TDD_config->pattern1.nrofUplinkSlots =
+      if (!sl_mac->sl_TDD_config->pattern1)
+        sl_mac->sl_TDD_config->pattern1 = calloc_or_fail(1, sizeof(*sl_mac->sl_TDD_config->pattern1));
+      sl_mac->sl_TDD_config->pattern1->nrofUplinkSlots =
                         NR_NUMBER_OF_SUBFRAMES_PER_FRAME*(1<<cfg->sl_bwp_config.sl_scs);
     }
 
     sl_set_tdd_config_nr_ue(&cfg->tdd_table,
                             cfg->sl_bwp_config.sl_scs,
-                            &sl_mac->sl_TDD_config->pattern1);
+                            sl_mac->sl_TDD_config->pattern1);
     LOG_I(MAC, "SIDELINK CONFIGs: tdd config period:%ld, mu:%ld, DLslots:%ld,ULslots:%ld Mixedslotsym DL:UL %ld:%ld\n",
-                            sl_mac->sl_TDD_config->pattern1.dl_UL_TransmissionPeriodicity,sl_mac->sl_TDD_config->referenceSubcarrierSpacing,
-                            sl_mac->sl_TDD_config->pattern1.nrofDownlinkSlots, sl_mac->sl_TDD_config->pattern1.nrofUplinkSlots,
-                            sl_mac->sl_TDD_config->pattern1.nrofDownlinkSymbols,sl_mac->sl_TDD_config->pattern1.nrofUplinkSymbols);
+                            sl_mac->sl_TDD_config->pattern1->dl_UL_TransmissionPeriodicity,sl_mac->sl_TDD_config->referenceSubcarrierSpacing,
+                            sl_mac->sl_TDD_config->pattern1->nrofDownlinkSlots, sl_mac->sl_TDD_config->pattern1->nrofUplinkSlots,
+                            sl_mac->sl_TDD_config->pattern1->nrofDownlinkSymbols,sl_mac->sl_TDD_config->pattern1->nrofUplinkSymbols);
 
     DevAssert(mac->if_module != NULL && mac->if_module->sl_phy_config_request != NULL);
     mac->if_module->sl_phy_config_request(&sl_mac->sl_phy_config);

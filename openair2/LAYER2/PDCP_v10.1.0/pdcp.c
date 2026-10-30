@@ -1709,7 +1709,7 @@ rrc_pdcp_config_asn1_req(const protocol_ctxt_t *const  ctxt_pP,
 
   if (pmch_InfoList_r9_pP != NULL) {
     for (i=0; i<pmch_InfoList_r9_pP->list.count; i++) {
-      mbms_SessionInfoList_r9_p = &(pmch_InfoList_r9_pP->list.array[i]->mbms_SessionInfoList_r9);
+      mbms_SessionInfoList_r9_p = (pmch_InfoList_r9_pP->list.array[i]->mbms_SessionInfoList_r9);
 
       for (j=0; j<mbms_SessionInfoList_r9_p->list.count; j++) {
         MBMS_SessionInfo_p = mbms_SessionInfoList_r9_p->list.array[j];
@@ -1719,7 +1719,7 @@ rrc_pdcp_config_asn1_req(const protocol_ctxt_t *const  ctxt_pP,
         else
           lc_id = MBMS_SessionInfo_p->logicalChannelIdentity_r9;
 
-        mch_id = MBMS_SessionInfo_p->tmgi_r9.serviceId_r9.buf[2]; //serviceId is 3-octet string
+        mch_id = MBMS_SessionInfo_p->tmgi_r9->serviceId_r9.buf[2]; //serviceId is 3-octet string
         //        mch_id = j;
 
         // can set the mch_id = i
@@ -1743,9 +1743,9 @@ rrc_pdcp_config_asn1_req(const protocol_ctxt_t *const  ctxt_pP,
 
         LOG_I(PDCP, "lc_id (%02ld) mch_id(%02x,%02x,%02x) drb_id(%ld) action(%d)\n",
               lc_id,
-              MBMS_SessionInfo_p->tmgi_r9.serviceId_r9.buf[0],
-              MBMS_SessionInfo_p->tmgi_r9.serviceId_r9.buf[1],
-              MBMS_SessionInfo_p->tmgi_r9.serviceId_r9.buf[2],
+              MBMS_SessionInfo_p->tmgi_r9->serviceId_r9.buf[0],
+              MBMS_SessionInfo_p->tmgi_r9->serviceId_r9.buf[1],
+              MBMS_SessionInfo_p->tmgi_r9->serviceId_r9.buf[2],
               drb_id,
               action);
         pdcp_config_req_asn1 (

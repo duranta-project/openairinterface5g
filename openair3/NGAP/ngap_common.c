@@ -14,6 +14,16 @@
 #include "conversions.h"
 #include "ngap_common.h"
 #include "ngap_msg_includes.h"
+#include "NGAP_AllocationAndRetentionPriority.h"
+#include "NGAP_NR-CGI.h"
+#include "NGAP_QosFlowLevelQosParameters.h"
+#include "NGAP_QosFlowPerTNLInformation.h"
+#include "NGAP_S-NSSAI.h"
+#include "NGAP_PacketErrorRate.h"
+#include "NGAP_ProtocolIE-Container.h"
+#include "NGAP_TargetRANNodeID.h"
+#include "NGAP_GNB-ID.h"
+#include "NGAP_AssociatedQosFlowList.h"
 
 void tnl_to_bitstring(BIT_STRING_t *out, const transport_layer_addr_t in)
 {
@@ -166,20 +176,28 @@ void encode_ngap_target_id(NGAP_HandoverRequiredIEs_t *out, const target_ran_nod
   out->criticality = NGAP_Criticality_reject;
   out->value.present = NGAP_HandoverRequiredIEs__value_PR_TargetID;
   // CHOICE Target ID: NG-RAN (M)
-  out->value.choice.TargetID.present = NGAP_TargetID_PR_targetRANNodeID;
-  asn1cCalloc(out->value.choice.TargetID.choice.targetRANNodeID, targetRan);
+  if (!out->value.choice.TargetID)
+    out->value.choice.TargetID = calloc_or_fail(1, sizeof(*out->value.choice.TargetID));
+  out->value.choice.TargetID->present = NGAP_TargetID_PR_targetRANNodeID;
+  asn1cCalloc(out->value.choice.TargetID->choice.targetRANNodeID, targetRan);
   // Global RAN Node ID (M)
-  targetRan->globalRANNodeID.present = NGAP_GlobalRANNodeID_PR_globalGNB_ID;
-  asn1cCalloc(targetRan->globalRANNodeID.choice.globalGNB_ID, globalGnbId);
-  globalGnbId->gNB_ID.present = NGAP_GNB_ID_PR_gNB_ID;
-  MACRO_GNB_ID_TO_BIT_STRING(in->targetgNBId, &globalGnbId->gNB_ID.choice.gNB_ID);
+  if (!targetRan->globalRANNodeID)
+    targetRan->globalRANNodeID = calloc_or_fail(1, sizeof(*targetRan->globalRANNodeID));
+  targetRan->globalRANNodeID->present = NGAP_GlobalRANNodeID_PR_globalGNB_ID;
+  asn1cCalloc(targetRan->globalRANNodeID->choice.globalGNB_ID, globalGnbId);
+  if (!globalGnbId->gNB_ID)
+    globalGnbId->gNB_ID = calloc_or_fail(1, sizeof(*globalGnbId->gNB_ID));
+  globalGnbId->gNB_ID->present = NGAP_GNB_ID_PR_gNB_ID;
+  MACRO_GNB_ID_TO_BIT_STRING(in->targetgNBId, &globalGnbId->gNB_ID->choice.gNB_ID);
   MCC_MNC_TO_PLMNID(in->plmn_identity.mcc, in->plmn_identity.mnc, in->plmn_identity.mnc_digit_length, &globalGnbId->pLMNIdentity);
   // Selected TAI (M)
-  INT24_TO_OCTET_STRING(in->tac, &targetRan->selectedTAI.tAC);
+  if (!targetRan->selectedTAI)
+    targetRan->selectedTAI = calloc_or_fail(1, sizeof(*targetRan->selectedTAI));
+  INT24_TO_OCTET_STRING(in->tac, &targetRan->selectedTAI->tAC);
   MCC_MNC_TO_PLMNID(in->plmn_identity.mcc,
                     in->plmn_identity.mnc,
                     in->plmn_identity.mnc_digit_length,
-                    &targetRan->selectedTAI.pLMNIdentity);
+                    &targetRan->selectedTAI->pLMNIdentity);
 }
 
 void encode_ngap_nr_cgi(NGAP_NR_CGI_t *out, const plmn_id_t *plmn, const uint32_t cell_id)
@@ -196,7 +214,7 @@ pdusession_level_qos_parameter_t fill_qos(uint8_t qfi, const NGAP_QosFlowLevelQo
   out.qfi = qfi;
   AssertFatal(params != NULL, "QoS parameters are NULL\n");
   // QosCharacteristics
-  const NGAP_QosCharacteristics_t *qosChar = &params->qosCharacteristics;
+  const NGAP_QosCharacteristics_t *qosChar = params->qosCharacteristics;
   AssertFatal(qosChar != NULL, "QoS characteristics are NULL\n");
   if (qosChar->present == NGAP_QosCharacteristics_PR_nonDynamic5QI) {
     AssertFatal(qosChar->choice.nonDynamic5QI != NULL, "nonDynamic5QI is NULL\n");
@@ -232,13 +250,13 @@ pdusession_level_qos_parameter_t fill_qos(uint8_t qfi, const NGAP_QosFlowLevelQo
      * is present in iE_Extensions. Extended Packet Delay Budget parsing is not yet implemented. */
     out_dyn->packet_delay_budget = dyn->packetDelayBudget;
     // Extract packetErrorRate (mandatory)
-    out_dyn->per.scalar = dyn->packetErrorRate.pERScalar;
-    out_dyn->per.exponent = dyn->packetErrorRate.pERExponent;
+    out_dyn->per.scalar = dyn->packetErrorRate->pERScalar;
+    out_dyn->per.exponent = dyn->packetErrorRate->pERExponent;
   } else {
     AssertFatal(0, "Unsupported QoS Characteristics present value: %d\n", qosChar->present);
   }
   // Allocation and Retention Priority
-  const NGAP_AllocationAndRetentionPriority_t *arp = &params->allocationAndRetentionPriority;
+  const NGAP_AllocationAndRetentionPriority_t *arp = params->allocationAndRetentionPriority;
   out.arp.priority_level = arp->priorityLevelARP;
   out.arp.pre_emp_capability = arp->pre_emptionCapability;
   out.arp.pre_emp_vulnerability = arp->pre_emptionVulnerability;
@@ -292,25 +310,25 @@ bool decodePDUSessionResourceSetup(pdusession_transfer_t *out, const OCTET_STRIN
   }
 
   NGAP_PDUSessionResourceSetupRequestTransfer_t *pdusessionTransfer = (NGAP_PDUSessionResourceSetupRequestTransfer_t *)decoded;
-  for (int i = 0; i < pdusessionTransfer->protocolIEs.list.count; i++) {
-    NGAP_PDUSessionResourceSetupRequestTransferIEs_t *pdusessionTransfer_ies = pdusessionTransfer->protocolIEs.list.array[i];
+  for (int i = 0; i < pdusessionTransfer->protocolIEs->list.count; i++) {
+    NGAP_PDUSessionResourceSetupRequestTransferIEs_t *pdusessionTransfer_ies = pdusessionTransfer->protocolIEs->list.array[i];
     switch (pdusessionTransfer_ies->id) {
       // UL NG-U UP TNL Information (Mandatory)
       case NGAP_ProtocolIE_ID_id_UL_NGU_UP_TNLInformation:
-        out->n3_incoming = decode_TNLInformation(pdusessionTransfer_ies->value.choice.UPTransportLayerInformation.choice.gTPTunnel);
+        out->n3_incoming = decode_TNLInformation(pdusessionTransfer_ies->value.choice.UPTransportLayerInformation->choice.gTPTunnel);
         break;
 
       // PDU Session Type (Mandatory)
       case NGAP_ProtocolIE_ID_id_PDUSessionType:
-        out->pdu_session_type = pdusessionTransfer_ies->value.choice.PDUSessionType;
+        out->pdu_session_type = *pdusessionTransfer_ies->value.choice.PDUSessionType;
         break;
 
       // QoS Flow Setup Request List (Mandatory)
       case NGAP_ProtocolIE_ID_id_QosFlowSetupRequestList:
-        out->nb_qos = pdusessionTransfer_ies->value.choice.QosFlowSetupRequestList.list.count;
+        out->nb_qos = pdusessionTransfer_ies->value.choice.QosFlowSetupRequestList->list.count;
         for (int i = 0; i < out->nb_qos; i++) {
-          NGAP_QosFlowSetupRequestItem_t *item = pdusessionTransfer_ies->value.choice.QosFlowSetupRequestList.list.array[i];
-          out->qos[i] = fill_qos(item->qosFlowIdentifier, &item->qosFlowLevelQosParameters);
+          NGAP_QosFlowSetupRequestItem_t *item = pdusessionTransfer_ies->value.choice.QosFlowSetupRequestList->list.array[i];
+          out->qos[i] = fill_qos(item->qosFlowIdentifier, item->qosFlowLevelQosParameters);
         }
         break;
 
@@ -330,11 +348,13 @@ byte_array_t encode_ngap_pdusession_setup_response_transfer(const pdusession_set
   byte_array_t out = {0};
 
   // DL QoS Flow per TNL Information (Mandatory)
-  NGAP_QosFlowPerTNLInformation_t *dLQosFlowPerTNLInformation = &pdusessionTransfer.dLQosFlowPerTNLInformation;
+  NGAP_QosFlowPerTNLInformation_t *dLQosFlowPerTNLInformation = (pdusessionTransfer.dLQosFlowPerTNLInformation = calloc_or_fail(1, sizeof(*pdusessionTransfer.dLQosFlowPerTNLInformation)));
 
   // UP Transport Layer Information (Mandatory)
-  dLQosFlowPerTNLInformation->uPTransportLayerInformation.present = NGAP_UPTransportLayerInformation_PR_gTPTunnel;
-  asn1cCalloc(dLQosFlowPerTNLInformation->uPTransportLayerInformation.choice.gTPTunnel, gtp);
+  if (!dLQosFlowPerTNLInformation->uPTransportLayerInformation)
+    dLQosFlowPerTNLInformation->uPTransportLayerInformation = calloc_or_fail(1, sizeof(*dLQosFlowPerTNLInformation->uPTransportLayerInformation));
+  dLQosFlowPerTNLInformation->uPTransportLayerInformation->present = NGAP_UPTransportLayerInformation_PR_gTPTunnel;
+  asn1cCalloc(dLQosFlowPerTNLInformation->uPTransportLayerInformation->choice.gTPTunnel, gtp);
   GTP_TEID_TO_ASN1(pdusession->n3_outgoing.teid, &gtp->gTP_TEID);
   tnl_to_bitstring(&gtp->transportLayerAddress, pdusession->n3_outgoing.addr);
   char ip_str[INET_ADDRSTRLEN] = {0};
@@ -346,7 +366,9 @@ byte_array_t encode_ngap_pdusession_setup_response_transfer(const pdusession_set
 
   // Associated QoS Flow List (Mandatory)
   for (int j = 0; j < pdusession->nb_of_qos_flow; j++) {
-    asn1cSequenceAdd(dLQosFlowPerTNLInformation->associatedQosFlowList.list, NGAP_AssociatedQosFlowItem_t, qos_item);
+    if (!dLQosFlowPerTNLInformation->associatedQosFlowList)
+      dLQosFlowPerTNLInformation->associatedQosFlowList = calloc_or_fail(1, sizeof(*dLQosFlowPerTNLInformation->associatedQosFlowList));
+    asn1cSequenceAdd(dLQosFlowPerTNLInformation->associatedQosFlowList->list, NGAP_AssociatedQosFlowItem_t, qos_item);
     // QoS Flow Identifier (Mandatory)
     qos_item->qosFlowIdentifier = pdusession->associated_qos_flows[j].qfi;
   }
@@ -370,7 +392,7 @@ byte_array_t encode_ngap_pdusession_setup_unsuccessful_transfer(const ngap_cause
   NGAP_PDUSessionResourceSetupUnsuccessfulTransfer_t transfer = {0};
   byte_array_t out = {0};
 
-  encode_ngap_cause(&transfer.cause, cause);
+  encode_ngap_cause((transfer.cause = calloc_or_fail(1, sizeof(*transfer.cause))), cause);
 
   void *buf = NULL;
   ssize_t encoded = aper_encode_to_new_buffer(&asn_DEF_NGAP_PDUSessionResourceSetupUnsuccessfulTransfer, NULL, &transfer, &buf);

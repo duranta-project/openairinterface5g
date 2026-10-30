@@ -23,9 +23,11 @@ ssize_t m2ap_generate_initiating_message(
   ssize_t    encoded;
   memset(&pdu, 0, sizeof(M2AP_M2AP_PDU_t));
   pdu.present = M2AP_M2AP_PDU_PR_initiatingMessage;
-  pdu.choice.initiatingMessage.procedureCode = procedureCode;
-  pdu.choice.initiatingMessage.criticality   = criticality;
-  ANY_fromType_aper((ANY_t *)&pdu.choice.initiatingMessage.value, td, sptr);
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = procedureCode;
+  pdu.choice.initiatingMessage->criticality   = criticality;
+  ANY_fromType_aper((ANY_t *)&pdu.choice.initiatingMessage->value, td, sptr);
 
   if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
     xer_fprint(stdout, &asn_DEF_M2AP_M2AP_PDU, (void *)&pdu);
@@ -56,9 +58,11 @@ ssize_t m2ap_generate_unsuccessfull_outcome(
   ssize_t    encoded;
   memset(&pdu, 0, sizeof(M2AP_M2AP_PDU_t));
   pdu.present = M2AP_M2AP_PDU_PR_unsuccessfulOutcome;
-  pdu.choice.successfulOutcome.procedureCode = procedureCode;
-  pdu.choice.successfulOutcome.criticality   = criticality;
-  ANY_fromType_aper((ANY_t *)&pdu.choice.successfulOutcome.value, td, sptr);
+  if (!pdu.choice.successfulOutcome)
+    pdu.choice.successfulOutcome = calloc_or_fail(1, sizeof(*pdu.choice.successfulOutcome));
+  pdu.choice.successfulOutcome->procedureCode = procedureCode;
+  pdu.choice.successfulOutcome->criticality   = criticality;
+  ANY_fromType_aper((ANY_t *)&pdu.choice.successfulOutcome->value, td, sptr);
 
   if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
     xer_fprint(stdout, &asn_DEF_M2AP_M2AP_PDU, (void *)&pdu);

@@ -15,6 +15,14 @@
 #include "e1ap_interface_management.h"
 #include "e1ap_lib_includes.h"
 #include "common/utils/assertions.h"
+#include "E1AP_ConfidentialityProtectionIndication.h"
+#include "E1AP_DiscardTimer.h"
+#include "E1AP_IntegrityProtectionIndication.h"
+#include "E1AP_PDCP-SN-Size.h"
+#include "E1AP_Pre-emptionCapability.h"
+#include "E1AP_Pre-emptionVulnerability.h"
+#include "E1AP_PriorityLevel.h"
+#include "E1AP_RLC-Mode.h"
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
 {

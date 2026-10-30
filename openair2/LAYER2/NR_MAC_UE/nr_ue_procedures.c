@@ -183,8 +183,8 @@ void nr_ue_decode_mib(NR_UE_MAC_INST_t *mac, int cc_id)
   LOG_I(MAC,"subcarrier spacing (0=15or60, 1=30or120): %d\n", (int)mac->mib->subCarrierSpacingCommon);
   LOG_I(MAC,"ssb carrier offset(with MSB):  %d\n", (int)ssb_subcarrier_offset);
   LOG_I(MAC,"dmrs type A position (0=pos2,1=pos3): %d\n", (int)mac->mib->dmrs_TypeA_Position);
-  LOG_I(MAC,"controlResourceSetZero: %d\n", (int)mac->mib->pdcch_ConfigSIB1.controlResourceSetZero);
-  LOG_I(MAC,"searchSpaceZero: %d\n", (int)mac->mib->pdcch_ConfigSIB1.searchSpaceZero);
+  LOG_I(MAC,"controlResourceSetZero: %d\n", (int)mac->mib->pdcch_ConfigSIB1->controlResourceSetZero);
+  LOG_I(MAC,"searchSpaceZero: %d\n", (int)mac->mib->pdcch_ConfigSIB1->searchSpaceZero);
   LOG_I(MAC,"cell barred (0=barred,1=notBarred): %d\n", (int)mac->mib->cellBarred);
   LOG_I(MAC,"intra frequency reselection (0=allowed,1=notAllowed): %d\n", (int)mac->mib->intraFreqReselection);
   LOG_I(MAC,"half frame bit(extra bits):    %d\n", (int)half_frame_bit);
@@ -234,7 +234,7 @@ static void configure_ratematching_csi(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsc
       fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu = &dlsch_pdu->csiRsForRateMatching[dlsch_pdu->numCsiRsForRateMatching];
       csi_pdu->csi_type = 2; // ZP-CSI
       csi_pdu->subcarrier_spacing = mu;
-      configure_csi_resource_mapping(csi_pdu, &zp_res->resourceMapping, dlsch_pdu->BWPSize, dlsch_pdu->BWPStart);
+      configure_csi_resource_mapping(csi_pdu, zp_res->resourceMapping, dlsch_pdu->BWPSize, dlsch_pdu->BWPStart);
       dlsch_pdu->numCsiRsForRateMatching++;
     }
   }
@@ -252,7 +252,7 @@ static void configure_ratematching_csi(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsc
         fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu = &dlsch_pdu->csiRsForRateMatching[dlsch_pdu->numCsiRsForRateMatching];
         csi_pdu->csi_type = 1; // NZP CSI-RS
         csi_pdu->subcarrier_spacing = mu;
-        configure_csi_resource_mapping(csi_pdu, &nzp_res->resourceMapping, dlsch_pdu->BWPSize, dlsch_pdu->BWPStart);
+        configure_csi_resource_mapping(csi_pdu, nzp_res->resourceMapping, dlsch_pdu->BWPSize, dlsch_pdu->BWPStart);
         dlsch_pdu->numCsiRsForRateMatching++;
       }
     }

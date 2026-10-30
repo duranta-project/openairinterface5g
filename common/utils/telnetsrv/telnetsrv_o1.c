@@ -76,13 +76,13 @@ static int get_stats(char *buf, int debug, telnet_printfunc_t prnt)
   const NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
   const NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
   const NR_FrequencyInfoUL_t *frequencyInfoUL = scc->uplinkConfigCommon->frequencyInfoUL;
-  frame_type_t frame_type = get_frame_type(*frequencyInfoDL->frequencyBandList.list.array[0], *scc->ssbSubcarrierSpacing);
-  const NR_BWP_t *initialDL = &scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
-  const NR_BWP_t *initialUL = &scc->uplinkConfigCommon->initialUplinkBWP->genericParameters;
+  frame_type_t frame_type = get_frame_type(*frequencyInfoDL->frequencyBandList->list.array[0], *scc->ssbSubcarrierSpacing);
+  const NR_BWP_t *initialDL = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
+  const NR_BWP_t *initialUL = scc->uplinkConfigCommon->initialUplinkBWP->genericParameters;
 
   int scs = initialDL->subcarrierSpacing;
   AssertFatal(scs == initialUL->subcarrierSpacing, "different SCS for UL/DL not supported!\n");
-  int band = *frequencyInfoDL->frequencyBandList.list.array[0];
+  int band = *frequencyInfoDL->frequencyBandList->list.array[0];
   int nrb = frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
   AssertFatal(nrb == frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth, "different BW for UL/DL not supported!\n");
   frequency_range_t fr = band > 256 ? FR2 : FR1;
@@ -288,9 +288,9 @@ static int set_bwconfig(char *buf, int debug, telnet_printfunc_t prnt)
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_ServingCellConfigCommon_t *scc = mac->cells[0].common_channels.ServingCellConfigCommon;
   NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
-  NR_BWP_t *initialDL = &scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
+  NR_BWP_t *initialDL = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
   NR_FrequencyInfoUL_t *frequencyInfoUL = scc->uplinkConfigCommon->frequencyInfoUL;
-  NR_BWP_t *initialUL = &scc->uplinkConfigCommon->initialUplinkBWP->genericParameters;
+  NR_BWP_t *initialUL = scc->uplinkConfigCommon->initialUplinkBWP->genericParameters;
   if (strcmp(buf, "40") == 0) {
     *scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB = 641280;
     frequencyInfoDL->absoluteFrequencyPointA = 640008;

@@ -196,7 +196,7 @@ static void config_preamble_index(NR_UE_MAC_INST_t *mac)
       preamb_ga = nr_rach_ConfigCommon->groupBconfigured->numberOfRA_PreamblesGroupA;
     }
   } else {
-    NR_RACH_ConfigCommonTwoStepRA_r16_t *twostep = &mac->current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;
+    NR_RACH_ConfigCommonTwoStepRA_r16_t *twostep = mac->current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;
     AssertFatal(twostep->groupB_ConfiguredTwoStepRA_r16 == NULL, "GroupB preambles not supported for 2-step RA\n");
     ra->RA_GroupA = true;
     // The field is mandatory present if the 2-step random access type occasions are shared with 4-step random access type,
@@ -768,7 +768,7 @@ bool init_RA(NR_UE_MAC_INST_t *mac)
   // PRACH shall be as specified for QPSK modulated DFT-s-OFDM of equivalent RB allocation (38.101-1)
   NR_SubcarrierSpacing_t prach_scs;
   int scs_for_pcmax; // for long prach the UL BWP SCS is used for calculating RA_PCMAX
-  NR_RACH_ConfigGeneric_t *rach_ConfigGeneric = &nr_rach_ConfigCommon->rach_ConfigGeneric;
+  NR_RACH_ConfigGeneric_t *rach_ConfigGeneric = nr_rach_ConfigCommon->rach_ConfigGeneric;
   if (nr_rach_ConfigCommon->msg1_SubcarrierSpacing) {
     prach_scs = *nr_rach_ConfigCommon->msg1_SubcarrierSpacing;
     scs_for_pcmax = prach_scs;
@@ -826,7 +826,7 @@ bool init_RA(NR_UE_MAC_INST_t *mac)
     } else {
       bool twostep = false;
       if (current_UL_BWP->msgA_ConfigCommon_r16) {
-        twostep_conf = &current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;
+        twostep_conf = current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;
         if (nr_rach_ConfigCommon) {
           // if the BWP selected for Random Access procedure is configured with both 2- and 4-step RA type Random Access Resources
           // and the RSRP of the downlink pathloss reference is above msgA-RSRP-Threshold
@@ -857,7 +857,7 @@ bool init_RA(NR_UE_MAC_INST_t *mac)
   if (!mac->msg3_C_RNTI && ra->cfra == false)
     nr_mac_rrc_msg3_ind(mac->ue_id, 0, true);
 
-  NR_RACH_ConfigGenericTwoStepRA_r16_t *twostep_generic = twostep_conf ? &twostep_conf->rach_ConfigGenericTwoStepRA_r16 : NULL;
+  NR_RACH_ConfigGenericTwoStepRA_r16_t *twostep_generic = twostep_conf ? twostep_conf->rach_ConfigGenericTwoStepRA_r16 : NULL;
   if (ra->ra_type == RA_2_STEP && twostep_generic && twostep_generic->msgA_PreamblePowerRampingStep_r16)
     prach_resources->preamble_power_ramping_step = *twostep_generic->msgA_PreamblePowerRampingStep_r16 << 1;
   else

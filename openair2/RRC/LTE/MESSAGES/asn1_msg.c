@@ -169,27 +169,39 @@ uint8_t do_MIB_FeMBMS(rrc_eNB_carrier_data_t *carrier, uint32_t N_RB_DL, uint32_
 
   switch (N_RB_DL) {
     case 6:
-      mib_fembms->message.dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n6;
+      if (!mib_fembms->message)
+        mib_fembms->message = calloc_or_fail(1, sizeof(*mib_fembms->message));
+      mib_fembms->message->dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n6;
       break;
 
     case 15:
-      mib_fembms->message.dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n15;
+      if (!mib_fembms->message)
+        mib_fembms->message = calloc_or_fail(1, sizeof(*mib_fembms->message));
+      mib_fembms->message->dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n15;
       break;
 
     case 25:
-      mib_fembms->message.dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n25;
+      if (!mib_fembms->message)
+        mib_fembms->message = calloc_or_fail(1, sizeof(*mib_fembms->message));
+      mib_fembms->message->dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n25;
       break;
 
     case 50:
-      mib_fembms->message.dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n50;
+      if (!mib_fembms->message)
+        mib_fembms->message = calloc_or_fail(1, sizeof(*mib_fembms->message));
+      mib_fembms->message->dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n50;
       break;
 
     case 75:
-      mib_fembms->message.dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n75;
+      if (!mib_fembms->message)
+        mib_fembms->message = calloc_or_fail(1, sizeof(*mib_fembms->message));
+      mib_fembms->message->dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n75;
       break;
 
     case 100:
-      mib_fembms->message.dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n100;
+      if (!mib_fembms->message)
+        mib_fembms->message = calloc_or_fail(1, sizeof(*mib_fembms->message));
+      mib_fembms->message->dl_Bandwidth_MBMS_r14 = LTE_MasterInformationBlock_MBMS_r14__dl_Bandwidth_MBMS_r14_n100;
       break;
 
     default:
@@ -197,16 +209,18 @@ uint8_t do_MIB_FeMBMS(rrc_eNB_carrier_data_t *carrier, uint32_t N_RB_DL, uint32_
   }
 
   LOG_I(RRC,"[MIB] systemBandwidth %x, additional non MBMS subframes %x, sfn %x\n",
-        (uint32_t)mib_fembms->message.dl_Bandwidth_MBMS_r14,
+        (uint32_t)mib_fembms->message->dl_Bandwidth_MBMS_r14,
         (uint32_t)additionalNonMBSFN,
         (uint32_t)sfn);
   sfn = sfn<<2;
-  mib_fembms->message.systemFrameNumber_r14.buf = &sfn;
-  mib_fembms->message.systemFrameNumber_r14.size = 1;
-  mib_fembms->message.systemFrameNumber_r14.bits_unused=2;
-  mib_fembms->message.spare.buf = (uint8_t *)spare;
-  mib_fembms->message.spare.size = 2;
-  mib_fembms->message.spare.bits_unused = 3;  // This makes a spare of 10 bits
+  if (!mib_fembms->message)
+    mib_fembms->message = calloc_or_fail(1, sizeof(*mib_fembms->message));
+  mib_fembms->message->systemFrameNumber_r14.buf = &sfn;
+  mib_fembms->message->systemFrameNumber_r14.size = 1;
+  mib_fembms->message->systemFrameNumber_r14.bits_unused=2;
+  mib_fembms->message->spare.buf = (uint8_t *)spare;
+  mib_fembms->message->spare.size = 2;
+  mib_fembms->message->spare.bits_unused = 5;  // a spare of 11 bits
   //TODO additionalNonBMSFNSubframes-r14  INTEGER (0..3) ?
   //if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
     xer_fprint(stdout, &asn_DEF_LTE_BCCH_BCH_Message_MBMS, (void *)mib_fembms);
@@ -240,27 +254,39 @@ uint8_t do_MIB(rrc_eNB_carrier_data_t *carrier, uint32_t N_RB_DL, uint32_t phich
 
   switch (N_RB_DL) {
     case 6:
-      mib->message.dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n6;
+      if (!mib->message)
+        mib->message = calloc_or_fail(1, sizeof(*mib->message));
+      mib->message->dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n6;
       break;
 
     case 15:
-      mib->message.dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n15;
+      if (!mib->message)
+        mib->message = calloc_or_fail(1, sizeof(*mib->message));
+      mib->message->dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n15;
       break;
 
     case 25:
-      mib->message.dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n25;
+      if (!mib->message)
+        mib->message = calloc_or_fail(1, sizeof(*mib->message));
+      mib->message->dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n25;
       break;
 
     case 50:
-      mib->message.dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n50;
+      if (!mib->message)
+        mib->message = calloc_or_fail(1, sizeof(*mib->message));
+      mib->message->dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n50;
       break;
 
     case 75:
-      mib->message.dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n75;
+      if (!mib->message)
+        mib->message = calloc_or_fail(1, sizeof(*mib->message));
+      mib->message->dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n75;
       break;
 
     case 100:
-      mib->message.dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n100;
+      if (!mib->message)
+        mib->message = calloc_or_fail(1, sizeof(*mib->message));
+      mib->message->dl_Bandwidth = LTE_MasterInformationBlock__dl_Bandwidth_n100;
       break;
 
     default:
@@ -268,23 +294,27 @@ uint8_t do_MIB(rrc_eNB_carrier_data_t *carrier, uint32_t N_RB_DL, uint32_t phich
   }
 
   AssertFatal(phich_Resource <= LTE_PHICH_Config__phich_Resource_two,"Illegal phich_Resource\n");
-  mib->message.phich_Config.phich_Resource = phich_Resource;
+  if (!mib->message)
+    mib->message = calloc_or_fail(1, sizeof(*mib->message));
+  if (!mib->message->phich_Config)
+    mib->message->phich_Config = calloc_or_fail(1, sizeof(*mib->message->phich_Config));
+  mib->message->phich_Config->phich_Resource = phich_Resource;
   AssertFatal(phich_duration <= LTE_PHICH_Config__phich_Duration_extended,"Illegal phich_Duration\n");
-  mib->message.phich_Config.phich_Duration = phich_duration;
+  mib->message->phich_Config->phich_Duration = phich_duration;
   LOG_I(RRC,"[MIB] systemBandwidth %x, phich_duration %x, phich_resource %x, sfn %x\n",
-        (uint32_t)mib->message.dl_Bandwidth,
+        (uint32_t)mib->message->dl_Bandwidth,
         (uint32_t)phich_duration,
         (uint32_t)phich_Resource,
         (uint32_t)sfn);
-  mib->message.systemFrameNumber.buf = &sfn;
-  mib->message.systemFrameNumber.size = 1;
-  mib->message.systemFrameNumber.bits_unused=0;
-  mib->message.spare.buf = (uint8_t *)spare;
-  mib->message.spare.size = 1;
-  mib->message.spare.bits_unused = 3;  // This makes a spare of 5 bits
-  mib->message.schedulingInfoSIB1_BR_r13 = schedulingInfoSIB1; // turn on/off eMTC
+  mib->message->systemFrameNumber.buf = &sfn;
+  mib->message->systemFrameNumber.size = 1;
+  mib->message->systemFrameNumber.bits_unused=0;
+  mib->message->spare.buf = (uint8_t *)spare;
+  mib->message->spare.size = 1;
+  mib->message->spare.bits_unused = 4;  // a spare of 4 bits
+  mib->message->schedulingInfoSIB1_BR_r13 = schedulingInfoSIB1; // turn on/off eMTC
   LOG_I(RRC,"[MIB] schedulingInfoSIB1 %d\n",
-        (uint32_t)mib->message.schedulingInfoSIB1_BR_r13);
+        (uint32_t)mib->message->schedulingInfoSIB1_BR_r13);
   enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_BCCH_BCH_Message,
                                    NULL,
                                    (void *)mib,
@@ -306,6 +336,7 @@ uint8_t do_MIB_SL(const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index,
   asn_enc_rval_t enc_rval;
   LTE_SBCCH_SL_BCH_MessageType_t *mib_sl = &UE_rrc_inst[ctxt_pP->module_id].mib_sl[eNB_index];
   uint8_t sfn = (uint8_t)((frame>>2)&0xff);
+  uint8_t dfn[2] = {sfn, 0}; // directFrameNumber is 10 bits, the two low bits are zero
   UE_rrc_inst[ctxt_pP->module_id].MIB = (uint8_t *) malloc16(4);
 
   if (in_coverage > 0 ) {
@@ -314,9 +345,13 @@ uint8_t do_MIB_SL(const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index,
     mib_sl->sl_Bandwidth_r12 = *UE_rrc_inst[ctxt_pP->module_id].sib2[eNB_index]->freqInfo.ul_Bandwidth;
 
     if (UE_rrc_inst[ctxt_pP->module_id].sib1[eNB_index]->tdd_Config) {
-      mib_sl->tdd_ConfigSL_r12.subframeAssignmentSL_r12 = UE_rrc_inst[ctxt_pP->module_id].sib1[eNB_index]->tdd_Config->subframeAssignment;
+      if (!mib_sl->tdd_ConfigSL_r12)
+        mib_sl->tdd_ConfigSL_r12 = calloc_or_fail(1, sizeof(*mib_sl->tdd_ConfigSL_r12));
+      mib_sl->tdd_ConfigSL_r12->subframeAssignmentSL_r12 = UE_rrc_inst[ctxt_pP->module_id].sib1[eNB_index]->tdd_Config->subframeAssignment;
     } else {
-      mib_sl->tdd_ConfigSL_r12.subframeAssignmentSL_r12 = LTE_TDD_ConfigSL_r12__subframeAssignmentSL_r12_none;
+      if (!mib_sl->tdd_ConfigSL_r12)
+        mib_sl->tdd_ConfigSL_r12 = calloc_or_fail(1, sizeof(*mib_sl->tdd_ConfigSL_r12));
+      mib_sl->tdd_ConfigSL_r12->subframeAssignmentSL_r12 = LTE_TDD_ConfigSL_r12__subframeAssignmentSL_r12_none;
     }
 
     //if triggered by sl communication
@@ -338,9 +373,9 @@ uint8_t do_MIB_SL(const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index,
   }
 
   //set FrameNumber, subFrameNumber
-  mib_sl->directFrameNumber_r12.buf =  &sfn;
-  mib_sl->directFrameNumber_r12.size = 1;
-  mib_sl->directFrameNumber_r12.bits_unused=0;
+  mib_sl->directFrameNumber_r12.buf = dfn;
+  mib_sl->directFrameNumber_r12.size = 2;
+  mib_sl->directFrameNumber_r12.bits_unused = 6;
   mib_sl->directSubframeNumber_r12 = subframe;
   LOG_I(RRC,"[MIB-SL] sfn %x, subframe %x\n", (uint32_t)sfn, (uint8_t)subframe);
   enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_SBCCH_SL_BCH_Message,
@@ -387,10 +422,14 @@ uint8_t do_SIB1_MBMS(rrc_eNB_carrier_data_t *carrier,
   int i;
   struct LTE_MBSFN_AreaInfo_r9 *MBSFN_Area1/*, *MBSFN_Area2*/;
   memset(bcch_message,0,sizeof(LTE_BCCH_DL_SCH_Message_MBMS_t));
-  bcch_message->message.present = LTE_BCCH_DL_SCH_MessageType_MBMS_r14_PR_c1;
-  bcch_message->message.choice.c1.present = LTE_BCCH_DL_SCH_MessageType_MBMS_r14__c1_PR_systemInformationBlockType1_MBMS_r14;
+  if (!bcch_message->message)
+    bcch_message->message = calloc_or_fail(1, sizeof(*bcch_message->message));
+  bcch_message->message->present = LTE_BCCH_DL_SCH_MessageType_MBMS_r14_PR_c1;
+  bcch_message->message->choice.c1.present = LTE_BCCH_DL_SCH_MessageType_MBMS_r14__c1_PR_systemInformationBlockType1_MBMS_r14;
   //  memcpy(&bcch_message.message.choice.c1.choice.systemInformationBlockType1,sib1,sizeof(SystemInformationBlockType1_t));
-  *sib1_MBMS = &bcch_message->message.choice.c1.choice.systemInformationBlockType1_MBMS_r14;
+  bcch_message->message->choice.c1.choice.systemInformationBlockType1_MBMS_r14 =
+      calloc_or_fail(1, sizeof(*bcch_message->message->choice.c1.choice.systemInformationBlockType1_MBMS_r14));
+  *sib1_MBMS = bcch_message->message->choice.c1.choice.systemInformationBlockType1_MBMS_r14;
   PLMN_identity_info = CALLOC(1, sizeof(LTE_PLMN_IdentityInfo_t) * num_plmn);
   //memset(&schedulingInfo,0,sizeof(LTE_SchedulingInfo_MBMS_r14_t));
   memset(schedulingInfo,0,sizeof(LTE_SchedulingInfo_MBMS_r14_t));
@@ -410,9 +449,11 @@ uint8_t do_SIB1_MBMS(rrc_eNB_carrier_data_t *carrier,
 
   /* as per TS 36.311, up to 6 PLMN_identity_info are allowed in list -> add one by one */
   for (i = 0; i < num_plmn; ++i) {
-    PLMN_identity_info[i].plmn_Identity.mcc = CALLOC(1,sizeof(*PLMN_identity_info[i].plmn_Identity.mcc));
-    memset(PLMN_identity_info[i].plmn_Identity.mcc,0,sizeof(*PLMN_identity_info[i].plmn_Identity.mcc));
-    asn_set_empty(&PLMN_identity_info[i].plmn_Identity.mcc->list);//.size=0;
+    if (!PLMN_identity_info[i].plmn_Identity)
+      PLMN_identity_info[i].plmn_Identity = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity));
+    PLMN_identity_info[i].plmn_Identity->mcc = CALLOC(1,sizeof(*PLMN_identity_info[i].plmn_Identity->mcc));
+    memset(PLMN_identity_info[i].plmn_Identity->mcc,0,sizeof(*PLMN_identity_info[i].plmn_Identity->mcc));
+    asn_set_empty(&PLMN_identity_info[i].plmn_Identity->mcc->list);//.size=0;
     dummy_mcc_0 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
     dummy_mcc_1 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
     dummy_mcc_2 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
@@ -423,11 +464,15 @@ uint8_t do_SIB1_MBMS(rrc_eNB_carrier_data_t *carrier,
     *dummy_mcc_1 = (configuration->mcc[i] / 10) % 10;
     *dummy_mcc_2 = (configuration->mcc[i] / 1) % 10;
 
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mcc->list, dummy_mcc_0);
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mcc->list, dummy_mcc_1);
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mcc->list, dummy_mcc_2);
-    PLMN_identity_info[i].plmn_Identity.mnc.list.size=0;
-    PLMN_identity_info[i].plmn_Identity.mnc.list.count=0;
+    if (!PLMN_identity_info[i].plmn_Identity)
+      PLMN_identity_info[i].plmn_Identity = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity));
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mcc->list, dummy_mcc_0);
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mcc->list, dummy_mcc_1);
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mcc->list, dummy_mcc_2);
+    if (!PLMN_identity_info[i].plmn_Identity->mnc)
+      PLMN_identity_info[i].plmn_Identity->mnc = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity->mnc));
+    PLMN_identity_info[i].plmn_Identity->mnc->list.size=0;
+    PLMN_identity_info[i].plmn_Identity->mnc->list.count=0;
     dummy_mnc_0 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
     dummy_mnc_1 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
     dummy_mnc_2 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
@@ -451,18 +496,24 @@ uint8_t do_SIB1_MBMS(rrc_eNB_carrier_data_t *carrier,
       }
     }
 
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mnc.list, dummy_mnc_0);
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mnc.list, dummy_mnc_1);
+    if (!PLMN_identity_info[i].plmn_Identity)
+      PLMN_identity_info[i].plmn_Identity = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity));
+    if (!PLMN_identity_info[i].plmn_Identity->mnc)
+      PLMN_identity_info[i].plmn_Identity->mnc = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity->mnc));
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mnc->list, dummy_mnc_0);
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mnc->list, dummy_mnc_1);
 
     if (*dummy_mnc_2 != 0xf) {
-      asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mnc.list, dummy_mnc_2);
+      if (!PLMN_identity_info[i].plmn_Identity->mnc)
+        PLMN_identity_info[i].plmn_Identity->mnc = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity->mnc));
+      asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mnc->list, dummy_mnc_2);
     } else {
       free(dummy_mnc_2);
     }
 
     //assign_enum(&PLMN_identity_info.cellReservedForOperatorUse,PLMN_IdentityInfo__cellReservedForOperatorUse_notReserved);
     PLMN_identity_info[i].cellReservedForOperatorUse=LTE_PLMN_IdentityInfo__cellReservedForOperatorUse_notReserved;
-    asn1cSeqAdd(&(*sib1_MBMS)->cellAccessRelatedInfo_r14.plmn_IdentityList_r14.list,&PLMN_identity_info[i]);
+    asn1cSeqAdd(&(*sib1_MBMS)->cellAccessRelatedInfo_r14.plmn_IdentityList_r14.list, PLMN_identity_info[i].plmn_Identity);
   }
 
   // 16 bits
@@ -480,11 +531,16 @@ uint8_t do_SIB1_MBMS(rrc_eNB_carrier_data_t *carrier,
   (*sib1_MBMS)->cellAccessRelatedInfo_r14.cellIdentity_r14.size=4;
   (*sib1_MBMS)->cellAccessRelatedInfo_r14.cellIdentity_r14.bits_unused=4;
   (*sib1_MBMS)->freqBandIndicator_r14 = configuration->eutra_band[CC_id];
+  (*sib1_MBMS)->pdsch_ConfigCommon_r14 = calloc_or_fail(1, sizeof(*(*sib1_MBMS)->pdsch_ConfigCommon_r14));
 
   schedulingInfo->si_Periodicity_r14=LTE_SI_Periodicity_r12_rf16;
   *sib_type = LTE_SIB_Type_MBMS_r14_sibType13_v920;
-  asn1cSeqAdd(&schedulingInfo->sib_MappingInfo_r14.list, sib_type);
-  asn1cSeqAdd(&(*sib1_MBMS)->schedulingInfoList_MBMS_r14.list, schedulingInfo);
+  if (!schedulingInfo->sib_MappingInfo_r14)
+    schedulingInfo->sib_MappingInfo_r14 = calloc_or_fail(1, sizeof(*schedulingInfo->sib_MappingInfo_r14));
+  asn1cSeqAdd(&schedulingInfo->sib_MappingInfo_r14->list, sib_type);
+  if (!(*sib1_MBMS)->schedulingInfoList_MBMS_r14)
+    (*sib1_MBMS)->schedulingInfoList_MBMS_r14 = calloc_or_fail(1, sizeof(*(*sib1_MBMS)->schedulingInfoList_MBMS_r14));
+  asn1cSeqAdd(&(*sib1_MBMS)->schedulingInfoList_MBMS_r14->list, schedulingInfo);
   (*sib1_MBMS)->si_WindowLength_r14=LTE_SystemInformationBlockType1_MBMS_r14__si_WindowLength_r14_ms20;
   (*sib1_MBMS)->systemInfoValueTag_r14=0;
   //  (*sib1).nonCriticalExtension = calloc(1,sizeof(*(*sib1).nonCriticalExtension));
@@ -493,12 +549,12 @@ uint8_t do_SIB1_MBMS(rrc_eNB_carrier_data_t *carrier,
   if (1) {
     (*sib1_MBMS)->systemInformationBlockType13_r14 =                             CALLOC(1,sizeof(struct LTE_SystemInformationBlockType13_r9));
     memset((*sib1_MBMS)->systemInformationBlockType13_r14,0,sizeof(struct LTE_SystemInformationBlockType13_r9));
-    ((*sib1_MBMS)->systemInformationBlockType13_r14)->notificationConfig_r9.notificationRepetitionCoeff_r9= LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
-    ((*sib1_MBMS)->systemInformationBlockType13_r14)->notificationConfig_r9.notificationOffset_r9= 0;
-    ((*sib1_MBMS)->systemInformationBlockType13_r14)->notificationConfig_r9.notificationSF_Index_r9= 1;
-    //((*sib1_MBMS)->systemInformationBlockType13_r14)->mbsfn_AreaInfoList_r9= CALLOC(1,sizeof(LTE_MBSFN_AreaInfoList_r9_t));
-    //memset(((*sib1_MBMS)->systemInformationBlockType13_r14)->mbsfn_AreaInfoList_r9,0,sizeof(LTE_MBSFN_AreaInfoList_r9_t));
-    LTE_MBSFN_AreaInfoList_r9_t *MBSFNArea_list= &((*sib1_MBMS)->systemInformationBlockType13_r14)->mbsfn_AreaInfoList_r9;
+    ((*sib1_MBMS)->systemInformationBlockType13_r14)->notificationConfig_r9 = calloc_or_fail(1, sizeof(*((*sib1_MBMS)->systemInformationBlockType13_r14)->notificationConfig_r9));
+    ((*sib1_MBMS)->systemInformationBlockType13_r14)->notificationConfig_r9->notificationRepetitionCoeff_r9= LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
+    ((*sib1_MBMS)->systemInformationBlockType13_r14)->notificationConfig_r9->notificationOffset_r9= 0;
+    ((*sib1_MBMS)->systemInformationBlockType13_r14)->notificationConfig_r9->notificationSF_Index_r9= 1;
+    ((*sib1_MBMS)->systemInformationBlockType13_r14)->mbsfn_AreaInfoList_r9 = calloc_or_fail(1, sizeof(*((*sib1_MBMS)->systemInformationBlockType13_r14)->mbsfn_AreaInfoList_r9));
+    LTE_MBSFN_AreaInfoList_r9_t *MBSFNArea_list= ((*sib1_MBMS)->systemInformationBlockType13_r14)->mbsfn_AreaInfoList_r9;
     //  MBSFN-AreaInfoList
     memset(MBSFNArea_list,0,sizeof(*MBSFNArea_list));
     // MBSFN Area 1
@@ -809,10 +865,12 @@ uint8_t do_SIB1(rrc_eNB_carrier_data_t *carrier,
   }
 
   memset(bcch_message,0,sizeof(LTE_BCCH_DL_SCH_Message_t));
-  bcch_message->message.present = LTE_BCCH_DL_SCH_MessageType_PR_c1;
-  bcch_message->message.choice.c1.present = LTE_BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1;
+  if (!bcch_message->message)
+    bcch_message->message = calloc_or_fail(1, sizeof(*bcch_message->message));
+  bcch_message->message->present = LTE_BCCH_DL_SCH_MessageType_PR_c1;
+  bcch_message->message->choice.c1.present = LTE_BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1;
   //  memcpy(&bcch_message.message.choice.c1.choice.systemInformationBlockType1,sib1,sizeof(SystemInformationBlockType1_t));
-  *sib1 = &bcch_message->message.choice.c1.choice.systemInformationBlockType1;
+  *sib1 = &bcch_message->message->choice.c1.choice.systemInformationBlockType1;
   PLMN_identity_info = CALLOC(1, sizeof(LTE_PLMN_IdentityInfo_t) * num_plmn);
 
   if (PLMN_identity_info == NULL)
@@ -828,9 +886,11 @@ uint8_t do_SIB1(rrc_eNB_carrier_data_t *carrier,
 
   /* as per TS 36.311, up to 6 PLMN_identity_info are allowed in list -> add one by one */
   for (int i = 0; i < num_plmn; ++i) {
-    PLMN_identity_info[i].plmn_Identity.mcc = CALLOC(1,sizeof(*PLMN_identity_info[i].plmn_Identity.mcc));
-    memset(PLMN_identity_info[i].plmn_Identity.mcc,0,sizeof(*PLMN_identity_info[i].plmn_Identity.mcc));
-    asn_set_empty(&PLMN_identity_info[i].plmn_Identity.mcc->list);//.size=0;
+    if (!PLMN_identity_info[i].plmn_Identity)
+      PLMN_identity_info[i].plmn_Identity = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity));
+    PLMN_identity_info[i].plmn_Identity->mcc = CALLOC(1,sizeof(*PLMN_identity_info[i].plmn_Identity->mcc));
+    memset(PLMN_identity_info[i].plmn_Identity->mcc,0,sizeof(*PLMN_identity_info[i].plmn_Identity->mcc));
+    asn_set_empty(&PLMN_identity_info[i].plmn_Identity->mcc->list);//.size=0;
     dummy_mcc_0 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
     dummy_mcc_1 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
     dummy_mcc_2 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
@@ -842,11 +902,15 @@ uint8_t do_SIB1(rrc_eNB_carrier_data_t *carrier,
     *dummy_mcc_0 = (configuration->mcc[i] / 100) % 10;
     *dummy_mcc_1 = (configuration->mcc[i] / 10) % 10;
     *dummy_mcc_2 = (configuration->mcc[i] / 1) % 10;
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mcc->list, dummy_mcc_0);
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mcc->list, dummy_mcc_1);
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mcc->list, dummy_mcc_2);
-    PLMN_identity_info[i].plmn_Identity.mnc.list.size=0;
-    PLMN_identity_info[i].plmn_Identity.mnc.list.count=0;
+    if (!PLMN_identity_info[i].plmn_Identity)
+      PLMN_identity_info[i].plmn_Identity = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity));
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mcc->list, dummy_mcc_0);
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mcc->list, dummy_mcc_1);
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mcc->list, dummy_mcc_2);
+    if (!PLMN_identity_info[i].plmn_Identity->mnc)
+      PLMN_identity_info[i].plmn_Identity->mnc = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity->mnc));
+    PLMN_identity_info[i].plmn_Identity->mnc->list.size=0;
+    PLMN_identity_info[i].plmn_Identity->mnc->list.count=0;
     dummy_mnc_0 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
     dummy_mnc_1 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
     dummy_mnc_2 = CALLOC(1, sizeof(LTE_MCC_MNC_Digit_t));
@@ -870,11 +934,17 @@ uint8_t do_SIB1(rrc_eNB_carrier_data_t *carrier,
         *dummy_mnc_2 = (configuration->mnc[i] / 1) % 10;
       }
     }
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mnc.list, dummy_mnc_0);
-    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mnc.list, dummy_mnc_1);
+    if (!PLMN_identity_info[i].plmn_Identity)
+      PLMN_identity_info[i].plmn_Identity = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity));
+    if (!PLMN_identity_info[i].plmn_Identity->mnc)
+      PLMN_identity_info[i].plmn_Identity->mnc = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity->mnc));
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mnc->list, dummy_mnc_0);
+    asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mnc->list, dummy_mnc_1);
 
     if (*dummy_mnc_2 != 0xf) {
-      asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity.mnc.list, dummy_mnc_2);
+      if (!PLMN_identity_info[i].plmn_Identity->mnc)
+        PLMN_identity_info[i].plmn_Identity->mnc = calloc_or_fail(1, sizeof(*PLMN_identity_info[i].plmn_Identity->mnc));
+      asn1cSeqAdd(&PLMN_identity_info[i].plmn_Identity->mnc->list, dummy_mnc_2);
     } else {
       free(dummy_mnc_2);
     }
@@ -914,12 +984,18 @@ uint8_t do_SIB1(rrc_eNB_carrier_data_t *carrier,
   }
   // This is for SIB2/3
   sib_type=LTE_SIB_Type_sibType3;
-  asn1cSeqAdd(&schedulingInfo.sib_MappingInfo.list,&sib_type);
-  asn1cSeqAdd(&(*sib1)->schedulingInfoList.list,&schedulingInfo);
+  if (!schedulingInfo.sib_MappingInfo)
+    schedulingInfo.sib_MappingInfo = calloc_or_fail(1, sizeof(*schedulingInfo.sib_MappingInfo));
+  asn1cSeqAdd(&schedulingInfo.sib_MappingInfo->list,&sib_type);
+  if (!(*sib1)->schedulingInfoList)
+    (*sib1)->schedulingInfoList = calloc_or_fail(1, sizeof(*(*sib1)->schedulingInfoList));
+  asn1cSeqAdd(&(*sib1)->schedulingInfoList->list,&schedulingInfo);
   if(configuration->eMBMS_M2_configured){
          sib_type2=LTE_SIB_Type_sibType13_v920;
-         asn1cSeqAdd(&schedulingInfo2.sib_MappingInfo.list,&sib_type2);
-         asn1cSeqAdd(&(*sib1)->schedulingInfoList.list,&schedulingInfo2);
+         if (!schedulingInfo2.sib_MappingInfo)
+           schedulingInfo2.sib_MappingInfo = calloc_or_fail(1, sizeof(*schedulingInfo2.sib_MappingInfo));
+         asn1cSeqAdd(&schedulingInfo2.sib_MappingInfo->list,&sib_type2);
+         asn1cSeqAdd(&(*sib1)->schedulingInfoList->list,&schedulingInfo2);
   }
   //  asn1cSeqAdd(&schedulingInfo.sib_MappingInfo.list,NULL);
 
@@ -1215,9 +1291,9 @@ uint8_t do_SIB23(uint8_t Mod_id,
                  int CC_id, BOOLEAN_t brOption, 
                  RrcConfigurationReq *configuration
                 ) {
-  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *sib2_part,*sib3_part;
+  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *sib2_part,*sib3_part;
   int eMTC_configured = configuration->eMTC_configured;
-  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *sib18_part, *sib19_part, *sib21_part;
+  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *sib18_part, *sib19_part, *sib21_part;
   LTE_SL_CommRxPoolList_r12_t *SL_CommRxPoolList; //for SIB18
   struct LTE_SL_CommResourcePool_r12 *SL_CommResourcePool; //for SIB18
   LTE_SL_DiscRxPoolList_r12_t *SL_DiscRxPoolList; //for SIB19 (discRxPool)
@@ -1225,7 +1301,7 @@ uint8_t do_SIB23(uint8_t Mod_id,
   //SL_DiscRxPoolList_r12_t *SL_DiscRxPoolPSList; //for SIB19 (discRxPoolPS)
   //struct SL_DiscResourcePool_r12 *SL_DiscResourcePoolPS; //for SIB19 (discRxPoolPS)
   //struct SL_V2X_ConfigCommon_r14 *SL_V2X_ConfigCommon;
-  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *sib13_part=NULL;
+  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *sib13_part=NULL;
   LTE_MBSFN_SubframeConfigList_t *MBSFNSubframeConfigList;
   LTE_MBSFN_AreaInfoList_r9_t *MBSFNArea_list;
   struct LTE_MBSFN_AreaInfo_r9 *MBSFN_Area1, *MBSFN_Area2;
@@ -1271,33 +1347,33 @@ uint8_t do_SIB23(uint8_t Mod_id,
   }
 
   LOG_I(RRC,"[eNB %d] Configuration SIB2/3, eMBMS = %d\n", Mod_id, configuration->eMBMS_configured);
-  sib2_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-  sib3_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-  memset(sib2_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-  memset(sib3_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-  sib2_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib2;
-  sib3_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib3;
+  sib2_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+  sib3_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+  memset(sib2_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+  memset(sib3_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+  sib2_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2;
+  sib3_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib3;
   *sib2 = &sib2_part->choice.sib2;
   *sib3 = &sib3_part->choice.sib3;
 
   if ((configuration->eMBMS_configured > 0) && (brOption==false)) {
-    sib13_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    memset(sib13_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    sib13_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920;
+    sib13_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    memset(sib13_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    sib13_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920;
     *sib13 = &sib13_part->choice.sib13_v920;
   }
 
   if (configuration->SL_configured > 0) {
     //TTN - for D2D
-    sib18_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    sib19_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    sib21_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    memset(sib18_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    memset(sib19_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    memset(sib21_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    sib18_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib18_v1250;
-    sib19_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib19_v1250;
-    sib21_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib21_v1430;
+    sib18_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    sib19_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    sib21_part = CALLOC(1,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    memset(sib18_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    memset(sib19_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    memset(sib21_part,0,sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    sib18_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib18_v1250;
+    sib19_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1250;
+    sib21_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib21_v1430;
     *sib18 = &sib18_part->choice.sib18_v1250;
     *sib19 = &sib19_part->choice.sib19_v1250;
     *sib21 = &sib21_part->choice.sib21_v1430;
@@ -1307,36 +1383,42 @@ uint8_t do_SIB23(uint8_t Mod_id,
   (*sib2)->ac_BarringInfo = NULL;
   (*sib2)->ext1 = NULL;
   (*sib2)->ext2 = NULL;
-  (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.numberOfRA_Preambles                         = rrconfig->rach_numberOfRA_Preambles;
-  (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig                        = NULL;
+  if (!(*sib2)->radioResourceConfigCommon)
+    (*sib2)->radioResourceConfigCommon = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon));
+  if (!(*sib2)->radioResourceConfigCommon->rach_ConfigCommon)
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->rach_ConfigCommon));
+  (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.numberOfRA_Preambles                         = rrconfig->rach_numberOfRA_Preambles;
+  (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig                        = NULL;
 
   if (rrconfig->rach_preamblesGroupAConfig) {
-    (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig
       = CALLOC(1,sizeof(struct LTE_RACH_ConfigCommon__preambleInfo__preamblesGroupAConfig));
-    (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->sizeOfRA_PreamblesGroupA
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig->sizeOfRA_PreamblesGroupA
       = rrconfig->rach_sizeOfRA_PreamblesGroupA;
-    (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->messageSizeGroupA
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig->messageSizeGroupA
       = rrconfig->rach_messageSizeGroupA;
-    (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->messagePowerOffsetGroupB
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig->messagePowerOffsetGroupB
       = rrconfig->rach_messagePowerOffsetGroupB;
   }
 
-  (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.powerRampingParameters.powerRampingStep                   = rrconfig->rach_powerRampingStep;
-  (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.powerRampingParameters.preambleInitialReceivedTargetPower = rrconfig->rach_preambleInitialReceivedTargetPower;
-  (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.preambleTransMax                       = rrconfig->rach_preambleTransMax;
-  (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.ra_ResponseWindowSize                  = rrconfig->rach_raResponseWindowSize;
-  (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.mac_ContentionResolutionTimer          = rrconfig->rach_macContentionResolutionTimer;
-  (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.maxHARQ_Msg3Tx                                            = rrconfig->rach_maxHARQ_Msg3Tx;
+  if (!(*sib2)->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters)
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters));
+  (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters->powerRampingStep                   = rrconfig->rach_powerRampingStep;
+  (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters->preambleInitialReceivedTargetPower = rrconfig->rach_preambleInitialReceivedTargetPower;
+  (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.preambleTransMax                       = rrconfig->rach_preambleTransMax;
+  (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.ra_ResponseWindowSize                  = rrconfig->rach_raResponseWindowSize;
+  (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.mac_ContentionResolutionTimer          = rrconfig->rach_macContentionResolutionTimer;
+  (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->maxHARQ_Msg3Tx                                            = rrconfig->rach_maxHARQ_Msg3Tx;
 
   if (eMTC_configured>0) {
-    (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ext1 = calloc(1, sizeof(struct LTE_RACH_ConfigCommon__ext1));
-    memset((*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ext1, 0, sizeof(struct LTE_RACH_ConfigCommon__ext1));
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ext1 = calloc(1, sizeof(struct LTE_RACH_ConfigCommon__ext1));
+    memset((*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ext1, 0, sizeof(struct LTE_RACH_ConfigCommon__ext1));
 
-    (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ext1->preambleTransMax_CE_r13 = calloc(1, sizeof(LTE_PreambleTransMax_t));
-    *(*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ext1->preambleTransMax_CE_r13 = rrconfig->preambleTransMax_CE_r13; // to be re-initialized when we find the enum
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ext1->preambleTransMax_CE_r13 = calloc(1, sizeof(LTE_PreambleTransMax_t));
+    *(*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ext1->preambleTransMax_CE_r13 = rrconfig->preambleTransMax_CE_r13; // to be re-initialized when we find the enum
 
-    (*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ext1->rach_CE_LevelInfoList_r13 = calloc(1, sizeof(LTE_RACH_CE_LevelInfoList_r13_t));
-    memset((*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ext1->rach_CE_LevelInfoList_r13, 0, sizeof(LTE_RACH_CE_LevelInfoList_r13_t));
+    (*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ext1->rach_CE_LevelInfoList_r13 = calloc(1, sizeof(LTE_RACH_CE_LevelInfoList_r13_t));
+    memset((*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ext1->rach_CE_LevelInfoList_r13, 0, sizeof(LTE_RACH_CE_LevelInfoList_r13_t));
     LTE_RACH_CE_LevelInfo_r13_t *rach_ce_levelinfo_r13;
     int num_rach_ce_level_info = configuration->rach_CE_LevelInfoList_r13_size[CC_id];
     int index;
@@ -1358,208 +1440,230 @@ uint8_t do_SIB23(uint8_t Mod_id,
         rach_ce_levelinfo_r13->rar_HoppingConfig_r13 = LTE_RACH_CE_LevelInfo_r13__rar_HoppingConfig_r13_off;
       }
 
-      asn1cSeqAdd(&(*sib2)->radioResourceConfigCommon.rach_ConfigCommon.ext1->rach_CE_LevelInfoList_r13->list, rach_ce_levelinfo_r13);
+      asn1cSeqAdd(&(*sib2)->radioResourceConfigCommon->rach_ConfigCommon->ext1->rach_CE_LevelInfoList_r13->list, rach_ce_levelinfo_r13);
     }
   }
 
+  if (!(*sib2)->radioResourceConfigCommon->bcch_Config)
+    (*sib2)->radioResourceConfigCommon->bcch_Config = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->bcch_Config));
   // BCCH-Config
-  (*sib2)->radioResourceConfigCommon.bcch_Config.modificationPeriodCoeff
+  (*sib2)->radioResourceConfigCommon->bcch_Config->modificationPeriodCoeff
     = rrconfig->bcch_modificationPeriodCoeff;
+  if (!(*sib2)->radioResourceConfigCommon->pcch_Config)
+    (*sib2)->radioResourceConfigCommon->pcch_Config = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->pcch_Config));
   // PCCH-Config
-  (*sib2)->radioResourceConfigCommon.pcch_Config.defaultPagingCycle
+  (*sib2)->radioResourceConfigCommon->pcch_Config->defaultPagingCycle
     = rrconfig->pcch_defaultPagingCycle;
-  (*sib2)->radioResourceConfigCommon.pcch_Config.nB
+  (*sib2)->radioResourceConfigCommon->pcch_Config->nB
     = rrconfig->pcch_nB;
+  if (!(*sib2)->radioResourceConfigCommon->prach_Config)
+    (*sib2)->radioResourceConfigCommon->prach_Config = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->prach_Config));
   // PRACH-Config
-  (*sib2)->radioResourceConfigCommon.prach_Config.rootSequenceIndex
+  (*sib2)->radioResourceConfigCommon->prach_Config->rootSequenceIndex
     = rrconfig->prach_root;
-  (*sib2)->radioResourceConfigCommon.prach_Config.prach_ConfigInfo.prach_ConfigIndex
+  if (!(*sib2)->radioResourceConfigCommon->prach_Config->prach_ConfigInfo)
+    (*sib2)->radioResourceConfigCommon->prach_Config->prach_ConfigInfo = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->prach_Config->prach_ConfigInfo));
+  (*sib2)->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_ConfigIndex
     = rrconfig->prach_config_index;
-  (*sib2)->radioResourceConfigCommon.prach_Config.prach_ConfigInfo.highSpeedFlag
+  (*sib2)->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->highSpeedFlag
     = rrconfig->prach_high_speed;
-  (*sib2)->radioResourceConfigCommon.prach_Config.prach_ConfigInfo.zeroCorrelationZoneConfig
+  (*sib2)->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->zeroCorrelationZoneConfig
     = rrconfig->prach_zero_correlation;
-  (*sib2)->radioResourceConfigCommon.prach_Config.prach_ConfigInfo.prach_FreqOffset
+  (*sib2)->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_FreqOffset
     = rrconfig->prach_freq_offset;
+  if (!(*sib2)->radioResourceConfigCommon->pdsch_ConfigCommon)
+    (*sib2)->radioResourceConfigCommon->pdsch_ConfigCommon = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->pdsch_ConfigCommon));
   // PDSCH-Config
-  (*sib2)->radioResourceConfigCommon.pdsch_ConfigCommon.referenceSignalPower
+  (*sib2)->radioResourceConfigCommon->pdsch_ConfigCommon->referenceSignalPower
     = rrconfig->pdsch_referenceSignalPower;
-  (*sib2)->radioResourceConfigCommon.pdsch_ConfigCommon.p_b
+  (*sib2)->radioResourceConfigCommon->pdsch_ConfigCommon->p_b
     = rrconfig->pdsch_p_b;
+  if (!(*sib2)->radioResourceConfigCommon->pusch_ConfigCommon)
+    (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->pusch_ConfigCommon));
   // PUSCH-Config
-  (*sib2)->radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.n_SB
+  (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->pusch_ConfigBasic.n_SB
     = rrconfig->pusch_n_SB;
-  (*sib2)->radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.hoppingMode
+  (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->pusch_ConfigBasic.hoppingMode
     = rrconfig->pusch_hoppingMode;
-  (*sib2)->radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.pusch_HoppingOffset
+  (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->pusch_ConfigBasic.pusch_HoppingOffset
     = rrconfig->pusch_hoppingOffset;
-  (*sib2)->radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.enable64QAM
+  (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->pusch_ConfigBasic.enable64QAM
     = rrconfig->pusch_enable64QAM;
-  (*sib2)->radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.groupHoppingEnabled
+  if (!(*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH)
+    (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH));
+  (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH->groupHoppingEnabled
     = rrconfig->pusch_groupHoppingEnabled;
-  (*sib2)->radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.groupAssignmentPUSCH
+  (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH->groupAssignmentPUSCH
     = rrconfig->pusch_groupAssignment;
-  (*sib2)->radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.sequenceHoppingEnabled
+  (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH->sequenceHoppingEnabled
     = rrconfig->pusch_sequenceHoppingEnabled;
-  (*sib2)->radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.cyclicShift
+  (*sib2)->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH->cyclicShift
     = rrconfig->pusch_nDMRS1;
+  if (!(*sib2)->radioResourceConfigCommon->pucch_ConfigCommon)
+    (*sib2)->radioResourceConfigCommon->pucch_ConfigCommon = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->pucch_ConfigCommon));
   // PUCCH-Config
-  (*sib2)->radioResourceConfigCommon.pucch_ConfigCommon.deltaPUCCH_Shift
+  (*sib2)->radioResourceConfigCommon->pucch_ConfigCommon->deltaPUCCH_Shift
     = rrconfig->pucch_delta_shift;
-  (*sib2)->radioResourceConfigCommon.pucch_ConfigCommon.nRB_CQI
+  (*sib2)->radioResourceConfigCommon->pucch_ConfigCommon->nRB_CQI
     = rrconfig->pucch_nRB_CQI;
-  (*sib2)->radioResourceConfigCommon.pucch_ConfigCommon.nCS_AN
+  (*sib2)->radioResourceConfigCommon->pucch_ConfigCommon->nCS_AN
     = rrconfig->pucch_nCS_AN;
-  (*sib2)->radioResourceConfigCommon.pucch_ConfigCommon.n1PUCCH_AN
+  (*sib2)->radioResourceConfigCommon->pucch_ConfigCommon->n1PUCCH_AN
     = rrconfig->pucch_n1_AN;
 
   // SRS Config
+  if (!(*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon)
+    (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon));
   if (rrconfig->srs_enable == 1) {
-    (*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present
+    (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present
       = LTE_SoundingRS_UL_ConfigCommon_PR_setup;
-    (*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_BandwidthConfig
+    (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_BandwidthConfig
       = rrconfig->srs_BandwidthConfig;
-    (*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig
+    (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig
       = rrconfig->srs_SubframeConfig;
-    (*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.ackNackSRS_SimultaneousTransmission
+    (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.ackNackSRS_SimultaneousTransmission
       = rrconfig->srs_ackNackST;
 
     if (rrconfig->srs_MaxUpPts) {
-      (*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_MaxUpPts
+      (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_MaxUpPts
         = CALLOC(1,sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_MaxUpPts=1;
+      *(*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_MaxUpPts=1;
     } else {
-      (*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_MaxUpPts = NULL;
+      (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_MaxUpPts = NULL;
     }
 
     RC.rrc[Mod_id]->srs_enable[CC_id] = 1;
   } else {
     RC.rrc[Mod_id]->srs_enable[CC_id] = 0;
-    (*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present=LTE_SoundingRS_UL_ConfigCommon_PR_release;
-    (*sib2)->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.release=0;
+    (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present=LTE_SoundingRS_UL_ConfigCommon_PR_release;
+    (*sib2)->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.release=0;
   }
 
+  if (!(*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon)
+    (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon));
   // uplinkPowerControlCommon
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.p0_NominalPUSCH
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->p0_NominalPUSCH
     = rrconfig->pusch_p0_Nominal;
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.p0_NominalPUCCH
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->p0_NominalPUCCH
     = rrconfig->pucch_p0_Nominal;
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.alpha
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->alpha
     = rrconfig->pusch_alpha;
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format1
+  if (!(*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH)
+    (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH));
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format1
     = rrconfig->pucch_deltaF_Format1;
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format1b
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format1b
     = rrconfig->pucch_deltaF_Format1b;
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format2
     = rrconfig->pucch_deltaF_Format2;
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2a
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format2a
     = rrconfig->pucch_deltaF_Format2a;
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2b
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format2b
     = rrconfig->pucch_deltaF_Format2b;
-  (*sib2)->radioResourceConfigCommon.uplinkPowerControlCommon.deltaPreambleMsg3
+  (*sib2)->radioResourceConfigCommon->uplinkPowerControlCommon->deltaPreambleMsg3
     = rrconfig->msg3_delta_Preamble;
-  (*sib2)->radioResourceConfigCommon.ul_CyclicPrefixLength
+  (*sib2)->radioResourceConfigCommon->ul_CyclicPrefixLength
     = rrconfig->ul_CyclicPrefixLength;
 
   if (eMTC_configured>0) {
-    (*sib2)->radioResourceConfigCommon.ext4 = calloc(1, sizeof(struct LTE_RadioResourceConfigCommonSIB__ext4));
-    memset((*sib2)->radioResourceConfigCommon.ext4, 0, sizeof(struct LTE_RadioResourceConfigCommonSIB__ext4));
-    (*sib2)->radioResourceConfigCommon.ext4->bcch_Config_v1310 = NULL; //calloc(1, sizeof(BCCH_Config_v1310_t));
+    (*sib2)->radioResourceConfigCommon->ext4 = calloc(1, sizeof(struct LTE_RadioResourceConfigCommonSIB__ext4));
+    memset((*sib2)->radioResourceConfigCommon->ext4, 0, sizeof(struct LTE_RadioResourceConfigCommonSIB__ext4));
+    (*sib2)->radioResourceConfigCommon->ext4->bcch_Config_v1310 = NULL; //calloc(1, sizeof(BCCH_Config_v1310_t));
     //memset((*sib2)->radioResourceConfigCommon.ext4->bcch_Config_v1310, 0, sizeof(BCCH_Config_v1310_t));
     //(*sib2)->radioResourceConfigCommon.ext4->bcch_Config_v1310->modificationPeriodCoeff_v1310 = BCCH_Config_v1310__modificationPeriodCoeff_v1310_n64;
 
     if (configuration->pcch_config_v1310[CC_id] == true) {
-      (*sib2)->radioResourceConfigCommon.ext4->pcch_Config_v1310 = CALLOC(1, sizeof(LTE_PCCH_Config_v1310_t));
-      (*sib2)->radioResourceConfigCommon.ext4->pcch_Config_v1310->paging_narrowBands_r13 = configuration->paging_narrowbands_r13[CC_id];
-      (*sib2)->radioResourceConfigCommon.ext4->pcch_Config_v1310->mpdcch_NumRepetition_Paging_r13 = configuration->mpdcch_numrepetition_paging_r13[CC_id];
+      (*sib2)->radioResourceConfigCommon->ext4->pcch_Config_v1310 = CALLOC(1, sizeof(LTE_PCCH_Config_v1310_t));
+      (*sib2)->radioResourceConfigCommon->ext4->pcch_Config_v1310->paging_narrowBands_r13 = configuration->paging_narrowbands_r13[CC_id];
+      (*sib2)->radioResourceConfigCommon->ext4->pcch_Config_v1310->mpdcch_NumRepetition_Paging_r13 = configuration->mpdcch_numrepetition_paging_r13[CC_id];
 
       if (configuration->nb_v1310[CC_id]) {
-        (*sib2)->radioResourceConfigCommon.ext4->pcch_Config_v1310->nB_v1310 = CALLOC(1, sizeof(long));
-        *(*sib2)->radioResourceConfigCommon.ext4->pcch_Config_v1310->nB_v1310 = *configuration->nb_v1310[CC_id];
+        (*sib2)->radioResourceConfigCommon->ext4->pcch_Config_v1310->nB_v1310 = CALLOC(1, sizeof(long));
+        *(*sib2)->radioResourceConfigCommon->ext4->pcch_Config_v1310->nB_v1310 = *configuration->nb_v1310[CC_id];
       } else {
-        (*sib2)->radioResourceConfigCommon.ext4->pcch_Config_v1310->nB_v1310 = NULL;
+        (*sib2)->radioResourceConfigCommon->ext4->pcch_Config_v1310->nB_v1310 = NULL;
       }
-    } else (*sib2)->radioResourceConfigCommon.ext4->pcch_Config_v1310 = NULL;
+    } else (*sib2)->radioResourceConfigCommon->ext4->pcch_Config_v1310 = NULL;
 
     if (configuration->sib2_freq_hoppingParameters_r13_exists[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13 = CALLOC(1, sizeof(LTE_FreqHoppingParameters_r13_t));
+      (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13 = CALLOC(1, sizeof(LTE_FreqHoppingParameters_r13_t));
 
       if (configuration->sib2_interval_ULHoppingConfigCommonModeA_r13[CC_id]) {
-        (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13
+        (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13
           = CALLOC(1, sizeof(struct LTE_FreqHoppingParameters_r13__interval_ULHoppingConfigCommonModeA_r13));
 
         if (*configuration->sib2_interval_ULHoppingConfigCommonModeA_r13[CC_id] == 0) {
-          (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13->present
+          (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13->present
             = LTE_FreqHoppingParameters_r13__interval_ULHoppingConfigCommonModeA_r13_PR_interval_FDD_r13;
-          (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13->choice.interval_FDD_r13
+          (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13->choice.interval_FDD_r13
             = configuration->sib2_interval_ULHoppingConfigCommonModeA_r13_val[CC_id];
         } else {
-          (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13->present
+          (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13->present
             = LTE_FreqHoppingParameters_r13__interval_ULHoppingConfigCommonModeA_r13_PR_interval_TDD_r13;
-          (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13->choice.interval_TDD_r13
+          (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13->choice.interval_TDD_r13
             = configuration->sib2_interval_ULHoppingConfigCommonModeA_r13_val[CC_id];
         }
-      } else (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13 = NULL;
+      } else (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeA_r13 = NULL;
 
       if (configuration->sib2_interval_ULHoppingConfigCommonModeB_r13[CC_id]) {
-        (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13
+        (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13
           = CALLOC(1, sizeof(struct LTE_FreqHoppingParameters_r13__interval_ULHoppingConfigCommonModeB_r13));
 
         if (*configuration->sib2_interval_ULHoppingConfigCommonModeB_r13[CC_id] == 0)  {
-          (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13->present
+          (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13->present
             = LTE_FreqHoppingParameters_r13__interval_ULHoppingConfigCommonModeB_r13_PR_interval_FDD_r13;
-          (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13->choice.interval_FDD_r13
+          (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13->choice.interval_FDD_r13
             = configuration->sib2_interval_ULHoppingConfigCommonModeB_r13_val[CC_id];
         } else {
-          (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13->present
+          (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13->present
             = LTE_FreqHoppingParameters_r13__interval_ULHoppingConfigCommonModeB_r13_PR_interval_TDD_r13;
-          (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13->choice.interval_TDD_r13
+          (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13->choice.interval_TDD_r13
             = configuration->sib2_interval_ULHoppingConfigCommonModeB_r13_val[CC_id];
         }
-      } else (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13 = NULL;
-    } else (*sib2)->radioResourceConfigCommon.ext4->freqHoppingParameters_r13 = NULL;
+      } else (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13->interval_ULHoppingConfigCommonModeB_r13 = NULL;
+    } else (*sib2)->radioResourceConfigCommon->ext4->freqHoppingParameters_r13 = NULL;
 
     // pdsch_ConfigCommon_v1310
-    (*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310 = CALLOC(1,sizeof(LTE_PDSCH_ConfigCommon_v1310_t));
+    (*sib2)->radioResourceConfigCommon->ext4->pdsch_ConfigCommon_v1310 = CALLOC(1,sizeof(LTE_PDSCH_ConfigCommon_v1310_t));
 
     if (configuration->pdsch_maxNumRepetitionCEmodeA_r13[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeA_r13 = CALLOC(1, sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeA_r13 = *configuration->pdsch_maxNumRepetitionCEmodeA_r13[CC_id];
+      (*sib2)->radioResourceConfigCommon->ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeA_r13 = CALLOC(1, sizeof(long));
+      *(*sib2)->radioResourceConfigCommon->ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeA_r13 = *configuration->pdsch_maxNumRepetitionCEmodeA_r13[CC_id];
     } else {
-      (*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeA_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeA_r13 = NULL;
     }
 
     if (configuration->pdsch_maxNumRepetitionCEmodeB_r13[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeB_r13 = CALLOC(1, sizeof(long)); // check if they're really long
-      *(*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeB_r13 = *configuration->pdsch_maxNumRepetitionCEmodeB_r13[CC_id];
+      (*sib2)->radioResourceConfigCommon->ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeB_r13 = CALLOC(1, sizeof(long)); // check if they're really long
+      *(*sib2)->radioResourceConfigCommon->ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeB_r13 = *configuration->pdsch_maxNumRepetitionCEmodeB_r13[CC_id];
     } else {
-      (*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeB_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeB_r13 = NULL;
     }
 
     //  *(*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeA_r13 = 0;
     //  (*sib2)->radioResourceConfigCommon.ext4->pdsch_ConfigCommon_v1310->pdsch_maxNumRepetitionCEmodeB_r13 = NULL;
     //  pusch_ConfigCommon_v1310
-    (*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310 = calloc(1,sizeof(LTE_PUSCH_ConfigCommon_v1310_t));
+    (*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310 = calloc(1,sizeof(LTE_PUSCH_ConfigCommon_v1310_t));
 
     if (configuration->pusch_maxNumRepetitionCEmodeA_r13[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeA_r13 = calloc(1,sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeA_r13 = *configuration->pusch_maxNumRepetitionCEmodeA_r13[CC_id];
+      (*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeA_r13 = calloc(1,sizeof(long));
+      *(*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeA_r13 = *configuration->pusch_maxNumRepetitionCEmodeA_r13[CC_id];
     } else {
-      (*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeA_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeA_r13 = NULL;
     }
 
     if (configuration->pusch_maxNumRepetitionCEmodeB_r13[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeB_r13 = CALLOC(1, sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeB_r13 = *configuration->pusch_maxNumRepetitionCEmodeB_r13[CC_id];
+      (*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeB_r13 = CALLOC(1, sizeof(long));
+      *(*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeB_r13 = *configuration->pusch_maxNumRepetitionCEmodeB_r13[CC_id];
     } else {
-      (*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeB_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeB_r13 = NULL;
     }
 
     if (configuration->pusch_HoppingOffset_v1310[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_HoppingOffset_v1310 = CALLOC(1, sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_HoppingOffset_v1310 = *configuration->pusch_HoppingOffset_v1310[CC_id];
+      (*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_HoppingOffset_v1310 = CALLOC(1, sizeof(long));
+      *(*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_HoppingOffset_v1310 = *configuration->pusch_HoppingOffset_v1310[CC_id];
     } else {
-      (*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_HoppingOffset_v1310 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pusch_ConfigCommon_v1310->pusch_HoppingOffset_v1310 = NULL;
     }
 
     //  *(*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_maxNumRepetitionCEmodeA_r13 = 0;
@@ -1567,8 +1671,8 @@ uint8_t do_SIB23(uint8_t Mod_id,
     //  (*sib2)->radioResourceConfigCommon.ext4->pusch_ConfigCommon_v1310->pusch_HoppingOffset_v1310 = NULL;
 
     if (rrconfig->prach_ConfigCommon_v1310) {
-      (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310 = calloc(1, sizeof(LTE_PRACH_ConfigSIB_v1310_t));
-      memset((*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310, 0, sizeof(LTE_PRACH_ConfigSIB_v1310_t));
+      (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310 = calloc(1, sizeof(LTE_PRACH_ConfigSIB_v1310_t));
+      memset((*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310, 0, sizeof(LTE_PRACH_ConfigSIB_v1310_t));
       LTE_RSRP_Range_t *rsrp_range;
       int num_rsrp_range = configuration->rsrp_range_list_size[CC_id];
       int rsrp_index;
@@ -1579,28 +1683,30 @@ uint8_t do_SIB23(uint8_t Mod_id,
         if (configuration->rsrp_range_list_size[CC_id]) *rsrp_range = configuration->rsrp_range[CC_id][rsrp_index];
         else                                            *rsrp_range = 60;
 
-        asn1cSeqAdd(&(*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->rsrp_ThresholdsPrachInfoList_r13.list, rsrp_range);
+        if (!(*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->rsrp_ThresholdsPrachInfoList_r13)
+          (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->rsrp_ThresholdsPrachInfoList_r13 = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->rsrp_ThresholdsPrachInfoList_r13));
+        asn1cSeqAdd(&(*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->rsrp_ThresholdsPrachInfoList_r13->list, rsrp_range);
       }
 
-      (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13 = NULL;
 
       if (rrconfig->mpdcch_startSF_CSS_RA_r13) {
-        (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13 = calloc(1, sizeof(struct LTE_PRACH_ConfigSIB_v1310__mpdcch_startSF_CSS_RA_r13));
-        memset((*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13, 0, sizeof(struct LTE_PRACH_ConfigSIB_v1310__mpdcch_startSF_CSS_RA_r13));
+        (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13 = calloc(1, sizeof(struct LTE_PRACH_ConfigSIB_v1310__mpdcch_startSF_CSS_RA_r13));
+        memset((*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13, 0, sizeof(struct LTE_PRACH_ConfigSIB_v1310__mpdcch_startSF_CSS_RA_r13));
 
         if (*rrconfig->mpdcch_startSF_CSS_RA_r13) {
-          (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13->present = LTE_PRACH_ConfigSIB_v1310__mpdcch_startSF_CSS_RA_r13_PR_fdd_r13;
-          (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13->choice.fdd_r13 = rrconfig->mpdcch_startSF_CSS_RA_r13_val;
+          (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13->present = LTE_PRACH_ConfigSIB_v1310__mpdcch_startSF_CSS_RA_r13_PR_fdd_r13;
+          (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13->choice.fdd_r13 = rrconfig->mpdcch_startSF_CSS_RA_r13_val;
         } else {
-          (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13->present = LTE_PRACH_ConfigSIB_v1310__mpdcch_startSF_CSS_RA_r13_PR_tdd_r13;
-          (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13->choice.tdd_r13 = rrconfig->mpdcch_startSF_CSS_RA_r13_val;
+          (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13->present = LTE_PRACH_ConfigSIB_v1310__mpdcch_startSF_CSS_RA_r13_PR_tdd_r13;
+          (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->mpdcch_startSF_CSS_RA_r13->choice.tdd_r13 = rrconfig->mpdcch_startSF_CSS_RA_r13_val;
         }
       }
 
       if (rrconfig->prach_HoppingOffset_r13) {
-        (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->prach_HoppingOffset_r13 = calloc(1, sizeof(long));
-        *(*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->prach_HoppingOffset_r13 = *rrconfig->prach_HoppingOffset_r13;
-      } else (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->prach_HoppingOffset_r13 = NULL;
+        (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->prach_HoppingOffset_r13 = calloc(1, sizeof(long));
+        *(*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->prach_HoppingOffset_r13 = *rrconfig->prach_HoppingOffset_r13;
+      } else (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->prach_HoppingOffset_r13 = NULL;
 
       LTE_PRACH_ParametersCE_r13_t *prach_parametersce_r13;
       int num_prach_parameters_ce = configuration->prach_parameters_list_size[CC_id];
@@ -1640,13 +1746,15 @@ uint8_t do_SIB23(uint8_t Mod_id,
 
         prach_parametersce_r13->mpdcch_NumRepetition_RA_r13 = LTE_PRACH_ParametersCE_r13__mpdcch_NumRepetition_RA_r13_r1;
         prach_parametersce_r13->prach_HoppingConfig_r13 = LTE_PRACH_ParametersCE_r13__prach_HoppingConfig_r13_off;
-        asn1cSeqAdd(&(*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310->prach_ParametersListCE_r13.list, prach_parametersce_r13);
+        if (!(*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->prach_ParametersListCE_r13)
+          (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->prach_ParametersListCE_r13 = calloc_or_fail(1, sizeof(*(*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->prach_ParametersListCE_r13));
+        asn1cSeqAdd(&(*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310->prach_ParametersListCE_r13->list, prach_parametersce_r13);
       }
-    } else (*sib2)->radioResourceConfigCommon.ext4->prach_ConfigCommon_v1310 = NULL;
+    } else (*sib2)->radioResourceConfigCommon->ext4->prach_ConfigCommon_v1310 = NULL;
 
-    (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310 = calloc(1, sizeof(LTE_PUCCH_ConfigCommon_v1310_t));
-    memset((*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310, 0, sizeof(LTE_PUCCH_ConfigCommon_v1310_t));
-    (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->n1PUCCH_AN_InfoList_r13 = calloc(1, sizeof(LTE_N1PUCCH_AN_InfoList_r13_t));
+    (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310 = calloc(1, sizeof(LTE_PUCCH_ConfigCommon_v1310_t));
+    memset((*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310, 0, sizeof(LTE_PUCCH_ConfigCommon_v1310_t));
+    (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->n1PUCCH_AN_InfoList_r13 = calloc(1, sizeof(LTE_N1PUCCH_AN_InfoList_r13_t));
     int num_pucch_info_list = configuration->pucch_info_value_size[CC_id];
     int pucch_index;
     long *pucch_info_value;
@@ -1657,43 +1765,45 @@ uint8_t do_SIB23(uint8_t Mod_id,
       if (configuration->pucch_info_value_size[CC_id]) *pucch_info_value = configuration->pucch_info_value[CC_id][pucch_index];
       else                                             *pucch_info_value = 0;
 
-      asn1cSeqAdd(&(*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->n1PUCCH_AN_InfoList_r13->list, pucch_info_value);
+      asn1cSeqAdd(&(*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->n1PUCCH_AN_InfoList_r13->list, pucch_info_value);
     }
 
     if (configuration->pucch_NumRepetitionCE_Msg4_Level0_r13[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level0_r13  = CALLOC(1, sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level0_r13 =  *configuration->pucch_NumRepetitionCE_Msg4_Level0_r13[CC_id];
-    } else (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level0_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level0_r13  = CALLOC(1, sizeof(long));
+      *(*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level0_r13 =  *configuration->pucch_NumRepetitionCE_Msg4_Level0_r13[CC_id];
+    } else (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level0_r13 = NULL;
 
     if (configuration->pucch_NumRepetitionCE_Msg4_Level1_r13[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level1_r13  = CALLOC(1, sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level1_r13 =  *configuration->pucch_NumRepetitionCE_Msg4_Level1_r13[CC_id];
-    } else (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level1_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level1_r13  = CALLOC(1, sizeof(long));
+      *(*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level1_r13 =  *configuration->pucch_NumRepetitionCE_Msg4_Level1_r13[CC_id];
+    } else (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level1_r13 = NULL;
 
     if (configuration->pucch_NumRepetitionCE_Msg4_Level2_r13[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level2_r13  = CALLOC(1, sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level2_r13 =  *configuration->pucch_NumRepetitionCE_Msg4_Level2_r13[CC_id];
-    } else (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level2_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level2_r13  = CALLOC(1, sizeof(long));
+      *(*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level2_r13 =  *configuration->pucch_NumRepetitionCE_Msg4_Level2_r13[CC_id];
+    } else (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level2_r13 = NULL;
 
     if (configuration->pucch_NumRepetitionCE_Msg4_Level3_r13[CC_id]) {
-      (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level3_r13  = CALLOC(1, sizeof(long));
-      *(*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level3_r13 =  *configuration->pucch_NumRepetitionCE_Msg4_Level3_r13[CC_id];
-    } else (*sib2)->radioResourceConfigCommon.ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level3_r13 = NULL;
+      (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level3_r13  = CALLOC(1, sizeof(long));
+      *(*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level3_r13 =  *configuration->pucch_NumRepetitionCE_Msg4_Level3_r13[CC_id];
+    } else (*sib2)->radioResourceConfigCommon->ext4->pucch_ConfigCommon_v1310->pucch_NumRepetitionCE_Msg4_Level3_r13 = NULL;
   } // eMTC_configured>0
 
   //-----------------------------------------------------------------------------------------------------------------------------------------
+  if (!(*sib2)->ue_TimersAndConstants)
+    (*sib2)->ue_TimersAndConstants = calloc_or_fail(1, sizeof(*(*sib2)->ue_TimersAndConstants));
   // UE Timers and Constants
-  (*sib2)->ue_TimersAndConstants.t300
+  (*sib2)->ue_TimersAndConstants->t300
     = rrconfig->ue_TimersAndConstants_t300;
-  (*sib2)->ue_TimersAndConstants.t301
+  (*sib2)->ue_TimersAndConstants->t301
     = rrconfig->ue_TimersAndConstants_t301;
-  (*sib2)->ue_TimersAndConstants.t310
+  (*sib2)->ue_TimersAndConstants->t310
     = rrconfig->ue_TimersAndConstants_t310;
-  (*sib2)->ue_TimersAndConstants.n310
+  (*sib2)->ue_TimersAndConstants->n310
     = rrconfig->ue_TimersAndConstants_n310;
-  (*sib2)->ue_TimersAndConstants.t311
+  (*sib2)->ue_TimersAndConstants->t311
     = rrconfig->ue_TimersAndConstants_t311;
-  (*sib2)->ue_TimersAndConstants.n311
+  (*sib2)->ue_TimersAndConstants->n311
     = rrconfig->ue_TimersAndConstants_n311;
 
   (*sib2)->freqInfo.additionalSpectrumEmission = 1;
@@ -1769,11 +1879,13 @@ uint8_t do_SIB23(uint8_t Mod_id,
   // fill in all elements of SIB13 if present
   if (configuration->eMBMS_configured > 0 ) {
     //  Notification for mcch change
-    (*sib13)->notificationConfig_r9.notificationRepetitionCoeff_r9= LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
-    (*sib13)->notificationConfig_r9.notificationOffset_r9= 0;
-    (*sib13)->notificationConfig_r9.notificationSF_Index_r9= 1;
+    if (!(*sib13)->notificationConfig_r9)
+      (*sib13)->notificationConfig_r9 = calloc_or_fail(1, sizeof(*(*sib13)->notificationConfig_r9));
+    (*sib13)->notificationConfig_r9->notificationRepetitionCoeff_r9= LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
+    (*sib13)->notificationConfig_r9->notificationOffset_r9= 0;
+    (*sib13)->notificationConfig_r9->notificationSF_Index_r9= 1;
     //  MBSFN-AreaInfoList
-    MBSFNArea_list= &(*sib13)->mbsfn_AreaInfoList_r9;//CALLOC(1,sizeof(*MBSFNArea_list));
+    MBSFNArea_list= (*sib13)->mbsfn_AreaInfoList_r9;//CALLOC(1,sizeof(*MBSFNArea_list));
     memset(MBSFNArea_list,0,sizeof(*MBSFNArea_list));
     // MBSFN Area 1
     MBSFN_Area1= CALLOC(1, sizeof(*MBSFN_Area1));
@@ -1825,76 +1937,88 @@ uint8_t do_SIB23(uint8_t Mod_id,
     SL_CommResourcePool->sc_Period_r12 = configuration->rxPool_sc_Period[CC_id];
     SL_CommResourcePool->data_CP_Len_r12  = configuration->rxPool_data_CP_Len[CC_id];
     //sc_TF_ResourceConfig_r12
-    SL_CommResourcePool->sc_TF_ResourceConfig_r12.prb_Num_r12 = configuration->rxPool_ResourceConfig_prb_Num[CC_id];
-    SL_CommResourcePool->sc_TF_ResourceConfig_r12.prb_Start_r12 = configuration->rxPool_ResourceConfig_prb_Start[CC_id];
-    SL_CommResourcePool->sc_TF_ResourceConfig_r12.prb_End_r12 = configuration->rxPool_ResourceConfig_prb_End[CC_id];
-    SL_CommResourcePool->sc_TF_ResourceConfig_r12.offsetIndicator_r12.present = configuration->rxPool_ResourceConfig_offsetIndicator_present[CC_id];
+    if (!SL_CommResourcePool->sc_TF_ResourceConfig_r12)
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12 = calloc_or_fail(1, sizeof(*SL_CommResourcePool->sc_TF_ResourceConfig_r12));
+    SL_CommResourcePool->sc_TF_ResourceConfig_r12->prb_Num_r12 = configuration->rxPool_ResourceConfig_prb_Num[CC_id];
+    SL_CommResourcePool->sc_TF_ResourceConfig_r12->prb_Start_r12 = configuration->rxPool_ResourceConfig_prb_Start[CC_id];
+    SL_CommResourcePool->sc_TF_ResourceConfig_r12->prb_End_r12 = configuration->rxPool_ResourceConfig_prb_End[CC_id];
+    if (!SL_CommResourcePool->sc_TF_ResourceConfig_r12->offsetIndicator_r12)
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->offsetIndicator_r12 = calloc_or_fail(1, sizeof(*SL_CommResourcePool->sc_TF_ResourceConfig_r12->offsetIndicator_r12));
+    SL_CommResourcePool->sc_TF_ResourceConfig_r12->offsetIndicator_r12->present = configuration->rxPool_ResourceConfig_offsetIndicator_present[CC_id];
 
-    if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.offsetIndicator_r12.present == LTE_SL_OffsetIndicator_r12_PR_small_r12 ) {
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.offsetIndicator_r12.choice.small_r12 = configuration->rxPool_ResourceConfig_offsetIndicator_choice[CC_id] ;
-    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.offsetIndicator_r12.present == LTE_SL_OffsetIndicator_r12_PR_large_r12 ) {
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.offsetIndicator_r12.choice.large_r12 = configuration->rxPool_ResourceConfig_offsetIndicator_choice[CC_id] ;
+    if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->offsetIndicator_r12->present == LTE_SL_OffsetIndicator_r12_PR_small_r12 ) {
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->offsetIndicator_r12->choice.small_r12 = configuration->rxPool_ResourceConfig_offsetIndicator_choice[CC_id] ;
+    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->offsetIndicator_r12->present == LTE_SL_OffsetIndicator_r12_PR_large_r12 ) {
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->offsetIndicator_r12->choice.large_r12 = configuration->rxPool_ResourceConfig_offsetIndicator_choice[CC_id] ;
     }
 
-    SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present = configuration->rxPool_ResourceConfig_subframeBitmap_present[CC_id];
+    if (!SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12)
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12 = calloc_or_fail(1, sizeof(*SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12));
+    SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present = configuration->rxPool_ResourceConfig_subframeBitmap_present[CC_id];
 
-    if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs4_r12) {
+    if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs4_r12) {
       //for BS4
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs8_r12) {
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs4_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs4_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs4_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs8_r12) {
       //for BS8
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs8_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs8_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs8_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs12_r12) {
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs8_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs8_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs8_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs12_r12) {
       //for BS12
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs12_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs12_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs12_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs16_r12) {
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs12_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs12_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs12_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs16_r12) {
       //for BS16
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs16_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs16_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs16_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs30_r12) {
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs16_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs16_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs16_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs30_r12) {
       //for BS30
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs30_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs30_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs30_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs40_r12) {
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs30_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs30_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs30_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs40_r12) {
       //for BS40
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs42_r12) {
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs42_r12) {
       //for BS42
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs42_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs42_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_CommResourcePool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs42_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs42_r12.size = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs42_r12.buf  = (uint8_t *)configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_CommResourcePool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs42_r12.bits_unused = configuration->rxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
     }
 
     //dataHoppingConfig_r12
-    SL_CommResourcePool->dataHoppingConfig_r12.hoppingParameter_r12 = 0;
-    SL_CommResourcePool->dataHoppingConfig_r12.numSubbands_r12  =  LTE_SL_HoppingConfigComm_r12__numSubbands_r12_ns1;
-    SL_CommResourcePool->dataHoppingConfig_r12.rb_Offset_r12 = 0;
+    if (!SL_CommResourcePool->dataHoppingConfig_r12)
+      SL_CommResourcePool->dataHoppingConfig_r12 = calloc_or_fail(1, sizeof(*SL_CommResourcePool->dataHoppingConfig_r12));
+    SL_CommResourcePool->dataHoppingConfig_r12->hoppingParameter_r12 = 0;
+    SL_CommResourcePool->dataHoppingConfig_r12->numSubbands_r12  =  LTE_SL_HoppingConfigComm_r12__numSubbands_r12_ns1;
+    SL_CommResourcePool->dataHoppingConfig_r12->rb_Offset_r12 = 0;
     //ue_SelectedResourceConfig_r12
     SL_CommResourcePool->ue_SelectedResourceConfig_r12 = CALLOC (1, sizeof (*SL_CommResourcePool->ue_SelectedResourceConfig_r12));
     SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.prb_Num_r12 = 20;
     SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.prb_Start_r12 = 5;
     SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.prb_End_r12 = 44;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.offsetIndicator_r12.present = LTE_SL_OffsetIndicator_r12_PR_small_r12;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.offsetIndicator_r12.choice.small_r12 = 0 ;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.present = LTE_SubframeBitmapSL_r12_PR_bs40_r12;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.size = 5;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.buf  = CALLOC(1,5);
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.bits_unused = 0;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.buf[0] = 0xF0;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.buf[1] = 0xFF;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.buf[2] = 0xFF;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.buf[3] = 0xFF;
-    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.buf[4] = 0xFF;
+    if (!SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.offsetIndicator_r12)
+      SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.offsetIndicator_r12 = calloc_or_fail(1, sizeof(*SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.offsetIndicator_r12));
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.offsetIndicator_r12->present = LTE_SL_OffsetIndicator_r12_PR_small_r12;
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.offsetIndicator_r12->choice.small_r12 = 0 ;
+    if (!SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12)
+      SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12 = calloc_or_fail(1, sizeof(*SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12));
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->present = LTE_SubframeBitmapSL_r12_PR_bs40_r12;
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->choice.bs4_r12.size = 5;
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->choice.bs4_r12.buf  = CALLOC(1,5);
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->choice.bs4_r12.bits_unused = 0;
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->choice.bs4_r12.buf[0] = 0xF0;
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->choice.bs4_r12.buf[1] = 0xFF;
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->choice.bs4_r12.buf[2] = 0xFF;
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->choice.bs4_r12.buf[3] = 0xFF;
+    SL_CommResourcePool->ue_SelectedResourceConfig_r12->data_TF_ResourceConfig_r12.subframeBitmap_r12->choice.bs4_r12.buf[4] = 0xFF;
     //SL_CommResourcePool->ue_SelectedResourceConfig_r12->trpt_Subset_r12 = CALLOC (1, sizeof(*SL_CommResourcePool->ue_SelectedResourceConfig_r12->trpt_Subset_r12));
     //rxParametersNCell_r12
     SL_CommResourcePool->rxParametersNCell_r12 = CALLOC (1, sizeof (*SL_CommResourcePool->rxParametersNCell_r12));
@@ -1931,54 +2055,60 @@ uint8_t do_SIB23(uint8_t Mod_id,
     //sc_TF_ResourceConfig_r12
     SL_DiscResourcePool->numRetx_r12 = configuration->discRxPool_numRetx[CC_id];
     SL_DiscResourcePool->numRepetition_r12 = configuration->discRxPool_numRepetition[CC_id];
-    SL_DiscResourcePool->tf_ResourceConfig_r12.prb_Num_r12 = configuration->discRxPool_ResourceConfig_prb_Num[CC_id];
-    SL_DiscResourcePool->tf_ResourceConfig_r12.prb_Start_r12 = configuration->discRxPool_ResourceConfig_prb_Start[CC_id];
-    SL_DiscResourcePool->tf_ResourceConfig_r12.prb_End_r12 = configuration->discRxPool_ResourceConfig_prb_End[CC_id];
-    SL_DiscResourcePool->tf_ResourceConfig_r12.offsetIndicator_r12.present = configuration->discRxPool_ResourceConfig_offsetIndicator_present[CC_id];
+    if (!SL_DiscResourcePool->tf_ResourceConfig_r12)
+      SL_DiscResourcePool->tf_ResourceConfig_r12 = calloc_or_fail(1, sizeof(*SL_DiscResourcePool->tf_ResourceConfig_r12));
+    SL_DiscResourcePool->tf_ResourceConfig_r12->prb_Num_r12 = configuration->discRxPool_ResourceConfig_prb_Num[CC_id];
+    SL_DiscResourcePool->tf_ResourceConfig_r12->prb_Start_r12 = configuration->discRxPool_ResourceConfig_prb_Start[CC_id];
+    SL_DiscResourcePool->tf_ResourceConfig_r12->prb_End_r12 = configuration->discRxPool_ResourceConfig_prb_End[CC_id];
+    if (!SL_DiscResourcePool->tf_ResourceConfig_r12->offsetIndicator_r12)
+      SL_DiscResourcePool->tf_ResourceConfig_r12->offsetIndicator_r12 = calloc_or_fail(1, sizeof(*SL_DiscResourcePool->tf_ResourceConfig_r12->offsetIndicator_r12));
+    SL_DiscResourcePool->tf_ResourceConfig_r12->offsetIndicator_r12->present = configuration->discRxPool_ResourceConfig_offsetIndicator_present[CC_id];
 
-    if (SL_DiscResourcePool->tf_ResourceConfig_r12.offsetIndicator_r12.present == LTE_SL_OffsetIndicator_r12_PR_small_r12 ) {
-      SL_DiscResourcePool->tf_ResourceConfig_r12.offsetIndicator_r12.choice.small_r12 = configuration->discRxPool_ResourceConfig_offsetIndicator_choice[CC_id] ;
-    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12.offsetIndicator_r12.present == LTE_SL_OffsetIndicator_r12_PR_large_r12 ) {
-      SL_DiscResourcePool->tf_ResourceConfig_r12.offsetIndicator_r12.choice.large_r12 = configuration->discRxPool_ResourceConfig_offsetIndicator_choice[CC_id] ;
+    if (SL_DiscResourcePool->tf_ResourceConfig_r12->offsetIndicator_r12->present == LTE_SL_OffsetIndicator_r12_PR_small_r12 ) {
+      SL_DiscResourcePool->tf_ResourceConfig_r12->offsetIndicator_r12->choice.small_r12 = configuration->discRxPool_ResourceConfig_offsetIndicator_choice[CC_id] ;
+    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12->offsetIndicator_r12->present == LTE_SL_OffsetIndicator_r12_PR_large_r12 ) {
+      SL_DiscResourcePool->tf_ResourceConfig_r12->offsetIndicator_r12->choice.large_r12 = configuration->discRxPool_ResourceConfig_offsetIndicator_choice[CC_id] ;
     }
 
-    SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.present = configuration->discRxPool_ResourceConfig_subframeBitmap_present[CC_id];
+    if (!SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12)
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12 = calloc_or_fail(1, sizeof(*SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12));
+    SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->present = configuration->discRxPool_ResourceConfig_subframeBitmap_present[CC_id];
 
-    if (SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs4_r12) {
+    if (SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs4_r12) {
       //for BS4
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.buf  =  (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs4_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs8_r12) {
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs4_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs4_r12.buf  =  (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs4_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs8_r12) {
       //for BS8
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs8_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs8_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs8_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs12_r12) {
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs8_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs8_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs8_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs12_r12) {
       //for BS12
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs12_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs12_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs12_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs16_r12) {
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs12_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs12_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs12_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs16_r12) {
       //for BS16
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs16_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs16_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs16_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs30_r12) {
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs16_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs16_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs16_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs30_r12) {
       //for BS30
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs30_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs30_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs30_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs40_r12) {
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs30_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs30_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs30_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs40_r12) {
       //for BS40
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
-    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.present == LTE_SubframeBitmapSL_r12_PR_bs42_r12) {
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+    } else if (SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->present == LTE_SubframeBitmapSL_r12_PR_bs42_r12) {
       //for BS42
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs42_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs42_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
-      SL_DiscResourcePool->tf_ResourceConfig_r12.subframeBitmap_r12.choice.bs42_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs42_r12.size = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_size[CC_id];
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs42_r12.buf  = (uint8_t *)configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_buf[CC_id];;
+      SL_DiscResourcePool->tf_ResourceConfig_r12->subframeBitmap_r12->choice.bs42_r12.bits_unused = configuration->discRxPool_ResourceConfig_subframeBitmap_choice_bs_bits_unused[CC_id];
     }
 
     //add SL_DiscResourcePool to SL_DiscRxPoolList
@@ -2066,15 +2196,17 @@ uint8_t do_SIB23(uint8_t Mod_id,
     SL_CommResourcePoolV2X->sl_OffsetIndicator_r14 = CALLOC(1, sizeof(*SL_CommResourcePoolV2X->sl_OffsetIndicator_r14));
     SL_CommResourcePoolV2X->sl_OffsetIndicator_r14->present  = LTE_SL_OffsetIndicator_r12_PR_small_r12;
     SL_CommResourcePoolV2X->sl_OffsetIndicator_r14->choice.small_r12 = 0;
-    SL_CommResourcePoolV2X->sl_Subframe_r14.present = LTE_SubframeBitmapSL_r14_PR_bs40_r14;
-    SL_CommResourcePoolV2X->sl_Subframe_r14.choice.bs40_r14.size =  5;
-    SL_CommResourcePoolV2X->sl_Subframe_r14.choice.bs40_r14.buf =  CALLOC(1,5);
-    SL_CommResourcePoolV2X->sl_Subframe_r14.choice.bs40_r14.bits_unused = 0;
-    SL_CommResourcePoolV2X->sl_Subframe_r14.choice.bs40_r14.buf[0] = 0xF0;
-    SL_CommResourcePoolV2X->sl_Subframe_r14.choice.bs40_r14.buf[1] = 0xFF;
-    SL_CommResourcePoolV2X->sl_Subframe_r14.choice.bs40_r14.buf[2] = 0xFF;
-    SL_CommResourcePoolV2X->sl_Subframe_r14.choice.bs40_r14.buf[3] = 0xFF;
-    SL_CommResourcePoolV2X->sl_Subframe_r14.choice.bs40_r14.buf[4] = 0xFF;
+    if (!SL_CommResourcePoolV2X->sl_Subframe_r14)
+      SL_CommResourcePoolV2X->sl_Subframe_r14 = calloc_or_fail(1, sizeof(*SL_CommResourcePoolV2X->sl_Subframe_r14));
+    SL_CommResourcePoolV2X->sl_Subframe_r14->present = LTE_SubframeBitmapSL_r14_PR_bs40_r14;
+    SL_CommResourcePoolV2X->sl_Subframe_r14->choice.bs40_r14.size =  5;
+    SL_CommResourcePoolV2X->sl_Subframe_r14->choice.bs40_r14.buf =  CALLOC(1,5);
+    SL_CommResourcePoolV2X->sl_Subframe_r14->choice.bs40_r14.bits_unused = 0;
+    SL_CommResourcePoolV2X->sl_Subframe_r14->choice.bs40_r14.buf[0] = 0xF0;
+    SL_CommResourcePoolV2X->sl_Subframe_r14->choice.bs40_r14.buf[1] = 0xFF;
+    SL_CommResourcePoolV2X->sl_Subframe_r14->choice.bs40_r14.buf[2] = 0xFF;
+    SL_CommResourcePoolV2X->sl_Subframe_r14->choice.bs40_r14.buf[3] = 0xFF;
+    SL_CommResourcePoolV2X->sl_Subframe_r14->choice.bs40_r14.buf[4] = 0xFF;
     SL_CommResourcePoolV2X->adjacencyPSCCH_PSSCH_r14 = 1;
     SL_CommResourcePoolV2X->sizeSubchannel_r14 = 10;
     SL_CommResourcePoolV2X->numSubchannel_r14 =  5;
@@ -2089,22 +2221,24 @@ uint8_t do_SIB23(uint8_t Mod_id,
     //end SIB21
   }
 
-  bcch_message->message.present = LTE_BCCH_DL_SCH_MessageType_PR_c1;
-  bcch_message->message.choice.c1.present = LTE_BCCH_DL_SCH_MessageType__c1_PR_systemInformation;
+  if (!bcch_message->message)
+    bcch_message->message = calloc_or_fail(1, sizeof(*bcch_message->message));
+  bcch_message->message->present = LTE_BCCH_DL_SCH_MessageType_PR_c1;
+  bcch_message->message->choice.c1.present = LTE_BCCH_DL_SCH_MessageType__c1_PR_systemInformation;
   /*  memcpy((void*)&bcch_message.message.choice.c1.choice.systemInformation,
    (void*)systemInformation,
    sizeof(SystemInformation_t));*/
-  bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.present = LTE_SystemInformation__criticalExtensions_PR_systemInformation_r8;
-  bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count=0;
+  bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.present = LTE_SystemInformation__criticalExtensions_PR_systemInformation_r8;
+  bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count=0;
   //  asn_set_empty(&systemInformation->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list);//.size=0;
   //  systemInformation->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count=0;
-  asn1cSeqAdd(&bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list,
+  asn1cSeqAdd(&bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list,
                    sib2_part);
-  asn1cSeqAdd(&bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list,
+  asn1cSeqAdd(&bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list,
                    sib3_part);
 
   if (configuration->eMBMS_configured > 0) {
-    asn1cSeqAdd(&bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list, sib13_part);
+    asn1cSeqAdd(&bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list, sib13_part);
   }
 
   if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
@@ -2134,34 +2268,42 @@ uint8_t do_RRCConnectionRequest(uint8_t Mod_id, uint8_t *buffer, size_t buffer_s
   LTE_UL_CCCH_Message_t ul_ccch_msg;
   LTE_RRCConnectionRequest_t *rrcConnectionRequest;
   memset((void *)&ul_ccch_msg,0,sizeof(LTE_UL_CCCH_Message_t));
-  ul_ccch_msg.message.present           = LTE_UL_CCCH_MessageType_PR_c1;
-  ul_ccch_msg.message.choice.c1.present = LTE_UL_CCCH_MessageType__c1_PR_rrcConnectionRequest;
-  rrcConnectionRequest          = &ul_ccch_msg.message.choice.c1.choice.rrcConnectionRequest;
+  if (!ul_ccch_msg.message)
+    ul_ccch_msg.message = calloc_or_fail(1, sizeof(*ul_ccch_msg.message));
+  ul_ccch_msg.message->present           = LTE_UL_CCCH_MessageType_PR_c1;
+  ul_ccch_msg.message->choice.c1.present = LTE_UL_CCCH_MessageType__c1_PR_rrcConnectionRequest;
+  rrcConnectionRequest          = &ul_ccch_msg.message->choice.c1.choice.rrcConnectionRequest;
   rrcConnectionRequest->criticalExtensions.present = LTE_RRCConnectionRequest__criticalExtensions_PR_rrcConnectionRequest_r8;
 
   if (1) {
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.present = LTE_InitialUE_Identity_PR_randomValue;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.randomValue.size = 5;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.randomValue.bits_unused = 0;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.randomValue.buf = buf;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.randomValue.buf[0] = rv[0];
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.randomValue.buf[1] = rv[1];
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.randomValue.buf[2] = rv[2];
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.randomValue.buf[3] = rv[3];
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.randomValue.buf[4] = rv[4];
+    if (!rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity)
+      rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity = calloc_or_fail(1, sizeof(*rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity));
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->present = LTE_InitialUE_Identity_PR_randomValue;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.randomValue.size = 5;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.randomValue.bits_unused = 0;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.randomValue.buf = buf;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.randomValue.buf[0] = rv[0];
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.randomValue.buf[1] = rv[1];
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.randomValue.buf[2] = rv[2];
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.randomValue.buf[3] = rv[3];
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.randomValue.buf[4] = rv[4];
   } else {
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.present = LTE_InitialUE_Identity_PR_s_TMSI;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.mmec.size = 1;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.mmec.bits_unused = 0;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.mmec.buf = buf;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.mmec.buf[0] = 0x12;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.m_TMSI.size = 4;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.m_TMSI.bits_unused = 0;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.m_TMSI.buf = &buf[1];
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.m_TMSI.buf[0] = 0x34;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.m_TMSI.buf[1] = 0x56;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.m_TMSI.buf[2] = 0x78;
-    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity.choice.s_TMSI.m_TMSI.buf[3] = 0x9a;
+    if (!rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity)
+      rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity = calloc_or_fail(1, sizeof(*rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity));
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->present = LTE_InitialUE_Identity_PR_s_TMSI;
+    if (!rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI)
+      rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI = calloc_or_fail(1, sizeof(*rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI));
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->mmec.size = 1;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->mmec.bits_unused = 0;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->mmec.buf = buf;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->mmec.buf[0] = 0x12;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->m_TMSI.size = 4;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->m_TMSI.bits_unused = 0;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->m_TMSI.buf = &buf[1];
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->m_TMSI.buf[0] = 0x34;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->m_TMSI.buf[1] = 0x56;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->m_TMSI.buf[2] = 0x78;
+    rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.ue_Identity->choice.s_TMSI->m_TMSI.buf[3] = 0x9a;
   }
 
   rrcConnectionRequest->criticalExtensions.choice.rrcConnectionRequest_r8.establishmentCause = LTE_EstablishmentCause_mo_Signalling; //EstablishmentCause_mo_Data;
@@ -2191,10 +2333,12 @@ uint8_t do_SidelinkUEInformation(uint8_t Mod_id, uint8_t *buffer,  LTE_SL_Destin
   LTE_SidelinkUEInformation_r12_t *sidelinkUEInformation;
   LTE_ARFCN_ValueEUTRA_r9_t carrierFreq = 25655;//sidelink communication frequency (hardcoded - should come from SIB2)
   memset((void *)&ul_dcch_msg,0,sizeof(LTE_UL_DCCH_Message_t));
-  ul_dcch_msg.message.present = LTE_UL_DCCH_MessageType_PR_messageClassExtension;
-  ul_dcch_msg.message.choice.messageClassExtension.present  = LTE_UL_DCCH_MessageType__messageClassExtension_PR_c2;
-  ul_dcch_msg.message.choice.messageClassExtension.choice.c2.present =  LTE_UL_DCCH_MessageType__messageClassExtension__c2_PR_sidelinkUEInformation_r12;
-  sidelinkUEInformation            = &ul_dcch_msg.message.choice.messageClassExtension.choice.c2.choice.sidelinkUEInformation_r12;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present = LTE_UL_DCCH_MessageType_PR_messageClassExtension;
+  ul_dcch_msg.message->choice.messageClassExtension.present  = LTE_UL_DCCH_MessageType__messageClassExtension_PR_c2;
+  ul_dcch_msg.message->choice.messageClassExtension.choice.c2.present =  LTE_UL_DCCH_MessageType__messageClassExtension__c2_PR_sidelinkUEInformation_r12;
+  sidelinkUEInformation            = &ul_dcch_msg.message->choice.messageClassExtension.choice.c2.choice.sidelinkUEInformation_r12;
   //3GPP TS 36.331 (Section 5.10.2.3)
   sidelinkUEInformation->criticalExtensions.present = LTE_SidelinkUEInformation_r12__criticalExtensions_PR_c1;
   sidelinkUEInformation->criticalExtensions.choice.c1.present = LTE_SidelinkUEInformation_r12__criticalExtensions__c1_PR_sidelinkUEInformation_r12;
@@ -2216,9 +2360,10 @@ uint8_t do_SidelinkUEInformation(uint8_t Mod_id, uint8_t *buffer,  LTE_SL_Destin
           sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.commTxResourceReq_r12->carrierFreq_r12));
       memcpy((void *)sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.commTxResourceReq_r12->carrierFreq_r12, (void *)&carrierFreq,
              sizeof(LTE_ARFCN_ValueEUTRA_r9_t));
-      memcpy(&sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.commTxResourceReq_r12->destinationInfoList_r12,
+      sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.commTxResourceReq_r12->destinationInfoList_r12 = CALLOC(1, sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.commTxResourceReq_r12->destinationInfoList_r12));
+      memcpy(sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.commTxResourceReq_r12->destinationInfoList_r12,
              destinationInfoList,
-             sizeof(LTE_SL_DestinationInfoList_r12_t));
+             sizeof(*destinationInfoList));
       break;
 
     case SL_TRANSMIT_NON_RELAY_ONE_TO_ONE://transmit non-relay related one-to-one sidelink communication
@@ -2231,9 +2376,10 @@ uint8_t do_SidelinkUEInformation(uint8_t Mod_id, uint8_t *buffer,  LTE_SL_Destin
           sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceReqUC_r13->carrierFreq_r12));
       memcpy((void *)sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceReqUC_r13->carrierFreq_r12, (void *)&carrierFreq,
              sizeof (LTE_ARFCN_ValueEUTRA_r9_t));
-      memcpy(&sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceReqUC_r13->destinationInfoList_r12,
+      sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceReqUC_r13->destinationInfoList_r12 = CALLOC(1, sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceReqUC_r13->destinationInfoList_r12));
+      memcpy(sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceReqUC_r13->destinationInfoList_r12,
              destinationInfoList,
-             sizeof(LTE_SL_DestinationInfoList_r12_t));
+             sizeof(*destinationInfoList));
       break;
 
     case SL_TRANSMIT_RELAY_ONE_TO_ONE: //transmit relay related one-to-one sidelink communication
@@ -2244,7 +2390,8 @@ uint8_t do_SidelinkUEInformation(uint8_t Mod_id, uint8_t *buffer,  LTE_SL_Destin
           sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13));
       sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelayUC_r13 = CALLOC(1,
           sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelayUC_r13));
-      memcpy(&sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelayUC_r13->destinationInfoList_r12,
+      sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelayUC_r13->destinationInfoList_r12 = CALLOC(1, sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelayUC_r13->destinationInfoList_r12));
+      memcpy(sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelayUC_r13->destinationInfoList_r12,
              destinationInfoList,
              sizeof(*destinationInfoList));
       //set ue-type to relayUE or remoteUE
@@ -2264,7 +2411,8 @@ uint8_t do_SidelinkUEInformation(uint8_t Mod_id, uint8_t *buffer,  LTE_SL_Destin
           sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelay_r13));
       sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->ue_Type_r13 =
         LTE_SidelinkUEInformation_v1310_IEs__commTxResourceInfoReqRelay_r13__ue_Type_r13_relayUE;
-      memcpy(&sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelay_r13->destinationInfoList_r12,
+      sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelay_r13->destinationInfoList_r12 = CALLOC(1, sizeof(*sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelay_r13->destinationInfoList_r12));
+      memcpy(sidelinkUEInformation->criticalExtensions.choice.c1.choice.sidelinkUEInformation_r12.nonCriticalExtension->commTxResourceInfoReqRelay_r13->commTxResourceReqRelay_r13->destinationInfoList_r12,
              destinationInfoList,
              sizeof(*destinationInfoList));
       break;
@@ -2333,9 +2481,11 @@ uint8_t do_RRCConnectionSetupComplete(uint8_t Mod_id, uint8_t *buffer, const uin
   LTE_UL_DCCH_Message_t ul_dcch_msg;
   LTE_RRCConnectionSetupComplete_t *rrcConnectionSetupComplete;
   memset((void *)&ul_dcch_msg,0,sizeof(LTE_UL_DCCH_Message_t));
-  ul_dcch_msg.message.present           = LTE_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_rrcConnectionSetupComplete;
-  rrcConnectionSetupComplete            = &ul_dcch_msg.message.choice.c1.choice.rrcConnectionSetupComplete;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present           = LTE_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_rrcConnectionSetupComplete;
+  rrcConnectionSetupComplete            = &ul_dcch_msg.message->choice.c1.choice.rrcConnectionSetupComplete;
   rrcConnectionSetupComplete->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionSetupComplete->criticalExtensions.present = LTE_RRCConnectionSetupComplete__criticalExtensions_PR_c1;
   rrcConnectionSetupComplete->criticalExtensions.choice.c1.present = LTE_RRCConnectionSetupComplete__criticalExtensions__c1_PR_rrcConnectionSetupComplete_r8;
@@ -2417,9 +2567,11 @@ do_RRCConnectionReconfigurationComplete(
   LTE_UL_DCCH_Message_t ul_dcch_msg;
   LTE_RRCConnectionReconfigurationComplete_t *rrcConnectionReconfigurationComplete;
   memset((void *)&ul_dcch_msg,0,sizeof(LTE_UL_DCCH_Message_t));
-  ul_dcch_msg.message.present                     = LTE_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1.present           = LTE_UL_DCCH_MessageType__c1_PR_rrcConnectionReconfigurationComplete;
-  rrcConnectionReconfigurationComplete            = &ul_dcch_msg.message.choice.c1.choice.rrcConnectionReconfigurationComplete;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present                     = LTE_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1.present           = LTE_UL_DCCH_MessageType__c1_PR_rrcConnectionReconfigurationComplete;
+  rrcConnectionReconfigurationComplete            = &ul_dcch_msg.message->choice.c1.choice.rrcConnectionReconfigurationComplete;
   rrcConnectionReconfigurationComplete->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionReconfigurationComplete->criticalExtensions.present =
     LTE_RRCConnectionReconfigurationComplete__criticalExtensions_PR_rrcConnectionReconfigurationComplete_r8;
@@ -2470,9 +2622,11 @@ do_RRCConnectionSetup(
   LTE_RRCConnectionSetup_t *rrcConnectionSetup = NULL;
   LTE_DL_FRAME_PARMS *frame_parms = &RC.eNB[ctxt_pP->module_id][CC_id]->frame_parms;
   memset((void *)&dl_ccch_msg,0,sizeof(LTE_DL_CCCH_Message_t));
-  dl_ccch_msg.message.present           = LTE_DL_CCCH_MessageType_PR_c1;
-  dl_ccch_msg.message.choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionSetup;
-  rrcConnectionSetup          = &dl_ccch_msg.message.choice.c1.choice.rrcConnectionSetup;
+  if (!dl_ccch_msg.message)
+    dl_ccch_msg.message = calloc_or_fail(1, sizeof(*dl_ccch_msg.message));
+  dl_ccch_msg.message->present           = LTE_DL_CCCH_MessageType_PR_c1;
+  dl_ccch_msg.message->choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionSetup;
+  rrcConnectionSetup          = &dl_ccch_msg.message->choice.c1.choice.rrcConnectionSetup;
   LTE_MAC_MainConfig_t *mac_MainConfig = NULL;
 
   // RRCConnectionSetup
@@ -2612,11 +2766,11 @@ do_RRCConnectionSetup(
     physicalConfigDedicated2->soundingRS_UL_ConfigDedicated->choice.setup.duration=1;
 
     if (carrier->sib1->tdd_Config==NULL) { // FDD
-      if (carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present
+      if (carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present
           == LTE_SoundingRS_UL_ConfigCommon_PR_setup)
-        if (carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig!=0)
+        if (carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig!=0)
           LOG_W(RRC,"This code has been optimized for SRS Subframe Config 0, but current config is %zd. Expect undefined behaviour!\n",
-                carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig);
+                carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig);
 
       if (ue_context_pP->local_uid >=20)
         LOG_W(RRC,"This code has been optimized for up to 10 UEs, but current UE_id is %d. Expect undefined behaviour!\n",
@@ -2626,11 +2780,11 @@ do_RRCConnectionSetup(
       physicalConfigDedicated2->soundingRS_UL_ConfigDedicated->choice.setup.srs_ConfigIndex=7+ue_context_pP->local_uid/2;
       physicalConfigDedicated2->soundingRS_UL_ConfigDedicated->choice.setup.transmissionComb= ue_context_pP->local_uid%2;
     } else {
-      if (carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present
+      if (carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present
           == LTE_SoundingRS_UL_ConfigCommon_PR_setup)
-        if (carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig!=7) {
+        if (carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig!=7) {
           LOG_W(RRC,"This code has been optimized for SRS Subframe Config 7 and TDD config 3, but current configs are %zd and %zd. Expect undefined behaviour!\n",
-                carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig,
+                carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig,
                 carrier->sib1->tdd_Config->subframeAssignment);
         }
 
@@ -2763,15 +2917,17 @@ do_RRCConnectionSetup(
   rrcConnectionSetup->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionSetup->criticalExtensions.present = LTE_RRCConnectionSetup__criticalExtensions_PR_c1;
   rrcConnectionSetup->criticalExtensions.choice.c1.present = LTE_RRCConnectionSetup__criticalExtensions__c1_PR_rrcConnectionSetup_r8 ;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.srb_ToAddModList = *SRB_configList;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.drb_ToAddModList = NULL;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.drb_ToReleaseList = NULL;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.sps_Config = NULL;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.physicalConfigDedicated = physicalConfigDedicated2;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.mac_MainConfig = CALLOC(1,sizeof(struct LTE_RadioResourceConfigDedicated__mac_MainConfig));
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.mac_MainConfig->present = LTE_RadioResourceConfigDedicated__mac_MainConfig_PR_explicitValue;
+  if (!rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated)
+    rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated = calloc_or_fail(1, sizeof(*rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated));
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->srb_ToAddModList = *SRB_configList;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->drb_ToAddModList = NULL;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->drb_ToReleaseList = NULL;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->sps_Config = NULL;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->physicalConfigDedicated = physicalConfigDedicated2;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->mac_MainConfig = CALLOC(1,sizeof(struct LTE_RadioResourceConfigDedicated__mac_MainConfig));
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->mac_MainConfig->present = LTE_RadioResourceConfigDedicated__mac_MainConfig_PR_explicitValue;
   /* MAC MainConfig */
-  mac_MainConfig = &rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.mac_MainConfig->choice.explicitValue;
+  mac_MainConfig = &rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->mac_MainConfig->choice.explicitValue;
   //* ul_SCH_Config *//
   mac_MainConfig->ul_SCH_Config = CALLOC(1, sizeof(*mac_MainConfig->ul_SCH_Config));
   long *maxHARQ_Tx = CALLOC(1, sizeof(long));
@@ -2837,9 +2993,11 @@ uint8_t do_RRCConnectionSetup_BR(
   LTE_DL_CCCH_Message_t dl_ccch_msg;
   LTE_RRCConnectionSetup_t *rrcConnectionSetup = NULL;
   memset((void *)&dl_ccch_msg,0,sizeof(LTE_DL_CCCH_Message_t));
-  dl_ccch_msg.message.present           = LTE_DL_CCCH_MessageType_PR_c1;
-  dl_ccch_msg.message.choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionSetup;
-  rrcConnectionSetup          = &dl_ccch_msg.message.choice.c1.choice.rrcConnectionSetup;
+  if (!dl_ccch_msg.message)
+    dl_ccch_msg.message = calloc_or_fail(1, sizeof(*dl_ccch_msg.message));
+  dl_ccch_msg.message->present           = LTE_DL_CCCH_MessageType_PR_c1;
+  dl_ccch_msg.message->choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionSetup;
+  rrcConnectionSetup          = &dl_ccch_msg.message->choice.c1.choice.rrcConnectionSetup;
 
   // RRCConnectionSetup
   // Configure SRB1
@@ -2952,11 +3110,11 @@ uint8_t do_RRCConnectionSetup_BR(
     physicalConfigDedicated2->soundingRS_UL_ConfigDedicated->choice.setup.duration=1;
 
     if (carrier->sib1->tdd_Config==NULL) { // FDD
-      if (carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present
+      if (carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present
           == LTE_SoundingRS_UL_ConfigCommon_PR_setup)
-        if (carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig!=0)
+        if (carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig!=0)
           LOG_W(RRC,"This code has been optimized for SRS Subframe Config 0, but current config is %d. Expect undefined behaviour!\n",
-                (int)carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig);
+                (int)carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig);
 
       if (ue_context_pP->local_uid >=20)
         LOG_W(RRC,"This code has been optimized for up to 10 UEs, but current UE_id is %d. Expect undefined behaviour!\n",
@@ -2966,11 +3124,11 @@ uint8_t do_RRCConnectionSetup_BR(
       physicalConfigDedicated2->soundingRS_UL_ConfigDedicated->choice.setup.srs_ConfigIndex=7+ue_context_pP->local_uid/2;
       physicalConfigDedicated2->soundingRS_UL_ConfigDedicated->choice.setup.transmissionComb= ue_context_pP->local_uid%2;
     } else {
-      if (carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present
+      if (carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present
           == LTE_SoundingRS_UL_ConfigCommon_PR_setup)
-        if (carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig!=7) {
+        if (carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig!=7) {
           LOG_W(RRC,"This code has been optimized for SRS Subframe Config 7 and TDD config 3, but current configs are %d and %d. Expect undefined behaviour!\n",
-                (int)carrier->sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig,
+                (int)carrier->sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig,
                 (int)carrier->sib1->tdd_Config->subframeAssignment);
         }
 
@@ -3124,9 +3282,11 @@ uint8_t do_RRCConnectionSetup_BR(
   physicalConfigDedicated2->ext7->ce_Mode_r13->choice.setup = LTE_PhysicalConfigDedicated__ext7__ce_Mode_r13__setup_ce_ModeA;
   physicalConfigDedicated2->ext7->csi_RS_ConfigNZPToAddModListExt_r13 = NULL;
   physicalConfigDedicated2->ext7->csi_RS_ConfigNZPToReleaseListExt_r13 = NULL;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.mac_MainConfig = CALLOC(1,sizeof(struct LTE_RadioResourceConfigDedicated__mac_MainConfig));
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.mac_MainConfig->present = LTE_RadioResourceConfigDedicated__mac_MainConfig_PR_explicitValue;
-  LTE_MAC_MainConfig_t *mac_MainConfig = &rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.mac_MainConfig->choice.explicitValue;
+  if (!rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated)
+    rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated = calloc_or_fail(1, sizeof(*rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated));
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->mac_MainConfig = CALLOC(1,sizeof(struct LTE_RadioResourceConfigDedicated__mac_MainConfig));
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->mac_MainConfig->present = LTE_RadioResourceConfigDedicated__mac_MainConfig_PR_explicitValue;
+  LTE_MAC_MainConfig_t *mac_MainConfig = &rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->mac_MainConfig->choice.explicitValue;
   mac_MainConfig->ul_SCH_Config = CALLOC(1, sizeof(*mac_MainConfig->ul_SCH_Config));
   //long *maxHARQ_Tx = CALLOC(1, sizeof(long));
   //*maxHARQ_Tx = LTE_MAC_MainConfig__ul_SCH_Config__maxHARQ_Tx_n5;
@@ -3146,11 +3306,11 @@ uint8_t do_RRCConnectionSetup_BR(
   rrcConnectionSetup->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionSetup->criticalExtensions.present = LTE_RRCConnectionSetup__criticalExtensions_PR_c1;
   rrcConnectionSetup->criticalExtensions.choice.c1.present =LTE_RRCConnectionSetup__criticalExtensions__c1_PR_rrcConnectionSetup_r8 ;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.srb_ToAddModList = *SRB_configList;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.drb_ToAddModList = NULL;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.drb_ToReleaseList = NULL;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.sps_Config = NULL;
-  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.physicalConfigDedicated = physicalConfigDedicated2;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->srb_ToAddModList = *SRB_configList;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->drb_ToAddModList = NULL;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->drb_ToReleaseList = NULL;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->sps_Config = NULL;
+  rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated->physicalConfigDedicated = physicalConfigDedicated2;
   // rrcConnectionSetup->criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated.mac_MainConfig = NULL;
   if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
     xer_fprint(stdout, &asn_DEF_LTE_DL_CCCH_Message, (void *)&dl_ccch_msg);
@@ -3183,16 +3343,22 @@ uint8_t do_SecurityModeCommand(
   LTE_DL_DCCH_Message_t dl_dcch_msg;
   asn_enc_rval_t enc_rval;
   memset(&dl_dcch_msg,0,sizeof(LTE_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = LTE_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_securityModeCommand;
-  dl_dcch_msg.message.choice.c1.choice.securityModeCommand.rrc_TransactionIdentifier = Transaction_id;
-  dl_dcch_msg.message.choice.c1.choice.securityModeCommand.criticalExtensions.present = LTE_SecurityModeCommand__criticalExtensions_PR_c1;
-  dl_dcch_msg.message.choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.present =
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = LTE_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_securityModeCommand;
+  dl_dcch_msg.message->choice.c1.choice.securityModeCommand.rrc_TransactionIdentifier = Transaction_id;
+  dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.present = LTE_SecurityModeCommand__criticalExtensions_PR_c1;
+  dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.present =
     LTE_SecurityModeCommand__criticalExtensions__c1_PR_securityModeCommand_r8;
   // the two following information could be based on the mod_id
-  dl_dcch_msg.message.choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC.securityAlgorithmConfig.cipheringAlgorithm
+  if (!dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC)
+    dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC = calloc_or_fail(1, sizeof(*dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC));
+  if (!dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig)
+    dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig = calloc_or_fail(1, sizeof(*dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig));
+  dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig->cipheringAlgorithm
     = (LTE_CipheringAlgorithm_r12_t)cipheringAlgorithm;
-  dl_dcch_msg.message.choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC.securityAlgorithmConfig.integrityProtAlgorithm
+  dl_dcch_msg.message->choice.c1.choice.securityModeCommand.criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig->integrityProtAlgorithm
     = (e_LTE_SecurityAlgorithmConfig__integrityProtAlgorithm)integrityProtAlgorithm;
 
   if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
@@ -3238,18 +3404,22 @@ uint8_t do_UECapabilityEnquiry( const protocol_ctxt_t *const ctxt_pP,
   LTE_RAT_Type_t rat=LTE_RAT_Type_eutra;
   asn_enc_rval_t enc_rval;
   memset(&dl_dcch_msg,0,sizeof(LTE_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = LTE_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_ueCapabilityEnquiry;
-  dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.rrc_TransactionIdentifier = Transaction_id;
-  dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.present = LTE_UECapabilityEnquiry__criticalExtensions_PR_c1;
-  dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.present =
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = LTE_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_ueCapabilityEnquiry;
+  dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.rrc_TransactionIdentifier = Transaction_id;
+  dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.present = LTE_UECapabilityEnquiry__criticalExtensions_PR_c1;
+  dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.present =
     LTE_UECapabilityEnquiry__criticalExtensions__c1_PR_ueCapabilityEnquiry_r8;
-  dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest.list.count=0;
-  asn1cSeqAdd(&dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest.list,
+  if (!dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest)
+    dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest = calloc_or_fail(1, sizeof(*dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest));
+  dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest->list.count=0;
+  asn1cSeqAdd(&dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest->list,
                    &rat);
 
   /* request NR configuration */
-  LTE_UECapabilityEnquiry_r8_IEs_t *r8 = &dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8;
+  LTE_UECapabilityEnquiry_r8_IEs_t *r8 = &dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8;
   LTE_UECapabilityEnquiry_v8a0_IEs_t r8_a0;
   LTE_UECapabilityEnquiry_v1180_IEs_t r11_80;
   LTE_UECapabilityEnquiry_v1310_IEs_t r13_10;
@@ -3354,20 +3524,24 @@ uint8_t do_NR_UECapabilityEnquiry( const protocol_ctxt_t *const ctxt_pP,
   LTE_RAT_Type_t rat_eutra_nr=LTE_RAT_Type_eutra_nr;
   asn_enc_rval_t enc_rval;
   memset(&dl_dcch_msg,0,sizeof(LTE_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = LTE_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_ueCapabilityEnquiry;
-  dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.rrc_TransactionIdentifier = Transaction_id;
-  dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.present = LTE_UECapabilityEnquiry__criticalExtensions_PR_c1;
-  dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.present =
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = LTE_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_ueCapabilityEnquiry;
+  dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.rrc_TransactionIdentifier = Transaction_id;
+  dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.present = LTE_UECapabilityEnquiry__criticalExtensions_PR_c1;
+  dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.present =
     LTE_UECapabilityEnquiry__criticalExtensions__c1_PR_ueCapabilityEnquiry_r8;
-  dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest.list.count=0;
-  asn1cSeqAdd(&dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest.list,
+  if (!dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest)
+    dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest = calloc_or_fail(1, sizeof(*dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest));
+  dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest->list.count=0;
+  asn1cSeqAdd(&dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest->list,
                    &rat_nr);
-  asn1cSeqAdd(&dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest.list,
+  asn1cSeqAdd(&dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest->list,
                    &rat_eutra_nr);
 
   /* request NR configuration */
-  LTE_UECapabilityEnquiry_r8_IEs_t *r8 = &dl_dcch_msg.message.choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8;
+  LTE_UECapabilityEnquiry_r8_IEs_t *r8 = &dl_dcch_msg.message->choice.c1.choice.ueCapabilityEnquiry.criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8;
   LTE_UECapabilityEnquiry_v8a0_IEs_t r8_a0;
   LTE_UECapabilityEnquiry_v1180_IEs_t r11_80;
   LTE_UECapabilityEnquiry_v1310_IEs_t r13_10;
@@ -3479,81 +3653,85 @@ uint16_t do_RRCConnectionReconfiguration_BR(const protocol_ctxt_t        *const 
   LTE_DL_DCCH_Message_t dl_dcch_msg;
   LTE_RRCConnectionReconfiguration_t *rrcConnectionReconfiguration;
   memset(&dl_dcch_msg,0,sizeof(LTE_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = LTE_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionReconfiguration;
-  rrcConnectionReconfiguration          = &dl_dcch_msg.message.choice.c1.choice.rrcConnectionReconfiguration;
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = LTE_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionReconfiguration;
+  rrcConnectionReconfiguration          = &dl_dcch_msg.message->choice.c1.choice.rrcConnectionReconfiguration;
   // RRCConnectionReconfiguration
   rrcConnectionReconfiguration->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionReconfiguration->criticalExtensions.present = LTE_RRCConnectionReconfiguration__criticalExtensions_PR_c1;
   rrcConnectionReconfiguration->criticalExtensions.choice.c1.present =LTE_RRCConnectionReconfiguration__criticalExtensions__c1_PR_rrcConnectionReconfiguration_r8 ;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated = CALLOC(1,
-      sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated));
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->srb_ToAddModList = SRB_list;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->drb_ToAddModList = DRB_list;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->drb_ToReleaseList = DRB_list2;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->sps_Config = sps_Config;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->physicalConfigDedicated = physicalConfigDedicated;
+  if (!rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8)
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8 = calloc_or_fail(1, sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8));
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated = CALLOC(1,
+      sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated));
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->srb_ToAddModList = SRB_list;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->drb_ToAddModList = DRB_list;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->drb_ToReleaseList = DRB_list2;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->sps_Config = sps_Config;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->physicalConfigDedicated = physicalConfigDedicated;
   physicalConfigDedicated->cqi_ReportConfig = CALLOC(1, sizeof(struct LTE_CQI_ReportConfig));
   physicalConfigDedicated->cqi_ReportConfig->cqi_ReportModeAperiodic = CALLOC(1, sizeof(LTE_CQI_ReportModeAperiodic_t));
   *physicalConfigDedicated->cqi_ReportConfig->cqi_ReportModeAperiodic = LTE_CQI_ReportModeAperiodic_rm20;
   physicalConfigDedicated->cqi_ReportConfig->nomPDSCH_RS_EPRE_Offset = 0;
 
   if (mac_MainConfig!=NULL) {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig->present
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig->present
       =LTE_RadioResourceConfigDedicated__mac_MainConfig_PR_explicitValue;
-    memcpy(&rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig->choice.explicitValue,
+    memcpy(&rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig->choice.explicitValue,
            mac_MainConfig,
            sizeof(*mac_MainConfig));
   } else {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig=NULL;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig=NULL;
   }
 
   if (MeasId_list != NULL) {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig           = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig));
-    memset((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig,
-           0, sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->reportConfigToAddModList = ReportConfig_list;
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->measIdToAddModList       = MeasId_list;
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->measObjectToAddModList   = MeasObj_list;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig           = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig));
+    memset((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig,
+           0, sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->reportConfigToAddModList = ReportConfig_list;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->measIdToAddModList       = MeasId_list;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->measObjectToAddModList   = MeasObj_list;
 
     if (quantityConfig!=NULL) {
-      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig = CALLOC(1,
-          sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig));
-      memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig,
+      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig = CALLOC(1,
+          sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig));
+      memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig,
              (void *)quantityConfig,
-             sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig));
+             sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig));
     } else {
-      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig = NULL;
+      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig = NULL;
     }
 
     if(speedStatePars != NULL) {
-      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->speedStatePars = CALLOC(1,
-          sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->speedStatePars));
-      memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->speedStatePars,
+      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->speedStatePars = CALLOC(1,
+          sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->speedStatePars));
+      memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->speedStatePars,
              (void *)speedStatePars,sizeof(*speedStatePars));
     } else {
-      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->speedStatePars = NULL;
+      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->speedStatePars = NULL;
     }
 
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->s_Measure= rsrp;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->s_Measure= rsrp;
   } else {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig = NULL;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig = NULL;
   }
 
   if (mobilityInfo !=NULL) {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo));
-    memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo, (void *)mobilityInfo,
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo));
+    memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo, (void *)mobilityInfo,
            sizeof(LTE_MobilityControlInfo_t));
   } else {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo  = NULL;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo  = NULL;
   }
 
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.dedicatedInfoNASList = dedicatedInfoNASList;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.securityConfigHO     = NULL;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->dedicatedInfoNASList = dedicatedInfoNASList;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->securityConfigHO     = NULL;
   enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_DL_DCCH_Message,
                                    NULL,
                                    (void *)&dl_dcch_msg,
@@ -3605,106 +3783,110 @@ uint16_t do_RRCConnectionReconfiguration(const protocol_ctxt_t *const ctxt_pP,
   LTE_DL_DCCH_Message_t dl_dcch_msg;
   LTE_RRCConnectionReconfiguration_t *rrcConnectionReconfiguration;
   memset(&dl_dcch_msg,0,sizeof(LTE_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = LTE_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionReconfiguration;
-  rrcConnectionReconfiguration          = &dl_dcch_msg.message.choice.c1.choice.rrcConnectionReconfiguration;
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = LTE_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionReconfiguration;
+  rrcConnectionReconfiguration          = &dl_dcch_msg.message->choice.c1.choice.rrcConnectionReconfiguration;
   /* RRC Connection Reconfiguration */
   rrcConnectionReconfiguration->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionReconfiguration->criticalExtensions.present = LTE_RRCConnectionReconfiguration__criticalExtensions_PR_c1;
   rrcConnectionReconfiguration->criticalExtensions.choice.c1.present = LTE_RRCConnectionReconfiguration__criticalExtensions__c1_PR_rrcConnectionReconfiguration_r8 ;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated = CALLOC(1,
-      sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated));
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->srb_ToAddModList = SRB_list;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->drb_ToAddModList = DRB_list;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->drb_ToReleaseList = DRB_list2;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->sps_Config = sps_Config;
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->physicalConfigDedicated = physicalConfigDedicated;
+  if (!rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8)
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8 = calloc_or_fail(1, sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8));
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated = CALLOC(1,
+      sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated));
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->srb_ToAddModList = SRB_list;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->drb_ToAddModList = DRB_list;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->drb_ToReleaseList = DRB_list2;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->sps_Config = sps_Config;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->physicalConfigDedicated = physicalConfigDedicated;
 
   if (mac_MainConfig!=NULL) {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig->present
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig->present
       =LTE_RadioResourceConfigDedicated__mac_MainConfig_PR_explicitValue;
-    memcpy(&rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig->choice.explicitValue,
+    memcpy(&rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig->choice.explicitValue,
            mac_MainConfig,
            sizeof(*mac_MainConfig));
   } else {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated->mac_MainConfig=NULL;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated->mac_MainConfig=NULL;
   }
 
   if (MeasId_list != NULL) {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig           = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig));
-    memset((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig,
-           0, sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->reportConfigToAddModList = ReportConfig_list;
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->measIdToAddModList       = MeasId_list;
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->measObjectToAddModList   = MeasObj_list;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig           = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig));
+    memset((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig,
+           0, sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->reportConfigToAddModList = ReportConfig_list;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->measIdToAddModList       = MeasId_list;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->measObjectToAddModList   = MeasObj_list;
 
     if (quantityConfig!=NULL) {
-      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig = CALLOC(1,
-          sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig));
-      memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig,
+      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig = CALLOC(1,
+          sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig));
+      memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig,
              (void *)quantityConfig,
-             sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig));
+             sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig));
     } else {
-      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->quantityConfig = NULL;
+      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->quantityConfig = NULL;
     }
 
     if(speedStatePars != NULL) {
-      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->speedStatePars = CALLOC(1,
-          sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->speedStatePars));
-      memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->speedStatePars,
+      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->speedStatePars = CALLOC(1,
+          sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->speedStatePars));
+      memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->speedStatePars,
              (void *)speedStatePars,sizeof(*speedStatePars));
     } else {
-      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->speedStatePars = NULL;
+      rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->speedStatePars = NULL;
     }
 
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig->s_Measure= rsrp;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig->s_Measure= rsrp;
   } else {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.measConfig = NULL;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->measConfig = NULL;
   }
 
   if (mobilityInfo !=NULL) {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo));
-    memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo, (void *)mobilityInfo,
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo));
+    memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo, (void *)mobilityInfo,
            sizeof(LTE_MobilityControlInfo_t));
   } else {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo  = NULL;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo  = NULL;
   }
 
   if (securityConfigHO != NULL) {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.securityConfigHO     = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.securityConfigHO));
-    memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.securityConfigHO, (void *)securityConfigHO,
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->securityConfigHO     = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->securityConfigHO));
+    memcpy((void *)rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->securityConfigHO, (void *)securityConfigHO,
            sizeof(LTE_SecurityConfigHO_t));
   } else {
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.securityConfigHO     = NULL;
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->securityConfigHO     = NULL;
   }
 
-  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.dedicatedInfoNASList = dedicatedInfoNASList;
+  rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->dedicatedInfoNASList = dedicatedInfoNASList;
 
   //TTN for D2D
   //allocate dedicated resource pools for SL communication (sl_CommConfig_r12)
   if (sl_CommConfig != NULL) {
     LOG_I(RRC,"[RRCConnectionReconfiguration] allocating a dedicated resource pool for SL communication \n");
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension
       = CALLOC(1,
-               sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_CommConfig_r12
+               sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_CommConfig_r12
       = CALLOC(1,
-               sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_CommConfig_r12));
+               sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_CommConfig_r12));
     memcpy((void *)
-           rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_CommConfig_r12,
+           rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_CommConfig_r12,
            (void *)sl_CommConfig,
            sizeof(LTE_SL_CommConfig_r12_t));
   }
@@ -3712,22 +3894,22 @@ uint16_t do_RRCConnectionReconfiguration(const protocol_ctxt_t *const ctxt_pP,
   //allocate dedicated resource pools for SL discovery (sl_DiscConfig)
   if (sl_DiscConfig != NULL) {
     LOG_I(RRC,"[RRCConnectionReconfiguration] allocating a dedicated resource pool for SL discovery \n");
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
-        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1,
+        sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension
       = CALLOC(1,
-               sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
-    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_DiscConfig_r12
+               sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension));
+    rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_DiscConfig_r12
       = CALLOC(1,
-               sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_DiscConfig_r12));
+               sizeof(*rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_DiscConfig_r12));
     memcpy((void *)
-           rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_DiscConfig_r12,
+           rrcConnectionReconfiguration->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_DiscConfig_r12,
            (void *)sl_DiscConfig,
            sizeof(LTE_SL_DiscConfig_r12_t));
   }
@@ -3787,9 +3969,11 @@ do_RRCConnectionReestablishment(
 
   *SRB_configList2 = CALLOC(1, sizeof(LTE_SRB_ToAddModList_t));
   memset((void *)&dl_ccch_msg, 0, sizeof(LTE_DL_CCCH_Message_t));
-  dl_ccch_msg.message.present           = LTE_DL_CCCH_MessageType_PR_c1;
-  dl_ccch_msg.message.choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionReestablishment;
-  rrcConnectionReestablishment          = &dl_ccch_msg.message.choice.c1.choice.rrcConnectionReestablishment;
+  if (!dl_ccch_msg.message)
+    dl_ccch_msg.message = calloc_or_fail(1, sizeof(*dl_ccch_msg.message));
+  dl_ccch_msg.message->present           = LTE_DL_CCCH_MessageType_PR_c1;
+  dl_ccch_msg.message->choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionReestablishment;
+  rrcConnectionReestablishment          = &dl_ccch_msg.message->choice.c1.choice.rrcConnectionReestablishment;
 
   // RRCConnectionReestablishment
   // Configure SRB1
@@ -3855,12 +4039,14 @@ do_RRCConnectionReestablishment(
   rrcConnectionReestablishment->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionReestablishment->criticalExtensions.present = LTE_RRCConnectionReestablishment__criticalExtensions_PR_c1;
   rrcConnectionReestablishment->criticalExtensions.choice.c1.present = LTE_RRCConnectionReestablishment__criticalExtensions__c1_PR_rrcConnectionReestablishment_r8;
-  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated.srb_ToAddModList = *SRB_configList;
-  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated.drb_ToAddModList = NULL;
-  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated.drb_ToReleaseList = NULL;
-  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated.sps_Config = NULL;
-  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated.physicalConfigDedicated = physicalConfigDedicated2;
-  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated.mac_MainConfig = NULL;
+  if (!rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated)
+    rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated = calloc_or_fail(1, sizeof(*rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated));
+  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated->srb_ToAddModList = *SRB_configList;
+  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated->drb_ToAddModList = NULL;
+  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated->drb_ToReleaseList = NULL;
+  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated->sps_Config = NULL;
+  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated->physicalConfigDedicated = physicalConfigDedicated2;
+  rrcConnectionReestablishment->criticalExtensions.choice.c1.choice.rrcConnectionReestablishment_r8.radioResourceConfigDedicated->mac_MainConfig = NULL;
   uint8_t KeNB_star[32] = { 0 };
   uint16_t pci = rrc->carrier[CC_id].physCellId;
   uint32_t earfcn_dl = (uint32_t)freq_to_arfcn10(RC.mac[ctxt_pP->module_id]->common_channels[CC_id].eutra_band,
@@ -3922,9 +4108,11 @@ uint8_t do_RRCConnectionReestablishmentReject(uint8_t                    Mod_id,
   LTE_DL_CCCH_Message_t dl_ccch_msg;
   LTE_RRCConnectionReestablishmentReject_t *rrcConnectionReestablishmentReject;
   memset((void *)&dl_ccch_msg,0,sizeof(LTE_DL_CCCH_Message_t));
-  dl_ccch_msg.message.present           = LTE_DL_CCCH_MessageType_PR_c1;
-  dl_ccch_msg.message.choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionReestablishmentReject;
-  rrcConnectionReestablishmentReject    = &dl_ccch_msg.message.choice.c1.choice.rrcConnectionReestablishmentReject;
+  if (!dl_ccch_msg.message)
+    dl_ccch_msg.message = calloc_or_fail(1, sizeof(*dl_ccch_msg.message));
+  dl_ccch_msg.message->present           = LTE_DL_CCCH_MessageType_PR_c1;
+  dl_ccch_msg.message->choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionReestablishmentReject;
+  rrcConnectionReestablishmentReject    = &dl_ccch_msg.message->choice.c1.choice.rrcConnectionReestablishmentReject;
   // RRCConnectionReestablishmentReject
   rrcConnectionReestablishmentReject->criticalExtensions.present = LTE_RRCConnectionReestablishmentReject__criticalExtensions_PR_rrcConnectionReestablishmentReject_r8;
 
@@ -3958,9 +4146,11 @@ uint8_t do_RRCConnectionReject(uint8_t                    Mod_id,
   LTE_DL_CCCH_Message_t dl_ccch_msg;
   LTE_RRCConnectionReject_t *rrcConnectionReject;
   memset((void *)&dl_ccch_msg,0,sizeof(LTE_DL_CCCH_Message_t));
-  dl_ccch_msg.message.present           = LTE_DL_CCCH_MessageType_PR_c1;
-  dl_ccch_msg.message.choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionReject;
-  rrcConnectionReject                   = &dl_ccch_msg.message.choice.c1.choice.rrcConnectionReject;
+  if (!dl_ccch_msg.message)
+    dl_ccch_msg.message = calloc_or_fail(1, sizeof(*dl_ccch_msg.message));
+  dl_ccch_msg.message->present           = LTE_DL_CCCH_MessageType_PR_c1;
+  dl_ccch_msg.message->choice.c1.present = LTE_DL_CCCH_MessageType__c1_PR_rrcConnectionReject;
+  rrcConnectionReject                   = &dl_ccch_msg.message->choice.c1.choice.rrcConnectionReject;
   // RRCConnectionReject
   rrcConnectionReject->criticalExtensions.present = LTE_RRCConnectionReject__criticalExtensions_PR_c1;
   rrcConnectionReject->criticalExtensions.choice.c1.present = LTE_RRCConnectionReject__criticalExtensions__c1_PR_rrcConnectionReject_r8;
@@ -3996,9 +4186,11 @@ uint8_t do_RRCConnectionRelease(uint8_t                             Mod_id,
   LTE_DL_DCCH_Message_t dl_dcch_msg;
   LTE_RRCConnectionRelease_t *rrcConnectionRelease;
   memset(&dl_dcch_msg,0,sizeof(LTE_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = LTE_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionRelease;
-  rrcConnectionRelease                  = &dl_dcch_msg.message.choice.c1.choice.rrcConnectionRelease;
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = LTE_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionRelease;
+  rrcConnectionRelease                  = &dl_dcch_msg.message->choice.c1.choice.rrcConnectionRelease;
   // RRCConnectionRelease
   rrcConnectionRelease->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionRelease->criticalExtensions.present = LTE_RRCConnectionRelease__criticalExtensions_PR_c1;
@@ -4032,9 +4224,11 @@ uint8_t do_MBSFNAreaConfig(uint8_t Mod_id,
   eNB_RRC_INST *rrc               = RC.rrc[Mod_id];
   rrc_eNB_carrier_data_t *carrier = &rrc->carrier[0];
   memset(mcch_message,0,sizeof(LTE_MCCH_Message_t));
-  mcch_message->message.present = LTE_MCCH_MessageType_PR_c1;
-  mcch_message->message.choice.c1.present = LTE_MCCH_MessageType__c1_PR_mbsfnAreaConfiguration_r9;
-  *mbsfnAreaConfiguration = &mcch_message->message.choice.c1.choice.mbsfnAreaConfiguration_r9;
+  if (!mcch_message->message)
+    mcch_message->message = calloc_or_fail(1, sizeof(*mcch_message->message));
+  mcch_message->message->present = LTE_MCCH_MessageType_PR_c1;
+  mcch_message->message->choice.c1.present = LTE_MCCH_MessageType__c1_PR_mbsfnAreaConfiguration_r9;
+  *mbsfnAreaConfiguration = &mcch_message->message->choice.c1.choice.mbsfnAreaConfiguration_r9;
   // Common Subframe Allocation (CommonSF-Alloc-r9)
   mbsfn_SubframeConfig1= CALLOC(1,sizeof(*mbsfn_SubframeConfig1));
   memset((void *)mbsfn_SubframeConfig1,0,sizeof(*mbsfn_SubframeConfig1));
@@ -4068,7 +4262,9 @@ uint8_t do_MBSFNAreaConfig(uint8_t Mod_id,
       break;
   }
 
-  asn1cSeqAdd(&(*mbsfnAreaConfiguration)->commonSF_Alloc_r9.list,mbsfn_SubframeConfig1);
+  if (!(*mbsfnAreaConfiguration)->commonSF_Alloc_r9)
+    (*mbsfnAreaConfiguration)->commonSF_Alloc_r9 = calloc_or_fail(1, sizeof(*(*mbsfnAreaConfiguration)->commonSF_Alloc_r9));
+  asn1cSeqAdd(&(*mbsfnAreaConfiguration)->commonSF_Alloc_r9->list,mbsfn_SubframeConfig1);
   //  commonSF-AllocPeriod-r9
   (*mbsfnAreaConfiguration)->commonSF_AllocPeriod_r9= LTE_MBSFNAreaConfiguration_r9__commonSF_AllocPeriod_r9_rf16;
   // PMCHs Information List (PMCH-InfoList-r9)
@@ -4079,28 +4275,34 @@ uint8_t do_MBSFNAreaConfig(uint8_t Mod_id,
    * take the value of last mbsfn subframe in this CSA period because there is only one PMCH in this mbsfn area
    * Note: this has to be set based on the subframeAllocation and CSA
    */
-  pmch_Info_1->pmch_Config_r9.sf_AllocEnd_r9= 3;
-  pmch_Info_1->pmch_Config_r9.dataMCS_r9= 7;
-  pmch_Info_1->pmch_Config_r9.mch_SchedulingPeriod_r9= LTE_PMCH_Config_r9__mch_SchedulingPeriod_r9_rf16;
+  if (!pmch_Info_1->pmch_Config_r9)
+    pmch_Info_1->pmch_Config_r9 = calloc_or_fail(1, sizeof(*pmch_Info_1->pmch_Config_r9));
+  pmch_Info_1->pmch_Config_r9->sf_AllocEnd_r9= 3;
+  pmch_Info_1->pmch_Config_r9->dataMCS_r9= 7;
+  pmch_Info_1->pmch_Config_r9->mch_SchedulingPeriod_r9= LTE_PMCH_Config_r9__mch_SchedulingPeriod_r9_rf16;
   // MBMSs-SessionInfoList-r9
   //  pmch_Info_1->mbms_SessionInfoList_r9 = CALLOC(1,sizeof(struct MBMS_SessionInfoList_r9));
   //  Session 1
   mbms_Session_1 = CALLOC(1,sizeof(LTE_MBMS_SessionInfo_r9_t));
   memset(mbms_Session_1,0,sizeof(LTE_MBMS_SessionInfo_r9_t));
   // TMGI value
-  mbms_Session_1->tmgi_r9.plmn_Id_r9.present= LTE_TMGI_r9__plmn_Id_r9_PR_plmn_Index_r9;
-  mbms_Session_1->tmgi_r9.plmn_Id_r9.choice.plmn_Index_r9= 1;
+  if (!mbms_Session_1->tmgi_r9)
+    mbms_Session_1->tmgi_r9 = calloc_or_fail(1, sizeof(*mbms_Session_1->tmgi_r9));
+  mbms_Session_1->tmgi_r9->plmn_Id_r9.present= LTE_TMGI_r9__plmn_Id_r9_PR_plmn_Index_r9;
+  mbms_Session_1->tmgi_r9->plmn_Id_r9.choice.plmn_Index_r9= 1;
   // Service ID
-  memset(&mbms_Session_1->tmgi_r9.serviceId_r9,0,sizeof(OCTET_STRING_t));// need to check
-  OCTET_STRING_fromBuf(&mbms_Session_1->tmgi_r9.serviceId_r9,(const char *)&TMGI[2],3);
+  memset(&mbms_Session_1->tmgi_r9->serviceId_r9,0,sizeof(OCTET_STRING_t));// need to check
+  OCTET_STRING_fromBuf(&mbms_Session_1->tmgi_r9->serviceId_r9,(const char *)&TMGI[2],3);
   // Session ID is still missing here, it can be used as an rab id or mrb id
   mbms_Session_1->sessionId_r9 = CALLOC(1,sizeof(OCTET_STRING_t));
   mbms_Session_1->sessionId_r9->buf= MALLOC(1);
   mbms_Session_1->sessionId_r9->size= 1;
   mbms_Session_1->sessionId_r9->buf[0]= MTCH;
+  if (!pmch_Info_1->mbms_SessionInfoList_r9)
+    pmch_Info_1->mbms_SessionInfoList_r9 = calloc_or_fail(1, sizeof(*pmch_Info_1->mbms_SessionInfoList_r9));
   // Logical Channel ID
   mbms_Session_1->logicalChannelIdentity_r9= MTCH;
-  asn1cSeqAdd(&pmch_Info_1->mbms_SessionInfoList_r9.list,mbms_Session_1);
+  asn1cSeqAdd(&pmch_Info_1->mbms_SessionInfoList_r9->list,mbms_Session_1);
   /*    //  Session 2
   //mbms_Session_2 = CALLOC(1,sizeof(MBMS_SessionInfo_r9_t));
   memset(mbms_Session_2,0,sizeof(MBMS_SessionInfo_r9_t));
@@ -4118,7 +4320,9 @@ uint8_t do_MBSFNAreaConfig(uint8_t Mod_id,
   mbms_Session_2->logicalChannelIdentity_r9= 2;
   asn1cSeqAdd(&pmch_Info_1->mbms_SessionInfoList_r9.list,mbms_Session_2);
   */
-  asn1cSeqAdd(&(*mbsfnAreaConfiguration)->pmch_InfoList_r9.list,pmch_Info_1);
+  if (!(*mbsfnAreaConfiguration)->pmch_InfoList_r9)
+    (*mbsfnAreaConfiguration)->pmch_InfoList_r9 = calloc_or_fail(1, sizeof(*(*mbsfnAreaConfiguration)->pmch_InfoList_r9));
+  asn1cSeqAdd(&(*mbsfnAreaConfiguration)->pmch_InfoList_r9->list,pmch_Info_1);
 
   if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
     xer_fprint(stdout,&asn_DEF_LTE_MCCH_Message,(void *)mcch_message);
@@ -4153,19 +4357,23 @@ uint8_t do_MeasurementReport(uint8_t Mod_id, uint8_t *buffer, size_t buffer_size
   asn_enc_rval_t enc_rval;
   LTE_UL_DCCH_Message_t ul_dcch_msg;
   LTE_MeasurementReport_t  *measurementReport;
-  ul_dcch_msg.message.present                     = LTE_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1.present           = LTE_UL_DCCH_MessageType__c1_PR_measurementReport;
-  measurementReport            = &ul_dcch_msg.message.choice.c1.choice.measurementReport;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present                     = LTE_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1.present           = LTE_UL_DCCH_MessageType__c1_PR_measurementReport;
+  measurementReport            = &ul_dcch_msg.message->choice.c1.choice.measurementReport;
   measurementReport->criticalExtensions.present=LTE_MeasurementReport__criticalExtensions_PR_c1;
   measurementReport->criticalExtensions.choice.c1.present=LTE_MeasurementReport__criticalExtensions__c1_PR_measurementReport_r8;
   measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.nonCriticalExtension=CALLOC(1,
       sizeof(*measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.nonCriticalExtension));
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measId=measid;
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultPCell.rsrpResult=rsrp_s;
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultPCell.rsrqResult=rsrq_s;
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultNeighCells=CALLOC(1,
-      sizeof(*measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultNeighCells));
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultNeighCells->present=LTE_MeasResults__measResultNeighCells_PR_measResultListEUTRA;
+  if (!measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults)
+    measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults = calloc_or_fail(1, sizeof(*measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults));
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measId=measid;
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultPCell.rsrpResult=rsrp_s;
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultPCell.rsrqResult=rsrq_s;
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultNeighCells=CALLOC(1,
+      sizeof(*measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultNeighCells));
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultNeighCells->present=LTE_MeasResults__measResultNeighCells_PR_measResultListEUTRA;
   LTE_MeasResultListEUTRA_t  *measResultListEUTRA2;
   measResultListEUTRA2 = CALLOC(1,sizeof(*measResultListEUTRA2));
   struct LTE_MeasResultEUTRA *measresulteutra2;
@@ -4175,21 +4383,25 @@ uint8_t do_MeasurementReport(uint8_t Mod_id, uint8_t *buffer, size_t buffer_size
   measresult_cgi2 = CALLOC(1,sizeof(*measresult_cgi2));
   memset(&measresult_cgi2->cellGlobalId.plmn_Identity,0,sizeof(measresult_cgi2->cellGlobalId.plmn_Identity));
   // measresult_cgi2->cellGlobalId.plmn_Identity.mcc=CALLOC(1,sizeof(measresult_cgi2->cellGlobalId.plmn_Identity.mcc));
-  measresult_cgi2->cellGlobalId.plmn_Identity.mcc = CALLOC(1, sizeof(*measresult_cgi2->cellGlobalId.plmn_Identity.mcc));
-  asn_set_empty(&measresult_cgi2->cellGlobalId.plmn_Identity.mcc->list);//.size=0;
+  if (!measresult_cgi2->cellGlobalId.plmn_Identity)
+    measresult_cgi2->cellGlobalId.plmn_Identity = calloc_or_fail(1, sizeof(*measresult_cgi2->cellGlobalId.plmn_Identity));
+  measresult_cgi2->cellGlobalId.plmn_Identity->mcc = CALLOC(1, sizeof(*measresult_cgi2->cellGlobalId.plmn_Identity->mcc));
+  asn_set_empty(&measresult_cgi2->cellGlobalId.plmn_Identity->mcc->list);//.size=0;
   LTE_MCC_MNC_Digit_t dummy;
   dummy=2;
-  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity.mcc->list,&dummy);
+  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity->mcc->list,&dummy);
   dummy=6;
-  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity.mcc->list,&dummy);
+  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity->mcc->list,&dummy);
   dummy=2;
-  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity.mcc->list,&dummy);
-  measresult_cgi2->cellGlobalId.plmn_Identity.mnc.list.size=0;
-  measresult_cgi2->cellGlobalId.plmn_Identity.mnc.list.count=0;
+  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity->mcc->list,&dummy);
+  if (!measresult_cgi2->cellGlobalId.plmn_Identity->mnc)
+    measresult_cgi2->cellGlobalId.plmn_Identity->mnc = calloc_or_fail(1, sizeof(*measresult_cgi2->cellGlobalId.plmn_Identity->mnc));
+  measresult_cgi2->cellGlobalId.plmn_Identity->mnc->list.size=0;
+  measresult_cgi2->cellGlobalId.plmn_Identity->mnc->list.count=0;
   dummy=8;
-  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity.mnc.list,&dummy);
+  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity->mnc->list,&dummy);
   dummy=0;
-  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity.mnc.list,&dummy);
+  asn1cSeqAdd(&measresult_cgi2->cellGlobalId.plmn_Identity->mnc->list,&dummy);
   measresult_cgi2->cellGlobalId.cellIdentity.buf=MALLOC(8);
   measresult_cgi2->cellGlobalId.cellIdentity.buf[0]=0x01;
   measresult_cgi2->cellGlobalId.cellIdentity.buf[1]=0x48;
@@ -4211,7 +4423,7 @@ uint8_t do_MeasurementReport(uint8_t Mod_id, uint8_t *buffer, size_t buffer_size
   meas2.ext1 = NULL;
   measresulteutra2->measResult=meas2;
   asn1cSeqAdd(&measResultListEUTRA2->list,measresulteutra2);
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultNeighCells->choice.measResultListEUTRA=*(measResultListEUTRA2);
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultNeighCells->choice.measResultListEUTRA=*(measResultListEUTRA2);
 
   if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
     xer_fprint(stdout, &asn_DEF_LTE_UL_DCCH_Message, (void *)&ul_dcch_msg);
@@ -4245,18 +4457,22 @@ ssize_t do_nrMeasurementReport(uint8_t *buffer,
                                long rsrq_tar) {
 
   LTE_UL_DCCH_Message_t ul_dcch_msg={0};
-  ul_dcch_msg.message.present = LTE_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_measurementReport;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present = LTE_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_measurementReport;
 
-  LTE_MeasurementReport_t *measurementReport = &ul_dcch_msg.message.choice.c1.choice.measurementReport;
+  LTE_MeasurementReport_t *measurementReport = &ul_dcch_msg.message->choice.c1.choice.measurementReport;
   measurementReport->criticalExtensions.present = LTE_MeasurementReport__criticalExtensions_PR_c1;
   measurementReport->criticalExtensions.choice.c1.present = LTE_MeasurementReport__criticalExtensions__c1_PR_measurementReport_r8;
   measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.nonCriticalExtension =
     calloc(1, sizeof(*measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.nonCriticalExtension));
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measId = measid;
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultPCell.rsrpResult = rsrp_s;
-  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultPCell.rsrqResult = rsrq_s;
-  asn1cCalloc(measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults.measResultNeighCells,  
+  if (!measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults)
+    measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults = calloc_or_fail(1, sizeof(*measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults));
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measId = measid;
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultPCell.rsrpResult = rsrp_s;
+  measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultPCell.rsrqResult = rsrq_s;
+  asn1cCalloc(measurementReport->criticalExtensions.choice.c1.choice.measurementReport_r8.measResults->measResultNeighCells,  
               measResultNeighCells); 
   measResultNeighCells->present = LTE_MeasResults__measResultNeighCells_PR_measResultNeighCellListNR_r15;
   LTE_MeasResultListEUTRA_t  *measResultListEUTRA2=&measResultNeighCells->choice.measResultListEUTRA;
@@ -4291,15 +4507,17 @@ uint8_t do_DLInformationTransfer(uint8_t Mod_id, uint8_t **buffer, uint8_t trans
   ssize_t encoded;
   LTE_DL_DCCH_Message_t dl_dcch_msg;
   memset(&dl_dcch_msg, 0, sizeof(LTE_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = LTE_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_dlInformationTransfer;
-  dl_dcch_msg.message.choice.c1.choice.dlInformationTransfer.rrc_TransactionIdentifier = transaction_id;
-  dl_dcch_msg.message.choice.c1.choice.dlInformationTransfer.criticalExtensions.present = LTE_DLInformationTransfer__criticalExtensions_PR_c1;
-  dl_dcch_msg.message.choice.c1.choice.dlInformationTransfer.criticalExtensions.choice.c1.present = LTE_DLInformationTransfer__criticalExtensions__c1_PR_dlInformationTransfer_r8;
-  dl_dcch_msg.message.choice.c1.choice.dlInformationTransfer.criticalExtensions.choice.c1.choice.dlInformationTransfer_r8.dedicatedInfoType.present =
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = LTE_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_dlInformationTransfer;
+  dl_dcch_msg.message->choice.c1.choice.dlInformationTransfer.rrc_TransactionIdentifier = transaction_id;
+  dl_dcch_msg.message->choice.c1.choice.dlInformationTransfer.criticalExtensions.present = LTE_DLInformationTransfer__criticalExtensions_PR_c1;
+  dl_dcch_msg.message->choice.c1.choice.dlInformationTransfer.criticalExtensions.choice.c1.present = LTE_DLInformationTransfer__criticalExtensions__c1_PR_dlInformationTransfer_r8;
+  dl_dcch_msg.message->choice.c1.choice.dlInformationTransfer.criticalExtensions.choice.c1.choice.dlInformationTransfer_r8.dedicatedInfoType.present =
     LTE_DLInformationTransfer_r8_IEs__dedicatedInfoType_PR_dedicatedInfoNAS;
-  dl_dcch_msg.message.choice.c1.choice.dlInformationTransfer.criticalExtensions.choice.c1.choice.dlInformationTransfer_r8.dedicatedInfoType.choice.dedicatedInfoNAS.size = pdu_length;
-  dl_dcch_msg.message.choice.c1.choice.dlInformationTransfer.criticalExtensions.choice.c1.choice.dlInformationTransfer_r8.dedicatedInfoType.choice.dedicatedInfoNAS.buf = pdu_buffer;
+  dl_dcch_msg.message->choice.c1.choice.dlInformationTransfer.criticalExtensions.choice.c1.choice.dlInformationTransfer_r8.dedicatedInfoType.choice.dedicatedInfoNAS.size = pdu_length;
+  dl_dcch_msg.message->choice.c1.choice.dlInformationTransfer.criticalExtensions.choice.c1.choice.dlInformationTransfer_r8.dedicatedInfoType.choice.dedicatedInfoNAS.buf = pdu_buffer;
   encoded = uper_encode_to_new_buffer (&asn_DEF_LTE_DL_DCCH_Message, NULL, (void *) &dl_dcch_msg, (void **) buffer);
   AssertFatal(encoded > 0, "could not encode DLInformationTransfer\n");
   return encoded;
@@ -4312,14 +4530,16 @@ uint8_t do_Paging(uint8_t Mod_id, uint8_t *buffer, size_t buffer_size,
   LTE_PCCH_Message_t pcch_msg;
   LTE_PagingRecord_t *paging_record_p;
   int j;
-  pcch_msg.message.present           = LTE_PCCH_MessageType_PR_c1;
-  pcch_msg.message.choice.c1.present = LTE_PCCH_MessageType__c1_PR_paging;
-  pcch_msg.message.choice.c1.choice.paging.pagingRecordList = CALLOC(1,sizeof(*pcch_msg.message.choice.c1.choice.paging.pagingRecordList));
-  pcch_msg.message.choice.c1.choice.paging.systemInfoModification = NULL;
-  pcch_msg.message.choice.c1.choice.paging.etws_Indication = NULL;
-  pcch_msg.message.choice.c1.choice.paging.nonCriticalExtension = NULL;
-  asn_set_empty(&pcch_msg.message.choice.c1.choice.paging.pagingRecordList->list);
-  pcch_msg.message.choice.c1.choice.paging.pagingRecordList->list.count = 0;
+  if (!pcch_msg.message)
+    pcch_msg.message = calloc_or_fail(1, sizeof(*pcch_msg.message));
+  pcch_msg.message->present           = LTE_PCCH_MessageType_PR_c1;
+  pcch_msg.message->choice.c1.present = LTE_PCCH_MessageType__c1_PR_paging;
+  pcch_msg.message->choice.c1.choice.paging.pagingRecordList = CALLOC(1,sizeof(*pcch_msg.message->choice.c1.choice.paging.pagingRecordList));
+  pcch_msg.message->choice.c1.choice.paging.systemInfoModification = NULL;
+  pcch_msg.message->choice.c1.choice.paging.etws_Indication = NULL;
+  pcch_msg.message->choice.c1.choice.paging.nonCriticalExtension = NULL;
+  asn_set_empty(&pcch_msg.message->choice.c1.choice.paging.pagingRecordList->list);
+  pcch_msg.message->choice.c1.choice.paging.pagingRecordList->list.count = 0;
 
   if ((paging_record_p = calloc(1, sizeof(LTE_PagingRecord_t))) == NULL) {
     /* Possible error on calloc */
@@ -4330,20 +4550,30 @@ uint8_t do_Paging(uint8_t Mod_id, uint8_t *buffer, size_t buffer_size,
 
   /* convert ue_paging_identity_t to PagingUE_Identity_t */
   if (ue_paging_identity.presenceMask == UE_PAGING_IDENTITY_s_tmsi) {
-    paging_record_p->ue_Identity.present = LTE_PagingUE_Identity_PR_s_TMSI;
+    if (!paging_record_p->ue_Identity)
+      paging_record_p->ue_Identity = calloc_or_fail(1, sizeof(*paging_record_p->ue_Identity));
+    paging_record_p->ue_Identity->present = LTE_PagingUE_Identity_PR_s_TMSI;
+    if (!paging_record_p->ue_Identity->choice.s_TMSI)
+      paging_record_p->ue_Identity->choice.s_TMSI = calloc_or_fail(1, sizeof(*paging_record_p->ue_Identity->choice.s_TMSI));
     MME_CODE_TO_OCTET_STRING(ue_paging_identity.choice.s_tmsi.mme_code,
-                             &paging_record_p->ue_Identity.choice.s_TMSI.mmec);
-    paging_record_p->ue_Identity.choice.s_TMSI.mmec.bits_unused = 0;
+                             &paging_record_p->ue_Identity->choice.s_TMSI->mmec);
+    if (!paging_record_p->ue_Identity->choice.s_TMSI)
+      paging_record_p->ue_Identity->choice.s_TMSI = calloc_or_fail(1, sizeof(*paging_record_p->ue_Identity->choice.s_TMSI));
+    paging_record_p->ue_Identity->choice.s_TMSI->mmec.bits_unused = 0;
     M_TMSI_TO_OCTET_STRING(ue_paging_identity.choice.s_tmsi.m_tmsi,
-                           &paging_record_p->ue_Identity.choice.s_TMSI.m_TMSI);
-    paging_record_p->ue_Identity.choice.s_TMSI.m_TMSI.bits_unused = 0;
+                           &paging_record_p->ue_Identity->choice.s_TMSI->m_TMSI);
+    paging_record_p->ue_Identity->choice.s_TMSI->m_TMSI.bits_unused = 0;
   } else if (ue_paging_identity.presenceMask == UE_PAGING_IDENTITY_imsi) {
-    paging_record_p->ue_Identity.present = LTE_PagingUE_Identity_PR_imsi;
+    if (!paging_record_p->ue_Identity)
+      paging_record_p->ue_Identity = calloc_or_fail(1, sizeof(*paging_record_p->ue_Identity));
+    paging_record_p->ue_Identity->present = LTE_PagingUE_Identity_PR_imsi;
     LTE_IMSI_Digit_t imsi_digit[21];
 
     for (j = 0; j< ue_paging_identity.choice.imsi.length; j++) {  /* IMSI size */
       imsi_digit[j] = (LTE_IMSI_Digit_t)ue_paging_identity.choice.imsi.buffer[j];
-      asn1cSeqAdd(&paging_record_p->ue_Identity.choice.imsi.list, &imsi_digit[j]);
+      if (!paging_record_p->ue_Identity->choice.imsi)
+        paging_record_p->ue_Identity->choice.imsi = calloc_or_fail(1, sizeof(*paging_record_p->ue_Identity->choice.imsi));
+      asn1cSeqAdd(&paging_record_p->ue_Identity->choice.imsi->list, &imsi_digit[j]);
     }
   }
 
@@ -4355,9 +4585,9 @@ uint8_t do_Paging(uint8_t Mod_id, uint8_t *buffer, size_t buffer_size,
   }
 
   /* add to list */
-  asn1cSeqAdd(&pcch_msg.message.choice.c1.choice.paging.pagingRecordList->list, paging_record_p);
+  asn1cSeqAdd(&pcch_msg.message->choice.c1.choice.paging.pagingRecordList->list, paging_record_p);
   LOG_D(RRC, "[eNB %d] do_Paging paging_record: cn_Domain %ld, ue_paging_identity.presenceMask %d, PagingRecordList.count %d\n",
-        Mod_id, paging_record_p->cn_Domain, ue_paging_identity.presenceMask, pcch_msg.message.choice.c1.choice.paging.pagingRecordList->list.count);
+        Mod_id, paging_record_p->cn_Domain, ue_paging_identity.presenceMask, pcch_msg.message->choice.c1.choice.paging.pagingRecordList->list.count);
   enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_PCCH_Message, NULL, (void *)&pcch_msg,
                                    buffer, buffer_size);
 
@@ -4378,14 +4608,16 @@ uint8_t do_ULInformationTransfer(uint8_t **buffer, uint32_t pdu_length, uint8_t 
   ssize_t encoded;
   LTE_UL_DCCH_Message_t ul_dcch_msg;
   memset(&ul_dcch_msg, 0, sizeof(LTE_UL_DCCH_Message_t));
-  ul_dcch_msg.message.present           = LTE_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_ulInformationTransfer;
-  ul_dcch_msg.message.choice.c1.choice.ulInformationTransfer.criticalExtensions.present = LTE_ULInformationTransfer__criticalExtensions_PR_c1;
-  ul_dcch_msg.message.choice.c1.choice.ulInformationTransfer.criticalExtensions.choice.c1.present = LTE_ULInformationTransfer__criticalExtensions__c1_PR_ulInformationTransfer_r8;
-  ul_dcch_msg.message.choice.c1.choice.ulInformationTransfer.criticalExtensions.choice.c1.choice.ulInformationTransfer_r8.dedicatedInfoType.present =
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present           = LTE_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_ulInformationTransfer;
+  ul_dcch_msg.message->choice.c1.choice.ulInformationTransfer.criticalExtensions.present = LTE_ULInformationTransfer__criticalExtensions_PR_c1;
+  ul_dcch_msg.message->choice.c1.choice.ulInformationTransfer.criticalExtensions.choice.c1.present = LTE_ULInformationTransfer__criticalExtensions__c1_PR_ulInformationTransfer_r8;
+  ul_dcch_msg.message->choice.c1.choice.ulInformationTransfer.criticalExtensions.choice.c1.choice.ulInformationTransfer_r8.dedicatedInfoType.present =
     LTE_ULInformationTransfer_r8_IEs__dedicatedInfoType_PR_dedicatedInfoNAS;
-  ul_dcch_msg.message.choice.c1.choice.ulInformationTransfer.criticalExtensions.choice.c1.choice.ulInformationTransfer_r8.dedicatedInfoType.choice.dedicatedInfoNAS.size = pdu_length;
-  ul_dcch_msg.message.choice.c1.choice.ulInformationTransfer.criticalExtensions.choice.c1.choice.ulInformationTransfer_r8.dedicatedInfoType.choice.dedicatedInfoNAS.buf = pdu_buffer;
+  ul_dcch_msg.message->choice.c1.choice.ulInformationTransfer.criticalExtensions.choice.c1.choice.ulInformationTransfer_r8.dedicatedInfoType.choice.dedicatedInfoNAS.size = pdu_length;
+  ul_dcch_msg.message->choice.c1.choice.ulInformationTransfer.criticalExtensions.choice.c1.choice.ulInformationTransfer_r8.dedicatedInfoType.choice.dedicatedInfoNAS.buf = pdu_buffer;
   encoded = uper_encode_to_new_buffer (&asn_DEF_LTE_UL_DCCH_Message, NULL, (void *) &ul_dcch_msg, (void **) buffer);
   AssertFatal(encoded > 0, "could not encode ULInformationTransfer\n");
   return encoded;
@@ -4409,14 +4641,16 @@ int do_HandoverPreparation(char *ho_buf, int ho_size, LTE_UE_EUTRA_Capability_t 
   memset(&ho, 0, sizeof(ho));
   ho.criticalExtensions.present = LTE_HandoverPreparationInformation__criticalExtensions_PR_c1;
   ho.criticalExtensions.choice.c1.present = LTE_HandoverPreparationInformation__criticalExtensions__c1_PR_handoverPreparationInformation_r8;
-  ho_info = &ho.criticalExtensions.choice.c1.choice.handoverPreparationInformation_r8;
+  ho_info = ho.criticalExtensions.choice.c1.choice.handoverPreparationInformation_r8;
   {
     ue_cap_rat_container = (LTE_UE_CapabilityRAT_Container_t *)calloc(1,sizeof(LTE_UE_CapabilityRAT_Container_t));
     ue_cap_rat_container->rat_Type = LTE_RAT_Type_eutra;
     AssertFatal (OCTET_STRING_fromBuf(
                    &ue_cap_rat_container->ueCapabilityRAT_Container,
                    rrc_buf, rrc_size) != -1, "fatal: OCTET_STRING_fromBuf failed\n");
-    asn1cSeqAdd(&ho_info->ue_RadioAccessCapabilityInfo.list, ue_cap_rat_container);
+    if (!ho_info->ue_RadioAccessCapabilityInfo)
+      ho_info->ue_RadioAccessCapabilityInfo = calloc_or_fail(1, sizeof(*ho_info->ue_RadioAccessCapabilityInfo));
+    asn1cSeqAdd(&ho_info->ue_RadioAccessCapabilityInfo->list, ue_cap_rat_container);
   }
   enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_HandoverPreparationInformation,
                                    NULL,
@@ -4539,43 +4773,65 @@ OAI_UECapability_t *fill_ue_capability(char *UE_EUTRA_Capability_xer_fname)
     InterFreqBandInfo[3][3].interFreqNeedForGaps = 0;
     UE_EUTRA_Capability->accessStratumRelease = 0;//AccessStratumRelease_rel8;
     UE_EUTRA_Capability->ue_Category          = 4;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0001_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0002_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0003_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0004_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0006_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0101_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0102_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0103_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.supportedROHC_Profiles.profile0x0104_r15=0;
-    UE_EUTRA_Capability->pdcp_Parameters.maxNumberROHC_ContextSessions = &maxNumberROHC_ContextSessions;
-    UE_EUTRA_Capability->phyLayerParameters.ue_TxAntennaSelectionSupported = 0;
-    UE_EUTRA_Capability->phyLayerParameters.ue_SpecificRefSigsSupported    = 0;
-    UE_EUTRA_Capability->rf_Parameters.supportedBandListEUTRA.list.count                          = 0;
-    asn1cSeqAdd(&UE_EUTRA_Capability->rf_Parameters.supportedBandListEUTRA.list,(void *)&Bandlist[0]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->rf_Parameters.supportedBandListEUTRA.list,(void *)&Bandlist[1]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->rf_Parameters.supportedBandListEUTRA.list,(void *)&Bandlist[2]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->rf_Parameters.supportedBandListEUTRA.list,(void *)&Bandlist[3]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list,(void *)&BandInfoEUTRA[0]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list,(void *)&BandInfoEUTRA[1]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list,(void *)&BandInfoEUTRA[2]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list,(void *)&BandInfoEUTRA[3]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[0]->interFreqBandList.list,(void *)&InterFreqBandInfo[0][0]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[0]->interFreqBandList.list,(void *)&InterFreqBandInfo[0][1]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[0]->interFreqBandList.list,(void *)&InterFreqBandInfo[0][2]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[0]->interFreqBandList.list,(void *)&InterFreqBandInfo[0][3]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[1]->interFreqBandList.list,(void *)&InterFreqBandInfo[1][0]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[1]->interFreqBandList.list,(void *)&InterFreqBandInfo[1][1]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[1]->interFreqBandList.list,(void *)&InterFreqBandInfo[1][2]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[1]->interFreqBandList.list,(void *)&InterFreqBandInfo[1][3]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[2]->interFreqBandList.list,(void *)&InterFreqBandInfo[2][0]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[2]->interFreqBandList.list,(void *)&InterFreqBandInfo[2][1]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[2]->interFreqBandList.list,(void *)&InterFreqBandInfo[2][2]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[2]->interFreqBandList.list,(void *)&InterFreqBandInfo[2][3]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[3]->interFreqBandList.list,(void *)&InterFreqBandInfo[3][0]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[3]->interFreqBandList.list,(void *)&InterFreqBandInfo[3][1]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[3]->interFreqBandList.list,(void *)&InterFreqBandInfo[3][2]);
-    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters.bandListEUTRA.list.array[3]->interFreqBandList.list,(void *)&InterFreqBandInfo[3][3]);
+    if (!UE_EUTRA_Capability->pdcp_Parameters)
+      UE_EUTRA_Capability->pdcp_Parameters = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->pdcp_Parameters));
+    if (!UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles)
+      UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles));
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0001_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0002_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0003_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0004_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0006_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0101_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0102_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0103_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->supportedROHC_Profiles->profile0x0104_r15=0;
+    UE_EUTRA_Capability->pdcp_Parameters->maxNumberROHC_ContextSessions = &maxNumberROHC_ContextSessions;
+    if (!UE_EUTRA_Capability->phyLayerParameters)
+      UE_EUTRA_Capability->phyLayerParameters = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->phyLayerParameters));
+    UE_EUTRA_Capability->phyLayerParameters->ue_TxAntennaSelectionSupported = 0;
+    UE_EUTRA_Capability->phyLayerParameters->ue_SpecificRefSigsSupported    = 0;
+    if (!UE_EUTRA_Capability->rf_Parameters)
+      UE_EUTRA_Capability->rf_Parameters = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->rf_Parameters));
+    if (!UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA)
+      UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA));
+    UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA->list.count                          = 0;
+    asn1cSeqAdd(&UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA->list,(void *)&Bandlist[0]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA->list,(void *)&Bandlist[1]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA->list,(void *)&Bandlist[2]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA->list,(void *)&Bandlist[3]);
+    if (!UE_EUTRA_Capability->measParameters)
+      UE_EUTRA_Capability->measParameters = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->measParameters));
+    if (!UE_EUTRA_Capability->measParameters->bandListEUTRA)
+      UE_EUTRA_Capability->measParameters->bandListEUTRA = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->measParameters->bandListEUTRA));
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list,(void *)&BandInfoEUTRA[0]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list,(void *)&BandInfoEUTRA[1]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list,(void *)&BandInfoEUTRA[2]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list,(void *)&BandInfoEUTRA[3]);
+    if (!UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[0]->interFreqBandList)
+      UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[0]->interFreqBandList = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[0]->interFreqBandList));
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[0]->interFreqBandList->list,(void *)&InterFreqBandInfo[0][0]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[0]->interFreqBandList->list,(void *)&InterFreqBandInfo[0][1]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[0]->interFreqBandList->list,(void *)&InterFreqBandInfo[0][2]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[0]->interFreqBandList->list,(void *)&InterFreqBandInfo[0][3]);
+    if (!UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[1]->interFreqBandList)
+      UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[1]->interFreqBandList = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[1]->interFreqBandList));
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[1]->interFreqBandList->list,(void *)&InterFreqBandInfo[1][0]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[1]->interFreqBandList->list,(void *)&InterFreqBandInfo[1][1]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[1]->interFreqBandList->list,(void *)&InterFreqBandInfo[1][2]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[1]->interFreqBandList->list,(void *)&InterFreqBandInfo[1][3]);
+    if (!UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[2]->interFreqBandList)
+      UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[2]->interFreqBandList = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[2]->interFreqBandList));
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[2]->interFreqBandList->list,(void *)&InterFreqBandInfo[2][0]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[2]->interFreqBandList->list,(void *)&InterFreqBandInfo[2][1]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[2]->interFreqBandList->list,(void *)&InterFreqBandInfo[2][2]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[2]->interFreqBandList->list,(void *)&InterFreqBandInfo[2][3]);
+    if (!UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[3]->interFreqBandList)
+      UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[3]->interFreqBandList = calloc_or_fail(1, sizeof(*UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[3]->interFreqBandList));
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[3]->interFreqBandList->list,(void *)&InterFreqBandInfo[3][0]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[3]->interFreqBandList->list,(void *)&InterFreqBandInfo[3][1]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[3]->interFreqBandList->list,(void *)&InterFreqBandInfo[3][2]);
+    asn1cSeqAdd(&UE_EUTRA_Capability->measParameters->bandListEUTRA->list.array[3]->interFreqBandList->list,(void *)&InterFreqBandInfo[3][3]);
 
     // UE_EUTRA_Capability->measParameters.bandListEUTRA.list.count                         = 0;  // no measurements on other bands
     // UE_EUTRA_Capability->featureGroupIndicators  // null

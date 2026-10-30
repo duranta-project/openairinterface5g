@@ -484,7 +484,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
 
   // Carrier configuration
   NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
-  NR_FreqBandIndicatorNR_t nr_band = *frequencyInfoDL->frequencyBandList.list.array[0];
+  NR_FreqBandIndicatorNR_t nr_band = *frequencyInfoDL->frequencyBandList->list.array[0];
   frequency_range_t frequency_range = get_freq_range_from_band(nr_band);
   int bw_index = get_supported_band_index(frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing,
                                           frequency_range,
@@ -585,7 +585,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   cfg->prach_config.prach_sequence_length.tl.tag = NFAPI_NR_CONFIG_PRACH_SEQUENCE_LENGTH_TAG;
   cfg->num_tlv++;
 
-  cfg->prach_config.prach_ConfigurationIndex.value = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
+  cfg->prach_config.prach_ConfigurationIndex.value = rach_ConfigCommon->rach_ConfigGeneric->prach_ConfigurationIndex;
   cfg->prach_config.prach_ConfigurationIndex.tl.tag = NFAPI_NR_CONFIG_PRACH_CONFIG_INDEX_TAG;
   cfg->num_tlv++;
 
@@ -593,7 +593,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
     cfg->prach_config.prach_sub_c_spacing.value = *rach_ConfigCommon->msg1_SubcarrierSpacing;
   else {
     // If absent, use SCS as derived from the prach-ConfigurationIndex (for 839)
-    int config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
+    int config_index = rach_ConfigCommon->rach_ConfigGeneric->prach_ConfigurationIndex;
     int frame_type = get_frame_type(nr_band, frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing);
     int format = get_nr_prach_format_from_index(config_index, UL_pointA, frame_type) & 0xff;
     cfg->prach_config.prach_sub_c_spacing.value = get_delta_f_RA_long(format);
@@ -605,7 +605,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   cfg->prach_config.restricted_set_config.tl.tag = NFAPI_NR_CONFIG_RESTRICTED_SET_CONFIG_TAG;
   cfg->num_tlv++;
 
-  switch (rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM) {
+  switch (rach_ConfigCommon->rach_ConfigGeneric->msg1_FDM) {
     case 0:
       cfg->prach_config.num_prach_fd_occasions.value = 1;
       break;
@@ -619,7 +619,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
       cfg->prach_config.num_prach_fd_occasions.value = 8;
       break;
     default:
-      AssertFatal(1 == 0, "msg1 FDM identifier %ld undefined (0,1,2,3) \n", rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM);
+      AssertFatal(1 == 0, "msg1 FDM identifier %ld undefined (0,1,2,3) \n", rach_ConfigCommon->rach_ConfigGeneric->msg1_FDM);
   }
   cfg->prach_config.num_prach_fd_occasions.tl.tag = NFAPI_NR_CONFIG_NUM_PRACH_FD_OCCASIONS_TAG;
   cfg->num_tlv++;
@@ -636,21 +636,21 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
     prach_fd_occasion->prach_root_sequence_index.tl.tag = NFAPI_NR_CONFIG_PRACH_ROOT_SEQUENCE_INDEX_TAG;
     cfg->num_tlv++;
     prach_fd_occasion->k1.value =
-        NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE)
-        + rach_ConfigCommon->rach_ConfigGeneric.msg1_FrequencyStart
+        NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters->locationAndBandwidth, MAX_BWP_SIZE)
+        + rach_ConfigCommon->rach_ConfigGeneric->msg1_FrequencyStart
         + (get_N_RA_RB(cfg->prach_config.prach_sub_c_spacing.value, scs) * i);
     if (IS_SA_MODE(get_softmodem_params())) {
       prach_fd_occasion->k1.value =
-          NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE)
-          + rach_ConfigCommon->rach_ConfigGeneric.msg1_FrequencyStart
+          NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters->locationAndBandwidth, MAX_BWP_SIZE)
+          + rach_ConfigCommon->rach_ConfigGeneric->msg1_FrequencyStart
           + (get_N_RA_RB(cfg->prach_config.prach_sub_c_spacing.value, scs) * i);
     } else {
-      prach_fd_occasion->k1.value = rach_ConfigCommon->rach_ConfigGeneric.msg1_FrequencyStart
+      prach_fd_occasion->k1.value = rach_ConfigCommon->rach_ConfigGeneric->msg1_FrequencyStart
                                     + (get_N_RA_RB(cfg->prach_config.prach_sub_c_spacing.value, scs) * i);
     }
     prach_fd_occasion->k1.tl.tag = NFAPI_NR_CONFIG_K1_TAG;
     cfg->num_tlv++;
-    prach_fd_occasion->prach_zero_corr_conf.value = rach_ConfigCommon->rach_ConfigGeneric.zeroCorrelationZoneConfig;
+    prach_fd_occasion->prach_zero_corr_conf.value = rach_ConfigCommon->rach_ConfigGeneric->zeroCorrelationZoneConfig;
     prach_fd_occasion->prach_zero_corr_conf.tl.tag = NFAPI_NR_CONFIG_PRACH_ZERO_CORR_CONF_TAG;
     cfg->num_tlv++;
     prach_fd_occasion->num_root_sequences.value = compute_nr_root_seq(rach_ConfigCommon, nb_preambles, frame_type, frequency_range);
@@ -667,7 +667,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
 
   // compute and store prach duration in slots from rach_ConfigCommon
   NR_RACH_ConfigGeneric_t *rachConfig =
-      &scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric;
+      scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric;
   NR_COMMON_channels_t *cc = &cell->common_channels;
   const uint32_t pointA = scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA;
   const int prach_fmt = (get_nr_prach_format_from_index(rachConfig->prach_ConfigurationIndex, pointA, cc->frame_type) & 0xff);
@@ -906,14 +906,14 @@ static void initialize_beam_information(NR_beam_info_t *beam_info, int mu, int s
 
 static int config_sched_ctrlSIB1(nr_cell_sched_t *cell)
 {
-  const NR_MIB_t *mib = cell->common_channels.mib->message.choice.mib;
+  const NR_MIB_t *mib = cell->common_channels.mib->message->choice.mib;
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
 
   NR_sched_ctrl_sib1_t *sched_ctrlCommon = calloc_or_fail(1, sizeof(*sched_ctrlCommon));
   cell->sched_ctrlSIB1 = sched_ctrlCommon;
 
   NR_SubcarrierSpacing_t scs = *scc->ssbSubcarrierSpacing;
-  const long band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
+  const long band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList->list.array[0];
   const int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
   int8_t ssb_period = *scc->ssb_periodicityServingCell;
   uint8_t ssb_frame_periodicity = 1;
@@ -948,10 +948,10 @@ static int config_sched_ctrlSIB1(nr_cell_sched_t *cell)
   fill_coresetZero(&sched_ctrlCommon->coreset, &type0_PDCCH_CSS_config);
   cell->cset0_bwp_start = type0_PDCCH_CSS_config.cset_start_rb;
   cell->cset0_bwp_size = type0_PDCCH_CSS_config.num_rbs;
-  int bwp_size = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+  int bwp_size = NRRIV2BW(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
   int num_symb_cset = type0_PDCCH_CSS_config.num_symbols;
   if (type0_PDCCH_CSS_config.type0_pdcch_ss_mux_pattern > 1) {
-    int bwp_start = NRRIV2PRBOFFSET(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.locationAndBandwidth,
+    int bwp_start = NRRIV2PRBOFFSET(scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters->locationAndBandwidth,
                                     MAX_BWP_SIZE);
     // we need to configure a commonControlResourceSet != 0
     // because CSET0 would start from a symbol != 0 and that's unwanted for anything but SIB1
@@ -1054,7 +1054,7 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
   const nr_mac_config_t *rc = &cell->radio_config;
   const NR_DownlinkConfigCommon_t *dlcc = scc->downlinkConfigCommon;
   nr_rrc_config_dl_tda(dlcc->initialDownlinkBWP->pdsch_ConfigCommon->choice.setup->pdsch_TimeDomainAllocationList,
-                       get_frame_type((int)*dlcc->frequencyInfoDL->frequencyBandList.list.array[0], *scc->ssbSubcarrierSpacing),
+                       get_frame_type((int)*dlcc->frequencyInfoDL->frequencyBandList->list.array[0], *scc->ssbSubcarrierSpacing),
                        scc->tdd_UL_DL_ConfigurationCommon,
                        csi_symbols_in_slot(scc),
                        num_symb_cset);
@@ -1092,8 +1092,8 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
     }
     switch (config_sibs[i]) {
       case NR_SIB_2: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type = calloc(1, sizeof(*type));
-        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib2;
+        struct NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *type = calloc(1, sizeof(*type));
+        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2;
         // SIB2 coming from CU need to decode it
         NR_SIB2_t *sib2 = NULL;
         asn_dec_rval_t dec_rval = uper_decode(NULL, &asn_DEF_NR_SIB2, (void **)&sib2, container->buf, container->len, 0, 0);
@@ -1106,8 +1106,8 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
         break;
       }
       case NR_SIB_3: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type = calloc_or_fail(1, sizeof(*type));
-        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib3;
+        struct NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *type = calloc_or_fail(1, sizeof(*type));
+        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib3;
         NR_SIB3_t *sib3 = NULL;
         asn_dec_rval_t dec_rval = uper_decode(NULL, &asn_DEF_NR_SIB3, (void **)&sib3, container->buf, container->len, 0, 0);
         if (dec_rval.code != RC_OK) {
@@ -1121,8 +1121,8 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
         break;
       }
       case NR_SIB_4: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type = calloc_or_fail(1, sizeof(*type));
-        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib4;
+        struct NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *type = calloc_or_fail(1, sizeof(*type));
+        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib4;
         NR_SIB4_t *sib4 = NULL;
         asn_dec_rval_t dec_rval = uper_decode(NULL, &asn_DEF_NR_SIB4, (void **)&sib4, container->buf, container->len, 0, 0);
         if (dec_rval.code != RC_OK) {
@@ -1146,8 +1146,8 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
     config_sibs[sib_idx] = si->SIB_type;
     switch (config_sibs[sib_idx]) {
       case NR_SIB_19: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));
-        type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
+        struct NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *type_du = calloc(1, sizeof(*type_du));
+        type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1700;
         NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);
         type_du->choice.sib19_v1700 = sib19;
         add_sib_to_systeminformation(sysInfov17, type_du);
@@ -1232,8 +1232,8 @@ static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_u
   sib19_PosVel->velocityVZ_r17 = vel->Z;
 
   NR_SystemInformation_IEs_t *sysInfov17 = calloc(1, sizeof(*sysInfov17)); // for othersibs
-  struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));
-  type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
+  struct NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *type_du = calloc(1, sizeof(*type_du));
+  type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1700;
   NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);
   type_du->choice.sib19_v1700 = sib19;
   add_sib_to_systeminformation(sysInfov17, type_du);

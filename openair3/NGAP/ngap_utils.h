@@ -24,7 +24,7 @@
   do {                                                                                                                         \
     IE_TYPE **ptr;                                                                                                             \
     ie = NULL;                                                                                                                 \
-    for (ptr = container->protocolIEs.list.array; ptr < &container->protocolIEs.list.array[container->protocolIEs.list.count]; \
+    for (ptr = container->protocolIEs->list.array; ptr < &container->protocolIEs->list.array[container->protocolIEs->list.count]; \
          ptr++) {                                                                                                              \
       if ((*ptr)->id == IE_ID) {                                                                                               \
         ie = *ptr;                                                                                                             \

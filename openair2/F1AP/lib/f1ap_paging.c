@@ -13,6 +13,7 @@
 #include "f1ap_lib_common.h"
 #include "f1ap_lib_includes.h"
 #include "f1ap_messages_types.h"
+#include "F1AP_ProtocolIE-Container.h"
 
 /** @brief encode to F1AP_PagingDRX_t */
 static F1AP_PagingDRX_t encode_f1_paging_drx(const f1ap_paging_drx_t drx)
@@ -61,30 +62,34 @@ F1AP_F1AP_PDU_t *encode_f1ap_paging(const f1ap_paging_t *msg)
   initMsg->procedureCode = F1AP_ProcedureCode_id_Paging;
   initMsg->criticality = F1AP_Criticality_reject;
   initMsg->value.present = F1AP_InitiatingMessage__value_PR_Paging;
-  F1AP_Paging_t *paging = &initMsg->value.choice.Paging;
+  F1AP_Paging_t *paging = (initMsg->value.choice.Paging = calloc_or_fail(1, sizeof(*initMsg->value.choice.Paging)));
 
   /* UEIdentityIndexValue (Mandatory) 10 bits */
   {
     AssertFatal(msg->ue_identity_index_value <= 1023,
                 "UE Identity Index Value exceeds 10 bits: %d\n",
                 msg->ue_identity_index_value);
-    asn1cSequenceAdd(paging->protocolIEs.list, F1AP_PagingIEs_t, ie);
+    if (!paging->protocolIEs)
+      paging->protocolIEs = calloc_or_fail(1, sizeof(*paging->protocolIEs));
+    asn1cSequenceAdd(paging->protocolIEs->list, F1AP_PagingIEs_t, ie);
     ie->id = F1AP_ProtocolIE_ID_id_UEIdentityIndexValue;
     ie->criticality = F1AP_Criticality_reject;
     ie->value.present = F1AP_PagingIEs__value_PR_UEIdentityIndexValue;
-    F1AP_UEIdentityIndexValue_t *ue_identity_index = &ie->value.choice.UEIdentityIndexValue;
+    F1AP_UEIdentityIndexValue_t *ue_identity_index = (ie->value.choice.UEIdentityIndexValue = calloc_or_fail(1, sizeof(*ie->value.choice.UEIdentityIndexValue)));
     ue_identity_index->present = F1AP_UEIdentityIndexValue_PR_indexLength10;
     UEIDENTITYINDEX_TO_BIT_STRING(msg->ue_identity_index_value, &ue_identity_index->choice.indexLength10);
   }
 
   /* PagingIdentity (Mandatory) */
   {
-    asn1cSequenceAdd(paging->protocolIEs.list, F1AP_PagingIEs_t, ie);
+    if (!paging->protocolIEs)
+      paging->protocolIEs = calloc_or_fail(1, sizeof(*paging->protocolIEs));
+    asn1cSequenceAdd(paging->protocolIEs->list, F1AP_PagingIEs_t, ie);
     ie->id = F1AP_ProtocolIE_ID_id_PagingIdentity;
     ie->criticality = F1AP_Criticality_reject;
     ie->value.present = F1AP_PagingIEs__value_PR_PagingIdentity;
 
-    F1AP_PagingIdentity_t *paging_identity = &ie->value.choice.PagingIdentity;
+    F1AP_PagingIdentity_t *paging_identity = (ie->value.choice.PagingIdentity = calloc_or_fail(1, sizeof(*ie->value.choice.PagingIdentity)));
     const f1ap_paging_identity_t *paging_id = &msg->identity;
 
     if (msg->identity_type == F1AP_PAGING_IDENTITY_CN_UE) {
@@ -107,30 +112,36 @@ F1AP_F1AP_PDU_t *encode_f1ap_paging(const f1ap_paging_t *msg)
     AssertFatal(*msg->priority >= F1AP_PAGING_PRIO_LEVEL1 && *msg->priority <= F1AP_PAGING_PRIO_LEVEL8,
                 "Unknown Paging Priority: %d\n",
                 *msg->priority);
-    asn1cSequenceAdd(paging->protocolIEs.list, F1AP_PagingIEs_t, ie);
+    if (!paging->protocolIEs)
+      paging->protocolIEs = calloc_or_fail(1, sizeof(*paging->protocolIEs));
+    asn1cSequenceAdd(paging->protocolIEs->list, F1AP_PagingIEs_t, ie);
     ie->id = F1AP_ProtocolIE_ID_id_PagingPriority;
     ie->criticality = F1AP_Criticality_ignore;
     ie->value.present = F1AP_PagingIEs__value_PR_PagingPriority;
-    ie->value.choice.PagingPriority = (F1AP_PagingPriority_t)*msg->priority;
+    asn1cCallocOne(ie->value.choice.PagingPriority, (F1AP_PagingPriority_t)*msg->priority);
   }
 
   /* Paging Origin (Optional) */
   if (msg->origin != NULL) {
     AssertFatal(*msg->origin == F1AP_PAGING_ORIGIN_NON_3GPP, "Unknown Paging Origin: %d\n", *msg->origin);
-    asn1cSequenceAdd(paging->protocolIEs.list, F1AP_PagingIEs_t, ie);
+    if (!paging->protocolIEs)
+      paging->protocolIEs = calloc_or_fail(1, sizeof(*paging->protocolIEs));
+    asn1cSequenceAdd(paging->protocolIEs->list, F1AP_PagingIEs_t, ie);
     ie->id = F1AP_ProtocolIE_ID_id_PagingOrigin;
     ie->criticality = F1AP_Criticality_ignore;
     ie->value.present = F1AP_PagingIEs__value_PR_PagingOrigin;
-    ie->value.choice.PagingOrigin = F1AP_PagingOrigin_non_3gpp;
+    asn1cCallocOne(ie->value.choice.PagingOrigin, F1AP_PagingOrigin_non_3gpp);
   }
 
   /* PagingDRX (Optional) */
   if (msg->drx != NULL) {
-    asn1cSequenceAdd(paging->protocolIEs.list, F1AP_PagingIEs_t, ie);
+    if (!paging->protocolIEs)
+      paging->protocolIEs = calloc_or_fail(1, sizeof(*paging->protocolIEs));
+    asn1cSequenceAdd(paging->protocolIEs->list, F1AP_PagingIEs_t, ie);
     ie->id = F1AP_ProtocolIE_ID_id_PagingDRX;
     ie->criticality = F1AP_Criticality_ignore;
     ie->value.present = F1AP_PagingIEs__value_PR_PagingDRX;
-    ie->value.choice.PagingDRX = encode_f1_paging_drx(*msg->drx);
+    asn1cCallocOne(ie->value.choice.PagingDRX, encode_f1_paging_drx(*msg->drx));
   }
 
   /* PagingCell_list (Mandatory) */
@@ -140,19 +151,24 @@ F1AP_F1AP_PDU_t *encode_f1ap_paging(const f1ap_paging_t *msg)
                 msg->n_cells,
                 F1AP_MAX_NB_CELLS);
     DevAssert(msg->cells != NULL);
-    asn1cSequenceAdd(paging->protocolIEs.list, F1AP_PagingIEs_t, ie);
+    if (!paging->protocolIEs)
+      paging->protocolIEs = calloc_or_fail(1, sizeof(*paging->protocolIEs));
+    asn1cSequenceAdd(paging->protocolIEs->list, F1AP_PagingIEs_t, ie);
     ie->id = F1AP_ProtocolIE_ID_id_PagingCell_List;
     ie->criticality = F1AP_Criticality_reject;
     ie->value.present = F1AP_PagingIEs__value_PR_PagingCell_list;
+    ie->value.choice.PagingCell_list = calloc_or_fail(1, sizeof(*ie->value.choice.PagingCell_list));
 
     // Add all cells in the paging cell list
     for (uint16_t cell_idx = 0; cell_idx < msg->n_cells; cell_idx++) {
-      asn1cSequenceAdd(ie->value.choice.PagingCell_list, F1AP_PagingCell_ItemIEs_t, item);
+      asn1cSequenceAdd(ie->value.choice.PagingCell_list->list, F1AP_PagingCell_ItemIEs_t, item);
       item->id = F1AP_ProtocolIE_ID_id_PagingCell_Item;
       item->criticality = F1AP_Criticality_reject;
       item->value.present = F1AP_PagingCell_ItemIEs__value_PR_PagingCell_Item;
       // NRCGI (Mandatory)
-      F1AP_NRCGI_t *nRCGI = &item->value.choice.PagingCell_Item.nRCGI;
+      if (!item->value.choice.PagingCell_Item)
+        item->value.choice.PagingCell_Item = calloc_or_fail(1, sizeof(*item->value.choice.PagingCell_Item));
+      F1AP_NRCGI_t *nRCGI = (item->value.choice.PagingCell_Item->nRCGI = calloc_or_fail(1, sizeof(*item->value.choice.PagingCell_Item->nRCGI)));
       const f1ap_paging_cell_item_t *cell = &msg->cells[cell_idx];
       MCC_MNC_TO_PLMNID(cell->plmn.mcc, cell->plmn.mnc, cell->plmn.mnc_digit_length, &nRCGI->pLMN_Identity);
       NR_CELL_ID_TO_BIT_STRING(cell->nr_cellid, &nRCGI->nRCellIdentity);
@@ -175,38 +191,38 @@ bool decode_f1ap_paging(f1ap_paging_t *out, const F1AP_F1AP_PDU_t *pdu)
   _EQ_CHECK_INT(pdu->choice.initiatingMessage->value.present, F1AP_InitiatingMessage__value_PR_Paging);
 
   /* Check presence of mandatory IEs */
-  const F1AP_Paging_t *in = &pdu->choice.initiatingMessage->value.choice.Paging;
+  const F1AP_Paging_t *in = pdu->choice.initiatingMessage->value.choice.Paging;
   F1AP_PagingIEs_t *ie;
-  F1AP_LIB_FIND_IE(F1AP_PagingIEs_t, ie, &in->protocolIEs.list, F1AP_ProtocolIE_ID_id_UEIdentityIndexValue, true);
-  F1AP_LIB_FIND_IE(F1AP_PagingIEs_t, ie, &in->protocolIEs.list, F1AP_ProtocolIE_ID_id_PagingIdentity, true);
-  F1AP_LIB_FIND_IE(F1AP_PagingIEs_t, ie, &in->protocolIEs.list, F1AP_ProtocolIE_ID_id_PagingCell_List, true);
+  F1AP_LIB_FIND_IE(F1AP_PagingIEs_t, ie, &in->protocolIEs->list, F1AP_ProtocolIE_ID_id_UEIdentityIndexValue, true);
+  F1AP_LIB_FIND_IE(F1AP_PagingIEs_t, ie, &in->protocolIEs->list, F1AP_ProtocolIE_ID_id_PagingIdentity, true);
+  F1AP_LIB_FIND_IE(F1AP_PagingIEs_t, ie, &in->protocolIEs->list, F1AP_ProtocolIE_ID_id_PagingCell_List, true);
 
   /* Loop over all IEs */
-  for (int i = 0; i < in->protocolIEs.list.count; i++) {
-    DevAssert(in->protocolIEs.list.array[i] != NULL);
-    ie = in->protocolIEs.list.array[i];
+  for (int i = 0; i < in->protocolIEs->list.count; i++) {
+    DevAssert(in->protocolIEs->list.array[i] != NULL);
+    ie = in->protocolIEs->list.array[i];
     switch (ie->id) {
       case F1AP_ProtocolIE_ID_id_UEIdentityIndexValue:
         // (M) UE Identity Index Value
         _EQ_CHECK_INT(ie->value.present, F1AP_PagingIEs__value_PR_UEIdentityIndexValue);
-        out->ue_identity_index_value = BIT_STRING_to_uint32(&ie->value.choice.UEIdentityIndexValue.choice.indexLength10);
+        out->ue_identity_index_value = BIT_STRING_to_uint32(&ie->value.choice.UEIdentityIndexValue->choice.indexLength10);
         break;
 
       case F1AP_ProtocolIE_ID_id_PagingIdentity:
         // (M) Paging Identity
         _EQ_CHECK_INT(ie->value.present, F1AP_PagingIEs__value_PR_PagingIdentity);
-        if (ie->value.choice.PagingIdentity.present == F1AP_PagingIdentity_PR_cNUEPagingIdentity) {
+        if (ie->value.choice.PagingIdentity->present == F1AP_PagingIdentity_PR_cNUEPagingIdentity) {
           // CN UE Paging Identity (5G-S-TMSI)
           out->identity_type = F1AP_PAGING_IDENTITY_CN_UE;
-          BIT_STRING_t *fiveg_tmsi = &ie->value.choice.PagingIdentity.choice.cNUEPagingIdentity->choice.fiveG_S_TMSI;
+          BIT_STRING_t *fiveg_tmsi = &ie->value.choice.PagingIdentity->choice.cNUEPagingIdentity->choice.fiveG_S_TMSI;
           out->identity.cn_ue_paging_identity = BIT_STRING_to_uint64(fiveg_tmsi);
-        } else if (ie->value.choice.PagingIdentity.present == F1AP_PagingIdentity_PR_rANUEPagingIdentity) {
+        } else if (ie->value.choice.PagingIdentity->present == F1AP_PagingIdentity_PR_rANUEPagingIdentity) {
           // RAN UE Paging Identity (I-RNTI)
           out->identity_type = F1AP_PAGING_IDENTITY_RAN_UE;
-          BIT_STRING_t *irnti = &ie->value.choice.PagingIdentity.choice.rANUEPagingIdentity->iRNTI;
+          BIT_STRING_t *irnti = &ie->value.choice.PagingIdentity->choice.rANUEPagingIdentity->iRNTI;
           out->identity.ran_ue_paging_identity = BIT_STRING_to_uint64(irnti);
         } else {
-          PRINT_ERROR("Unknown PagingIdentity type: %d\n", ie->value.choice.PagingIdentity.present);
+          PRINT_ERROR("Unknown PagingIdentity type: %d\n", ie->value.choice.PagingIdentity->present);
           return false;
         }
         break;
@@ -215,26 +231,26 @@ bool decode_f1ap_paging(f1ap_paging_t *out, const F1AP_F1AP_PDU_t *pdu)
         // (O) Paging DRX
         _EQ_CHECK_INT(ie->value.present, F1AP_PagingIEs__value_PR_PagingDRX);
         out->drx = malloc_or_fail(sizeof(*out->drx));
-        *out->drx = decode_f1_paging_drx(ie->value.choice.PagingDRX);
+        *out->drx = decode_f1_paging_drx(*ie->value.choice.PagingDRX);
         break;
 
       case F1AP_ProtocolIE_ID_id_PagingPriority:
         // (O) Paging Priority
         _EQ_CHECK_INT(ie->value.present, F1AP_PagingIEs__value_PR_PagingPriority);
-        AssertFatal(ie->value.choice.PagingPriority >= F1AP_PagingPriority_priolevel1
-                        && ie->value.choice.PagingPriority <= F1AP_PagingPriority_priolevel8,
+        AssertFatal(*ie->value.choice.PagingPriority >= F1AP_PagingPriority_priolevel1
+                        && *ie->value.choice.PagingPriority <= F1AP_PagingPriority_priolevel8,
                     "Unknown Paging Priority: %ld\n",
-                    ie->value.choice.PagingPriority);
+                    *ie->value.choice.PagingPriority);
         out->priority = malloc_or_fail(sizeof(*out->priority));
-        *out->priority = (f1ap_paging_priority_t)ie->value.choice.PagingPriority;
+        *out->priority = (f1ap_paging_priority_t)*ie->value.choice.PagingPriority;
         break;
 
       case F1AP_ProtocolIE_ID_id_PagingOrigin:
         // (O) Paging Origin
         _EQ_CHECK_INT(ie->value.present, F1AP_PagingIEs__value_PR_PagingOrigin);
-        AssertFatal(ie->value.choice.PagingOrigin == F1AP_PagingOrigin_non_3gpp,
+        AssertFatal(*ie->value.choice.PagingOrigin == F1AP_PagingOrigin_non_3gpp,
                     "Unknown Paging Origin: %ld\n",
-                    ie->value.choice.PagingOrigin);
+                    *ie->value.choice.PagingOrigin);
         out->origin = malloc_or_fail(sizeof(*out->origin));
         *out->origin = F1AP_PAGING_ORIGIN_NON_3GPP;
         break;
@@ -242,14 +258,14 @@ bool decode_f1ap_paging(f1ap_paging_t *out, const F1AP_F1AP_PDU_t *pdu)
       case F1AP_ProtocolIE_ID_id_PagingCell_List:
         // (M) Paging Cell List (max 512 cells)
         _EQ_CHECK_INT(ie->value.present, F1AP_PagingIEs__value_PR_PagingCell_list);
-        out->n_cells = ie->value.choice.PagingCell_list.list.count;
+        out->n_cells = ie->value.choice.PagingCell_list->list.count;
         AssertError(out->n_cells > 0, return false, "at least 1 cell must be present");
         AssertError(out->n_cells <= F1AP_MAX_NB_CELLS, return false, "too many cells");
         out->cells = calloc_or_fail(out->n_cells, sizeof(*out->cells));
         for (int j = 0; j < out->n_cells; j++) {
-          F1AP_PagingCell_ItemIEs_t *cell_item = (F1AP_PagingCell_ItemIEs_t *)ie->value.choice.PagingCell_list.list.array[j];
+          F1AP_PagingCell_ItemIEs_t *cell_item = (F1AP_PagingCell_ItemIEs_t *)ie->value.choice.PagingCell_list->list.array[j];
           DevAssert(cell_item);
-          F1AP_NRCGI_t *nRCGI = &cell_item->value.choice.PagingCell_Item.nRCGI;
+          F1AP_NRCGI_t *nRCGI = cell_item->value.choice.PagingCell_Item->nRCGI;
           f1ap_paging_cell_item_t *cell = &out->cells[j];
           PLMNID_TO_MCC_MNC(&nRCGI->pLMN_Identity, cell->plmn.mcc, cell->plmn.mnc, cell->plmn.mnc_digit_length);
           BIT_STRING_TO_NR_CELL_IDENTITY(&nRCGI->nRCellIdentity, cell->nr_cellid);

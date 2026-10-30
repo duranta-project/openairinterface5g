@@ -33,6 +33,7 @@
 
 #include "common/utils/LOG/log.h"
 #include "f1ap_default_values.h"
+#include "F1AP_ProtocolIE-Container.h"
 #define F1AP_ERROR(x, args...) LOG_E(F1AP, x, ##args)
 #define F1AP_WARN(x, args...)  LOG_W(F1AP, x, ##args)
 #define F1AP_TRAF(x, args...)  LOG_I(F1AP, x, ##args)
@@ -44,8 +45,8 @@
   do {\
     IE_TYPE **ptr; \
     ie = NULL; \
-    for (ptr = container->protocolIEs.list.array; \
-         ptr < &container->protocolIEs.list.array[container->protocolIEs.list.count]; \
+    for (ptr = container->protocolIEs->list.array; \
+         ptr < &container->protocolIEs->list.array[container->protocolIEs->list.count]; \
          ptr++) { \
       if((*ptr)->id == IE_ID) { \
         ie = *ptr; \

@@ -3001,7 +3001,7 @@ ue_scheduler(const module_id_t module_idP,
   if (UE_mac_inst[module_idP].RA_contention_resolution_timer_active == 1) {
     if (UE_mac_inst[module_idP].radioResourceConfigCommon) {
       rach_ConfigCommon =
-        &UE_mac_inst[module_idP].
+        UE_mac_inst[module_idP].
         radioResourceConfigCommon->rach_ConfigCommon;
     } else {
       VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME

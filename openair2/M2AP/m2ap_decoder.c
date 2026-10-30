@@ -17,7 +17,7 @@ static int m2ap_decode_initiating_message(M2AP_M2AP_PDU_t *pdu)
 {
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.initiatingMessage.procedureCode) {
+  switch(pdu->choice.initiatingMessage->procedureCode) {
     case M2AP_ProcedureCode_id_sessionStart:
       //asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_M2AP_M2AP_PDU, pdu);
       M2AP_INFO("m2ap__decode_initiating_message!\n");
@@ -54,9 +54,9 @@ static int m2ap_decode_initiating_message(M2AP_M2AP_PDU_t *pdu)
 //
     default:
       M2AP_ERROR("Unknown procedure ID (%d) for initiating message\n",
-                  (int)pdu->choice.initiatingMessage.procedureCode);
+                  (int)pdu->choice.initiatingMessage->procedureCode);
       AssertFatal( 0, "Unknown procedure ID (%d) for initiating message\n",
-                   (int)pdu->choice.initiatingMessage.procedureCode);
+                   (int)pdu->choice.initiatingMessage->procedureCode);
       return -1;
   }
 
@@ -67,7 +67,7 @@ static int m2ap_decode_successful_outcome(M2AP_M2AP_PDU_t *pdu)
 {
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.successfulOutcome.procedureCode) {
+  switch(pdu->choice.successfulOutcome->procedureCode) {
     case M2AP_ProcedureCode_id_sessionStart:
       //asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_M2AP_M2AP_PDU, pdu);
       M2AP_INFO("m2ap__decode_successfuloutcome_message!\n");
@@ -93,7 +93,7 @@ static int m2ap_decode_successful_outcome(M2AP_M2AP_PDU_t *pdu)
 //
     default:
       M2AP_ERROR("Unknown procedure ID (%d) for successfull outcome message\n",
-                  (int)pdu->choice.successfulOutcome.procedureCode);
+                  (int)pdu->choice.successfulOutcome->procedureCode);
       return -1;
   }
 
@@ -104,7 +104,7 @@ static int m2ap_decode_unsuccessful_outcome(M2AP_M2AP_PDU_t *pdu)
 {
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.unsuccessfulOutcome.procedureCode) {
+  switch(pdu->choice.unsuccessfulOutcome->procedureCode) {
     case M2AP_ProcedureCode_id_sessionStart:
       //asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_M2AP_M2AP_PDU, pdu);
       M2AP_INFO("m2ap__decode_initiating_message!\n");
@@ -125,7 +125,7 @@ static int m2ap_decode_unsuccessful_outcome(M2AP_M2AP_PDU_t *pdu)
 
     default:
        M2AP_ERROR("Unknown procedure ID (%d) for unsuccessfull outcome message\n",
-                  (int)pdu->choice.unsuccessfulOutcome.procedureCode);
+                  (int)pdu->choice.unsuccessfulOutcome->procedureCode);
       return -1;
   }
 

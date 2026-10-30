@@ -53,7 +53,7 @@ schedule_ue_spec_phy_test(
   COMMON_channels_t              *cc       = eNB->common_channels;
   nfapi_dl_config_request_body_t *dl_req;
   nfapi_dl_config_request_pdu_t  *dl_config_pdu;
-  N_RB_DL         = to_prb(cc->mib->message.dl_Bandwidth);
+  N_RB_DL         = to_prb(cc->mib->message->dl_Bandwidth);
 
   for (CC_id=0; CC_id<MAX_NUM_CCs; CC_id++) {
     LOG_D(MAC, "doing schedule_ue_spec for CC_id %d\n",CC_id);
@@ -181,7 +181,7 @@ void schedule_ulsch_phy_test(module_id_t module_idP,frame_t frameP,sub_frame_t s
   nfapi_hi_dci0_request_pdu_t    *hi_dci0_pdu;
   //nfapi_ul_config_request_pdu_t  *ul_config_pdu = &ul_req->ul_config_pdu_list[0];;
   nfapi_ul_config_request_body_t *ul_req       = &mac->UL_req[CC_id].ul_config_request_body;
-  N_RB_UL         = to_prb(cc->mib->message.dl_Bandwidth);
+  N_RB_UL         = to_prb(cc->mib->message->dl_Bandwidth);
 
   switch(N_RB_UL) {
     case 100:

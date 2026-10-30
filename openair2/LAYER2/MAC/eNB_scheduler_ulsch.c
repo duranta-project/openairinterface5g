@@ -267,9 +267,9 @@ rx_sdu(const module_id_t enb_mod_idP,
       harq_pid = 0;
     }
 
-    AssertFatal(mac->common_channels[CC_idP].radioResourceConfigCommon->rach_ConfigCommon.maxHARQ_Msg3Tx > 1,
+    AssertFatal(mac->common_channels[CC_idP].radioResourceConfigCommon->rach_ConfigCommon->maxHARQ_Msg3Tx > 1,
                 "maxHARQ %d should be greater than 1\n",
-                (int) mac->common_channels[CC_idP].radioResourceConfigCommon->rach_ConfigCommon.maxHARQ_Msg3Tx);
+                (int) mac->common_channels[CC_idP].radioResourceConfigCommon->rach_ConfigCommon->maxHARQ_Msg3Tx);
     LOG_D(MAC, "[eNB %d][PUSCH %d] CC_id %d [RAPROC Msg3] Received ULSCH sdu (%s) round %d from PHY (rnti %x, RA_id %d) ul_cqi %d, timing advance %d\n",
           enb_mod_idP,
           harq_pid,
@@ -304,9 +304,9 @@ rx_sdu(const module_id_t enb_mod_idP,
             CC_idP,
             RA_id,
             ra->msg3_round,
-            (int) mac->common_channels[CC_idP].radioResourceConfigCommon->rach_ConfigCommon.maxHARQ_Msg3Tx);
+            (int) mac->common_channels[CC_idP].radioResourceConfigCommon->rach_ConfigCommon->maxHARQ_Msg3Tx);
 
-      if (ra->msg3_round >= mac->common_channels[CC_idP].radioResourceConfigCommon->rach_ConfigCommon.maxHARQ_Msg3Tx - 1) {
+      if (ra->msg3_round >= mac->common_channels[CC_idP].radioResourceConfigCommon->rach_ConfigCommon->maxHARQ_Msg3Tx - 1) {
 
         // Release RNTI of LTE PHY when RA does not succeed
 	put_UE_in_freelist(enb_mod_idP, current_rnti, true);
@@ -1297,13 +1297,13 @@ schedule_ulsch(module_id_t module_idP,
   for (int CC_id = 0; CC_id < RC.nb_mac_CC[module_idP]; CC_id++, cc++) {
     
     if (is_prach_subframe0(cc->tdd_Config!=NULL ? cc->tdd_Config->subframeAssignment : 0,cc->tdd_Config!=NULL ? 1 : 0,
-                           cc->radioResourceConfigCommon->prach_Config.prach_ConfigInfo.prach_ConfigIndex, 
+                           cc->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_ConfigIndex, 
                            sched_frame, sched_subframe)) {
       int start_rb = get_prach_prb_offset(cc->tdd_Config!=NULL ? 1 : 0,
                                           cc->tdd_Config!=NULL ? cc->tdd_Config->subframeAssignment : 0,
                                           to_prb(cc->ul_Bandwidth),
-                                          cc->radioResourceConfigCommon->prach_Config.prach_ConfigInfo.prach_ConfigIndex,
-                                          cc->radioResourceConfigCommon->prach_Config.prach_ConfigInfo.prach_FreqOffset,
+                                          cc->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_ConfigIndex,
+                                          cc->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_FreqOffset,
                                           0, // tdd_mapindex
                                           sched_frame); // Nf
       for (int i = 0; i < 6; i++)

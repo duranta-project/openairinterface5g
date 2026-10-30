@@ -1802,8 +1802,8 @@ uint8_t compute_nr_root_seq(NR_RACH_ConfigCommon_t *rach_config,
                             uint8_t unpaired,
 			    frequency_range_t frequency_range) {
 
-  uint8_t config_index = rach_config->rach_ConfigGeneric.prach_ConfigurationIndex;
-  uint8_t ncs_index = rach_config->rach_ConfigGeneric.zeroCorrelationZoneConfig;
+  uint8_t config_index = rach_config->rach_ConfigGeneric->prach_ConfigurationIndex;
+  uint8_t ncs_index = rach_config->rach_ConfigGeneric->zeroCorrelationZoneConfig;
   uint16_t format0 = get_format0(config_index, unpaired, frequency_range);
   uint16_t NCS = get_NCS(ncs_index, format0, rach_config->restrictedSetConfig);
   uint16_t L_ra = (rach_config->prach_RootSequenceIndex.present==NR_RACH_ConfigCommon__prach_RootSequenceIndex_PR_l139) ? 139 : 839;
@@ -3829,8 +3829,8 @@ void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PD
 
   uint8_t ssb_slot = ssb_start_symbol / 14;
   uint32_t is_condition_A = (ssb_subcarrier_offset == 0);   //  38.213 ch.13
-  uint32_t index_4msb = (mib->pdcch_ConfigSIB1.controlResourceSetZero);
-  uint32_t index_4lsb = (mib->pdcch_ConfigSIB1.searchSpaceZero);
+  uint32_t index_4msb = (mib->pdcch_ConfigSIB1->controlResourceSetZero);
+  uint32_t index_4lsb = (mib->pdcch_ConfigSIB1->searchSpaceZero);
 
   type0_PDCCH_CSS_config->num_rbs = -1;
   type0_PDCCH_CSS_config->num_symbols = -1;
@@ -5174,10 +5174,10 @@ void get_config_index_and_ssb_ro(const NR_MsgA_ConfigCommon_r16_t *msgacc,
                                  ssb_ro_preambles_t *ssb_ro)
 {
   if (msgacc) {
-    *config_index = *msgacc->rach_ConfigCommonTwoStepRA_r16.rach_ConfigGenericTwoStepRA_r16.msgA_PRACH_ConfigurationIndex_r16;
-    *ssb_ro = get_ssb_ro_preambles_2step(msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
+    *config_index = *msgacc->rach_ConfigCommonTwoStepRA_r16->rach_ConfigGenericTwoStepRA_r16->msgA_PRACH_ConfigurationIndex_r16;
+    *ssb_ro = get_ssb_ro_preambles_2step(msgacc->rach_ConfigCommonTwoStepRA_r16->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
   } else {
-    *config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
+    *config_index = rach_ConfigCommon->rach_ConfigGeneric->prach_ConfigurationIndex;
     *ssb_ro = get_ssb_ro_preambles_4step(rach_ConfigCommon->ssb_perRACH_OccasionAndCB_PreamblesPerSSB);
   }
 }
@@ -5225,9 +5225,9 @@ int nr_get_prach_or_ul_mu(const NR_MsgA_ConfigCommon_r16_t *msgacc,
   int mu;
 
   // if 2-Step configuration file exists
-  if (msgacc && msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SubcarrierSpacing_r16) {
+  if (msgacc && msgacc->rach_ConfigCommonTwoStepRA_r16->msgA_SubcarrierSpacing_r16) {
     // Choose Subcarrier Spacing of configuration file of 2-Step
-    mu = *msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SubcarrierSpacing_r16;
+    mu = *msgacc->rach_ConfigCommonTwoStepRA_r16->msgA_SubcarrierSpacing_r16;
   } else if (rach_ConfigCommon->msg1_SubcarrierSpacing) {
     // Choose Subcarrier Spacing of configuration file of 4-Step
     mu = *rach_ConfigCommon->msg1_SubcarrierSpacing;

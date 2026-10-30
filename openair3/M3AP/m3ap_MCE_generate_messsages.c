@@ -41,11 +41,12 @@ int m2ap_eNB_generate_m2_setup_request(
   /* 0. pdu Type */
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = M2AP_M2AP_PDU_PR_initiatingMessage;
-  //pdu.choice.initiatingMessage = (M2AP_InitiatingMessage_t *)calloc(1, sizeof(M2AP_InitiatingMessage_t));
-  pdu.choice.initiatingMessage.procedureCode = M2AP_ProcedureCode_id_m2Setup;
-  pdu.choice.initiatingMessage.criticality   = M2AP_Criticality_reject;
-  pdu.choice.initiatingMessage.value.present = M2AP_InitiatingMessage__value_PR_M2SetupRequest;
-  out = &pdu.choice.initiatingMessage.value.choice.M2SetupRequest;
+  pdu.choice.initiatingMessage = calloc(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = M2AP_ProcedureCode_id_m2Setup;
+  pdu.choice.initiatingMessage->criticality   = M2AP_Criticality_reject;
+  pdu.choice.initiatingMessage->value.present = M2AP_InitiatingMessage__value_PR_M2SetupRequest;
+  out = &pdu.choice.initiatingMessage->value.choice.M2SetupRequest;
+  out->protocolIEs = calloc(1, sizeof(*out->protocolIEs));
 
   /* mandatory */
   /* c1. GlobalENB_ID (integer value) */
@@ -56,15 +57,16 @@ int m2ap_eNB_generate_m2_setup_request(
   //ie->value.choice.GlobalENB_ID.eNB_ID = 1;//M2AP_get_next_transaction_identifier(enb_mod_idP, du_mod_idP);
   MCC_MNC_TO_PLMNID(instance_p->mcc, instance_p->mnc, instance_p->mnc_digit_length,
                   &ie->value.choice.GlobalENB_ID.pLMN_Identity);
-  ie->value.choice.GlobalENB_ID.eNB_ID.present = M2AP_ENB_ID_PR_macro_eNB_ID;
+  ie->value.choice.GlobalENB_ID.eNB_ID = calloc(1, sizeof(*ie->value.choice.GlobalENB_ID.eNB_ID));
+  ie->value.choice.GlobalENB_ID.eNB_ID->present = M2AP_ENB_ID_PR_macro_eNB_ID;
   MACRO_ENB_ID_TO_BIT_STRING(instance_p->eNB_id,
-                           &ie->value.choice.GlobalENB_ID.eNB_ID.choice.macro_eNB_ID);
+                           &ie->value.choice.GlobalENB_ID.eNB_ID->choice.macro_eNB_ID);
   M2AP_INFO("%d -> %02x%02x%02x\n", instance_p->eNB_id,
-          ie->value.choice.GlobalENB_ID.eNB_ID.choice.macro_eNB_ID.buf[0],
-          ie->value.choice.GlobalENB_ID.eNB_ID.choice.macro_eNB_ID.buf[1],
-          ie->value.choice.GlobalENB_ID.eNB_ID.choice.macro_eNB_ID.buf[2]);
+          ie->value.choice.GlobalENB_ID.eNB_ID->choice.macro_eNB_ID.buf[0],
+          ie->value.choice.GlobalENB_ID.eNB_ID->choice.macro_eNB_ID.buf[1],
+          ie->value.choice.GlobalENB_ID.eNB_ID->choice.macro_eNB_ID.buf[2]);
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   ///* mandatory */
   ///* c2. GNB_eNB_ID (integrer value) */
@@ -84,7 +86,7 @@ int m2ap_eNB_generate_m2_setup_request(
     ie->value.present             = M2AP_M2SetupRequest_Ies__value_PR_ENBname;
     //OCTET_STRING_fromBuf(&ie->value.choice.ENB_Name, m2ap_eNB_data_p->eNB_name,
                          //strlen(m2ap_eNB_data_p->eNB_name));
-    asn1cSeqAdd(&out->protocolIEs.list, ie);
+    asn1cSeqAdd(&out->protocolIEs->list, ie);
   }
 
   /* mandatory */
@@ -113,12 +115,12 @@ int m2ap_eNB_generate_m2_setup_request(
 	mbms_configuration_data_item = &mbms_configuration_data_list_item_ies->value.choice.ENB_MBMS_Configuration_data_Item;
 	{
 		MCC_MNC_TO_PLMNID(instance_p->mcc, instance_p->mnc, instance_p->mnc_digit_length,
-                  &mbms_configuration_data_item->eCGI.pLMN_Identity);
+                  &mbms_configuration_data_item->eCGI->pLMN_Identity);
         	MACRO_ENB_ID_TO_CELL_IDENTITY(instance_p->eNB_id,0,
-                                   &mbms_configuration_data_item->eCGI.eUTRANcellIdentifier);
+                                   &mbms_configuration_data_item->eCGI->eUTRANcellIdentifier);
 		M2AP_MBMS_Service_Area_t * mbms_service_area;
 		mbms_service_area = (M2AP_MBMS_Service_Area_t*)calloc(1,sizeof(M2AP_MBMS_Service_Area_t));
-		asn1cSeqAdd(&mbms_configuration_data_item->mbmsServiceAreaList.list,mbms_service_area);
+		asn1cSeqAdd(&mbms_configuration_data_item->mbmsServiceAreaList->list,mbms_service_area);
 
 
 	}
@@ -137,7 +139,7 @@ int m2ap_eNB_generate_m2_setup_request(
 	asn1cSeqAdd(&ie->value.choice.ENB_MBMS_Configuration_data_List.list,mbms_configuration_data_list_item_ies);
 
  }
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   LOG_W(M2AP,"m2ap_eNB_data_p->assoc_id %d\n",m2ap_eNB_data_p->assoc_id);
   /* encode */

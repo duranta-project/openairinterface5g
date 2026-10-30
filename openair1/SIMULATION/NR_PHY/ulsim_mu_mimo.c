@@ -948,8 +948,8 @@ int main(int argc, char *argv[])
           nfapi_nr_pusch_pdu_t *pusch_pdu = &pdu_element0->pusch_pdu;
           memset(pusch_pdu, 0, sizeof(nfapi_nr_pusch_pdu_t));
 
-          int abwp_size = NRRIV2BW(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
-          int abwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
+          int abwp_size = NRRIV2BW(ubwp->bwp_Common->genericParameters->locationAndBandwidth, 275);
+          int abwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters->locationAndBandwidth, 275);
           pusch_pdu->bwp_start = abwp_start;
           pusch_pdu->bwp_size = abwp_size;
           pusch_pdu->pusch_data.tb_size = TBS >> 3;

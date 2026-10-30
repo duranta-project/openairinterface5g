@@ -90,7 +90,7 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_proc
   for (int i_ssb = 0; i_ssb < num_ssb; i_ssb++) {
     if (IS_BIT_SET(ssbBitmap, (63 - i_ssb))) {
       NR_SubcarrierSpacing_t scs = *scc->ssbSubcarrierSpacing;
-      const long band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
+      const long band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList->list.array[0];
       uint16_t ssb_start_symbol = get_ssb_start_symbol(band, scs, i_ssb);
       // select beam for PDSCH in current slot based on SSB beam
       if ((ssb_start_symbol / NR_SYMBOLS_PER_SLOT) == (slot % cell->frame_structure.numb_slots_period)) {

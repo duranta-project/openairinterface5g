@@ -127,7 +127,7 @@ void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id)
     case NR_MAC_RRC_CONFIG_MIB:
       nr_rrc_mac_config_req_mib(instance_id,
                                 0,
-                                msg->payload.config_mib.bcch->message.choice.mib,
+                                msg->payload.config_mib.bcch->message->choice.mib,
                                 msg->payload.config_mib.access_barred);
       ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, msg->payload.config_mib.bcch);
       break;

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <NRPPA_MeasurementRequest.h>
 #include <NRPPA_ProtocolIE-Field.h>
+#include <NRPPA_ProtocolIE-Container.h>
 #include <asn_SEQUENCE_OF.h>
 /*
  * This is a custom function which writes the
@@ -33,8 +34,9 @@ int main(int ac, char **av)
     exit(71); /* better, EX_OSERR */
   }
 
+  NRPPA_MeasurementRequest->protocolIEs = calloc(1, sizeof(*NRPPA_MeasurementRequest->protocolIEs));
   NRPPA_MeasurementRequest_IEs_t xyz;
-  ASN_SEQUENCE_ADD(&NRPPA_MeasurementRequest->protocolIEs.list, &xyz);
+  ASN_SEQUENCE_ADD(&NRPPA_MeasurementRequest->protocolIEs->list, &xyz);
 
   /* MeasurementRequest ::= SEQUENCE {
 protocolIEs  ProtocolIE-Container {{MeasurementRequest-IEs}},

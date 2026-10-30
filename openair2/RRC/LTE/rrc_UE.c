@@ -281,68 +281,90 @@ static void init_SI_UE(  protocol_ctxt_t const *ctxt_pP, const uint8_t eNB_index
 void init_SL_preconfig(UE_RRC_INST *UE, const uint8_t eNB_index ) {
   LOG_I(RRC,"Initializing Sidelink Pre-configuration for UE\n");
   UE->SL_Preconfiguration[eNB_index] = malloc16_clear( sizeof(struct LTE_SL_Preconfiguration_r12) );
-  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12.rohc_Profiles_r12.profile0x0001_r12       = true;
-  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12.carrierFreq_r12                           = 3350;
-  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12.maxTxPower_r12                            = 0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12.additionalSpectrumEmission_r12            = 0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12.sl_bandwidth_r12                          = LTE_SL_PreconfigGeneral_r12__sl_bandwidth_r12_n50;
-  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12.tdd_ConfigSL_r12.subframeAssignmentSL_r12 = LTE_TDD_ConfigSL_r12__subframeAssignmentSL_r12_none;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.syncCP_Len_r12            = LTE_SL_CP_Len_r12_normal;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.syncOffsetIndicator1_r12  = 0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.syncOffsetIndicator2_r12  = 0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.syncTxParameters_r12      = 0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.syncTxThreshOoC_r12       = 0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.filterCoefficient_r12     = LTE_FilterCoefficient_fc0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.syncRefMinHyst_r12        = LTE_SL_PreconfigSync_r12__syncRefMinHyst_r12_dB0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.syncRefDiffHyst_r12       = LTE_SL_PreconfigSync_r12__syncRefDiffHyst_r12_dB0;
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.ext1                      = malloc16_clear(sizeof(struct LTE_SL_PreconfigSync_r12__ext1));
-  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12.ext1->syncTxPeriodic_r13  = NULL;
+  if (!UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12)
+    UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12 = calloc_or_fail(1, sizeof(*UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12));
+  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->rohc_Profiles_r12.profile0x0001_r12       = true;
+  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->carrierFreq_r12                           = 3350;
+  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->maxTxPower_r12                            = 0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->additionalSpectrumEmission_r12            = 0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->sl_bandwidth_r12                          = LTE_SL_PreconfigGeneral_r12__sl_bandwidth_r12_n50;
+  if (!UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->tdd_ConfigSL_r12)
+    UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->tdd_ConfigSL_r12 = calloc_or_fail(1, sizeof(*UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->tdd_ConfigSL_r12));
+  UE->SL_Preconfiguration[eNB_index]->preconfigGeneral_r12->tdd_ConfigSL_r12->subframeAssignmentSL_r12 = LTE_TDD_ConfigSL_r12__subframeAssignmentSL_r12_none;
+  if (!UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12)
+    UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12 = calloc_or_fail(1, sizeof(*UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12));
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->syncCP_Len_r12            = LTE_SL_CP_Len_r12_normal;
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->syncOffsetIndicator1_r12  = 0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->syncOffsetIndicator2_r12  = 0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->syncTxParameters_r12      = 0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->syncTxThreshOoC_r12       = 0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->filterCoefficient_r12     = LTE_FilterCoefficient_fc0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->syncRefMinHyst_r12        = LTE_SL_PreconfigSync_r12__syncRefMinHyst_r12_dB0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->syncRefDiffHyst_r12       = LTE_SL_PreconfigSync_r12__syncRefDiffHyst_r12_dB0;
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->ext1                      = malloc16_clear(sizeof(struct LTE_SL_PreconfigSync_r12__ext1));
+  UE->SL_Preconfiguration[eNB_index]->preconfigSync_r12->ext1->syncTxPeriodic_r13  = NULL;
   struct LTE_SL_PreconfigCommPool_r12 *preconfigpool = malloc16_clear(sizeof(struct LTE_SL_PreconfigCommPool_r12));
   preconfigpool->sc_CP_Len_r12                                                    = LTE_SL_CP_Len_r12_normal;
   preconfigpool->sc_Period_r12                                                    = LTE_SL_PeriodComm_r12_sf40;
   // 20 PRBs for SL communications
-  preconfigpool->sc_TF_ResourceConfig_r12.prb_Num_r12                             = 20;
-  preconfigpool->sc_TF_ResourceConfig_r12.prb_Start_r12                           = 5;
-  preconfigpool->sc_TF_ResourceConfig_r12.prb_End_r12                             = 44;
+  if (!preconfigpool->sc_TF_ResourceConfig_r12)
+    preconfigpool->sc_TF_ResourceConfig_r12 = calloc_or_fail(1, sizeof(*preconfigpool->sc_TF_ResourceConfig_r12));
+  preconfigpool->sc_TF_ResourceConfig_r12->prb_Num_r12                             = 20;
+  preconfigpool->sc_TF_ResourceConfig_r12->prb_Start_r12                           = 5;
+  preconfigpool->sc_TF_ResourceConfig_r12->prb_End_r12                             = 44;
   // Offset set to 0 subframes
-  preconfigpool->sc_TF_ResourceConfig_r12.offsetIndicator_r12.present             = LTE_SL_OffsetIndicator_r12_PR_small_r12;
-  preconfigpool->sc_TF_ResourceConfig_r12.offsetIndicator_r12.choice.small_r12    = 0;
+  if (!preconfigpool->sc_TF_ResourceConfig_r12->offsetIndicator_r12)
+    preconfigpool->sc_TF_ResourceConfig_r12->offsetIndicator_r12 = calloc_or_fail(1, sizeof(*preconfigpool->sc_TF_ResourceConfig_r12->offsetIndicator_r12));
+  preconfigpool->sc_TF_ResourceConfig_r12->offsetIndicator_r12->present             = LTE_SL_OffsetIndicator_r12_PR_small_r12;
+  preconfigpool->sc_TF_ResourceConfig_r12->offsetIndicator_r12->choice.small_r12    = 0;
   // 40 ms SL Period
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.present              = LTE_SubframeBitmapSL_r12_PR_bs40_r12;
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf         = CALLOC(1,5);
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.size        = 5;
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.bits_unused = 0;
+  if (!preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12)
+    preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12 = calloc_or_fail(1, sizeof(*preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12));
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->present              = LTE_SubframeBitmapSL_r12_PR_bs40_r12;
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf         = CALLOC(1,5);
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.size        = 5;
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.bits_unused = 0;
   // 1st 4 subframes for PSCCH
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[0]      = 0xF;
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[1]      = 0;
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[2]      = 0;
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[3]      = 0;
-  preconfigpool->sc_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[4]      = 0;
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[0]      = 0xF;
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[1]      = 0;
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[2]      = 0;
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[3]      = 0;
+  preconfigpool->sc_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[4]      = 0;
   preconfigpool->sc_TxParameters_r12                                              = 0;
   preconfigpool->data_CP_Len_r12                                                  = LTE_SL_CP_Len_r12_normal;
   // 20 PRBs for SL communications
-  preconfigpool->data_TF_ResourceConfig_r12.prb_Num_r12                             = 20;
-  preconfigpool->data_TF_ResourceConfig_r12.prb_Start_r12                           = 5;
-  preconfigpool->data_TF_ResourceConfig_r12.prb_End_r12                             = 44;
+  if (!preconfigpool->data_TF_ResourceConfig_r12)
+    preconfigpool->data_TF_ResourceConfig_r12 = calloc_or_fail(1, sizeof(*preconfigpool->data_TF_ResourceConfig_r12));
+  preconfigpool->data_TF_ResourceConfig_r12->prb_Num_r12                             = 20;
+  preconfigpool->data_TF_ResourceConfig_r12->prb_Start_r12                           = 5;
+  preconfigpool->data_TF_ResourceConfig_r12->prb_End_r12                             = 44;
   // Offset set to 0 subframes
-  preconfigpool->data_TF_ResourceConfig_r12.offsetIndicator_r12.present             = LTE_SL_OffsetIndicator_r12_PR_small_r12;
-  preconfigpool->data_TF_ResourceConfig_r12.offsetIndicator_r12.choice.small_r12    = 0;
+  if (!preconfigpool->data_TF_ResourceConfig_r12->offsetIndicator_r12)
+    preconfigpool->data_TF_ResourceConfig_r12->offsetIndicator_r12 = calloc_or_fail(1, sizeof(*preconfigpool->data_TF_ResourceConfig_r12->offsetIndicator_r12));
+  preconfigpool->data_TF_ResourceConfig_r12->offsetIndicator_r12->present             = LTE_SL_OffsetIndicator_r12_PR_small_r12;
+  preconfigpool->data_TF_ResourceConfig_r12->offsetIndicator_r12->choice.small_r12    = 0;
   // 40 ms SL Period
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.present              = LTE_SubframeBitmapSL_r12_PR_bs40_r12;
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf         = CALLOC(5,1);
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.size        = 5;
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.bits_unused = 0;
+  if (!preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12)
+    preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12 = calloc_or_fail(1, sizeof(*preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12));
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->present              = LTE_SubframeBitmapSL_r12_PR_bs40_r12;
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf         = CALLOC(5,1);
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.size        = 5;
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.bits_unused = 0;
   // last 36 subframes for PSCCH
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[0]      = 0xF0;
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[1]      = 0xFF;
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[2]      = 0xFF;
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[3]      = 0xFF;
-  preconfigpool->data_TF_ResourceConfig_r12.subframeBitmap_r12.choice.bs40_r12.buf[4]      = 0xFF;
-  preconfigpool->dataHoppingConfig_r12.hoppingParameter_r12                         = 0;
-  preconfigpool->dataHoppingConfig_r12.numSubbands_r12                              = LTE_SL_HoppingConfigComm_r12__numSubbands_r12_ns1;
-  preconfigpool->dataHoppingConfig_r12.rb_Offset_r12                                = 0;
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[0]      = 0xF0;
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[1]      = 0xFF;
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[2]      = 0xFF;
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[3]      = 0xFF;
+  preconfigpool->data_TF_ResourceConfig_r12->subframeBitmap_r12->choice.bs40_r12.buf[4]      = 0xFF;
+  if (!preconfigpool->dataHoppingConfig_r12)
+    preconfigpool->dataHoppingConfig_r12 = calloc_or_fail(1, sizeof(*preconfigpool->dataHoppingConfig_r12));
+  preconfigpool->dataHoppingConfig_r12->hoppingParameter_r12                         = 0;
+  preconfigpool->dataHoppingConfig_r12->numSubbands_r12                              = LTE_SL_HoppingConfigComm_r12__numSubbands_r12_ns1;
+  preconfigpool->dataHoppingConfig_r12->rb_Offset_r12                                = 0;
   preconfigpool->dataTxParameters_r12                                               = 0;
-  asn1cSeqAdd(&UE->SL_Preconfiguration[eNB_index]->preconfigComm_r12.list,preconfigpool);
+  if (!UE->SL_Preconfiguration[eNB_index]->preconfigComm_r12)
+    UE->SL_Preconfiguration[eNB_index]->preconfigComm_r12 = calloc_or_fail(1, sizeof(*UE->SL_Preconfiguration[eNB_index]->preconfigComm_r12));
+  asn1cSeqAdd(&UE->SL_Preconfiguration[eNB_index]->preconfigComm_r12->list,preconfigpool);
   // Rel13 extensions
   UE->SL_Preconfiguration[eNB_index]->ext1 = NULL;
 }
@@ -581,9 +603,9 @@ int rrc_ue_decode_ccch( const protocol_ctxt_t *const ctxt_pP, const SRB_INFO *co
     return -1;
   }
 
-  if (dl_ccch_msg->message.present == LTE_DL_CCCH_MessageType_PR_c1) {
+  if (dl_ccch_msg->message->present == LTE_DL_CCCH_MessageType_PR_c1) {
     if (UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].State == RRC_SI_RECEIVED) {
-      switch (dl_ccch_msg->message.choice.c1.present) {
+      switch (dl_ccch_msg->message->choice.c1.present) {
         case LTE_DL_CCCH_MessageType__c1_PR_NOTHING:
           LOG_I(RRC, "[UE%d] Frame %d : Received PR_NOTHING on DL-CCCH-Message\n",
                 ctxt_pP->module_id,
@@ -623,14 +645,14 @@ int rrc_ue_decode_ccch( const protocol_ctxt_t *const ctxt_pP, const SRB_INFO *co
           rrc_ue_process_radioResourceConfigDedicated(
             ctxt_pP,
             eNB_index,
-            &dl_ccch_msg->message.choice.c1.choice.rrcConnectionSetup.criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated);
+            dl_ccch_msg->message->choice.c1.choice.rrcConnectionSetup.criticalExtensions.choice.c1.choice.rrcConnectionSetup_r8.radioResourceConfigDedicated);
           rrc_set_state (ctxt_pP->module_id, RRC_STATE_CONNECTED);
           rrc_set_sub_state (ctxt_pP->module_id, RRC_SUB_STATE_CONNECTED);
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].rnti = ctxt_pP->rntiMaybeUEid;
           rrc_ue_generate_RRCConnectionSetupComplete(
             ctxt_pP,
             eNB_index,
-            dl_ccch_msg->message.choice.c1.choice.rrcConnectionSetup.rrc_TransactionIdentifier,
+            dl_ccch_msg->message->choice.c1.choice.rrcConnectionSetup.rrc_TransactionIdentifier,
             UE_rrc_inst[ctxt_pP->module_id].selected_plmn_identity);
           rval = 0;
           break;
@@ -784,10 +806,10 @@ rrc_ue_process_measConfig(
       } else {
           if (measObj->measObject.present == LTE_MeasObjectToAddMod__measObject_PR_measObjectEUTRA) {
             LOG_I(RRC,"EUTRA Measurement : carrierFreq %ld, allowedMeasBandwidth %ld,presenceAntennaPort1 %d, neighCellConfig %d\n",
-                  measObj->measObject.choice.measObjectEUTRA.carrierFreq,
-                  measObj->measObject.choice.measObjectEUTRA.allowedMeasBandwidth,
-                  measObj->measObject.choice.measObjectEUTRA.presenceAntennaPort1,
-                  measObj->measObject.choice.measObjectEUTRA.neighCellConfig.buf[0]);
+                  measObj->measObject.choice.measObjectEUTRA->carrierFreq,
+                  measObj->measObject.choice.measObjectEUTRA->allowedMeasBandwidth,
+                  measObj->measObject.choice.measObjectEUTRA->presenceAntennaPort1,
+                  measObj->measObject.choice.measObjectEUTRA->neighCellConfig.buf[0]);
           }
           LOG_D(RRC, "Adding measurement object [%d][%ld]\n", eNB_index, ind);
           ue->MeasObj[eNB_index][ind-1]=measObj;
@@ -1419,7 +1441,7 @@ rrc_ue_process_securityModeCommand(
   LOG_I(RRC,"[UE %d] SFN/SF %d/%d: Receiving from SRB1 (DL-DCCH), Processing securityModeCommand (eNB %d)\n",
         ctxt_pP->module_id,ctxt_pP->frame, ctxt_pP->subframe, eNB_index);
 
-  switch (securityModeCommand->criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC.securityAlgorithmConfig.cipheringAlgorithm) {
+  switch (securityModeCommand->criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig->cipheringAlgorithm) {
     case LTE_CipheringAlgorithm_r12_eea0:
       LOG_I(RRC,"[UE %d] Security algorithm is set to eea0\n",
             ctxt_pP->module_id);
@@ -1443,7 +1465,7 @@ rrc_ue_process_securityModeCommand(
       break;
   }
 
-  switch (securityModeCommand->criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC.securityAlgorithmConfig.integrityProtAlgorithm) {
+  switch (securityModeCommand->criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig->integrityProtAlgorithm) {
     case LTE_SecurityAlgorithmConfig__integrityProtAlgorithm_eia1:
       LOG_I(RRC,"[UE %d] Integrity protection algorithm is set to eia1\n",ctxt_pP->module_id);
       securityMode |= 1 << 5;
@@ -1463,19 +1485,21 @@ rrc_ue_process_securityModeCommand(
   LOG_D(RRC,"[UE %d] security mode is %x \n",ctxt_pP->module_id, securityMode);
   /* Store the parameters received */
   UE_rrc_inst[ctxt_pP->module_id].ciphering_algorithm =
-    securityModeCommand->criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC.securityAlgorithmConfig.cipheringAlgorithm;
+    securityModeCommand->criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig->cipheringAlgorithm;
   UE_rrc_inst[ctxt_pP->module_id].integrity_algorithm =
-    securityModeCommand->criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC.securityAlgorithmConfig.integrityProtAlgorithm;
+    securityModeCommand->criticalExtensions.choice.c1.choice.securityModeCommand_r8.securityConfigSMC->securityAlgorithmConfig->integrityProtAlgorithm;
   memset((void *)&ul_dcch_msg,0,sizeof(LTE_UL_DCCH_Message_t));
   //memset((void *)&SecurityModeCommand,0,sizeof(SecurityModeCommand_t));
-  ul_dcch_msg.message.present           = LTE_UL_DCCH_MessageType_PR_c1;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present           = LTE_UL_DCCH_MessageType_PR_c1;
 
   if (securityMode >= NO_SECURITY_MODE) {
     LOG_I(RRC, "rrc_ue_process_securityModeCommand, security mode complete case \n");
-    ul_dcch_msg.message.choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_securityModeComplete;
+    ul_dcch_msg.message->choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_securityModeComplete;
   } else {
     LOG_I(RRC, "rrc_ue_process_securityModeCommand, security mode failure case \n");
-    ul_dcch_msg.message.choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_securityModeFailure;
+    ul_dcch_msg.message->choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_securityModeFailure;
   }
 
   uint8_t kRRCenc[32] = {0};
@@ -1529,9 +1553,9 @@ rrc_ue_process_securityModeCommand(
       LOG_W(RRC,"securityModeCommand->criticalExtensions.choice.c1.present (%d) != SecurityModeCommand__criticalExtensions__c1_PR_securityModeCommand_r8\n",
             securityModeCommand->criticalExtensions.choice.c1.present);
 
-    ul_dcch_msg.message.choice.c1.choice.securityModeComplete.rrc_TransactionIdentifier = securityModeCommand->rrc_TransactionIdentifier;
-    ul_dcch_msg.message.choice.c1.choice.securityModeComplete.criticalExtensions.present = LTE_SecurityModeComplete__criticalExtensions_PR_securityModeComplete_r8;
-    ul_dcch_msg.message.choice.c1.choice.securityModeComplete.criticalExtensions.choice.securityModeComplete_r8.nonCriticalExtension =NULL;
+    ul_dcch_msg.message->choice.c1.choice.securityModeComplete.rrc_TransactionIdentifier = securityModeCommand->rrc_TransactionIdentifier;
+    ul_dcch_msg.message->choice.c1.choice.securityModeComplete.criticalExtensions.present = LTE_SecurityModeComplete__criticalExtensions_PR_securityModeComplete_r8;
+    ul_dcch_msg.message->choice.c1.choice.securityModeComplete.criticalExtensions.choice.securityModeComplete_r8.nonCriticalExtension =NULL;
     LOG_I(RRC,"[UE %d] SFN/SF %d/%d: Receiving from SRB1 (DL-DCCH), encoding securityModeComplete (eNB %d), rrc_TransactionIdentifier: %ld\n",
           ctxt_pP->module_id,ctxt_pP->frame, ctxt_pP->subframe, eNB_index, securityModeCommand->rrc_TransactionIdentifier);
     enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_UL_DCCH_Message,
@@ -1585,9 +1609,11 @@ rrc_ue_process_MBMSCountingRequest(
   memset((void *)&CountingResponse,0,sizeof(struct LTE_CountingResponseInfo_r10));
 
 
-  ul_dcch_msg.message.present           = LTE_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_mbmsCountingResponse_r10;
-  LTE_MBMSCountingResponse_r10_t *MBMSCountingResponse = &ul_dcch_msg.message.choice.c1.choice.mbmsCountingResponse_r10;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present           = LTE_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_mbmsCountingResponse_r10;
+  LTE_MBMSCountingResponse_r10_t *MBMSCountingResponse = &ul_dcch_msg.message->choice.c1.choice.mbmsCountingResponse_r10;
 
   MBMSCountingResponse->criticalExtensions.present = LTE_MBMSCountingResponse_r10__criticalExtensions_PR_c1;
   MBMSCountingResponse->criticalExtensions.choice.c1.present = LTE_MBMSCountingResponse_r10__criticalExtensions__c1_PR_countingResponse_r10; 
@@ -1643,9 +1669,11 @@ rrc_ue_process_ueCapabilityEnquiry(
         eNB_index);
   memset((void *)&ul_dcch_msg,0,sizeof(LTE_UL_DCCH_Message_t));
   memset((void *)&ue_CapabilityRAT_Container,0,sizeof(LTE_UE_CapabilityRAT_Container_t));
-  ul_dcch_msg.message.present           = LTE_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_ueCapabilityInformation;
-  ul_dcch_msg.message.choice.c1.choice.ueCapabilityInformation.rrc_TransactionIdentifier = UECapabilityEnquiry->rrc_TransactionIdentifier;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present           = LTE_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1.present = LTE_UL_DCCH_MessageType__c1_PR_ueCapabilityInformation;
+  ul_dcch_msg.message->choice.c1.choice.ueCapabilityInformation.rrc_TransactionIdentifier = UECapabilityEnquiry->rrc_TransactionIdentifier;
   ue_CapabilityRAT_Container.rat_Type = LTE_RAT_Type_eutra;
   OCTET_STRING_fromBuf(&ue_CapabilityRAT_Container.ueCapabilityRAT_Container,
                        (const char *)UE_rrc_inst[ctxt_pP->module_id].UECap->sdu,
@@ -1660,17 +1688,19 @@ rrc_ue_process_ueCapabilityEnquiry(
     LOG_I(RRC,"UECapabilityEnquiry->criticalExtensions.choice.c1.present (%d) != UECapabilityEnquiry__criticalExtensions__c1_PR_ueCapabilityEnquiry_r8)\n",
           UECapabilityEnquiry->criticalExtensions.choice.c1.present);
 
-  ul_dcch_msg.message.choice.c1.choice.ueCapabilityInformation.criticalExtensions.present           = LTE_UECapabilityInformation__criticalExtensions_PR_c1;
-  ul_dcch_msg.message.choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.present =
+  ul_dcch_msg.message->choice.c1.choice.ueCapabilityInformation.criticalExtensions.present           = LTE_UECapabilityInformation__criticalExtensions_PR_c1;
+  ul_dcch_msg.message->choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.present =
     LTE_UECapabilityInformation__criticalExtensions__c1_PR_ueCapabilityInformation_r8;
-  ul_dcch_msg.message.choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.choice.ueCapabilityInformation_r8.ue_CapabilityRAT_ContainerList.list.count
+  if (!ul_dcch_msg.message->choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.choice.ueCapabilityInformation_r8.ue_CapabilityRAT_ContainerList)
+    ul_dcch_msg.message->choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.choice.ueCapabilityInformation_r8.ue_CapabilityRAT_ContainerList = calloc_or_fail(1, sizeof(*ul_dcch_msg.message->choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.choice.ueCapabilityInformation_r8.ue_CapabilityRAT_ContainerList));
+  ul_dcch_msg.message->choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.choice.ueCapabilityInformation_r8.ue_CapabilityRAT_ContainerList->list.count
     =0;
 
-  for (i=0; i<UECapabilityEnquiry->criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest.list.count; i++) {
-    if (*UECapabilityEnquiry->criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest.list.array[i]
+  for (i=0; i<UECapabilityEnquiry->criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest->list.count; i++) {
+    if (*UECapabilityEnquiry->criticalExtensions.choice.c1.choice.ueCapabilityEnquiry_r8.ue_CapabilityRequest->list.array[i]
         == LTE_RAT_Type_eutra) {
       asn1cSeqAdd(
-        &ul_dcch_msg.message.choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.choice.ueCapabilityInformation_r8.ue_CapabilityRAT_ContainerList.list,
+        &ul_dcch_msg.message->choice.c1.choice.ueCapabilityInformation.criticalExtensions.choice.c1.choice.ueCapabilityInformation_r8.ue_CapabilityRAT_ContainerList->list,
         &ue_CapabilityRAT_Container);
       enc_rval = uper_encode_to_buffer(&asn_DEF_LTE_UL_DCCH_Message, NULL, (void *) &ul_dcch_msg, buffer, 100);
       AssertFatal (enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %jd)!\n",
@@ -1710,7 +1740,7 @@ static void rrc_ue_process_rrcConnectionReconfiguration(const protocol_ctxt_t *c
       LTE_RRCConnectionReconfiguration__criticalExtensions_PR_c1) {
     if (rrcConnectionReconfiguration->criticalExtensions.choice.c1.present ==
         LTE_RRCConnectionReconfiguration__criticalExtensions__c1_PR_rrcConnectionReconfiguration_r8) {
-      LTE_RRCConnectionReconfiguration_r8_IEs_t *r_r8 = &rrcConnectionReconfiguration->
+      LTE_RRCConnectionReconfiguration_r8_IEs_t *r_r8 = rrcConnectionReconfiguration->
                                                          criticalExtensions.choice.c1.
                                                          choice.rrcConnectionReconfiguration_r8;
 
@@ -1938,9 +1968,9 @@ static void rrc_ue_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
     xer_fprint(stdout,&asn_DEF_LTE_DL_DCCH_Message,(void *)dl_dcch_msg);
   }
 
-  if (dl_dcch_msg->message.present == LTE_DL_DCCH_MessageType_PR_c1) {
+  if (dl_dcch_msg->message->present == LTE_DL_DCCH_MessageType_PR_c1) {
     if (UE_rrc_inst[ctxt_pP->module_id].Info[eNB_indexP].State >= RRC_CONNECTED) {
-      switch (dl_dcch_msg->message.choice.c1.present) {
+      switch (dl_dcch_msg->message->choice.c1.present) {
         case LTE_DL_DCCH_MessageType__c1_PR_NOTHING:
           LOG_I(RRC, "[UE %d] Frame %d : Received PR_NOTHING on DL-DCCH-Message\n",
                 ctxt_pP->module_id, ctxt_pP->frame);
@@ -1950,7 +1980,7 @@ static void rrc_ue_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
           break;
 
         case LTE_DL_DCCH_MessageType__c1_PR_dlInformationTransfer: {
-          LTE_DLInformationTransfer_t *dlInformationTransfer = &dl_dcch_msg->message.choice.c1.choice.dlInformationTransfer;
+          LTE_DLInformationTransfer_t *dlInformationTransfer = &dl_dcch_msg->message->choice.c1.choice.dlInformationTransfer;
 
           if ((dlInformationTransfer->criticalExtensions.present == LTE_DLInformationTransfer__criticalExtensions_PR_c1)
               && (dlInformationTransfer->criticalExtensions.choice.c1.present
@@ -1983,16 +2013,16 @@ static void rrc_ue_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
         case LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionReconfiguration:
 
           // first check if mobilityControlInfo  is present
-          if (dl_dcch_msg->message.choice.c1.choice.rrcConnectionReconfiguration.criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo
+          if (dl_dcch_msg->message->choice.c1.choice.rrcConnectionReconfiguration.criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo
               != NULL) {
             /* 36.331, 5.3.5.4 Reception of an RRCConnectionReconfiguration including the mobilityControlInfo by the UE (handover)*/
             if (UE_rrc_inst[ctxt_pP->module_id].HandoverInfoUe.targetCellId
-                != dl_dcch_msg->message.choice.c1.choice.rrcConnectionReconfiguration.criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo->targetPhysCellId) {
+                != dl_dcch_msg->message->choice.c1.choice.rrcConnectionReconfiguration.criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo->targetPhysCellId) {
               LOG_W(RRC,
                     "[UE %d] Frame %d: Handover target (%ld) is different from RSRP measured target (%ld)..\n",
                     ctxt_pP->module_id,
                     ctxt_pP->frame,
-                    dl_dcch_msg->message.choice.c1.choice.rrcConnectionReconfiguration.criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.mobilityControlInfo->targetPhysCellId,
+                    dl_dcch_msg->message->choice.c1.choice.rrcConnectionReconfiguration.criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->mobilityControlInfo->targetPhysCellId,
                     UE_rrc_inst[ctxt_pP->module_id].HandoverInfoUe.targetCellId);
               return;
             } else if ((target_eNB_index = get_adjacent_cell_mod_id(UE_rrc_inst[ctxt_pP->module_id].HandoverInfoUe.targetCellId))
@@ -2013,14 +2043,14 @@ static void rrc_ue_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
 
           rrc_ue_process_rrcConnectionReconfiguration(
             ctxt_pP,
-            &dl_dcch_msg->message.choice.c1.choice.rrcConnectionReconfiguration,
+            &dl_dcch_msg->message->choice.c1.choice.rrcConnectionReconfiguration,
             eNB_indexP);
 
           if (target_eNB_index != 0xFF) {
             rrc_ue_generate_RRCConnectionReconfigurationComplete(
               ctxt_pP,
               target_eNB_index,
-              dl_dcch_msg->message.choice.c1.choice.rrcConnectionReconfiguration.rrc_TransactionIdentifier,
+              dl_dcch_msg->message->choice.c1.choice.rrcConnectionReconfiguration.rrc_TransactionIdentifier,
               NULL);
             UE_rrc_inst[ctxt_pP->module_id].Info[eNB_indexP].State = RRC_HO_EXECUTION;
             UE_rrc_inst[ctxt_pP->module_id].Info[target_eNB_index].State = RRC_RECONFIGURED;
@@ -2030,7 +2060,7 @@ static void rrc_ue_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
             rrc_ue_generate_RRCConnectionReconfigurationComplete(
               ctxt_pP,
               eNB_indexP,
-              dl_dcch_msg->message.choice.c1.choice.rrcConnectionReconfiguration.rrc_TransactionIdentifier,
+              dl_dcch_msg->message->choice.c1.choice.rrcConnectionReconfiguration.rrc_TransactionIdentifier,
               NULL);
             UE_rrc_inst[ctxt_pP->module_id].Info[eNB_indexP].State = RRC_RECONFIGURED;
             LOG_I(RRC, "[UE %d] State = RRC_RECONFIGURED (eNB %d)\n",
@@ -2066,12 +2096,12 @@ static void rrc_ue_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
         case LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionRelease:
           msg_p = itti_alloc_new_message(TASK_RRC_UE, 0, NAS_CONN_RELEASE_IND);
 
-          if ((dl_dcch_msg->message.choice.c1.choice.rrcConnectionRelease.criticalExtensions.present
+          if ((dl_dcch_msg->message->choice.c1.choice.rrcConnectionRelease.criticalExtensions.present
                == LTE_RRCConnectionRelease__criticalExtensions_PR_c1)
-              && (dl_dcch_msg->message.choice.c1.choice.rrcConnectionRelease.criticalExtensions.choice.c1.present
+              && (dl_dcch_msg->message->choice.c1.choice.rrcConnectionRelease.criticalExtensions.choice.c1.present
                   == LTE_RRCConnectionRelease__criticalExtensions__c1_PR_rrcConnectionRelease_r8)) {
             NAS_CONN_RELEASE_IND(msg_p).cause =
-              dl_dcch_msg->message.choice.c1.choice.rrcConnectionRelease.criticalExtensions.choice.c1.choice.rrcConnectionRelease_r8.releaseCause;
+              dl_dcch_msg->message->choice.c1.choice.rrcConnectionRelease.criticalExtensions.choice.c1.choice.rrcConnectionRelease_r8.releaseCause;
           }
 
           itti_send_msg_to_task(TASK_NAS_UE, ctxt_pP->instance, msg_p);
@@ -2082,7 +2112,7 @@ static void rrc_ue_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
                 ctxt_pP->module_id, eNB_indexP);
           rrc_ue_process_securityModeCommand(
             ctxt_pP,
-            &dl_dcch_msg->message.choice.c1.choice.securityModeCommand,
+            &dl_dcch_msg->message->choice.c1.choice.securityModeCommand,
             eNB_indexP);
           break;
 
@@ -2091,7 +2121,7 @@ static void rrc_ue_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
                 ctxt_pP->module_id,
                 eNB_indexP);
 
-          rrc_ue_process_ueCapabilityEnquiry(ctxt_pP, &dl_dcch_msg->message.choice.c1.choice.ueCapabilityEnquiry, eNB_indexP);
+          rrc_ue_process_ueCapabilityEnquiry(ctxt_pP, &dl_dcch_msg->message->choice.c1.choice.ueCapabilityEnquiry, eNB_indexP);
           break;
 
         case LTE_DL_DCCH_MessageType__c1_PR_counterCheck:
@@ -2319,15 +2349,15 @@ int decode_BCCH_MBMS_DLSCH_Message(
   //xer_fprint(stdout, &asn_DEF_LTE_BCCH_DL_SCH_Message_MBMS,(void *)bcch_message );
   //}
 
-  if (bcch_message->message.present == LTE_BCCH_DL_SCH_MessageType_MBMS_r14_PR_c1) {
-    switch (bcch_message->message.choice.c1.present) {
+  if (bcch_message->message->present == LTE_BCCH_DL_SCH_MessageType_MBMS_r14_PR_c1) {
+    switch (bcch_message->message->choice.c1.present) {
       case LTE_BCCH_DL_SCH_MessageType_MBMS_r14__c1_PR_systemInformationBlockType1_MBMS_r14:
         if ((ctxt_pP->frame % 4) == 0) {
           // every 4 frame
           if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus_MBMS&1) == 0) {
             LTE_SystemInformationBlockType1_MBMS_r14_t *sib1_mbms = UE_rrc_inst[ctxt_pP->module_id].sib1_MBMS[eNB_index];
             memcpy( (void *)sib1_mbms,
-                    (void *)&bcch_message->message.choice.c1.choice.systemInformationBlockType1_MBMS_r14,
+                    (void *)bcch_message->message->choice.c1.choice.systemInformationBlockType1_MBMS_r14,
                     sizeof(LTE_SystemInformationBlockType1_MBMS_r14_t) );
             LOG_D( RRC, "[UE %"PRIu8"] Decoding \"First\" SIB1-MBMS\n", ctxt_pP->module_id );
             decode_SIB1_MBMS( ctxt_pP, eNB_index, rsrq, rsrp );
@@ -2343,7 +2373,7 @@ int decode_BCCH_MBMS_DLSCH_Message(
           // you miss this on the eNB!!!!
           LTE_SystemInformation_MBMS_r14_t *si_mbms = UE_rrc_inst[ctxt_pP->module_id].si_MBMS[eNB_index];
           memcpy( si_mbms,
-                  &bcch_message->message.choice.c1.choice.systemInformation_MBMS_r14,
+                  &bcch_message->message->choice.c1.choice.systemInformation_MBMS_r14,
                   sizeof(LTE_SystemInformation_MBMS_r14_t) );
           LOG_W( RRC, "[UE %"PRIu8"] Decoding MBMS SI for frameP %"PRIu32"\n",
                  ctxt_pP->module_id,
@@ -2419,7 +2449,7 @@ int decode_BCCH_DLSCH_Message(
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_UE_DECODE_BCCH, VCD_FUNCTION_IN );
 
   if (((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&1) == 1) &&  // SIB1 received
-      (UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIcnt == sib1->schedulingInfoList.list.count)) {
+      (UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIcnt == sib1->schedulingInfoList->list.count)) {
     // Avoid decoding  SystemInformationBlockType1_t* sib1 = UE_rrc_inst[ctxt_pP->module_id].sib1[eNB_index];
     // to prevent memory bloating
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_UE_DECODE_BCCH, VCD_FUNCTION_OUT );
@@ -2449,8 +2479,8 @@ int decode_BCCH_DLSCH_Message(
     return -1;
   }
 
-  if (bcch_message->message.present == LTE_BCCH_DL_SCH_MessageType_PR_c1) {
-    switch (bcch_message->message.choice.c1.present) {
+  if (bcch_message->message->present == LTE_BCCH_DL_SCH_MessageType_PR_c1) {
+    switch (bcch_message->message->choice.c1.present) {
       case LTE_BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1:
         if ((ctxt_pP->frame % 2) == 0) {
           // even frame
@@ -2461,7 +2491,7 @@ int decode_BCCH_DLSCH_Message(
             }
             LTE_SystemInformationBlockType1_t *sib1 = UE_rrc_inst[ctxt_pP->module_id].sib1[eNB_index];
             memcpy( sib1,
-                    &bcch_message->message.choice.c1.choice.systemInformationBlockType1,
+                    &bcch_message->message->choice.c1.choice.systemInformationBlockType1,
                     sizeof(LTE_SystemInformationBlockType1_t) );
             LOG_D( RRC, "[UE %"PRIu8"] Decoding First SIB1\n", ctxt_pP->module_id );
             decode_SIB1( ctxt_pP, eNB_index, rsrq, rsrp );
@@ -2475,7 +2505,7 @@ int decode_BCCH_DLSCH_Message(
           // SIB1 with schedulingInfoList is available
           LTE_SystemInformation_t *si = UE_rrc_inst[ctxt_pP->module_id].si[eNB_index];
           memcpy( si,
-                  &bcch_message->message.choice.c1.choice.systemInformation,
+                  &bcch_message->message->choice.c1.choice.systemInformation,
                   sizeof(LTE_SystemInformation_t) );
           LOG_I( RRC, "[UE %"PRIu8"] Decoding SI for frameP %"PRIu32"\n",
                  ctxt_pP->module_id,
@@ -2606,15 +2636,15 @@ int decode_SIB1_MBMS( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_in
   //LOG_I( RRC, "p_Max                                      : not defined\n" );
   LOG_I( RRC, "freqBandIndicator                          : %ld\n", sib1_MBMS->freqBandIndicator_r14 );
 
-  if (sib1_MBMS->schedulingInfoList_MBMS_r14.list.count > 0) {
-    for (int i=0; i<sib1_MBMS->schedulingInfoList_MBMS_r14.list.count; i++) {
-      LOG_I( RRC, "si_Periodicity[%d]                          : %s\n", i, SIBPeriod[min(sib1_MBMS->schedulingInfoList_MBMS_r14.list.array[i]->si_Periodicity_r14,7)]);
+  if (sib1_MBMS->schedulingInfoList_MBMS_r14->list.count > 0) {
+    for (int i=0; i<sib1_MBMS->schedulingInfoList_MBMS_r14->list.count; i++) {
+      LOG_I( RRC, "si_Periodicity[%d]                          : %s\n", i, SIBPeriod[min(sib1_MBMS->schedulingInfoList_MBMS_r14->list.array[i]->si_Periodicity_r14,7)]);
 
-      if (sib1_MBMS->schedulingInfoList_MBMS_r14.list.array[i]->sib_MappingInfo_r14.list.count > 0) {
+      if (sib1_MBMS->schedulingInfoList_MBMS_r14->list.array[i]->sib_MappingInfo_r14->list.count > 0) {
         char temp[32 * sizeof(SIBType[0])] = {0}; // maxSIB==32
 
-        for (int j=0; j<sib1_MBMS->schedulingInfoList_MBMS_r14.list.array[i]->sib_MappingInfo_r14.list.count; j++) {
-          sprintf( temp + j*sizeof(SIBType[0]), "%*s ", (int)sizeof(SIBType[0])-1, SIBType[min(*sib1_MBMS->schedulingInfoList_MBMS_r14.list.array[i]->sib_MappingInfo_r14.list.array[0],11)] );
+        for (int j=0; j<sib1_MBMS->schedulingInfoList_MBMS_r14->list.array[i]->sib_MappingInfo_r14->list.count; j++) {
+          sprintf( temp + j*sizeof(SIBType[0]), "%*s ", (int)sizeof(SIBType[0])-1, SIBType[min(*sib1_MBMS->schedulingInfoList_MBMS_r14->list.array[i]->sib_MappingInfo_r14->list.array[0],11)] );
         }
 
         LOG_I( RRC, "siSchedulingInfoSIBType[%d]                 : %s\n", i, temp );
@@ -2633,7 +2663,7 @@ int decode_SIB1_MBMS( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_in
   //}
   LOG_I( RRC, "siWindowLength                             : %s\n", siWindowLength[min(sib1_MBMS->si_WindowLength_r14,8)] );
   LOG_I( RRC, "systemInfoValueTag                         : %ld\n", sib1_MBMS->systemInfoValueTag_r14 );
-  UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIperiod_MBMS     = siPeriod_int[sib1_MBMS->schedulingInfoList_MBMS_r14.list.array[0]->si_Periodicity_r14];
+  UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIperiod_MBMS     = siPeriod_int[sib1_MBMS->schedulingInfoList_MBMS_r14->list.array[0]->si_Periodicity_r14];
   UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIwindowsize_MBMS = siWindowLength_int[sib1_MBMS->si_WindowLength_r14];
   LOG_I( RRC, "[FRAME unknown][RRC_UE][MOD %02"PRIu8"][][--- MAC_CONFIG_REQ (SIB1-MBMS params eNB %"PRIu8") --->][MAC_UE][MOD %02"PRIu8"][]\n",
          ctxt_pP->module_id, eNB_index, ctxt_pP->module_id );
@@ -2654,7 +2684,7 @@ int decode_SIB1_MBMS( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_in
                         NULL,
                         NULL,
                         (LTE_MBSFN_SubframeConfigList_t *)NULL,0,
-                        (sib1_MBMS->systemInformationBlockType13_r14==NULL?(LTE_MBSFN_AreaInfoList_r9_t *)NULL:&(sib1_MBMS->systemInformationBlockType13_r14)->mbsfn_AreaInfoList_r9),//(LTE_MBSFN_AreaInfoList_r9_t *)NULL,
+                        (sib1_MBMS->systemInformationBlockType13_r14==NULL?(LTE_MBSFN_AreaInfoList_r9_t *)NULL:(sib1_MBMS->systemInformationBlockType13_r14)->mbsfn_AreaInfoList_r9),//(LTE_MBSFN_AreaInfoList_r9_t *)NULL,
                         (LTE_PMCH_InfoList_r9_t *)NULL,
                         0,
                         NULL,
@@ -2679,9 +2709,9 @@ int decode_SIB1( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index, 
   LOG_I( RRC, "[UE %d] : Dumping SIB 1\n", ctxt_pP->module_id );
   const int n = sib1->cellAccessRelatedInfo.plmn_IdentityList.list.count;
   for (int i = 0; i < n; ++i) {
-    LTE_PLMN_Identity_t *PLMN_identity = &sib1->cellAccessRelatedInfo.plmn_IdentityList.list.array[i]->plmn_Identity;
+    LTE_PLMN_Identity_t *PLMN_identity = sib1->cellAccessRelatedInfo.plmn_IdentityList.list.array[i]->plmn_Identity;
     int mccdigits = PLMN_identity->mcc->list.count;
-    int mncdigits = PLMN_identity->mnc.list.count;
+    int mncdigits = PLMN_identity->mnc->list.count;
 
     int mcc;
     if (mccdigits == 2) {
@@ -2692,9 +2722,9 @@ int decode_SIB1( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index, 
 
     int mnc;
     if (mncdigits == 2) {
-      mnc = *PLMN_identity->mnc.list.array[0]*10 + *PLMN_identity->mnc.list.array[1];
+      mnc = *PLMN_identity->mnc->list.array[0]*10 + *PLMN_identity->mnc->list.array[1];
     } else {
-      mnc = *PLMN_identity->mnc.list.array[0]*100 + *PLMN_identity->mnc.list.array[1]*10 + *PLMN_identity->mnc.list.array[2];
+      mnc = *PLMN_identity->mnc->list.array[0]*100 + *PLMN_identity->mnc->list.array[1]*10 + *PLMN_identity->mnc->list.array[2];
     }
 
     LOG_I( RRC, "PLMN %d MCC %0*d, MNC %0*d\n", i + 1, mccdigits, mcc, mncdigits, mnc);
@@ -2747,15 +2777,15 @@ int decode_SIB1( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index, 
 
   LOG_I( RRC, "freqBandIndicator                          : %ld\n", sib1->freqBandIndicator );
 
-  if (sib1->schedulingInfoList.list.count > 0) {
-    for (int i=0; i<sib1->schedulingInfoList.list.count; i++) {
-      LOG_I( RRC, "si_Periodicity[%d]                          : %s\n", i, SIBPeriod[min(sib1->schedulingInfoList.list.array[i]->si_Periodicity,7)]);
+  if (sib1->schedulingInfoList->list.count > 0) {
+    for (int i=0; i<sib1->schedulingInfoList->list.count; i++) {
+      LOG_I( RRC, "si_Periodicity[%d]                          : %s\n", i, SIBPeriod[min(sib1->schedulingInfoList->list.array[i]->si_Periodicity,7)]);
 
-      if (sib1->schedulingInfoList.list.array[i]->sib_MappingInfo.list.count > 0) {
+      if (sib1->schedulingInfoList->list.array[i]->sib_MappingInfo->list.count > 0) {
         char temp[32 * sizeof(SIBType[0])] = {0}; // maxSIB==32
 
-        for (int j=0; j<sib1->schedulingInfoList.list.array[i]->sib_MappingInfo.list.count; j++) {
-          sprintf( temp + j*sizeof(SIBType[0]), "%*s ", (int)sizeof(SIBType[0])-1, SIBType[min(*sib1->schedulingInfoList.list.array[i]->sib_MappingInfo.list.array[0],11)] );
+        for (int j=0; j<sib1->schedulingInfoList->list.array[i]->sib_MappingInfo->list.count; j++) {
+          sprintf( temp + j*sizeof(SIBType[0]), "%*s ", (int)sizeof(SIBType[0])-1, SIBType[min(*sib1->schedulingInfoList->list.array[i]->sib_MappingInfo->list.array[0],11)] );
         }
 
         LOG_I( RRC, "siSchedulingInfoSIBType[%d]                 : %s\n", i, temp );
@@ -2775,7 +2805,7 @@ int decode_SIB1( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index, 
 
   LOG_I( RRC, "siWindowLength                             : %s\n", siWindowLength[min(sib1->si_WindowLength,8)] );
   LOG_I( RRC, "systemInfoValueTag                         : %ld\n", sib1->systemInfoValueTag );
-  UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIperiod     = siPeriod_int[sib1->schedulingInfoList.list.array[0]->si_Periodicity];
+  UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIperiod     = siPeriod_int[sib1->schedulingInfoList->list.array[0]->si_Periodicity];
   UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIwindowsize = siWindowLength_int[sib1->si_WindowLength];
   LOG_I( RRC, "[FRAME unknown][RRC_UE][MOD %02"PRIu8"][][--- MAC_CONFIG_REQ (SIB1 params eNB %"PRIu8") --->][MAC_UE][MOD %02"PRIu8"][]\n",
          ctxt_pP->module_id, eNB_index, ctxt_pP->module_id );
@@ -2826,7 +2856,7 @@ int decode_SIB1( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index, 
       /* Compare requested PLMN and PLMNs from SIB1*/
       for (plmn = 0; plmn < plmn_number; plmn++) {
         LTE_PLMN_Identity_t *plmn_Identity;
-        plmn_Identity = &sib1->cellAccessRelatedInfo.plmn_IdentityList.list.array[plmn]->plmn_Identity;
+        plmn_Identity = sib1->cellAccessRelatedInfo.plmn_IdentityList.list.array[plmn]->plmn_Identity;
 
         if (
           (
@@ -2839,14 +2869,14 @@ int decode_SIB1( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index, 
             )
           )
           &&
-          (UE_rrc_inst[ctxt_pP->module_id].plmnID.MNCdigit1 == *(plmn_Identity->mnc.list.array[0]))
+          (UE_rrc_inst[ctxt_pP->module_id].plmnID.MNCdigit1 == *(plmn_Identity->mnc->list.array[0]))
           &&
-          (UE_rrc_inst[ctxt_pP->module_id].plmnID.MNCdigit2 == *(plmn_Identity->mnc.list.array[1]))
+          (UE_rrc_inst[ctxt_pP->module_id].plmnID.MNCdigit2 == *(plmn_Identity->mnc->list.array[1]))
           &&
           (
-            ((UE_rrc_inst[ctxt_pP->module_id].plmnID.MNCdigit3 == 0xf) && (plmn_Identity->mnc.list.count == 2))
+            ((UE_rrc_inst[ctxt_pP->module_id].plmnID.MNCdigit3 == 0xf) && (plmn_Identity->mnc->list.count == 2))
             ||
-            (UE_rrc_inst[ctxt_pP->module_id].plmnID.MNCdigit3 == *(plmn_Identity->mnc.list.array[2]))
+            (UE_rrc_inst[ctxt_pP->module_id].plmnID.MNCdigit3 == *(plmn_Identity->mnc->list.array[2]))
           )
         ) {
           /* PLMN match, send a confirmation to NAS */
@@ -2902,137 +2932,137 @@ void dump_sib2( LTE_SystemInformationBlockType2_t *sib2 ) {
 
   // RACH
   LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.numberOfRA_Preambles  : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.numberOfRA_Preambles,
-         SIB2numberOfRA_Preambles(sib2->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.numberOfRA_Preambles) );
+         sib2->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.numberOfRA_Preambles,
+         SIB2numberOfRA_Preambles(sib2->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.numberOfRA_Preambles) );
 
-  if (sib2->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig) {
+  if (sib2->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig) {
     LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->sizeOfRA_PreamblesGroupA : %ld\n",
-           sib2->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->sizeOfRA_PreamblesGroupA );
+           sib2->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig->sizeOfRA_PreamblesGroupA );
     LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->messageSizeGroupA        : %ld\n",
-           sib2->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->messageSizeGroupA );
+           sib2->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig->messageSizeGroupA );
     LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->messagePowerOffsetGroupB : %ld\n",
-           sib2->radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig->messagePowerOffsetGroupB );
+           sib2->radioResourceConfigCommon->rach_ConfigCommon->preambleInfo.preamblesGroupAConfig->messagePowerOffsetGroupB );
   } else {
     LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.preambleInfo.preamblesGroupAConfig : not defined\n" );
   }
 
   LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.powerRampingParameters.powerRampingStep                   : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.rach_ConfigCommon.powerRampingParameters.powerRampingStep,
-         SIB2powerRampingStep(sib2->radioResourceConfigCommon.rach_ConfigCommon.powerRampingParameters.powerRampingStep) );
+         sib2->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters->powerRampingStep,
+         SIB2powerRampingStep(sib2->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters->powerRampingStep) );
   LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.powerRampingParameters.preambleInitialReceivedTargetPower : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.rach_ConfigCommon.powerRampingParameters.preambleInitialReceivedTargetPower,
-         SIB2preambleInitialReceivedTargetPower(sib2->radioResourceConfigCommon.rach_ConfigCommon.powerRampingParameters.preambleInitialReceivedTargetPower) );
+         sib2->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters->preambleInitialReceivedTargetPower,
+         SIB2preambleInitialReceivedTargetPower(sib2->radioResourceConfigCommon->rach_ConfigCommon->powerRampingParameters->preambleInitialReceivedTargetPower) );
   LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.preambleTransMax              : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.preambleTransMax,
-         SIB2preambleTransMax(sib2->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.preambleTransMax) );
+         sib2->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.preambleTransMax,
+         SIB2preambleTransMax(sib2->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.preambleTransMax) );
   LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.ra_ResponseWindowSize         : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.ra_ResponseWindowSize,
-         SIB2ra_ResponseWindowSize(sib2->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.ra_ResponseWindowSize) );
+         sib2->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.ra_ResponseWindowSize,
+         SIB2ra_ResponseWindowSize(sib2->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.ra_ResponseWindowSize) );
   LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.mac_ContentionResolutionTimer : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.mac_ContentionResolutionTimer,
-         SIB2mac_ContentionResolutionTimer(sib2->radioResourceConfigCommon.rach_ConfigCommon.ra_SupervisionInfo.mac_ContentionResolutionTimer) );
+         sib2->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.mac_ContentionResolutionTimer,
+         SIB2mac_ContentionResolutionTimer(sib2->radioResourceConfigCommon->rach_ConfigCommon->ra_SupervisionInfo.mac_ContentionResolutionTimer) );
   LOG_I( RRC, "radioResourceConfigCommon.rach_ConfigCommon.maxHARQ_Msg3Tx : %ld\n",
-         sib2->radioResourceConfigCommon.rach_ConfigCommon.maxHARQ_Msg3Tx );
+         sib2->radioResourceConfigCommon->rach_ConfigCommon->maxHARQ_Msg3Tx );
   // BCCH
   LOG_I( RRC, "radioResourceConfigCommon.bcch_Config.modificationPeriodCoeff : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.bcch_Config.modificationPeriodCoeff,
-         SIB2modificationPeriodCoeff(sib2->radioResourceConfigCommon.bcch_Config.modificationPeriodCoeff) );
+         sib2->radioResourceConfigCommon->bcch_Config->modificationPeriodCoeff,
+         SIB2modificationPeriodCoeff(sib2->radioResourceConfigCommon->bcch_Config->modificationPeriodCoeff) );
   // PCCH
   LOG_I( RRC, "radioResourceConfigCommon.pcch_Config.defaultPagingCycle : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.pcch_Config.defaultPagingCycle,
-         SIB2defaultPagingCycle(sib2->radioResourceConfigCommon.pcch_Config.defaultPagingCycle) );
+         sib2->radioResourceConfigCommon->pcch_Config->defaultPagingCycle,
+         SIB2defaultPagingCycle(sib2->radioResourceConfigCommon->pcch_Config->defaultPagingCycle) );
   LOG_I( RRC, "radioResourceConfigCommon.pcch_Config.nB                 : raw:%ld decoded:%s\n",
-         sib2->radioResourceConfigCommon.pcch_Config.nB,
-         SIB2nB(sib2->radioResourceConfigCommon.pcch_Config.nB) );
+         sib2->radioResourceConfigCommon->pcch_Config->nB,
+         SIB2nB(sib2->radioResourceConfigCommon->pcch_Config->nB) );
   // PRACH
   LOG_I( RRC, "radioResourceConfigCommon.prach_Config.rootSequenceIndex                          : %ld\n",
-         sib2->radioResourceConfigCommon.prach_Config.rootSequenceIndex );
+         sib2->radioResourceConfigCommon->prach_Config->rootSequenceIndex );
   LOG_I( RRC, "radioResourceConfigCommon.prach_Config.prach_ConfigInfo.prach_ConfigIndex         : %ld\n",
-         sib2->radioResourceConfigCommon.prach_Config.prach_ConfigInfo.prach_ConfigIndex );
+         sib2->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_ConfigIndex );
   LOG_I( RRC, "radioResourceConfigCommon.prach_Config.prach_ConfigInfo.highSpeedFlag             : %d\n",
-         sib2->radioResourceConfigCommon.prach_Config.prach_ConfigInfo.highSpeedFlag );
+         sib2->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->highSpeedFlag );
   LOG_I( RRC, "radioResourceConfigCommon.prach_Config.prach_ConfigInfo.zeroCorrelationZoneConfig : %ld\n",
-         sib2->radioResourceConfigCommon.prach_Config.prach_ConfigInfo.zeroCorrelationZoneConfig );
+         sib2->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->zeroCorrelationZoneConfig );
   LOG_I( RRC, "radioResourceConfigCommon.prach_Config.prach_ConfigInfo.prach_FreqOffset          : %ld\n",
-         sib2->radioResourceConfigCommon.prach_Config.prach_ConfigInfo.prach_FreqOffset );
+         sib2->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_FreqOffset );
   // PDSCH-Config
   LOG_I( RRC, "radioResourceConfigCommon.pdsch_ConfigCommon.referenceSignalPower : %ld\n",
-         sib2->radioResourceConfigCommon.pdsch_ConfigCommon.referenceSignalPower );
+         sib2->radioResourceConfigCommon->pdsch_ConfigCommon->referenceSignalPower );
   LOG_I( RRC, "radioResourceConfigCommon.pdsch_ConfigCommon.p_b                  : %ld\n",
-         sib2->radioResourceConfigCommon.pdsch_ConfigCommon.p_b );
+         sib2->radioResourceConfigCommon->pdsch_ConfigCommon->p_b );
   // PUSCH-Config
   LOG_I( RRC, "radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.n_SB                : %ld\n",
-         sib2->radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.n_SB );
+         sib2->radioResourceConfigCommon->pusch_ConfigCommon->pusch_ConfigBasic.n_SB );
   LOG_I( RRC, "radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.hoppingMode         : %ld\n",
-         sib2->radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.hoppingMode );
+         sib2->radioResourceConfigCommon->pusch_ConfigCommon->pusch_ConfigBasic.hoppingMode );
   LOG_I( RRC, "radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.pusch_HoppingOffset : %ld\n",
-         sib2->radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.pusch_HoppingOffset );
+         sib2->radioResourceConfigCommon->pusch_ConfigCommon->pusch_ConfigBasic.pusch_HoppingOffset );
   LOG_I( RRC, "radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.enable64QAM         : %d\n",
-         sib2->radioResourceConfigCommon.pusch_ConfigCommon.pusch_ConfigBasic.enable64QAM );
+         sib2->radioResourceConfigCommon->pusch_ConfigCommon->pusch_ConfigBasic.enable64QAM );
   LOG_I( RRC, "radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.groupHoppingEnabled    : %d\n",
-         sib2->radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.groupHoppingEnabled );
+         sib2->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH->groupHoppingEnabled );
   LOG_I( RRC, "radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.groupAssignmentPUSCH   : %ld\n",
-         sib2->radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.groupAssignmentPUSCH );
+         sib2->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH->groupAssignmentPUSCH );
   LOG_I( RRC, "radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.sequenceHoppingEnabled : %d\n",
-         sib2->radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.sequenceHoppingEnabled );
+         sib2->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH->sequenceHoppingEnabled );
   LOG_I( RRC, "radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.cyclicShift            : %ld\n",
-         sib2->radioResourceConfigCommon.pusch_ConfigCommon.ul_ReferenceSignalsPUSCH.cyclicShift );
+         sib2->radioResourceConfigCommon->pusch_ConfigCommon->ul_ReferenceSignalsPUSCH->cyclicShift );
   // PUCCH-Config
   LOG_I( RRC, "radioResourceConfigCommon.pucch_ConfigCommon.deltaPUCCH_Shift : %ld\n",
-         sib2->radioResourceConfigCommon.pucch_ConfigCommon.deltaPUCCH_Shift );
+         sib2->radioResourceConfigCommon->pucch_ConfigCommon->deltaPUCCH_Shift );
   LOG_I( RRC, "radioResourceConfigCommon.pucch_ConfigCommon.nRB_CQI          : %ld\n",
-         sib2->radioResourceConfigCommon.pucch_ConfigCommon.nRB_CQI );
+         sib2->radioResourceConfigCommon->pucch_ConfigCommon->nRB_CQI );
   LOG_I( RRC, "radioResourceConfigCommon.pucch_ConfigCommon.nCS_AN           : %ld\n",
-         sib2->radioResourceConfigCommon.pucch_ConfigCommon.nCS_AN );
+         sib2->radioResourceConfigCommon->pucch_ConfigCommon->nCS_AN );
   LOG_I( RRC, "radioResourceConfigCommon.pucch_ConfigCommon.n1PUCCH_AN       : %ld\n",
-         sib2->radioResourceConfigCommon.pucch_ConfigCommon.n1PUCCH_AN );
+         sib2->radioResourceConfigCommon->pucch_ConfigCommon->n1PUCCH_AN );
   // SoundingRS_UL_Config
   LOG_I( RRC, "radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present : raw:%d decoded:%s\n",
-         sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present,
-         SIB2SoundingPresent(sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present) );
+         sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present,
+         SIB2SoundingPresent(sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present) );
 
-  if (sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.present == LTE_SoundingRS_UL_ConfigCommon_PR_setup) {
+  if (sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->present == LTE_SoundingRS_UL_ConfigCommon_PR_setup) {
     LOG_I( RRC, "radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_BandwidthConfig                 : %ld\n",
-           sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_BandwidthConfig );
+           sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_BandwidthConfig );
     LOG_I( RRC, "radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig                  : %ld\n",
-           sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_SubframeConfig );
+           sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_SubframeConfig );
     LOG_I( RRC, "radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.ackNackSRS_SimultaneousTransmission : %d\n",
-           sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.ackNackSRS_SimultaneousTransmission );
+           sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.ackNackSRS_SimultaneousTransmission );
 
-    if(sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_MaxUpPts) {
+    if(sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_MaxUpPts) {
       LOG_I( RRC, "radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_MaxUpPts                        : %ld\n",
              /* TODO: check that it's okay to access [0] */
-             sib2->radioResourceConfigCommon.soundingRS_UL_ConfigCommon.choice.setup.srs_MaxUpPts[0] );
+             sib2->radioResourceConfigCommon->soundingRS_UL_ConfigCommon->choice.setup.srs_MaxUpPts[0] );
     }
   }
 
   // uplinkPowerControlCommon
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.p0_NominalPUSCH   : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.p0_NominalPUSCH );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->p0_NominalPUSCH );
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.alpha             : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.alpha );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->alpha );
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.p0_NominalPUCCH   : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.p0_NominalPUCCH );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->p0_NominalPUCCH );
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format1  : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format1 );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format1 );
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format1b : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format1b );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format1b );
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2  : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2 );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format2 );
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2a : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2a );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format2a );
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2b : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.deltaFList_PUCCH.deltaF_PUCCH_Format2b );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->deltaFList_PUCCH->deltaF_PUCCH_Format2b );
   LOG_I( RRC, "radioResourceConfigCommon.uplinkPowerControlCommon.deltaPreambleMsg3 : %ld\n",
-         sib2->radioResourceConfigCommon.uplinkPowerControlCommon.deltaPreambleMsg3 );
+         sib2->radioResourceConfigCommon->uplinkPowerControlCommon->deltaPreambleMsg3 );
   LOG_I( RRC, "radioResourceConfigCommon.ul_CyclicPrefixLength : %ld\n",
-         sib2->radioResourceConfigCommon.ul_CyclicPrefixLength );
-  LOG_I( RRC, "ue_TimersAndConstants.t300 : %ld\n", sib2->ue_TimersAndConstants.t300 );
-  LOG_I( RRC, "ue_TimersAndConstants.t301 : %ld\n", sib2->ue_TimersAndConstants.t301 );
-  LOG_I( RRC, "ue_TimersAndConstants.t310 : %ld\n", sib2->ue_TimersAndConstants.t310 );
-  LOG_I( RRC, "ue_TimersAndConstants.n310 : %ld\n", sib2->ue_TimersAndConstants.n310 );
-  LOG_I( RRC, "ue_TimersAndConstants.t311 : %ld\n", sib2->ue_TimersAndConstants.t311 );
-  LOG_I( RRC, "ue_TimersAndConstants.n311 : %ld\n", sib2->ue_TimersAndConstants.n311 );
+         sib2->radioResourceConfigCommon->ul_CyclicPrefixLength );
+  LOG_I( RRC, "ue_TimersAndConstants.t300 : %ld\n", sib2->ue_TimersAndConstants->t300 );
+  LOG_I( RRC, "ue_TimersAndConstants.t301 : %ld\n", sib2->ue_TimersAndConstants->t301 );
+  LOG_I( RRC, "ue_TimersAndConstants.t310 : %ld\n", sib2->ue_TimersAndConstants->t310 );
+  LOG_I( RRC, "ue_TimersAndConstants.n310 : %ld\n", sib2->ue_TimersAndConstants->n310 );
+  LOG_I( RRC, "ue_TimersAndConstants.t311 : %ld\n", sib2->ue_TimersAndConstants->t311 );
+  LOG_I( RRC, "ue_TimersAndConstants.n311 : %ld\n", sib2->ue_TimersAndConstants->n311 );
 
   if (sib2->freqInfo.ul_CarrierFreq)
     LOG_I( RRC, "freqInfo.ul_CarrierFreq             : %ld\n", *sib2->freqInfo.ul_CarrierFreq );
@@ -3235,14 +3265,14 @@ uint64_t arfcn_to_freq(long arfcn) {
   }
 }
 void dump_sib5( LTE_SystemInformationBlockType5_t *sib5 ) {
-  LTE_InterFreqCarrierFreqList_t interFreqCarrierFreqList = sib5->interFreqCarrierFreqList;
+  LTE_InterFreqCarrierFreqList_t *interFreqCarrierFreqList = sib5->interFreqCarrierFreqList;
   int i,j;
   LTE_InterFreqCarrierFreqInfo_t *ifcfInfo;
   LOG_I( RRC, "Dumping SIB5 (see TS36.331 V8.21.0)\n" );
 
-  for (i=0; i<interFreqCarrierFreqList.list.count; i++) {
-    LOG_I(RRC, "SIB5 InterFreqCarrierFreq element %d/%d\n",i,interFreqCarrierFreqList.list.count);
-    ifcfInfo = interFreqCarrierFreqList.list.array[i];
+  for (i=0; i<interFreqCarrierFreqList->list.count; i++) {
+    LOG_I(RRC, "SIB5 InterFreqCarrierFreq element %d/%d\n",i,interFreqCarrierFreqList->list.count);
+    ifcfInfo = interFreqCarrierFreqList->list.array[i];
     LOG_I(RRC, "   DL Carrier Frequency/ARFCN : %ld/%ld\n",
           arfcn_to_freq(ifcfInfo->dl_CarrierFreq),
           ifcfInfo->dl_CarrierFreq);
@@ -3342,9 +3372,9 @@ void dump_sib5( LTE_SystemInformationBlockType5_t *sib5 ) {
 void dump_sib13( LTE_SystemInformationBlockType13_r9_t *sib13 ) {
   LOG_I( RRC, "[UE] Dumping SIB13\n" );
   LOG_I( RRC, "[UE] dumping sib13 second time\n" );
-  LOG_I( RRC, "[UE] NotificationRepetitionCoeff-r9 : %ld\n", sib13->notificationConfig_r9.notificationRepetitionCoeff_r9 );
-  LOG_I( RRC, "[UE] NotificationOffset-r9 : %d\n", (int)sib13->notificationConfig_r9.notificationOffset_r9 );
-  LOG_I( RRC, "[UE] NotificationSF-Index-r9 : %d\n", (int)sib13->notificationConfig_r9.notificationSF_Index_r9 );
+  LOG_I( RRC, "[UE] NotificationRepetitionCoeff-r9 : %ld\n", sib13->notificationConfig_r9->notificationRepetitionCoeff_r9 );
+  LOG_I( RRC, "[UE] NotificationOffset-r9 : %d\n", (int)sib13->notificationConfig_r9->notificationOffset_r9 );
+  LOG_I( RRC, "[UE] NotificationSF-Index-r9 : %d\n", (int)sib13->notificationConfig_r9->notificationSF_Index_r9 );
 }
 
 
@@ -3358,9 +3388,9 @@ void dump_sib18(LTE_SystemInformationBlockType18_r12_t *sib18) {
     LOG_I(RRC, " SIB18 rxPool_sc_CP_Len: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->sc_CP_Len_r12);
     LOG_I(RRC, " SIB18 sc_Period_r12: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->sc_Period_r12);
     LOG_I(RRC, " SIB18 data_CP_Len_r12: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->data_CP_Len_r12);
-    LOG_I(RRC, " SIB18 prb_Num_r12: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->sc_TF_ResourceConfig_r12.prb_Num_r12);
-    LOG_I(RRC, " SIB18 prb_Start_r12: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->sc_TF_ResourceConfig_r12.prb_Start_r12);
-    LOG_I(RRC, " SIB18 prb_End_r12: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->sc_TF_ResourceConfig_r12.prb_End_r12);
+    LOG_I(RRC, " SIB18 prb_Num_r12: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->sc_TF_ResourceConfig_r12->prb_Num_r12);
+    LOG_I(RRC, " SIB18 prb_Start_r12: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->sc_TF_ResourceConfig_r12->prb_Start_r12);
+    LOG_I(RRC, " SIB18 prb_End_r12: %ld \n", sib18->commConfig_r12->commRxPool_r12.list.array[i]->sc_TF_ResourceConfig_r12->prb_End_r12);
     //to add more log
   }
 }
@@ -3376,9 +3406,9 @@ void dump_sib19(LTE_SystemInformationBlockType19_r12_t *sib19) {
     LOG_I(RRC, " SIB19 discPeriod_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->discPeriod_r12);
     LOG_I(RRC, " SIB19 numRetx_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->numRetx_r12);
     LOG_I(RRC, " SIB19 numRepetition_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->numRepetition_r12);
-    LOG_I(RRC, " SIB19 prb_Num_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->tf_ResourceConfig_r12.prb_Num_r12);
-    LOG_I(RRC, " SIB19 prb_Start_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->tf_ResourceConfig_r12.prb_Start_r12);
-    LOG_I(RRC, " SIB19 prb_End_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->tf_ResourceConfig_r12.prb_End_r12);
+    LOG_I(RRC, " SIB19 prb_Num_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->tf_ResourceConfig_r12->prb_Num_r12);
+    LOG_I(RRC, " SIB19 prb_Start_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->tf_ResourceConfig_r12->prb_Start_r12);
+    LOG_I(RRC, " SIB19 prb_End_r12: %ld \n", sib19->discConfig_r12->discRxPool_r12.list.array[i]->tf_ResourceConfig_r12->prb_End_r12);
     //to add more log
   }
 }
@@ -3387,7 +3417,7 @@ void dump_sib21(LTE_SystemInformationBlockType21_r14_t *sib21) {
   if ((sib21->sl_V2X_ConfigCommon_r14 != NULL) && (sib21->sl_V2X_ConfigCommon_r14->v2x_CommRxPool_r14 !=NULL) ) {
     for (int i = 0; i < sib21->sl_V2X_ConfigCommon_r14->v2x_CommRxPool_r14->list.count; i++) {
       LOG_I(RRC, " Contents of SIB21 %d/%d \n", i+1, sib21->sl_V2X_ConfigCommon_r14->v2x_CommRxPool_r14->list.count);
-      LOG_I(RRC, " SIB21 sl_Subframe_r14: %d \n", sib21->sl_V2X_ConfigCommon_r14->v2x_CommRxPool_r14->list.array[i]->sl_Subframe_r14.present);
+      LOG_I(RRC, " SIB21 sl_Subframe_r14: %d \n", sib21->sl_V2X_ConfigCommon_r14->v2x_CommRxPool_r14->list.array[i]->sl_Subframe_r14->present);
       LOG_I(RRC, " SIB21 adjacencyPSCCH_PSSCH_r14: %d \n", sib21->sl_V2X_ConfigCommon_r14->v2x_CommRxPool_r14->list.array[i]->adjacencyPSCCH_PSSCH_r14);
       LOG_I(RRC, " SIB21 sizeSubchannel_r14: %ld \n", sib21->sl_V2X_ConfigCommon_r14->v2x_CommRxPool_r14->list.array[i]->sizeSubchannel_r14);
       LOG_I(RRC, " SIB21 numSubchannel_r14: %ld \n", sib21->sl_V2X_ConfigCommon_r14->v2x_CommRxPool_r14->list.array[i]->numSubchannel_r14);
@@ -3421,11 +3451,11 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
   }
 
   for (int i=0; i<(*si)->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
-    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *typeandinfo;
+    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *typeandinfo;
     typeandinfo = (*si)->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
 
     switch(typeandinfo->present) {
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib2:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&2) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=2;
           //new_sib=1;
@@ -3435,7 +3465,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
           LOG_I( RRC, "[FRAME %05"PRIu32"][RRC_UE][MOD %02"PRIu8"][][--- MAC_CONFIG_REQ (SIB2 params  eNB %"PRIu8") --->][MAC_UE][MOD %02"PRIu8"][]\n",
                  ctxt_pP->frame, ctxt_pP->module_id, eNB_index, ctxt_pP->module_id );
           rrc_mac_config_req_ue(ctxt_pP->module_id, 0, eNB_index,
-                                &UE_rrc_inst[ctxt_pP->module_id].sib2[eNB_index]->radioResourceConfigCommon,
+                                UE_rrc_inst[ctxt_pP->module_id].sib2[eNB_index]->radioResourceConfigCommon,
                                 (struct LTE_PhysicalConfigDedicated *)NULL,
                                 (LTE_SCellToAddMod_r10_t *)NULL,
                                 (LTE_MeasObjectToAddMod_t **)NULL,
@@ -3513,9 +3543,9 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
                }
        }
 
-        break; // case SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib2
+        break; // case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib3:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib3:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&4) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=4;
           new_sib=1;
@@ -3526,7 +3556,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib4:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib4:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&8) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=8;
           new_sib=1;
@@ -3536,7 +3566,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib5:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib5:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&16) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=16;
           new_sib=1;
@@ -3547,7 +3577,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib6:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib6:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&32) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=32;
           new_sib=1;
@@ -3557,7 +3587,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib7:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib7:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&64) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=64;
           new_sib=1;
@@ -3567,7 +3597,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib8:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib8:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&128) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=128;
           new_sib=1;
@@ -3577,7 +3607,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib9:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib9:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&256) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=256;
           new_sib=1;
@@ -3587,7 +3617,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib10:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib10:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&512) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=512;
           new_sib=1;
@@ -3597,7 +3627,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib11:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib11:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&1024) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=1024;
           new_sib=1;
@@ -3607,7 +3637,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib12_v920:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib12_v920:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&2048) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=2048;
           new_sib=1;
@@ -3617,7 +3647,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
 
         break;
 
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&4096) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=4096;
           new_sib=1;
@@ -3645,7 +3675,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
                                 NULL,
                                 (LTE_MBSFN_SubframeConfigList_t *)NULL,
                                 0,
-                                &UE_rrc_inst[ctxt_pP->module_id].sib13[eNB_index]->mbsfn_AreaInfoList_r9,
+                                UE_rrc_inst[ctxt_pP->module_id].sib13[eNB_index]->mbsfn_AreaInfoList_r9,
                                 (LTE_PMCH_InfoList_r9_t *)NULL,
                                 0,
                                 NULL,
@@ -3658,7 +3688,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
         break;
 
       //SIB18
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib18_v1250:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib18_v1250:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&8192) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=8192;
           new_sib=1;
@@ -3680,7 +3710,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
         break;
 
       //SIB19
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib19_v1250:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1250:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&16384) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=16384;
           new_sib=1;
@@ -3702,7 +3732,7 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
         break;
 
       //SIB21
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib21_v1430:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib21_v1430:
         if ((UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus&32768) == 0) {
           UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus|=32768;
           new_sib=1;
@@ -3724,13 +3754,13 @@ int decode_SI( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB_index ) {
     if (new_sib == 1) {
       UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIcnt++;
   
-      if (UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIcnt == sib1->schedulingInfoList.list.count)
+      if (UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIcnt == sib1->schedulingInfoList->list.count)
         rrc_set_sub_state( ctxt_pP->module_id, RRC_SUB_STATE_IDLE_SIB_COMPLETE );
   
       LOG_I(RRC,"SIStatus %x, SIcnt %d/%d\n",
             UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIStatus,
             UE_rrc_inst[ctxt_pP->module_id].Info[eNB_index].SIcnt,
-            sib1->schedulingInfoList.list.count);
+            sib1->schedulingInfoList->list.count);
     }
   }
 
@@ -4086,16 +4116,18 @@ int decode_MCCH_Message( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB
     }
       xer_fprint(stdout, &asn_DEF_LTE_MCCH_Message, (void *)mcch);
 
-    if (mcch->message.present == LTE_MCCH_MessageType_PR_c1) {
+    if (mcch->message->present == LTE_MCCH_MessageType_PR_c1) {
       LOG_D(RRC,"[UE %d] Found mcch message \n",
             ctxt_pP->module_id);
 
-      if(mcch->message.choice.c1.present == LTE_MCCH_MessageType__c1_PR_mbsfnAreaConfiguration_r9) {
+      if(mcch->message->choice.c1.present == LTE_MCCH_MessageType__c1_PR_mbsfnAreaConfiguration_r9) {
+        if (!mcch->message)
+          mcch->message = calloc_or_fail(1, sizeof(*mcch->message));
         /*
         memcpy((void*)*mcch_message,
          (void*)&mcch->message.choice.c1.choice.mbsfnAreaConfiguration_r9,
          sizeof(MBSFNAreaConfiguration_r9_t)); */
-        *mcch_message = &mcch->message.choice.c1.choice.mbsfnAreaConfiguration_r9;
+        *mcch_message = &mcch->message->choice.c1.choice.mbsfnAreaConfiguration_r9;
         LOG_I(RRC,"[UE %d] Frame %d : Found MBSFNAreaConfiguration from eNB %d \n",
               ctxt_pP->module_id,
               ctxt_pP->frame,
@@ -4106,17 +4138,17 @@ int decode_MCCH_Message( const protocol_ctxt_t *const ctxt_pP, const uint8_t eNB
           ctxt_pP->frame,
           mbsfn_sync_area);
       }
-    }else if(mcch->message.present == LTE_MCCH_MessageType_PR_later){
+    }else if(mcch->message->present == LTE_MCCH_MessageType_PR_later){
       LOG_D(RRC,"[UE %d] Found mcch message \n",
             ctxt_pP->module_id);
-        if(mcch->message.choice.later.present == LTE_MCCH_MessageType__later_PR_c2){
-		if(mcch->message.choice.later.choice.c2.present == LTE_MCCH_MessageType__later__c2_PR_mbmsCountingRequest_r10){
+        if(mcch->message->choice.later.present == LTE_MCCH_MessageType__later_PR_c2){
+		if(mcch->message->choice.later.choice.c2.present == LTE_MCCH_MessageType__later__c2_PR_mbmsCountingRequest_r10){
         		LOG_I(RRC,"[UE %d] Frame %d : Found MBMSCountingRequest from eNB %d %p\n",
               			ctxt_pP->module_id,
               			ctxt_pP->frame,
-              			eNB_index,&mcch->message.choice.later.choice.c2.choice.mbmsCountingRequest_r10);
+              			eNB_index,&mcch->message->choice.later.choice.c2.choice.mbmsCountingRequest_r10);
 
-  			rrc_ue_process_MBMSCountingRequest(ctxt_pP,&mcch->message.choice.later.choice.c2.choice.mbmsCountingRequest_r10,eNB_index);
+  			rrc_ue_process_MBMSCountingRequest(ctxt_pP,&mcch->message->choice.later.choice.c2.choice.mbmsCountingRequest_r10,eNB_index);
 
 			decode_MBMSCountingRequest(
           			ctxt_pP->module_id,
@@ -4139,16 +4171,16 @@ void decode_MBSFNAreaConfiguration( module_id_t ue_mod_idP, uint8_t eNB_index, f
   uint8_t i;
   protocol_ctxt_t               ctxt;
   LOG_I(RRC,"[UE %d] Frame %d : Number of MCH(s) in the MBSFN Sync Area %d  is %d\n",
-        ue_mod_idP, frameP, mbsfn_sync_area, UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->pmch_InfoList_r9.list.count);
+        ue_mod_idP, frameP, mbsfn_sync_area, UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->pmch_InfoList_r9->list.count);
 
   // Configure commonSF_Alloc
-  for(i=0; i< UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9.list.count; i++) {
+  for(i=0; i< UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9->list.count; i++) {
     LOG_W(RRC,"[UE %d] Frame %d, commonSF_Alloc_r9: radioframeAllocationPeriod(%ldn),radioframeAllocationOffset(%ld), subframeAllocation(%x)\n",
           ue_mod_idP, frameP,
-          UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9.list.array[i]->radioframeAllocationPeriod<<1,
-          UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9.list.array[i]->radioframeAllocationOffset,
-          UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9.list.array[i]->subframeAllocation.choice.oneFrame.buf[0]);
-    UE_mac_inst[ue_mod_idP].commonSF_Alloc_r9_mbsfn_SubframeConfig[i] = UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9.list.array[i];
+          UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9->list.array[i]->radioframeAllocationPeriod<<1,
+          UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9->list.array[i]->radioframeAllocationOffset,
+          UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9->list.array[i]->subframeAllocation.choice.oneFrame.buf[0]);
+    UE_mac_inst[ue_mod_idP].commonSF_Alloc_r9_mbsfn_SubframeConfig[i] = UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->commonSF_Alloc_r9->list.array[i];
   }
 
   LOG_W(RRC,"[UE %d] Frame %d, commonSF_AllocPeriod_r9 %drf \n",
@@ -4176,7 +4208,7 @@ void decode_MBSFNAreaConfiguration( module_id_t ue_mod_idP, uint8_t eNB_index, f
                         (LTE_MBSFN_SubframeConfigList_t *)NULL,
                         0,
                         (LTE_MBSFN_AreaInfoList_r9_t *)NULL,
-                        &UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->pmch_InfoList_r9,
+                        UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->pmch_InfoList_r9,
                         0,
                         NULL,
                         NULL,
@@ -4196,14 +4228,14 @@ void decode_MBSFNAreaConfiguration( module_id_t ue_mod_idP, uint8_t eNB_index, f
                            NULL, // key rrc encryption
                            NULL, // key rrc integrity
                            NULL, // key encryption
-                           &(UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->pmch_InfoList_r9),
+                           (UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->pmch_InfoList_r9),
                            NULL
                           );
   rrc_rlc_config_asn1_req(&ctxt,
                           NULL,// SRB_ToAddModList
                           NULL,// DRB_ToAddModList
                           NULL,// DRB_ToReleaseList
-                          &(UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->pmch_InfoList_r9), 0, 0
+                          (UE_rrc_inst[ue_mod_idP].mcch_message[eNB_index]->pmch_InfoList_r9), 0, 0
                          );
   // */
 }
@@ -4372,7 +4404,7 @@ void *rrc_ue_task( void *args_p ) {
         AssertFatal(RRC_DCCH_DATA_COPY_IND (msg_p).sdu_size == sizeof(*dl_dcch_buffer), "Size of dl_dcch_buffer incorrect\n");
         rrc_ue_process_ueCapabilityEnquiry(
               &ctxt,
-              &dl_dcch_buffer->dl_dcch_msg->message.choice.c1.choice.ueCapabilityEnquiry,
+              &dl_dcch_buffer->dl_dcch_msg->message->choice.c1.choice.ueCapabilityEnquiry,
               RRC_DCCH_DATA_COPY_IND (msg_p).eNB_index);
         SEQUENCE_free(&asn_DEF_LTE_DL_DCCH_Message, dl_dcch_buffer->dl_dcch_msg, ASFM_FREE_EVERYTHING);
         result = itti_free (ITTI_MSG_ORIGIN_ID(msg_p), RRC_DCCH_DATA_COPY_IND (msg_p).sdu_p);
@@ -5550,7 +5582,7 @@ rrc_rx_tx_ue(
             "[UE %d][RAPROC] Frame %d T300 Count %d ms\n", ctxt_pP->module_id, ctxt_pP->frame, UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T300_cnt);
 
     if (UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T300_cnt
-        == T300[UE_rrc_inst[ctxt_pP->module_id].sib2[enb_indexP]->ue_TimersAndConstants.t300]) {
+        == T300[UE_rrc_inst[ctxt_pP->module_id].sib2[enb_indexP]->ue_TimersAndConstants->t300]) {
       UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T300_active = 0;
       // ALLOW CCCH to be used
       UE_rrc_inst[ctxt_pP->module_id].Srb0[enb_indexP].Tx_buffer.payload_size = 0;
@@ -5564,7 +5596,7 @@ rrc_rx_tx_ue(
 
   if ((UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].SIStatus&2)>0) {
     if (UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].N310_cnt
-        == N310[UE_rrc_inst[ctxt_pP->module_id].sib2[enb_indexP]->ue_TimersAndConstants.n310]) {
+        == N310[UE_rrc_inst[ctxt_pP->module_id].sib2[enb_indexP]->ue_TimersAndConstants->n310]) {
       LOG_I(RRC,"Activating T310\n");
       UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T310_active = 1;
     }
@@ -5579,7 +5611,7 @@ rrc_rx_tx_ue(
 
   if (UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T310_active == 1) {
     if (UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].N311_cnt
-        == N311[UE_rrc_inst[ctxt_pP->module_id].sib2[enb_indexP]->ue_TimersAndConstants.n311]) {
+        == N311[UE_rrc_inst[ctxt_pP->module_id].sib2[enb_indexP]->ue_TimersAndConstants->n311]) {
       UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T310_active = 0;
       UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].N311_cnt = 0;
     }
@@ -5588,7 +5620,7 @@ rrc_rx_tx_ue(
       LOG_D(RRC, "[UE %d] Frame %d T310 Count %d ms\n", ctxt_pP->module_id, ctxt_pP->frame, UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T310_cnt);
     }
 
-    if (UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T310_cnt    == T310[UE_rrc_inst[ctxt_pP->module_id].sib2[enb_indexP]->ue_TimersAndConstants.t310]) {
+    if (UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T310_cnt    == T310[UE_rrc_inst[ctxt_pP->module_id].sib2[enb_indexP]->ue_TimersAndConstants->t310]) {
       UE_rrc_inst[ctxt_pP->module_id].Info[enb_indexP].T310_active = 0;
       rrc_t310_expiration (ctxt_pP, enb_indexP);
       VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_RRC_RX_TX,VCD_FUNCTION_OUT);

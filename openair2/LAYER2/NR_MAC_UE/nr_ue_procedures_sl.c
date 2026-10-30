@@ -16,14 +16,14 @@ uint8_t sl_process_TDD_UL_DL_config_patterns(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL
 
   uint8_t return_value = 255;
   *w = 0;
-  int pattern1_dlul_period = TDD_UL_DL_Config->pattern1.dl_UL_TransmissionPeriodicity;
+  int pattern1_dlul_period = TDD_UL_DL_Config->pattern1->dl_UL_TransmissionPeriodicity;
 
 #ifdef SL_DEBUG
 
   printf("INPUT VALUES: function: %s\n", __func__);
   printf("pattern1 periodicity:%d\n", pattern1_dlul_period);
-  if (TDD_UL_DL_Config->pattern1.ext1 != NULL && TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530 != NULL )
-    printf("pattern1 periodicity_v1530:%ld\n", *TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530);
+  if (TDD_UL_DL_Config->pattern1->ext1 != NULL && TDD_UL_DL_Config->pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530 != NULL )
+    printf("pattern1 periodicity_v1530:%ld\n", *TDD_UL_DL_Config->pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530);
   if (TDD_UL_DL_Config->pattern2 != NULL) {
     printf("mu:%d, pattern2 periodicity:%d\n", mu, pattern1_dlul_period);
     if (TDD_UL_DL_Config->pattern2->ext1 != NULL && TDD_UL_DL_Config->pattern2->ext1->dl_UL_TransmissionPeriodicity_v1530 != NULL )
@@ -65,9 +65,9 @@ uint8_t sl_process_TDD_UL_DL_config_patterns(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL
       break;
   }
 
-  if (TDD_UL_DL_Config->pattern1.ext1 != NULL &&
-      TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530 != NULL ) {
-    if (*TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530 == 1) {
+  if (TDD_UL_DL_Config->pattern1->ext1 != NULL &&
+      TDD_UL_DL_Config->pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530 != NULL ) {
+    if (*TDD_UL_DL_Config->pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530 == 1) {
       *slot_period_P = 4.0;
       return_value = 6;
     } else {
@@ -190,8 +190,8 @@ void sl_prepare_psbch_payload(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
 
     mu_ref = TDD_UL_DL_Config->referenceSubcarrierSpacing;
     diff = 1 << (mu-mu_ref);
-    u_slots = TDD_UL_DL_Config->pattern1.nrofUplinkSlots;
-    u_sym = TDD_UL_DL_Config->pattern1.nrofUplinkSymbols;
+    u_slots = TDD_UL_DL_Config->pattern1->nrofUplinkSlots;
+    u_sym = TDD_UL_DL_Config->pattern1->nrofUplinkSymbols;
     I1 = ((u_sym * diff) % L >= (L-Y)) ? 1 : 0;
 
 #ifdef SL_DEBUG
@@ -252,12 +252,14 @@ uint8_t sl_decode_sl_TDD_Config(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
   AssertFatal(TDD_UL_DL_Config, "TDD_UL_DL_Config cannot be null");
   uint16_t num_SL_slots = 0, mixed_slot_numsym = 0;
 
-  TDD_UL_DL_Config->pattern1.nrofDownlinkSlots = 0;
-  TDD_UL_DL_Config->pattern1.nrofDownlinkSymbols = 0;
-  TDD_UL_DL_Config->pattern1.nrofUplinkSlots = 0;
-  TDD_UL_DL_Config->pattern1.nrofUplinkSymbols = 0;
+  if (!TDD_UL_DL_Config->pattern1)
+    TDD_UL_DL_Config->pattern1 = calloc_or_fail(1, sizeof(*TDD_UL_DL_Config->pattern1));
+  TDD_UL_DL_Config->pattern1->nrofDownlinkSlots = 0;
+  TDD_UL_DL_Config->pattern1->nrofDownlinkSymbols = 0;
+  TDD_UL_DL_Config->pattern1->nrofUplinkSlots = 0;
+  TDD_UL_DL_Config->pattern1->nrofUplinkSymbols = 0;
   TDD_UL_DL_Config->referenceSubcarrierSpacing = mu;
-  TDD_UL_DL_Config->pattern1.ext1 = NULL;
+  TDD_UL_DL_Config->pattern1->ext1 = NULL;
 
   LOG_D(MAC, "bits_0_to_7:%x, bits_8_to_11:%x, mu:%d, L:%d, Y:%d\n",
                                                   bits_0_to_7, bits_8_to_11,mu, L, Y);
@@ -279,25 +281,25 @@ uint8_t sl_decode_sl_TDD_Config(NR_TDD_UL_DL_ConfigCommon_t *TDD_UL_DL_Config,
     //Only Pattern1 Present. bits a1..a4 identify the periodicity.
     uint8_t val = (bits_0_to_7 & 0x78) >> 3;
     if (val >= 7)
-      TDD_UL_DL_Config->pattern1.dl_UL_TransmissionPeriodicity = val-1;
+      TDD_UL_DL_Config->pattern1->dl_UL_TransmissionPeriodicity = val-1;
 
     if (val == 6) {
-      if (TDD_UL_DL_Config->pattern1.ext1 == NULL)
-        TDD_UL_DL_Config->pattern1.ext1 = calloc(1, sizeof(*TDD_UL_DL_Config->pattern1.ext1));
-      if (TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530 == NULL)
-        TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530 = calloc(1, sizeof(long));
-      *TDD_UL_DL_Config->pattern1.ext1->dl_UL_TransmissionPeriodicity_v1530 = 1;
+      if (TDD_UL_DL_Config->pattern1->ext1 == NULL)
+        TDD_UL_DL_Config->pattern1->ext1 = calloc(1, sizeof(*TDD_UL_DL_Config->pattern1->ext1));
+      if (TDD_UL_DL_Config->pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530 == NULL)
+        TDD_UL_DL_Config->pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530 = calloc(1, sizeof(long));
+      *TDD_UL_DL_Config->pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530 = 1;
     }
 
     //a5,a6..a11 bits from the 7th to 1st LSB of num SL slots
     num_SL_slots = ((bits_0_to_7 & 0x07) << 4 ) | ((bits_8_to_11 & 0xF0) >> 4);
 
-    TDD_UL_DL_Config->pattern1.nrofUplinkSlots = num_SL_slots;
-    TDD_UL_DL_Config->pattern1.nrofUplinkSymbols = mixed_slot_numsym;
+    TDD_UL_DL_Config->pattern1->nrofUplinkSlots = num_SL_slots;
+    TDD_UL_DL_Config->pattern1->nrofUplinkSymbols = mixed_slot_numsym;
 
     LOG_D(MAC, "SIDELINK: EXtracted TDD config from 12 bits - Sidelink Slots:%ld, Mixed_slot_symbols:%ld,dl_UL_TransmissionPeriodicity:%ld\n",
-                                TDD_UL_DL_Config->pattern1.nrofUplinkSlots, TDD_UL_DL_Config->pattern1.nrofUplinkSymbols,
-                                TDD_UL_DL_Config->pattern1.dl_UL_TransmissionPeriodicity);
+                                TDD_UL_DL_Config->pattern1->nrofUplinkSlots, TDD_UL_DL_Config->pattern1->nrofUplinkSymbols,
+                                TDD_UL_DL_Config->pattern1->dl_UL_TransmissionPeriodicity);
   }
   return 1;
 }

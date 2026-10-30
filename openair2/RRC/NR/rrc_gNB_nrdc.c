@@ -135,7 +135,7 @@ static int generate_ue_capability_enquiry(uint8_t *out, int outsize, int xid, in
 
   /* capability enquiry */
   NR_DL_DCCH_Message_t m = {
-    .message = {
+    .message = &(NR_DL_DCCH_MessageType_t) {
       .present = NR_DL_DCCH_MessageType_PR_c1,
       .choice = {
         .c1 = &(struct NR_DL_DCCH_MessageType__c1) {
@@ -147,7 +147,7 @@ static int generate_ue_capability_enquiry(uint8_t *out, int outsize, int xid, in
                 .present = NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry,
                 .choice = {
                   .ueCapabilityEnquiry = &(struct NR_UECapabilityEnquiry_IEs) {
-                    .ue_CapabilityRAT_RequestList = {
+                    .ue_CapabilityRAT_RequestList = &(struct NR_UE_CapabilityRAT_RequestList) {
                       .list = {
                         .array = (struct NR_UE_CapabilityRAT_Request *[]) {
                           &(struct NR_UE_CapabilityRAT_Request) {
@@ -196,7 +196,7 @@ static int generate_a4_measurement(gNB_RRC_UE_t *ue,
   nrdc->measurement_id = allocate_measurement_id(ue);
 
   NR_DL_DCCH_Message_t m = {
-    .message = {
+    .message = &(NR_DL_DCCH_MessageType_t) {
       .present = NR_DL_DCCH_MessageType_PR_c1,
       .choice = {
         .c1 = &(struct NR_DL_DCCH_MessageType__c1) {
@@ -221,7 +221,7 @@ static int generate_a4_measurement(gNB_RRC_UE_t *ue,
                                     .ssbFrequency = &(NR_ARFCN_ValueNR_t) { scg_ssb_arfcn },
                                     .ssbSubcarrierSpacing = &(NR_SubcarrierSpacing_t) { scg_ssb_subcarrier_spacing },
                                     .smtc1 = du_ssb_mtc,
-                                    .referenceSignalConfig = {
+                                    .referenceSignalConfig = &(struct NR_ReferenceSignalConfig) {
                                       .ssb_ConfigMobility = &(struct NR_SSB_ConfigMobility) {
                                         .deriveSSB_IndexFromCell = false                   /* hardcoded */
                                       }
@@ -276,7 +276,7 @@ static int generate_a4_measurement(gNB_RRC_UE_t *ue,
                                           .reportInterval = NR_ReportInterval_ms120,       /* hardcoded */
                                           //.reportAmount = NR_EventTriggerConfig__reportAmount_r2,      /* todo: choose a proper value, maybe 1 would be enough? */
                                           .reportAmount = NR_EventTriggerConfig__reportAmount_infinity,
-                                          .reportQuantityCell = {
+                                          .reportQuantityCell = &(struct NR_MeasReportQuantity) {
                                             .rsrp = true,                                  /* hardcoded */
                                             .rsrq = true,                                  /* hardcoded */
                                             .sinr = true                                   /* hardcoded */
@@ -473,7 +473,7 @@ static bool band_combination_supported_by_ue(OCTET_STRING_t *nr_uecap, int mcg_b
   if (cap == NULL)
     return false;
 
-  struct NR_BandCombinationList *comblist = cap->rf_Parameters.supportedBandCombinationList;
+  struct NR_BandCombinationList *comblist = cap->rf_Parameters->supportedBandCombinationList;
   if (comblist == NULL) {
     ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, cap);
     return false;
@@ -989,7 +989,7 @@ void nrdc_rrc_CU_process_ue_context_setup_response(gNB_RRC_UE_t *ue, gNB_RRC_INS
    * especially the explaination about secondaryCellGroup)
    */
   NR_DL_DCCH_Message_t dl_dcch_msg = {
-    .message = {
+    .message = &(NR_DL_DCCH_MessageType_t) {
       .present = NR_DL_DCCH_MessageType_PR_c1,
       .choice = {
         .c1 = &(struct NR_DL_DCCH_MessageType__c1) {
@@ -1202,7 +1202,7 @@ void nrdc_rrc_CU_process_ue_context_modification_response(gNB_RRC_UE_t *ue, gNB_
   ue->xids[xid] = RRC_F1_NRDC_IN_PROGRESS;
 
   NR_DL_DCCH_Message_t dl_dcch_msg = {
-    .message = {
+    .message = &(NR_DL_DCCH_MessageType_t) {
       .present = NR_DL_DCCH_MessageType_PR_c1,
       .choice = { .c1 = &(struct NR_DL_DCCH_MessageType__c1) {
           .present = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration,
@@ -1422,7 +1422,7 @@ void nrdc_scg_failure_context_modification_response(gNB_RRC_UE_t *ue, gNB_RRC_IN
   ue->xids[xid] = RRC_F1_NRDC_IN_PROGRESS;
 
   NR_DL_DCCH_Message_t dl_dcch_msg = {
-    .message = {
+    .message = &(NR_DL_DCCH_MessageType_t) {
       .present = NR_DL_DCCH_MessageType_PR_c1,
       .choice = { .c1 = &(struct NR_DL_DCCH_MessageType__c1) {
           .present = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration,

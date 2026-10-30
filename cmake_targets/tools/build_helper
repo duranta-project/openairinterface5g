@@ -467,14 +467,14 @@ install_asn1c_from_source(){
     $SUDO rm -rf /tmp/asn1c
     git clone https://github.com/mouse07410/asn1c /tmp/asn1c
     cd /tmp/asn1c
-    #git checkout vlm_master
-    # hotfix: current vlm_master (5fa129cf3161da9ff2d67341e6277e818c0f5d6a)
-    # breaks F1, NG, so use the one before.
-    git checkout 940dd5fa9f3917913fd487b13dfddfacd0ded06e
+    # a commit after v1.5.3, with the fix for the struct names of pointer
+    # members (mouse07410/asn1c#592); not in a release yet. If you change
+    # it, change the minimum version in CMakeLists.txt as well
+    git checkout d0bea1c5ebc09a56d2ca2f106460f2918236692c
     # Showing which version is used
     git log -n1
     autoreconf -iv
-    CFLAGS="-O2 -fno-strict-aliasing" ./configure --prefix /opt/asn1c/
+    CFLAGS="-O2" ./configure --prefix /opt/asn1c/
     make -j`nproc`
     $SUDO make install
     cd -

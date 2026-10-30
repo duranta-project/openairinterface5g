@@ -55,7 +55,7 @@ static int select_dl_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetDow
     const NR_FeatureSetDownlinkPerCC_t *cc = fs->featureSetsDownlinkPerCC->list.array[id - 1];
     if (cc->supportedSubcarrierSpacingDL != scs)
       continue;
-    bool fits_bw = supported_bw_comparison(bw_mhz, &cc->supportedBandwidthDL, cc->channelBW_90mhz);
+    bool fits_bw = supported_bw_comparison(bw_mhz, cc->supportedBandwidthDL, cc->channelBW_90mhz);
     long layers = cc->maxNumberMIMO_LayersPDSCH ? 2 << *cc->maxNumberMIMO_LayersPDSCH : 0;
     if (best == 0 || (fits_bw && (!best_fits_bw || layers > best_layers))) {
       best = id;
@@ -82,7 +82,7 @@ static int select_ul_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetUpl
     const NR_FeatureSetUplinkPerCC_t *cc = fs->featureSetsUplinkPerCC->list.array[id - 1];
     if (cc->supportedSubcarrierSpacingUL != scs)
       continue;
-    bool fits_bw = supported_bw_comparison(bw_mhz, &cc->supportedBandwidthUL, cc->channelBW_90mhz);
+    bool fits_bw = supported_bw_comparison(bw_mhz, cc->supportedBandwidthUL, cc->channelBW_90mhz);
     long layers = 0;
     if (cc->mimo_CB_PUSCH && cc->mimo_CB_PUSCH->maxNumberMIMO_LayersCB_PUSCH)
       layers = 1 << *cc->mimo_CB_PUSCH->maxNumberMIMO_LayersCB_PUSCH;
@@ -170,7 +170,7 @@ NR_feature_set_ids_t feature_set_ids_handler(const NR_UE_NR_Capability_t *cap,
 {
   // Assuming information in DL and UL is identical
   AssertFatal(frequencyInfoDL, "Cannot handle feature set IDs without frequencyInfoDL\n");
-  NR_FreqBandIndicatorNR_t nr_band = *frequencyInfoDL->frequencyBandList.list.array[0];
+  NR_FreqBandIndicatorNR_t nr_band = *frequencyInfoDL->frequencyBandList->list.array[0];
   frequency_range_t frequency_range = get_freq_range_from_band(nr_band);
   int scs = frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
   int bw = frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
@@ -187,7 +187,7 @@ NR_feature_set_ids_t get_feature_set_ids(const NR_UE_NR_Capability_t *cap, int b
     LOG_W(NR_MAC, "Cannot handle feature set IDs without UE capabilities\n");
     return ids;
   }
-  NR_BandCombinationList_t *bcl = cap->rf_Parameters.supportedBandCombinationList;
+  NR_BandCombinationList_t *bcl = cap->rf_Parameters->supportedBandCombinationList;
   if (!bcl || !cap->featureSetCombinations || !cap->featureSets)
     return ids;
 

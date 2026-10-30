@@ -15,6 +15,7 @@ set(l1_kpm_sm_source
     asn_bit_data.c
     asn_codecs_prim.c
     asn_codecs_prim_xer.c
+    asn_constraint_value.c
     asn_internal.c
     asn_random_fill.c
     ber_tlv_length.c
@@ -39,6 +40,7 @@ set(l1_kpm_sm_source
     OCTET_STRING_rfill.c
     OCTET_STRING_uper.c
     OCTET_STRING_xer.c
+    OPEN_TYPE_print.c
     per_decoder.c
     per_encoder.c
     per_opentype.c
@@ -84,6 +86,7 @@ set(l1_kpm_sm_headers
     asn_bit_data.h
     asn_codecs_prim.h
     asn_codecs_prim_xer.h
+    asn_constraint_value.h
     asn_internal.h
     asn_random_fill.h
     ber_tlv_length.h

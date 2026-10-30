@@ -62,22 +62,28 @@ static uint8_t rrc_M2AP_do_MBSFNCountingRequest(
   //rrc_eNB_carrier_data_t *carrier = &rrc->carrier[0];
   memset(mcch_message,0,sizeof(LTE_MCCH_Message_t));
   //mcch_message->message.present = LTE_MCCH_MessageType_PR_c1;
-  mcch_message->message.present = LTE_MCCH_MessageType_PR_later;
+  if (!mcch_message->message)
+    mcch_message->message = calloc_or_fail(1, sizeof(*mcch_message->message));
+  mcch_message->message->present = LTE_MCCH_MessageType_PR_later;
   //mcch_message->message.choice.c1.present = LTE_MCCH_MessageType__c1_PR_mbsfnAreaConfiguration_r9;
-  mcch_message->message.choice.later.present = LTE_MCCH_MessageType__later_PR_c2;
-  mcch_message->message.choice.later.choice.c2.present = LTE_MCCH_MessageType__later__c2_PR_mbmsCountingRequest_r10;
-  *mbsfnCoutingRequest = &mcch_message->message.choice.later.choice.c2.choice.mbmsCountingRequest_r10;
+  mcch_message->message->choice.later.present = LTE_MCCH_MessageType__later_PR_c2;
+  mcch_message->message->choice.later.choice.c2.present = LTE_MCCH_MessageType__later__c2_PR_mbmsCountingRequest_r10;
+  *mbsfnCoutingRequest = &mcch_message->message->choice.later.choice.c2.choice.mbmsCountingRequest_r10;
 
 
   //LTE_CountingRequestList_r10_t countingRequestList_r10; // A_SEQUENCE_OF(struct LTE_CountingRequestInfo_r10) list;
   struct LTE_CountingRequestInfo_r10 *lte_counting_request_info; //LTE_TMGI_r9_t    tmgi_r10;
   lte_counting_request_info = CALLOC(1,sizeof(struct LTE_CountingRequestInfo_r10));
   uint8_t TMGI[5] = {4,3,2,1,0};
-  lte_counting_request_info->tmgi_r10.plmn_Id_r9.present = LTE_TMGI_r9__plmn_Id_r9_PR_plmn_Index_r9;
-  lte_counting_request_info->tmgi_r10.plmn_Id_r9.choice.plmn_Index_r9= 1;
-  memset(&lte_counting_request_info->tmgi_r10.serviceId_r9,0,sizeof(OCTET_STRING_t));
-  OCTET_STRING_fromBuf(&lte_counting_request_info->tmgi_r10.serviceId_r9,(const char*)&TMGI[2],3);
-  asn1cSeqAdd(&(*mbsfnCoutingRequest)->countingRequestList_r10.list,lte_counting_request_info);
+  if (!lte_counting_request_info->tmgi_r10)
+    lte_counting_request_info->tmgi_r10 = calloc_or_fail(1, sizeof(*lte_counting_request_info->tmgi_r10));
+  lte_counting_request_info->tmgi_r10->plmn_Id_r9.present = LTE_TMGI_r9__plmn_Id_r9_PR_plmn_Index_r9;
+  lte_counting_request_info->tmgi_r10->plmn_Id_r9.choice.plmn_Index_r9= 1;
+  memset(&lte_counting_request_info->tmgi_r10->serviceId_r9,0,sizeof(OCTET_STRING_t));
+  OCTET_STRING_fromBuf(&lte_counting_request_info->tmgi_r10->serviceId_r9,(const char*)&TMGI[2],3);
+  if (!(*mbsfnCoutingRequest)->countingRequestList_r10)
+    (*mbsfnCoutingRequest)->countingRequestList_r10 = calloc_or_fail(1, sizeof(*(*mbsfnCoutingRequest)->countingRequestList_r10));
+  asn1cSeqAdd(&(*mbsfnCoutingRequest)->countingRequestList_r10->list,lte_counting_request_info);
 
   if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
     xer_fprint(stdout,&asn_DEF_LTE_MCCH_Message,(void *)mcch_message);
@@ -127,9 +133,11 @@ static uint8_t rrc_M2AP_do_MBSFNAreaConfig(
   //eNB_RRC_INST *rrc               = RC.rrc[Mod_id];
   //rrc_eNB_carrier_data_t *carrier = &rrc->carrier[0];
   memset(mcch_message,0,sizeof(LTE_MCCH_Message_t));
-  mcch_message->message.present = LTE_MCCH_MessageType_PR_c1;
-  mcch_message->message.choice.c1.present = LTE_MCCH_MessageType__c1_PR_mbsfnAreaConfiguration_r9;
-  *mbsfnAreaConfiguration = &mcch_message->message.choice.c1.choice.mbsfnAreaConfiguration_r9;
+  if (!mcch_message->message)
+    mcch_message->message = calloc_or_fail(1, sizeof(*mcch_message->message));
+  mcch_message->message->present = LTE_MCCH_MessageType_PR_c1;
+  mcch_message->message->choice.c1.present = LTE_MCCH_MessageType__c1_PR_mbsfnAreaConfiguration_r9;
+  *mbsfnAreaConfiguration = &mcch_message->message->choice.c1.choice.mbsfnAreaConfiguration_r9;
   // Common Subframe Allocation (CommonSF-Alloc-r9)
 
   for(i=0; i<m2ap_mbms_scheduling_information->num_mbms_area_config_list; i++){
@@ -158,7 +166,9 @@ static uint8_t rrc_M2AP_do_MBSFNAreaConfig(
 			  mbsfn_SubframeConfig1->subframeAllocation.choice.oneFrame.buf[0] = (m2ap_mbms_scheduling_information->mbms_area_config_list[i].mbms_sf_config_list[j].subframe_allocation & 0x3F)<<2;
 		  }
 
-		  asn1cSeqAdd(&(*mbsfnAreaConfiguration)->commonSF_Alloc_r9.list,mbsfn_SubframeConfig1);
+		  if (!(*mbsfnAreaConfiguration)->commonSF_Alloc_r9)
+		    (*mbsfnAreaConfiguration)->commonSF_Alloc_r9 = calloc_or_fail(1, sizeof(*(*mbsfnAreaConfiguration)->commonSF_Alloc_r9));
+		  asn1cSeqAdd(&(*mbsfnAreaConfiguration)->commonSF_Alloc_r9->list,mbsfn_SubframeConfig1);
 	  }
 	  //  commonSF-AllocPeriod-r9
 	  (*mbsfnAreaConfiguration)->commonSF_AllocPeriod_r9= m2ap_mbms_scheduling_information->mbms_area_config_list[i].common_sf_allocation_period;//LTE_MBSFNAreaConfiguration_r9__commonSF_AllocPeriod_r9_rf16;
@@ -166,22 +176,26 @@ static uint8_t rrc_M2AP_do_MBSFNAreaConfig(
 	  for(j=0; j < m2ap_mbms_scheduling_information->mbms_area_config_list[i].num_pmch_config_list; j++){
 		  // PMCH_1  Config
       pmch_Info_1 = CALLOC(1, sizeof(LTE_PMCH_Info_r9_t));
+      if (!pmch_Info_1->pmch_Config_r9)
+        pmch_Info_1->pmch_Config_r9 = calloc_or_fail(1, sizeof(*pmch_Info_1->pmch_Config_r9));
       /*
 		   * take the value of last mbsfn subframe in this CSA period because there is only one PMCH in this mbsfn area
 		   * Note: this has to be set based on the subframeAllocation and CSA
 		   */
-		  pmch_Info_1->pmch_Config_r9.sf_AllocEnd_r9= m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].allocated_sf_end;
-		  pmch_Info_1->pmch_Config_r9.dataMCS_r9= m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].data_mcs;
+		  pmch_Info_1->pmch_Config_r9->sf_AllocEnd_r9= m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].allocated_sf_end;
+		  pmch_Info_1->pmch_Config_r9->dataMCS_r9= m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].data_mcs;
 		  //pmch_Info_1->pmch_Config_r9.mch_SchedulingPeriod_r9= LTE_PMCH_Config_r9__mch_SchedulingPeriod_r9_rf16;
-		  pmch_Info_1->pmch_Config_r9.mch_SchedulingPeriod_r9 = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mch_scheduling_period;
+		  pmch_Info_1->pmch_Config_r9->mch_SchedulingPeriod_r9 = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mch_scheduling_period;
 		  // MBMSs-SessionInfoList-r9
 		  for(k=0; k < m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].num_mbms_session_list; k++){
 			  //  pmch_Info_1->mbms_SessionInfoList_r9 = CALLOC(1,sizeof(struct MBMS_SessionInfoList_r9));
 			  //  Session 1
         mbms_Session_1 = CALLOC(1, sizeof(LTE_MBMS_SessionInfo_r9_t));
         // TMGI value
-			  mbms_Session_1->tmgi_r9.plmn_Id_r9.present= LTE_TMGI_r9__plmn_Id_r9_PR_plmn_Index_r9;
-			  mbms_Session_1->tmgi_r9.plmn_Id_r9.choice.plmn_Index_r9= 1;
+			  if (!mbms_Session_1->tmgi_r9)
+			    mbms_Session_1->tmgi_r9 = calloc_or_fail(1, sizeof(*mbms_Session_1->tmgi_r9));
+			  mbms_Session_1->tmgi_r9->plmn_Id_r9.present= LTE_TMGI_r9__plmn_Id_r9_PR_plmn_Index_r9;
+			  mbms_Session_1->tmgi_r9->plmn_Id_r9.choice.plmn_Index_r9= 1;
 			  // Service ID
 			  //uint8_t TMGI[5] = {4,3,2,1,0};//TMGI is a string of octet, ref. TS 24.008 fig. 10.5.4a
 			  char buf[4];
@@ -190,8 +204,8 @@ static uint8_t rrc_M2AP_do_MBSFNAreaConfig(
 			  buf[2] = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].service_id << 8;
 			  buf[3] = m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].service_id << 0;
 			  //INT32_TO_BUFFER(m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].service_id,buf);
-			  memset(&mbms_Session_1->tmgi_r9.serviceId_r9,0,sizeof(OCTET_STRING_t));// need to check
-			  OCTET_STRING_fromBuf(&mbms_Session_1->tmgi_r9.serviceId_r9,(const char *)&buf[1],3);
+			  memset(&mbms_Session_1->tmgi_r9->serviceId_r9,0,sizeof(OCTET_STRING_t));// need to check
+			  OCTET_STRING_fromBuf(&mbms_Session_1->tmgi_r9->serviceId_r9,(const char *)&buf[1],3);
 			  // Session ID is still missing here, it can be used as an rab id or mrb id
 			  mbms_Session_1->sessionId_r9 = CALLOC(1,sizeof(OCTET_STRING_t));
 			  mbms_Session_1->sessionId_r9->buf= MALLOC(1);
@@ -199,11 +213,15 @@ static uint8_t rrc_M2AP_do_MBSFNAreaConfig(
 			  mbms_Session_1->sessionId_r9->buf[0]= m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].service_id; //1;
 			  // Logical Channel ID
 			  mbms_Session_1->logicalChannelIdentity_r9=m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].lcid; //1;
+			  if (!pmch_Info_1->mbms_SessionInfoList_r9)
+			    pmch_Info_1->mbms_SessionInfoList_r9 = calloc_or_fail(1, sizeof(*pmch_Info_1->mbms_SessionInfoList_r9));
 			  LOG_D(RRC,"lcid %lu %d\n",mbms_Session_1->logicalChannelIdentity_r9,m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].lcid);
 			  LOG_D(RRC,"service_id %d\n",m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].service_id);
-			  asn1cSeqAdd(&pmch_Info_1->mbms_SessionInfoList_r9.list,mbms_Session_1);
+			  asn1cSeqAdd(&pmch_Info_1->mbms_SessionInfoList_r9->list,mbms_Session_1);
 		  }
-		  asn1cSeqAdd(&(*mbsfnAreaConfiguration)->pmch_InfoList_r9.list,pmch_Info_1);
+		  if (!(*mbsfnAreaConfiguration)->pmch_InfoList_r9)
+		    (*mbsfnAreaConfiguration)->pmch_InfoList_r9 = calloc_or_fail(1, sizeof(*(*mbsfnAreaConfiguration)->pmch_InfoList_r9));
+		  asn1cSeqAdd(&(*mbsfnAreaConfiguration)->pmch_InfoList_r9->list,pmch_Info_1);
 	  }
   }
 
@@ -254,14 +272,14 @@ static void rrc_M2AP_init_MBMS(
                              NULL,  // key rrc encryption
                              NULL,  // key rrc integrity
                              NULL   // key encryption
-                             , &(RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->pmch_InfoList_r9)
+                             , (RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->pmch_InfoList_r9)
                              ,NULL);
 
     rrc_rlc_config_asn1_req(&ctxt,
                             NULL, // LTE_SRB_ToAddModList
                             NULL,   // LTE_DRB_ToAddModList
                             NULL,   // DRB_ToReleaseList
-                            &(RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->pmch_InfoList_r9)
+                            (RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->pmch_InfoList_r9)
                             ,0, 0
                             );
             //rrc_mac_config_req();
@@ -318,10 +336,10 @@ static void rrc_M2AP_init_MCCH(
             RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->commonSF_AllocPeriod_r9);
       LOG_D(RRC,
             "[eNB %d] CommonSF_Alloc_r9.list.count (number of MBSFN Subframe Pattern) %d\n",
-            enb_mod_idP, RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->commonSF_Alloc_r9.list.count);
+            enb_mod_idP, RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->commonSF_Alloc_r9->list.count);
       LOG_D(RRC, "[eNB %d] MBSFN Subframe Pattern: %02x (in hex)\n",
             enb_mod_idP,
-            RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->commonSF_Alloc_r9.list.array[0]->subframeAllocation.
+            RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->commonSF_Alloc_r9->list.array[0]->subframeAllocation.
             choice.oneFrame.buf[0]);
       AssertFatal(RC.rrc[enb_mod_idP]->carrier[CC_id].sizeof_MCCH_MESSAGE[sync_area] != 255,
                   "RC.rrc[enb_mod_idP]->carrier[CC_id].sizeof_MCCH_MESSAGE[sync_area] == 255");
@@ -332,7 +350,7 @@ static void rrc_M2AP_init_MCCH(
 
     rrc_mac_config_req_eNB_t tmp = {0};
     tmp.CC_id = CC_id;
-    tmp.pmch_InfoList = &RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->pmch_InfoList_r9;
+    tmp.pmch_InfoList = RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message->pmch_InfoList_r9;
     tmp.mbms_AreaConfiguration = RC.rrc[enb_mod_idP]->carrier[CC_id].mcch_message;
     rrc_mac_config_req_eNB(enb_mod_idP, &tmp);
 
@@ -383,40 +401,42 @@ static uint8_t rrc_M2AP_do_SIB1_MBMS_SIB13(
   //  exit(-1);
   //}
  
- for (i=0; i < bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
-    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *typeandinfo;
-    typeandinfo = bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
+ for (i=0; i < bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
+    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *typeandinfo;
+    typeandinfo = bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
     switch(typeandinfo->present) {
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_NOTHING: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_NOTHING: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib3: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib3: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib4: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib4: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib5: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib5: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib6: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib6: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib7: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib7: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib8: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib8: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib9: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib9: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib10: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib10: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib11: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib11: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib12_v920: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib12_v920: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920:
         RC.rrc[Mod_id]->carrier[CC_id].sib13 = &typeandinfo->choice.sib13_v920;
         LTE_SystemInformationBlockType13_r9_t *sib13 = RC.rrc[Mod_id]->carrier[CC_id].sib13;
-        sib13->notificationConfig_r9.notificationRepetitionCoeff_r9 = LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
-        sib13->notificationConfig_r9.notificationOffset_r9 = 0;
-        sib13->notificationConfig_r9.notificationSF_Index_r9 = 1;
+        if (!sib13->notificationConfig_r9)
+          sib13->notificationConfig_r9 = calloc_or_fail(1, sizeof(*sib13->notificationConfig_r9));
+        sib13->notificationConfig_r9->notificationRepetitionCoeff_r9 = LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
+        sib13->notificationConfig_r9->notificationOffset_r9 = 0;
+        sib13->notificationConfig_r9->notificationSF_Index_r9 = 1;
         //  MBSFN-AreaInfoList
-        MBSFNArea_list = &sib13->mbsfn_AreaInfoList_r9; // CALLOC(1,sizeof(*MBSFNArea_list));
+        MBSFNArea_list = sib13->mbsfn_AreaInfoList_r9; // CALLOC(1,sizeof(*MBSFNArea_list));
         memset(MBSFNArea_list, 0, sizeof(*MBSFNArea_list));
 
         for (j = 0; j < m2ap_setup_resp->num_mcch_config_per_mbsfn; j++) {
@@ -438,37 +458,37 @@ static uint8_t rrc_M2AP_do_SIB1_MBMS_SIB13(
           asn1cSeqAdd(&MBSFNArea_list->list, MBSFN_Area1);
         }
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib14_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib14_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib15_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib15_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib16_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib16_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib17_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib17_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib18_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib18_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib19_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib20_v1310: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib20_v1310: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib21_v1430: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib21_v1430: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib24_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib24_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib25_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib25_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib26_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib26_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib26a_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib26a_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib27_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib27_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib28_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib28_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib29_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib29_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib2:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2:
 
         LOG_I(RRC, "Adding MBSFN subframe Configuration 1 to SIB2\n");
 
@@ -515,17 +535,19 @@ static uint8_t rrc_M2AP_do_SIB1_MBMS_SIB13(
   }
 
   if (RC.rrc[Mod_id]->carrier[CC_id].sib13 == NULL) {
-    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *sib13_part = CALLOC(1, sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-    sib13_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920;
+    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *sib13_part = CALLOC(1, sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+    sib13_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920;
 
     RC.rrc[Mod_id]->carrier[CC_id].sib13 = &sib13_part->choice.sib13_v920;
     LTE_SystemInformationBlockType13_r9_t *sib13 = RC.rrc[Mod_id]->carrier[CC_id].sib13;
-    sib13->notificationConfig_r9.notificationRepetitionCoeff_r9 = LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
-    sib13->notificationConfig_r9.notificationOffset_r9 = 0;
-    sib13->notificationConfig_r9.notificationSF_Index_r9 = 1;
+    if (!sib13->notificationConfig_r9)
+      sib13->notificationConfig_r9 = calloc_or_fail(1, sizeof(*sib13->notificationConfig_r9));
+    sib13->notificationConfig_r9->notificationRepetitionCoeff_r9 = LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
+    sib13->notificationConfig_r9->notificationOffset_r9 = 0;
+    sib13->notificationConfig_r9->notificationSF_Index_r9 = 1;
 
     //  MBSFN-AreaInfoList
-    MBSFNArea_list = &sib13->mbsfn_AreaInfoList_r9; // CALLOC(1,sizeof(*MBSFNArea_list));
+    MBSFNArea_list = sib13->mbsfn_AreaInfoList_r9; // CALLOC(1,sizeof(*MBSFNArea_list));
     memset(MBSFNArea_list, 0, sizeof(*MBSFNArea_list));
 
     for (i = 0; i < m2ap_setup_resp->num_mcch_config_per_mbsfn; i++) {
@@ -547,10 +569,12 @@ static uint8_t rrc_M2AP_do_SIB1_MBMS_SIB13(
       asn1cSeqAdd(&MBSFNArea_list->list, MBSFN_Area1);
     }
 
-    asn1cSeqAdd(&bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list, sib13_part);
+    if (!bcch_message->message)
+      bcch_message->message = calloc_or_fail(1, sizeof(*bcch_message->message));
+    asn1cSeqAdd(&bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list, sib13_part);
   }
 
-  RC.rrc[Mod_id]->carrier[CC_id].sib1_MBMS = &bcch_message_fembms->message.choice.c1.choice.systemInformationBlockType1_MBMS_r14;
+  RC.rrc[Mod_id]->carrier[CC_id].sib1_MBMS = bcch_message_fembms->message->choice.c1.choice.systemInformationBlockType1_MBMS_r14;
   LTE_SystemInformationBlockType1_MBMS_r14_t *sib1_MBMS = RC.rrc[Mod_id]->carrier[CC_id].sib1_MBMS;
   if (sib1_MBMS->systemInformationBlockType13_r14 == NULL)
     sib1_MBMS->systemInformationBlockType13_r14 = CALLOC(1, sizeof(*sib1_MBMS->systemInformationBlockType13_r14));
@@ -589,7 +613,7 @@ static uint8_t rrc_M2AP_do_SIB1_MBMS_SIB13(
   tmp.rnti = 0xfffd;
   tmp.mbsfn_SubframeConfigList = carrier->sib2->mbsfn_SubframeConfigList;
   tmp.MBMS_Flag = carrier->MBMS_flag;
-  tmp.mbsfn_AreaInfoList = &carrier->sib13->mbsfn_AreaInfoList_r9;
+  tmp.mbsfn_AreaInfoList = carrier->sib13->mbsfn_AreaInfoList_r9;
   tmp.FeMBMS_Flag = carrier->FeMBMS_flag;
   rrc_mac_config_req_eNB(Mod_id, &tmp);
 
@@ -681,7 +705,7 @@ static uint8_t rrc_M2AP_do_SIB23_SIB2(
   rrc_eNB_carrier_data_t *carrier=&rrc->carrier[CC_id];
 
 
-  //struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *sib13_part=NULL;
+  //struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *sib13_part=NULL;
   LTE_MBSFN_SubframeConfigList_t *MBSFNSubframeConfigList/*,*MBSFNSubframeConfigList_copy*/;
   //LTE_MBSFN_AreaInfoList_r9_t *MBSFNArea_list/*,*MBSFNArea_list_copy*/;
 
@@ -721,65 +745,65 @@ static uint8_t rrc_M2AP_do_SIB23_SIB2(
   //  exit(-1);
   //}
  
- for (i=0; i < bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
-    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *typeandinfo;
-    typeandinfo = bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
+ for (i=0; i < bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
+    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *typeandinfo;
+    typeandinfo = bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
     switch(typeandinfo->present) {
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_NOTHING: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_NOTHING: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib3: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib3: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib4: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib4: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib5: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib5: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib6: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib6: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib7: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib7: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib8: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib8: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib9: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib9: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib10: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib10: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib11: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib11: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib12_v920: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib12_v920: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib14_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib14_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib15_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib15_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib16_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib16_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib17_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib17_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib18_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib18_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib19_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib20_v1310: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib20_v1310: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib21_v1430: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib21_v1430: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib24_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib24_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib25_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib25_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib26_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib26_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib26a_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib26a_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib27_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib27_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib28_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib28_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib29_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib29_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib2: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2: 
 
 	LOG_I(RRC,"Adding MBSFN subframe Configuration 1 to SIB2, %p %p\n",&typeandinfo->choice.sib2,*sib2);
 
@@ -906,10 +930,10 @@ static uint8_t rrc_M2AP_do_SIB23_SIB13(
   //}
 
  /*for (int i=0; i<(*si)->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
-    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *typeandinfo;
+    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *typeandinfo;
     typeandinfo = (*si)->criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
     switch(typeandinfo->present) {
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib2:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2:
 	LTE_SystemInformationBlockType2_t *sib2 = &typeandinfo->choice.sib2
 	 LOG_I(RRC,"Adding MBSFN subframe Configuration 1 to SIB2\n");
     	LTE_MBSFN_SubframeConfig_t *sib2_mbsfn_SubframeConfig1;
@@ -937,17 +961,19 @@ static uint8_t rrc_M2AP_do_SIB23_SIB13(
  LTE_SystemInformationBlockType13_r9_t   **sib13       = &RC.rrc[Mod_id]->carrier[CC_id].sib13;
 
   struct LTE_MBSFN_AreaInfo_r9 *MBSFN_Area1/*, *MBSFN_Area2*/;
-  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *sib13_part = CALLOC(1, sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-  sib13_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920;
+  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *sib13_part = CALLOC(1, sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+  sib13_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920;
 
   *sib13 = &sib13_part->choice.sib13_v920;
 
-  (*sib13)->notificationConfig_r9.notificationRepetitionCoeff_r9 = LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
-  (*sib13)->notificationConfig_r9.notificationOffset_r9 = 0;
-  (*sib13)->notificationConfig_r9.notificationSF_Index_r9 = 1;
+  if (!(*sib13)->notificationConfig_r9)
+    (*sib13)->notificationConfig_r9 = calloc_or_fail(1, sizeof(*(*sib13)->notificationConfig_r9));
+  (*sib13)->notificationConfig_r9->notificationRepetitionCoeff_r9 = LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
+  (*sib13)->notificationConfig_r9->notificationOffset_r9 = 0;
+  (*sib13)->notificationConfig_r9->notificationSF_Index_r9 = 1;
 
   //  MBSFN-AreaInfoList
-  MBSFNArea_list = &(*sib13)->mbsfn_AreaInfoList_r9; // CALLOC(1,sizeof(*MBSFNArea_list));
+  MBSFNArea_list = (*sib13)->mbsfn_AreaInfoList_r9; // CALLOC(1,sizeof(*MBSFNArea_list));
   memset(MBSFNArea_list, 0, sizeof(*MBSFNArea_list));
 
   for (i = 0; i < m2ap_setup_resp->num_mcch_config_per_mbsfn; i++) {
@@ -969,7 +995,9 @@ static uint8_t rrc_M2AP_do_SIB23_SIB13(
     asn1cSeqAdd(&MBSFNArea_list->list, MBSFN_Area1);
   }
 
- asn1cSeqAdd(&bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list, sib13_part);
+ if (!bcch_message->message)
+   bcch_message->message = calloc_or_fail(1, sizeof(*bcch_message->message));
+ asn1cSeqAdd(&bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list, sib13_part);
 
  //xer_fprint(stdout, &asn_DEF_LTE_BCCH_DL_SCH_Message, (void *)bcch_message);
 
@@ -990,7 +1018,7 @@ static uint8_t rrc_M2AP_do_SIB23_SIB13(
 
   rrc_mac_config_req_eNB_t tmp = {0};
   tmp.CC_id = CC_id;
-  tmp.mbsfn_AreaInfoList = &carrier->sib13->mbsfn_AreaInfoList_r9;
+  tmp.mbsfn_AreaInfoList = carrier->sib13->mbsfn_AreaInfoList_r9;
   tmp.MBMS_Flag = carrier->MBMS_flag;
   rrc_mac_config_req_eNB(ctxt_pP->module_id, &tmp);
 
@@ -1015,7 +1043,7 @@ static uint8_t rrc_M2AP_do_SIB23_SIB2_SIB13(
   rrc_eNB_carrier_data_t *carrier=&rrc->carrier[CC_id];
 
 
-  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *sib13_part=NULL;
+  struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *sib13_part=NULL;
   LTE_MBSFN_SubframeConfigList_t *MBSFNSubframeConfigList/*,*MBSFNSubframeConfigList_copy*/;
 
  asn_enc_rval_t enc_rval;
@@ -1059,39 +1087,41 @@ static uint8_t rrc_M2AP_do_SIB23_SIB2_SIB13(
   //  exit(-1);
   //}
  
- for (i=0; i < bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
-    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member *typeandinfo;
-    typeandinfo = bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
+ for (i=0; i < bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.count; i++) {
+    struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member *typeandinfo;
+    typeandinfo = bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list.array[i];
     switch(typeandinfo->present) {
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_NOTHING: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_NOTHING: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib3: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib3: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib4: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib4: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib5: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib5: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib6: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib6: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib7: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib7: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib8: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib8: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib9: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib9: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib10: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib10: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib11: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib11: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib12_v920: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib12_v920: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920: 
 	*sib13=&typeandinfo->choice.sib13_v920;
-	(*sib13)->notificationConfig_r9.notificationRepetitionCoeff_r9=LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
- 	(*sib13)->notificationConfig_r9.notificationOffset_r9=0;
- 	(*sib13)->notificationConfig_r9.notificationSF_Index_r9=1;
+	if (!(*sib13)->notificationConfig_r9)
+	  (*sib13)->notificationConfig_r9 = calloc_or_fail(1, sizeof(*(*sib13)->notificationConfig_r9));
+	(*sib13)->notificationConfig_r9->notificationRepetitionCoeff_r9=LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
+ 	(*sib13)->notificationConfig_r9->notificationOffset_r9=0;
+ 	(*sib13)->notificationConfig_r9->notificationSF_Index_r9=1;
 	//  MBSFN-AreaInfoList
- 	MBSFNArea_list= &(*sib13)->mbsfn_AreaInfoList_r9;//CALLOC(1,sizeof(*MBSFNArea_list));
+ 	MBSFNArea_list= (*sib13)->mbsfn_AreaInfoList_r9;//CALLOC(1,sizeof(*MBSFNArea_list));
  	memset(MBSFNArea_list,0,sizeof(*MBSFNArea_list));
 
 	for( j=0; j < m2ap_setup_resp->num_mcch_config_per_mbsfn; j++){
@@ -1113,37 +1143,37 @@ static uint8_t rrc_M2AP_do_SIB23_SIB2_SIB13(
  	   asn1cSeqAdd(&MBSFNArea_list->list,MBSFN_Area1);
  	}
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib14_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib14_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib15_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib15_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib16_v1130: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib16_v1130: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib17_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib17_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib18_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib18_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib19_v1250: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib19_v1250: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib20_v1310: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib20_v1310: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib21_v1430: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib21_v1430: 
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib24_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib24_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib25_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib25_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib26_v1530:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib26_v1530:
 	break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib26a_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib26a_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib27_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib27_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib28_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib28_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib29_v1610:
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib29_v1610:
         break;
-      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib2: 
+      case LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib2: 
 
 	LOG_I(RRC,"Adding MBSFN subframe Configuration 1 to SIB2, %p %p\n",&typeandinfo->choice.sib2,*sib2);
 
@@ -1192,15 +1222,17 @@ static uint8_t rrc_M2AP_do_SIB23_SIB2_SIB13(
   }
 
  if(*sib13==NULL){
-   sib13_part = CALLOC(1, sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member));
-   sib13_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__Member_PR_sib13_v920;
+   sib13_part = CALLOC(1, sizeof(struct LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member));
+   sib13_part->present = LTE_SystemInformation_r8_IEs__sib_TypeAndInfo__sib_TypeAndInfo_Member_PR_sib13_v920;
    *sib13 = &sib13_part->choice.sib13_v920;
-   (*sib13)->notificationConfig_r9.notificationRepetitionCoeff_r9=LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
-   (*sib13)->notificationConfig_r9.notificationOffset_r9=0;
-   (*sib13)->notificationConfig_r9.notificationSF_Index_r9=1;
+   if (!(*sib13)->notificationConfig_r9)
+     (*sib13)->notificationConfig_r9 = calloc_or_fail(1, sizeof(*(*sib13)->notificationConfig_r9));
+   (*sib13)->notificationConfig_r9->notificationRepetitionCoeff_r9=LTE_MBMS_NotificationConfig_r9__notificationRepetitionCoeff_r9_n2;
+   (*sib13)->notificationConfig_r9->notificationOffset_r9=0;
+   (*sib13)->notificationConfig_r9->notificationSF_Index_r9=1;
 
    //  MBSFN-AreaInfoList
-   MBSFNArea_list= &(*sib13)->mbsfn_AreaInfoList_r9;//CALLOC(1,sizeof(*MBSFNArea_list));
+   MBSFNArea_list= (*sib13)->mbsfn_AreaInfoList_r9;//CALLOC(1,sizeof(*MBSFNArea_list));
    memset(MBSFNArea_list,0,sizeof(*MBSFNArea_list));
 
    for( i=0; i < m2ap_setup_resp->num_mcch_config_per_mbsfn; i++){
@@ -1222,7 +1254,9 @@ static uint8_t rrc_M2AP_do_SIB23_SIB2_SIB13(
    asn1cSeqAdd(&MBSFNArea_list->list,MBSFN_Area1);
    }
 
- asn1cSeqAdd(&bcch_message->message.choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list, sib13_part);
+ if (!bcch_message->message)
+   bcch_message->message = calloc_or_fail(1, sizeof(*bcch_message->message));
+ asn1cSeqAdd(&bcch_message->message->choice.c1.choice.systemInformation.criticalExtensions.choice.systemInformation_r8.sib_TypeAndInfo.list, sib13_part);
  }
 
   
@@ -1249,7 +1283,7 @@ static uint8_t rrc_M2AP_do_SIB23_SIB2_SIB13(
   tmp.CC_id = CC_id;
   tmp.mbsfn_SubframeConfigList = carrier->sib2->mbsfn_SubframeConfigList;
   tmp.MBMS_Flag = carrier->MBMS_flag;
-  tmp.mbsfn_AreaInfoList = &carrier->sib13->mbsfn_AreaInfoList_r9;
+  tmp.mbsfn_AreaInfoList = carrier->sib13->mbsfn_AreaInfoList_r9;
   rrc_mac_config_req_eNB(ctxt_pP->module_id, &tmp);
 
   RC.rrc[ctxt_pP->module_id]->carrier[CC_id].sizeof_SIB23 = ((enc_rval.encoded+7)/8);

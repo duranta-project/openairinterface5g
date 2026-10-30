@@ -126,7 +126,7 @@ unsigned short fill_rar_br(eNB_MAC_INST *eNB,
 
   if (ce_level < 2) { // CE Level 0, 1 (CEmodeA)
     input_buffer_length = 6;
-    N_NB_index = get_numnarrowbandbits(cc->mib->message.dl_Bandwidth);
+    N_NB_index = get_numnarrowbandbits(cc->mib->message->dl_Bandwidth);
     /* UL Grant */
     ra->msg3_mcs = 7;
     TPC = 3; // no power increase

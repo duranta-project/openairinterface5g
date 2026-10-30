@@ -90,13 +90,49 @@ function(download_file URL FILE)
   message(FATAL_ERROR "could not download ${URL} in ${DL_RETRIES} attempts: ${reason}")
 endfunction()
 
+# "asn1c -v" prints "ASN.1 Compiler, v<tag>-<commits since the tag>-g<sha>[-dirty]-<date>" for an asn1c built from a
+# git clone ("git describe --tags --long"); before v1.5.0 it always printed "v0.9.29", whatever the commit.
+# With an empty MIN_TAG the version is only printed.
+function(check_asn1c_version EXEC EXEC_HINT MIN_TAG MIN_COMMITS)
+  execute_process(COMMAND ${EXEC} -v
+                  OUTPUT_VARIABLE VERSION_OUTPUT
+                  ERROR_VARIABLE VERSION_OUTPUT)
+  string(REGEX MATCH "ASN.1 Compiler, [^\n]*" VERSION_LINE "${VERSION_OUTPUT}")
+  message(STATUS "${EXEC} reports: ${VERSION_LINE}")
+  if(NOT MIN_TAG)
+    return()
+  endif()
+  set(FOUND_TAG "")
+  set(FOUND_COMMITS 0)
+  if(VERSION_LINE MATCHES "ASN.1 Compiler, v([0-9]+\\.[0-9]+\\.[0-9]+)(-([0-9]+)-g[0-9a-f]+)?")
+    set(FOUND_TAG ${CMAKE_MATCH_1})
+    if(CMAKE_MATCH_3)
+      set(FOUND_COMMITS ${CMAKE_MATCH_3})
+    endif()
+  endif()
+  if(NOT FOUND_TAG OR FOUND_TAG VERSION_LESS MIN_TAG
+     OR (FOUND_TAG VERSION_EQUAL MIN_TAG AND FOUND_COMMITS LESS MIN_COMMITS))
+    get_filename_component(EXEC_FILE ${EXEC} NAME)
+    message(FATAL_ERROR "asn1c is older than v${MIN_TAG} + ${MIN_COMMITS} commits, or its version cannot be compared \
+(for example a build without git tags).
+You might want to re-run ./build_oai -I
+Or provide a path to ${EXEC_FILE} using
+  ./build_oai ... --cmake-opt -D${EXEC_HINT}=/path/to/${EXEC_FILE}
+or directly with
+  cmake .. -D${EXEC_HINT}=/path/to/${EXEC_FILE}
+")
+  endif()
+endfunction()
+
 function(check_option EXEC TEST_OPTION EXEC_HINT)
   message(STATUS "Check if ${EXEC} supports ${TEST_OPTION}")
   execute_process(COMMAND ${EXEC} ${TEST_OPTION}
                   RESULT_VARIABLE CHECK_STATUS
                   OUTPUT_VARIABLE CHECK_OUTPUT
                   ERROR_VARIABLE CHECK_OUTPUT)
-  if(NOT ${CHECK_STATUS} EQUAL 1)
+  # asn1c reports a missing input file with EX_USAGE (64) since v1.5.3 and with 1 before,
+  # and an unknown option with 64 everywhere: look at the message to tell them apart
+  if(NOT (CHECK_STATUS EQUAL 1 OR CHECK_STATUS EQUAL 64) OR CHECK_OUTPUT MATCHES "Invalid argument")
     get_filename_component(EXEC_FILE ${EXEC} NAME)
     message(FATAL_ERROR "Error message: ${CHECK_OUTPUT}\
 You might want to re-run ./build_oai -I
@@ -117,8 +153,8 @@ function(run_asn1c ASN1C_GRAMMAR ASN1C_PREFIX)
   get_filename_component(GRAMMAR_FILE ${ASN1C_GRAMMAR} NAME)
   set(LOGFILE "${CMAKE_CURRENT_BINARY_DIR}/${GRAMMAR_FILE}.log")
   add_custom_command(OUTPUT ${ASN1C_OUTPUT}
-    COMMAND ASN1C_PREFIX=${ASN1C_PREFIX} ${ASN1C_EXEC} ${ASN1C_OPTIONS} -D ${CMAKE_CURRENT_BINARY_DIR} ${ASN1C_GRAMMAR} > ${LOGFILE} 2>&1 || ( cat ${LOGFILE} && false )
-    DEPENDS ${ASN1C_GRAMMAR} asn1c
+    COMMAND ASN1C_PREFIX=${ASN1C_PREFIX} ${ASN1C_EXEC} ${ASN1C_NO_CBOR} ${ASN1C_OPTIONS} -D ${CMAKE_CURRENT_BINARY_DIR} ${ASN1C_GRAMMAR} > ${LOGFILE} 2>&1 || ( cat ${LOGFILE} && false )
+    DEPENDS ${ASN1C_GRAMMAR} ${ASN1C_EXEC} asn1c
     COMMENT "Generating ${ASN1C_COMMENT} from ${GRAMMAR_FILE}"
   )
 endfunction()

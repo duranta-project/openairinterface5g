@@ -418,8 +418,8 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     NR_MsgA_PUSCH_Config_r16_t *msgA_pusch_cfg = current_UL_BWP->msgA_ConfigCommon_r16->msgA_PUSCH_Config_r16;
     pusch_config_pdu->data_scrambling_id =
         msgA_pusch_cfg->msgA_DataScramblingIndex_r16 ? *msgA_pusch_cfg->msgA_DataScramblingIndex_r16 : mac->physCellId;
-    pusch_config_pdu->ul_dmrs_scrambling_id = msgA_PUSCH_Resource->msgA_DMRS_Config_r16.msgA_ScramblingID0_r16
-                                                  ? *msgA_PUSCH_Resource->msgA_DMRS_Config_r16.msgA_ScramblingID0_r16
+    pusch_config_pdu->ul_dmrs_scrambling_id = msgA_PUSCH_Resource->msgA_DMRS_Config_r16->msgA_ScramblingID0_r16
+                                                  ? *msgA_PUSCH_Resource->msgA_DMRS_Config_r16->msgA_ScramblingID0_r16
                                                   : mac->physCellId;
     pusch_config_pdu->scid =
         0; // n_SCID from DMRS resource mapping (TS 38.213 8.1A); only resource 0 scheduled (nrofDMRS-Sequences = 1)
@@ -1270,7 +1270,7 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
     else
       csirs_config_pdu->power_control_offset_ss = 1; // 0 dB
 
-    configure_csi_resource_mapping(csirs_config_pdu, &nzpcsi->resourceMapping, bwp_size, bwp_start);
+    configure_csi_resource_mapping(csirs_config_pdu, nzpcsi->resourceMapping, bwp_size, bwp_start);
 
     dl_config->dl_config_list[dl_config->number_pdus].pdu_type = FAPI_NR_DL_CONFIG_TYPE_CSI_RS;
     dl_config->number_pdus += 1;
@@ -2860,14 +2860,14 @@ void configure_csi_resource_mapping(fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_c
                                     uint32_t bwp_start)
 {
   // According to last paragraph of TS 38.214 5.2.2.3.1
-  if (resourceMapping->freqBand.startingRB < bwp_start)
+  if (resourceMapping->freqBand->startingRB < bwp_start)
     csirs_config_pdu->start_rb = bwp_start;
   else
-    csirs_config_pdu->start_rb = resourceMapping->freqBand.startingRB;
-  if (resourceMapping->freqBand.nrofRBs > (bwp_start + bwp_size - csirs_config_pdu->start_rb))
+    csirs_config_pdu->start_rb = resourceMapping->freqBand->startingRB;
+  if (resourceMapping->freqBand->nrofRBs > (bwp_start + bwp_size - csirs_config_pdu->start_rb))
     csirs_config_pdu->nr_of_rbs = bwp_start + bwp_size - csirs_config_pdu->start_rb;
   else
-    csirs_config_pdu->nr_of_rbs = resourceMapping->freqBand.nrofRBs;
+    csirs_config_pdu->nr_of_rbs = resourceMapping->freqBand->nrofRBs;
   AssertFatal(csirs_config_pdu->nr_of_rbs >= 24, "CSI-RS has %d RBs, but the minimum is 24\n", csirs_config_pdu->nr_of_rbs);
 
   csirs_config_pdu->symb_l0 = resourceMapping->firstOFDMSymbolInTimeDomain;
