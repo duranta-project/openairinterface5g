@@ -19,6 +19,7 @@
 #include "f1ap_ue_context.h"
 #include "f1ap_positioning.h"
 #include "f1ap_paging.h"
+#include "common/utils/oai_asn1.h"
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
 {

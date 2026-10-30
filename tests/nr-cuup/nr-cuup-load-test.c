@@ -14,6 +14,9 @@
 #include "openair2/E1AP/lib/e1ap_interface_management.h"
 #include "common/config/config_userapi.h"
 #include "openair2/E1AP/lib/e1ap_bearer_context_management.h"
+#include "E1AP_Pre-emptionCapability.h"
+#include "E1AP_Pre-emptionVulnerability.h"
+#include "E1AP_PriorityLevel.h"
 
 configmodule_interface_t *uniqCfg;
 
