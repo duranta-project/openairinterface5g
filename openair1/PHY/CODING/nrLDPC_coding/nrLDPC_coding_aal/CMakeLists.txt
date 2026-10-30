@@ -18,12 +18,16 @@ if (ENABLE_LDPC_AAL)
     endif()
   endif()
 
-  add_library(ldpc_aal MODULE nrLDPC_coding_aal.c)
+  add_library(ldpc_aal MODULE nrLDPC_coding_aal.c bbdev_oai_sw.c)
 
-  set_target_properties(ldpc_aal PROPERTIES COMPILE_FLAGS "-DALLOW_EXPERIMENTAL_API")
+  set_target_properties(ldpc_aal PROPERTIES COMPILE_FLAGS "-DALLOW_EXPERIMENTAL_API -DALLOW_INTERNAL_API")
   set_target_properties(ldpc_aal PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
   target_include_directories(ldpc_aal PRIVATE ${LIBDPDK_AAL_INCLUDE_DIRS})
   target_link_libraries(ldpc_aal PRIVATE log_headers ${LIBDPDK_AAL_LDFLAGS})
+  # baseband_oai_sw registers a vdev (rte_vdev_register is in librte_bus_vdev) and dlopen()s libldpc.so
+  target_link_libraries(ldpc_aal PRIVATE -lrte_bus_vdev)
+  target_link_libraries(ldpc_aal PRIVATE ${CMAKE_DL_LIBS})
+  add_dependencies(ldpc_aal ldpc)
   if (PMD_T2)
     target_link_libraries(ldpc_aal PRIVATE ${PMD_T2})
   endif()

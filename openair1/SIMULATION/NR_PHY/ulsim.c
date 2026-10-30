@@ -219,6 +219,9 @@ int main(int argc, char *argv[])
   int ul_proc_error = 0; // uplink processing checking status flag
   //logInit();
   randominit();
+  // rand() (TB payload, UCI bits) shares glibc's random() state, which a static constructor in
+  // gtp_itf.cpp seeds from /dev/urandom; derive it from the simulator seed so OAI_RNGSEED reproduces a run
+  srand((unsigned int)(uniformrandom() * UINT_MAX));
 
   /* initialize the sin-cos table */
   InitSinLUT();

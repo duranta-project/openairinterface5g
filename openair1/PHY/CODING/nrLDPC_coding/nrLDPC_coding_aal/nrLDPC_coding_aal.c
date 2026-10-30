@@ -64,6 +64,9 @@ struct active_device {
   // Note: This is used to store/keep track of the combined output information across iterations
   struct rte_bbdev_op_data *harq_buffers;
   bool support_internal_harq_memory;
+  /* LDPC_DEC input LLR format advertised by the device */
+  int8_t dec_llr_size;
+  int8_t dec_llr_decimals;
   int dec_queue;
   int enc_queue;
   uint16_t queue_ids[MAX_QUEUES];
@@ -358,6 +361,15 @@ bool check_internal_harq_memory_capabilities(struct rte_bbdev_info *info)
   return false;
 }
 
+/* drv.capabilities is a list terminated by RTE_BBDEV_OP_NONE, not an array indexed by op type */
+static const struct rte_bbdev_op_cap *find_dev_capability(const struct rte_bbdev_info *info, enum rte_bbdev_op_type type)
+{
+  for (const struct rte_bbdev_op_cap *cap = info->drv.capabilities; cap->type != RTE_BBDEV_OP_NONE; cap++)
+    if (cap->type == type)
+      return cap;
+  return NULL;
+}
+
 // based on DPDK BBDEV add_bbdev_dev
 static int add_dev(uint8_t dev_id, bool is_t2, uint32_t num_harq_codeblock)
 {
@@ -382,6 +394,11 @@ static int add_dev(uint8_t dev_id, bool is_t2, uint32_t num_harq_codeblock)
 
   // check internal harq memory capabilities
   active_dev.support_internal_harq_memory = check_internal_harq_memory_capabilities(&active_dev.info);
+
+  const struct rte_bbdev_op_cap *dec_cap = find_dev_capability(&active_dev.info, RTE_BBDEV_OP_LDPC_DEC);
+  AssertFatal(dec_cap != NULL, "bbdev %d does not advertise LDPC_DEC\n", dev_id);
+  active_dev.dec_llr_size = dec_cap->cap.ldpc_dec.llr_size;
+  active_dev.dec_llr_decimals = dec_cap->cap.ldpc_dec.llr_decimals;
 
   // setup harq buffers
   active_dev.num_harq_codeblock = num_harq_codeblock;
@@ -1086,7 +1103,11 @@ int32_t nrLDPC_coding_init(int max_num_pxsch)
   AssertFatal(dpdk_dev != NULL, "nrLDPC_coding_aal.dpdk_dev was not provided");
 
   char dpdk_dev_full[32];
-  if (normalize_dpdk_dev(dpdk_dev, dpdk_dev_full, sizeof(dpdk_dev_full)) != 0) {
+  // BBDev virtual devices (baseband_null, baseband_oai_sw, ...) are named by driver, not by PCI address
+  bool is_vdev = (strncmp(dpdk_dev, "baseband_", 9) == 0);
+  if (is_vdev) {
+    snprintf(dpdk_dev_full, sizeof(dpdk_dev_full), "%s", dpdk_dev);
+  } else if (normalize_dpdk_dev(dpdk_dev, dpdk_dev_full, sizeof(dpdk_dev_full)) != 0) {
     LOG_E(NR_PHY, "invalid DPDK device format: %s\n", dpdk_dev);
     return -1;
   }
@@ -1102,7 +1123,12 @@ int32_t nrLDPC_coding_init(int max_num_pxsch)
     int argc = 7;
     char *argv[11] =
         {"bbdev", "-l", dpdk_core_list, "-a", dpdk_dev_full, "--file-prefix", dpdk_file_prefix, "--", "--", "--", "--"};
-    if (vfio_vf_token != NULL) {
+    if (is_vdev) {
+      // --no-pci keeps EAL away from real PCI devices
+      argv[3] = "--vdev";
+      argv[7] = "--no-pci";
+      argc = 8;
+    } else if (vfio_vf_token != NULL) {
       argc += 2;
       argv[7] = "--vfio-vf-token";
       argv[8] = vfio_vf_token;
@@ -1278,8 +1304,8 @@ int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_dec
   struct rte_bbdev_op_data **queue_ops[DATA_NUM_TYPES] = {&data_buffers.inputs,
                                                           &data_buffers.hard_outputs,
                                                           &data_buffers.harq_outputs};
-  int8_t llr_size = (active_dev.info.drv.capabilities)[RTE_BBDEV_OP_LDPC_DEC].cap.ldpc_dec.llr_size;
-  int8_t llr_decimal = (active_dev.info.drv.capabilities)[RTE_BBDEV_OP_LDPC_DEC].cap.ldpc_dec.llr_decimals;
+  int8_t llr_size = active_dev.dec_llr_size;
+  int8_t llr_decimal = active_dev.dec_llr_decimals;
   int offset = 0;
   for (int h = 0; h < nrLDPC_slot_decoding_parameters->nb_TBs; ++h) {
     nrLDPC_TB_decoding_parameters_t *p = &nrLDPC_slot_decoding_parameters->TBs[h];
