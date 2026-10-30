@@ -43,8 +43,9 @@ During normal operation, `split7_thread()` reads PUSCH and PRACH through
 `oran_prec_bf()` for precoding, `oran_dl_up()` for PDSCH
 and `oran_cp()` for CP UL/DL.
 
-For PDSCH, `oran_dl_up()` calls `xran_fh_tx_send_slot()` that
-optionally compresses IQ data, then writes it into IQ buffers of xran.
+For PDSCH, `oran_dl_up()` calls `xran_fh_tx_send_slot_ant()` for each xran port
+and antenna, which optionally compresses IQ data, then writes it into IQ
+buffers of xran.
 
 For PUSCH/PRACH, `split7_thread()` waits in `oai_xran_wait_slot()` until
 `oai_xran_fh_rx_callback()` signals a complete slot, then `process_ul_data()`

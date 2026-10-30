@@ -378,7 +378,7 @@ int xran_send_cp_slot(const int tti, const int slot, const int xran_port, const 
 }
 
 /** @brief Compress (if needed) one PRB-element's IQ payload for one symbol into `dst` and
- * return the payload length. Shared by both PRB-map layouts of xran_fh_tx_send_slot(). */
+ * return the payload length. Shared by both PRB-map layouts of xran_fh_tx_send_slot_ant(). */
 static int16_t xran_compress_iq_section(int32_t *pos_start, uint8_t *dst, int numRB, uint8_t compMethod, uint8_t iqWidth)
 {
   int16_t payload_len = 0;
@@ -430,8 +430,10 @@ static int16_t xran_compress_iq_section(int32_t *pos_start, uint8_t *dst, int nu
   return payload_len;
 }
 
-/** @brief Write one antenna's IQ payload for one slot into the xran wire buffers, for either
- * PRB-map layout xran_fh_tx_send_slot() can see:
+/** @details Write PDSCH IQ-data of one antenna from OAI txdataF_BF buffer to xran buffers.
+ * If I/Q compression (bitwidth < 16 bits) is configured, compresses the data before writing.
+ * srccp/src are the antenna's C-plane PRB map and U-plane buffers of the slot, so antennas are
+ * independent. Handles either PRB-map layout:
  * - fragmented: nPrbElm is the number of frequency fragments; dst_cursor is carried across
  *   elements per symbol
  * - per-symbol (Liteon FR2, RunSlotPrbMapBySymbolEnable): nPrbElm == XRAN_NUM_OF_SYMBOL_PER_SLOT
@@ -439,11 +441,9 @@ static int16_t xran_compress_iq_section(int32_t *pos_start, uint8_t *dst, int nu
  *   each symbol is only ever touched once
  * Both are handled by the same data-driven loop: correctness comes entirely from each
  * element's own nStartSymb/numSymb. */
-static void xran_fh_tx_send_slot_ant(struct xran_prb_map *pPrbMap,
-                                      int32_t *txdataF_ant,
-                                      const int fft_size,
-                                      struct xran_buffer_list *src_slot)
+void xran_fh_tx_send_slot_ant(const int fft_size, int32_t *txdataF_ant, struct xran_buffer_list *srccp, struct xran_buffer_list *src)
 {
+  struct xran_prb_map *pPrbMap = (struct xran_prb_map *)srccp->pBuffers->pData;
   uint8_t *dst_cursor[XRAN_NUM_OF_SYMBOL_PER_SLOT] = {NULL};
 
   for (uint32_t idxElm = 0; idxElm < pPrbMap->nPrbElm; idxElm++) {
@@ -455,7 +455,7 @@ static void xran_fh_tx_send_slot_ant(struct xran_prb_map *pPrbMap,
     for (int32_t sym_idx = p_prbMapElm->nStartSymb; sym_idx < p_prbMapElm->nStartSymb + p_prbMapElm->numSymb; sym_idx++) {
       struct xran_section_desc *p_sec_desc = &p_prbMapElm->sec_desc[sym_idx];
 
-      uint8_t *base = src_slot->pBuffers[sym_idx].pData;
+      uint8_t *base = src->pBuffers[sym_idx].pData;
       if (dst_cursor[sym_idx] == NULL)
         dst_cursor[sym_idx] = base;
 
@@ -472,17 +472,4 @@ static void xran_fh_tx_send_slot_ant(struct xran_prb_map *pPrbMap,
       dst_cursor[sym_idx] = xran_add_hdr_offset(dst + payload_len, p_prbMapElm->compMethod);
     } // sym_idx
   } // idxElm
-}
-
-/** @details Write PDSCH IQ-data from OAI txdataF_BF buffer to xran buffers. If
- * I/Q compression (bitwidth < 16 bits) is configured, compresses the data
- * before writing. */
-int xran_fh_tx_send_slot(const int tti, const int xran_port, const uint8_t nb_ant, const int fft_size, int32_t **txdataF_BF, oran_buf_list_t *bufs)
-{
-  for (uint8_t ant_id = 0; ant_id < nb_ant; ant_id++) {
-    struct xran_prb_map *pPrbMap = (struct xran_prb_map *)bufs->srccp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
-
-    xran_fh_tx_send_slot_ant(pPrbMap, txdataF_BF[ant_id + (xran_port * nb_ant)], fft_size, &bufs->src[ant_id][tti % XRAN_N_FE_BUF_LEN]);
-  } // ant_id
-  return (0);
 }

@@ -196,8 +196,6 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
 
 static void oran_dl_up(split7_config_t *s7cfg, int frame, int slot)
 {
-  int ret;
-
   const struct xran_fh_init *fh_init = get_xran_fh_init();
 
   start_meas(&s7cfg->dl_up);
@@ -209,10 +207,11 @@ static void oran_dl_up(split7_config_t *s7cfg, int frame, int slot)
       const int tti = s7cfg->slots_per_frame * frame + slot;
 
       const int fft_size = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
-      ret = xran_fh_tx_send_slot(tti, xran_port, fh_cfg->neAxc, fft_size, s7cfg->txdataF_BF, bufs);
-      if (ret != 0) {
-        LOG_W(HW, "[%d.%d] xran_fh_tx_send_slot error for xran_port %d\n", frame, slot, xran_port);
-      }
+      for (int ant_id = 0; ant_id < fh_cfg->neAxc; ant_id++)
+        xran_fh_tx_send_slot_ant(fft_size,
+                                 s7cfg->txdataF_BF[ant_id + xran_port * fh_cfg->neAxc],
+                                 &bufs->srccp[ant_id][tti % XRAN_N_FE_BUF_LEN],
+                                 &bufs->src[ant_id][tti % XRAN_N_FE_BUF_LEN]);
     }
   }
   stop_meas(&s7cfg->dl_up);
