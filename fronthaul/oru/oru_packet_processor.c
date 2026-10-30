@@ -650,6 +650,7 @@ enum {
   SECTION_ERR_NUM_SYMBOLS = 1 << 6,
   SECTION_ERR_PRACH_FDM = 1 << 7,
   SECTION_ERR_PRACH_POOL = 1 << 8,
+  SECTION_ERR_TDD = 1 << 9,
 };
 
 // Registers one DL section of eAxC ant_id whose message starts diff symbols from now; the message's first symbol has
@@ -1060,6 +1061,12 @@ static void count_section1_errors(oru_packet_processor_context_t *ctx, unsigned 
     ctx->stats.dl_stream_sections_exhausted++;
   if (errors & SECTION_ERR_NUM_SYMBOLS)
     ctx->stats.ul_cplane_err_invalid_num_symbols++;
+  if (errors & SECTION_ERR_TDD) {
+    if (is_dl)
+      ctx->stats.dl_tdd_mismatch++;
+    else
+      ctx->stats.ul_tdd_mismatch++;
+  }
 }
 
 // Registers the sections of a Section Type 1 C-Plane message. Timing, TDD and eAxC are message fields, so they are
@@ -1116,6 +1123,11 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
   // O-RAN CUS 7.5.3.1: a sectionId may be cited more than once in a message, with complementary reMasks and
   // different beams. Per-RE beams aren't supported, so only the first citation is used.
   uint8_t cited[NUM_SECTION_IDS / 8] = {0};
+  // O-RAN CUS 7.5.3.3: the message keeps a symbol number that starts at startSymbolId. symInc = 1 moves it to the
+  // symbol after the previous section's last symbol, for this section and the next ones (e.g. OAI DU
+  // RunSlotPrbMapBySymbol: one section per symbol, all in one message). symbolMask (ext 6/12/19) isn't supported.
+  int symbol_offset = 0;
+  int prev_num_symbols = 1;
   // Each section is followed by its own extension chain, so the next section starts where that chain ends
   for (int i = 0; i < hdr->cmnhdr.numOfSections; i++) {
     if ((size_t)(end - sect) < sizeof(struct xran_cp_radioapp_section1)) {
@@ -1128,14 +1140,20 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
     int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     const uint8_t *next = parse_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s1.ef, num_prb);
     const uint16_t section_id = section->hdr.u1.common.sectionId;
+    if (section->hdr.u1.common.symInc)
+      symbol_offset += prev_num_symbols;
+    prev_num_symbols = section->hdr.u.s1.numSymbol > 0 ? section->hdr.u.s1.numSymbol : 1;
     if (section_id != SECTION_ID_UNCOUPLED && test_bit(cited, section_id)) {
       ctx->stats.cplane_section_repeated++;
+    } else if (!test_bit(bitmask, (target_absolute_symbol + symbol_offset) % ctx->symbol_bitmask_length)) {
+      // Only the message's first symbol passed the TDD check above
+      errors |= SECTION_ERR_TDD;
     } else {
       set_bit(cited, section_id);
       if (is_dl)
-        errors |= handle_dl_cplane_section(ctx, section, ant_id, diff);
+        errors |= handle_dl_cplane_section(ctx, section, ant_id, diff + symbol_offset);
       else
-        errors |= handle_ul_cplane_section(ctx, hdr, section, ant_id, target_absolute_symbol, snap);
+        errors |= handle_ul_cplane_section(ctx, hdr, section, ant_id, target_absolute_symbol + symbol_offset, snap);
     }
     // A malformed chain hides where the next section starts
     if (next == NULL)
