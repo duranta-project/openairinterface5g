@@ -14,7 +14,7 @@ include(ASN1/38455.cmake)
 run_asn1c(${CMAKE_CURRENT_SOURCE_DIR}/${NRPPA_GRAMMAR}
           "NRPPA_"
           OUTPUT ${nrppa_source} ${nrppa_headers}
-          OPTIONS -gen-APER -gen-UPER -no-gen-OER -no-gen-JER -fcompound-names -no-gen-example -findirect-choice -fno-include-deps
+          OPTIONS -gen-APER -gen-UPER -no-gen-BER -no-gen-OER -no-gen-JER -fcompound-names -no-gen-example -findirect-choice -fno-include-deps
           COMMENT "NRPPA source files"
 )
 

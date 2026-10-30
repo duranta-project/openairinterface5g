@@ -15,6 +15,7 @@ set(x2ap_source
     asn_bit_data.c
     asn_codecs_prim.c
     asn_codecs_prim_xer.c
+    asn_constraint_value.c
     asn_internal.c
     asn_random_fill.c
     asn_SEQUENCE_OF.c
@@ -92,6 +93,7 @@ set(x2ap_source
     OCTET_STRING_xer.c
     OPEN_TYPE_aper.c
     OPEN_TYPE.c
+    OPEN_TYPE_print.c
     OPEN_TYPE_uper.c
     OPEN_TYPE_xer.c
     per_decoder.c
@@ -808,6 +810,7 @@ set(x2ap_headers
     asn_codecs.h
     asn_codecs_prim.h
     asn_config.h
+    asn_constraint_value.h
     asn_internal.h
     asn_ioc.h
     asn_random_fill.h
