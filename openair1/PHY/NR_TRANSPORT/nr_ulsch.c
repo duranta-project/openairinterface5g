@@ -188,7 +188,9 @@ int get_pusch_ta(const PHY_VARS_gNB *gNB, NR_gNB_PHY_STATS_t *stats, const NR_gN
 
 int get_pusch_rssi(const NR_gNB_PUSCH *pusch, int n_rx)
 {
-  return 1280 - (10 * dB_fixed(32767 * 32767) - dB_fixed_times10(pusch->ulsch_power_tot / n_rx));
+  // dB_fixed_times10() returns -900 for zero power: clamp to the FAPI range [0, 1280] (-128..0 dBFS)
+  const int rssi = 1280 - (10 * dB_fixed(32767 * 32767) - dB_fixed_times10(pusch->ulsch_power_tot / n_rx));
+  return max(0, min(1280, rssi));
 }
 
 int get_pusch_cqi(const NR_gNB_PUSCH *pusch, int frame, int slot)
