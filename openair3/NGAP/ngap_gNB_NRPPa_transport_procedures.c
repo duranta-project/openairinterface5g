@@ -20,6 +20,7 @@
 #include "ngap_gNB_management_procedures.h"
 
 #include "ngap_gNB_NRPPa_transport_procedures.h"
+#include "NGAP_ProtocolIE-Container.h"
 
 // UPLINK UE ASSOCIATED NRPPA TRANSPORT (9.2.9.2 of TS 38.413 Version 16.0.0)
 int ngap_gNB_uplink_ue_associated_nrppa_transport(instance_t instance, const ngap_uplink_ue_associated_nrppa_t *msg)
@@ -51,44 +52,56 @@ int ngap_gNB_uplink_ue_associated_nrppa_transport(instance_t instance, const nga
   head->procedureCode = NGAP_ProcedureCode_id_UplinkUEAssociatedNRPPaTransport;
   head->criticality = NGAP_Criticality_ignore;
   head->value.present = NGAP_InitiatingMessage__value_PR_UplinkUEAssociatedNRPPaTransport;
-  NGAP_UplinkUEAssociatedNRPPaTransport_t *out = &head->value.choice.UplinkUEAssociatedNRPPaTransport;
+  NGAP_UplinkUEAssociatedNRPPaTransport_t *out = (head->value.choice.UplinkUEAssociatedNRPPaTransport = calloc_or_fail(1, sizeof(*head->value.choice.UplinkUEAssociatedNRPPaTransport)));
 
   // IE: 9.3.3.1 AMF UE NGAP ID  (mandatory)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkUEAssociatedNRPPaTransportIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkUEAssociatedNRPPaTransportIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkUEAssociatedNRPPaTransportIEs__value_PR_AMF_UE_NGAP_ID;
-    asn_uint642INTEGER(&ie->value.choice.AMF_UE_NGAP_ID, msg->amf_ue_ngap_id);
+    asn_uint642INTEGER((ie->value.choice.AMF_UE_NGAP_ID = calloc_or_fail(1, sizeof(*ie->value.choice.AMF_UE_NGAP_ID))), msg->amf_ue_ngap_id);
   }
 
   // IE: 9.3.3.2 RAN UE NGAP ID  (mandatory)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkUEAssociatedNRPPaTransportIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkUEAssociatedNRPPaTransportIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkUEAssociatedNRPPaTransportIEs__value_PR_RAN_UE_NGAP_ID;
-    ie->value.choice.RAN_UE_NGAP_ID = msg->gNB_ue_ngap_id;
+    asn1cCallocOne(ie->value.choice.RAN_UE_NGAP_ID, msg->gNB_ue_ngap_id);
   }
 
   // IE: 9.3.3.13 Routing ID  (mandatory)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkUEAssociatedNRPPaTransportIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkUEAssociatedNRPPaTransportIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RoutingID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkUEAssociatedNRPPaTransportIEs__value_PR_RoutingID;
-    ie->value.choice.RoutingID.buf = msg->routing_id.buf;
-    ie->value.choice.RoutingID.size = msg->routing_id.len;
+    if (!ie->value.choice.RoutingID)
+      ie->value.choice.RoutingID = calloc_or_fail(1, sizeof(*ie->value.choice.RoutingID));
+    ie->value.choice.RoutingID->buf = msg->routing_id.buf;
+    ie->value.choice.RoutingID->size = msg->routing_id.len;
   }
 
   // IE: 9.3.3.14 NRPPa-PDU   (mandatory)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkUEAssociatedNRPPaTransportIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkUEAssociatedNRPPaTransportIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_NRPPa_PDU;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkUEAssociatedNRPPaTransportIEs__value_PR_NRPPa_PDU;
-    ie->value.choice.NRPPa_PDU.buf = msg->nrppa_pdu.buf;
-    ie->value.choice.NRPPa_PDU.size = msg->nrppa_pdu.len;
+    if (!ie->value.choice.NRPPa_PDU)
+      ie->value.choice.NRPPa_PDU = calloc_or_fail(1, sizeof(*ie->value.choice.NRPPa_PDU));
+    ie->value.choice.NRPPa_PDU->buf = msg->nrppa_pdu.buf;
+    ie->value.choice.NRPPa_PDU->size = msg->nrppa_pdu.len;
   }
 
   // Encode NGAP message
@@ -140,26 +153,34 @@ int ngap_gNB_uplink_non_ue_associated_nrppa_transport(instance_t instance, const
   head->procedureCode = NGAP_ProcedureCode_id_UplinkNonUEAssociatedNRPPaTransport;
   head->criticality = NGAP_Criticality_ignore;
   head->value.present = NGAP_InitiatingMessage__value_PR_UplinkNonUEAssociatedNRPPaTransport;
-  NGAP_UplinkNonUEAssociatedNRPPaTransport_t *out = &head->value.choice.UplinkNonUEAssociatedNRPPaTransport;
+  NGAP_UplinkNonUEAssociatedNRPPaTransport_t *out = (head->value.choice.UplinkNonUEAssociatedNRPPaTransport = calloc_or_fail(1, sizeof(*head->value.choice.UplinkNonUEAssociatedNRPPaTransport)));
 
   // IE: 9.3.3.13 Routing ID (mandatory)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkNonUEAssociatedNRPPaTransportIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkNonUEAssociatedNRPPaTransportIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_RoutingID;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkNonUEAssociatedNRPPaTransportIEs__value_PR_RoutingID;
-    ie->value.choice.RoutingID.buf = msg->routing_id.buf;
-    ie->value.choice.RoutingID.size = msg->routing_id.len;
+    if (!ie->value.choice.RoutingID)
+      ie->value.choice.RoutingID = calloc_or_fail(1, sizeof(*ie->value.choice.RoutingID));
+    ie->value.choice.RoutingID->buf = msg->routing_id.buf;
+    ie->value.choice.RoutingID->size = msg->routing_id.len;
   }
 
   // IE: 9.3.3.14 NRPPa-PDU (mandatory)
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NGAP_UplinkNonUEAssociatedNRPPaTransportIEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NGAP_UplinkNonUEAssociatedNRPPaTransportIEs_t, ie);
     ie->id = NGAP_ProtocolIE_ID_id_NRPPa_PDU;
     ie->criticality = NGAP_Criticality_reject;
     ie->value.present = NGAP_UplinkNonUEAssociatedNRPPaTransportIEs__value_PR_NRPPa_PDU;
-    ie->value.choice.NRPPa_PDU.buf = msg->nrppa_pdu.buf;
-    ie->value.choice.NRPPa_PDU.size = msg->nrppa_pdu.len;
+    if (!ie->value.choice.NRPPa_PDU)
+      ie->value.choice.NRPPa_PDU = calloc_or_fail(1, sizeof(*ie->value.choice.NRPPa_PDU));
+    ie->value.choice.NRPPa_PDU->buf = msg->nrppa_pdu.buf;
+    ie->value.choice.NRPPa_PDU->size = msg->nrppa_pdu.len;
   }
 
   // Encode NGAP message
@@ -197,7 +218,7 @@ int ngap_gNB_handle_downlink_ue_associated_nrppa_transport(sctp_assoc_t assoc_id
   NGAP_DownlinkUEAssociatedNRPPaTransportIEs_t *ie = NULL;
 
   // IE: 9.3.1.1 Message Type
-  container = &pdu->choice.initiatingMessage->value.choice.DownlinkUEAssociatedNRPPaTransport;
+  container = pdu->choice.initiatingMessage->value.choice.DownlinkUEAssociatedNRPPaTransport;
 
   // IE: 9.3.3.1 AMF UE NGAP ID
   uint64_t amf_ue_ngap_id;
@@ -206,7 +227,7 @@ int ngap_gNB_handle_downlink_ue_associated_nrppa_transport(sctp_assoc_t assoc_id
                              container,
                              NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID,
                              true);
-  asn_INTEGER2ulong(&(ie->value.choice.AMF_UE_NGAP_ID), &amf_ue_ngap_id);
+  asn_INTEGER2ulong((ie->value.choice.AMF_UE_NGAP_ID), &amf_ue_ngap_id);
 
   // IE: 9.3.3.2 RAN UE NGAP ID
   NGAP_RAN_UE_NGAP_ID_t gnb_ue_ngap_id;
@@ -215,7 +236,7 @@ int ngap_gNB_handle_downlink_ue_associated_nrppa_transport(sctp_assoc_t assoc_id
                              container,
                              NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID,
                              true);
-  gnb_ue_ngap_id = ie->value.choice.RAN_UE_NGAP_ID;
+  gnb_ue_ngap_id = *ie->value.choice.RAN_UE_NGAP_ID;
 
   ngap_gNB_ue_context_t *ue_desc_p = NULL;
   if ((ue_desc_p = ngap_get_ue_context(gnb_ue_ngap_id)) == NULL) {
@@ -247,11 +268,11 @@ int ngap_gNB_handle_downlink_ue_associated_nrppa_transport(sctp_assoc_t assoc_id
 
   // IE: 9.3.3.13 Routing ID
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_DownlinkUEAssociatedNRPPaTransportIEs_t, ie, container, NGAP_ProtocolIE_ID_id_RoutingID, true);
-  dl_ue_assoc_nrppa->routing_id = create_byte_array(ie->value.choice.RoutingID.size, ie->value.choice.RoutingID.buf);
+  dl_ue_assoc_nrppa->routing_id = create_byte_array(ie->value.choice.RoutingID->size, ie->value.choice.RoutingID->buf);
 
   // IE: 9.3.3.14 NRPPa-PDU
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_DownlinkUEAssociatedNRPPaTransportIEs_t, ie, container, NGAP_ProtocolIE_ID_id_NRPPa_PDU, true);
-  dl_ue_assoc_nrppa->nrppa_pdu = create_byte_array(ie->value.choice.NRPPa_PDU.size, ie->value.choice.NRPPa_PDU.buf);
+  dl_ue_assoc_nrppa->nrppa_pdu = create_byte_array(ie->value.choice.NRPPa_PDU->size, ie->value.choice.NRPPa_PDU->buf);
 
   // Forward the NRPPA PDU to NRPPA
   itti_send_msg_to_task(TASK_NRPPA, ngap_gNB_instance->instance, msg);
@@ -281,15 +302,15 @@ int ngap_gNB_handle_downlink_non_ue_associated_nrppa_transport(sctp_assoc_t asso
   NGAP_DownlinkNonUEAssociatedNRPPaTransportIEs_t *ie;
 
   // IE: 9.3.1.1 Message Type
-  container = &pdu->choice.initiatingMessage->value.choice.DownlinkNonUEAssociatedNRPPaTransport;
+  container = pdu->choice.initiatingMessage->value.choice.DownlinkNonUEAssociatedNRPPaTransport;
 
   // IE: 9.3.3.13 Routing ID
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_DownlinkNonUEAssociatedNRPPaTransportIEs_t, ie, container, NGAP_ProtocolIE_ID_id_RoutingID, true);
-  dl_non_ue_assoc_nrppa->routing_id = create_byte_array(ie->value.choice.RoutingID.size, ie->value.choice.RoutingID.buf);
+  dl_non_ue_assoc_nrppa->routing_id = create_byte_array(ie->value.choice.RoutingID->size, ie->value.choice.RoutingID->buf);
 
   // IE: 9.3.3.14 NRPPa-PDU
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_DownlinkNonUEAssociatedNRPPaTransportIEs_t, ie, container, NGAP_ProtocolIE_ID_id_NRPPa_PDU, true);
-  dl_non_ue_assoc_nrppa->nrppa_pdu = create_byte_array(ie->value.choice.NRPPa_PDU.size, ie->value.choice.NRPPa_PDU.buf);
+  dl_non_ue_assoc_nrppa->nrppa_pdu = create_byte_array(ie->value.choice.NRPPa_PDU->size, ie->value.choice.NRPPa_PDU->buf);
 
   itti_send_msg_to_task(TASK_NRPPA, ngap_gNB_instance->instance, msg);
 

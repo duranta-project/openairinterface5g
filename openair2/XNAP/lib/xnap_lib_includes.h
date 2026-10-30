@@ -61,6 +61,20 @@
 #include "XNAP_AS-SecurityInformation.h"
 #include "XNAP_CPTransportLayerInformation.h"
 #include "XNAP_RetrieveUEContextFailure.h"
+#include "XNAP_DRBBStatusTransferChoice.h"
+#include "XNAP_PDUSessionResourcesToBeSetup-List.h"
+#include "XNAP_QoSCharacteristics.h"
+#include "XNAP_QoSFlowLevelQoSParameters.h"
+#include "XNAP_QoSFlowsToBeSetup-List.h"
+#include "XNAP_UPTransportLayerInformation.h"
+#include "XNAP_PDUSessionResourceAdmittedInfo.h"
+#include "XNAP_PacketErrorRate.h"
+#include "XNAP_ProtocolIE-Container.h"
+#include "XNAP_COUNT-PDCP-SN12.h"
+#include "XNAP_COUNT-PDCP-SN18.h"
+#include "XNAP_QoSFlowsAdmitted-List.h"
+#include "XNAP_GNB-ID-Choice.h"
+#include "XNAP_SliceSupport-List.h"
 
 #endif // XNAP_LIB_INCLUDES_H
 

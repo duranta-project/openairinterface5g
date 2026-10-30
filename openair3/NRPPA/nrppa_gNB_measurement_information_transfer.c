@@ -10,6 +10,20 @@
 #include "openair3/UTILS/conversions.h"
 #include "nrppa_gNB_measurement_information_transfer.h"
 #include "nrppa_gNB_location_information_transfer.h"
+#include "NRPPA_ActiveULBWP.h"
+#include "NRPPA_PosResourceSetType.h"
+#include "NRPPA_ResourceSetType.h"
+#include "NRPPA_TimeStamp.h"
+#include "NRPPA_TransmissionComb.h"
+#include "NRPPA_TransmissionCombPos.h"
+#include "NRPPA_TrpMeasuredResultsValue.h"
+#include "NRPPA_TrpMeasurementResult.h"
+#include "NRPPA_UplinkChannelBW-PerSCS-List.h"
+#include "NRPPA_PosSRSResourceIDPerSet-List.h"
+#include "NRPPA_SRSResourceID-List.h"
+#include "NRPPA_GNBRxTxTimeDiffMeas.h"
+#include "NRPPA_TimeStampSlotIndex.h"
+#include "NRPPA_ULRTOAMeas.h"
 
 static void decode_srs_config(const NRPPA_SRSConfig_t *in_config, nrppa_srs_config_t *out_config)
 {
@@ -40,7 +54,7 @@ static void decode_srs_config(const NRPPA_SRSConfig_t *in_config, nrppa_srs_conf
       }
 
       nrppa_transmission_comb_t *srs_tx_comb = &srs_resource->transmission_comb;
-      NRPPA_TransmissionComb_t *nrppa_srs_tx_comb = &nrppa_srs_resource->transmissionComb;
+      NRPPA_TransmissionComb_t *nrppa_srs_tx_comb = nrppa_srs_resource->transmissionComb;
       switch (nrppa_srs_tx_comb->present) {
         case NRPPA_TransmissionComb_PR_NOTHING:
           srs_tx_comb->present = NRPPA_TRANSMISSION_COMB_PR_NOTHING;
@@ -113,7 +127,7 @@ static void decode_srs_config(const NRPPA_SRSConfig_t *in_config, nrppa_srs_conf
           break;
       }
 
-      NRPPA_ResourceType_t *nrppa_resourceType = &nrppa_srs_resource->resourceType;
+      NRPPA_ResourceType_t *nrppa_resourceType = nrppa_srs_resource->resourceType;
       nrppa_resource_type_t *resource_type = &srs_resource->resource_type;
       if (nrppa_resourceType->present == NRPPA_ResourceType_PR_NOTHING) {
         resource_type->present = NRPPA_RESOURCE_TYPE_PR_NOTHING;
@@ -261,7 +275,7 @@ static void decode_srs_config(const NRPPA_SRSConfig_t *in_config, nrppa_srs_conf
       nrppa_pos_srs_resource_item_t *pos_srs_resource = &pos_srs_resource_list->pos_srs_resource_item[i];
       pos_srs_resource->srs_pos_resource_id = nrppa_pos_srs_resource->srs_PosResourceId;
 
-      NRPPA_TransmissionCombPos_t *nrppa_tx_comb_pos = &nrppa_pos_srs_resource->transmissionCombPos;
+      NRPPA_TransmissionCombPos_t *nrppa_tx_comb_pos = nrppa_pos_srs_resource->transmissionCombPos;
       nrppa_transmission_comb_pos_t *tx_comb_pos = &pos_srs_resource->transmission_comb_pos;
       switch (nrppa_tx_comb_pos->present) {
         case NRPPA_TransmissionCombPos_PR_NOTHING:
@@ -328,7 +342,7 @@ static void decode_srs_config(const NRPPA_SRSConfig_t *in_config, nrppa_srs_conf
           break;
       }
 
-      NRPPA_ResourceTypePos_t *nrppa_res_type_pos = &nrppa_pos_srs_resource->resourceTypePos;
+      NRPPA_ResourceTypePos_t *nrppa_res_type_pos = nrppa_pos_srs_resource->resourceTypePos;
       nrppa_resource_type_pos_t *res_type_pos = &pos_srs_resource->resource_type_pos;
       if (nrppa_res_type_pos->present == NRPPA_ResourceTypePos_PR_NOTHING) {
         res_type_pos->present = NRPPA_RESOURCE_TYPE_POS_PR_NOTHING;
@@ -505,16 +519,16 @@ static void decode_srs_config(const NRPPA_SRSConfig_t *in_config, nrppa_srs_conf
       NRPPA_SRSResourceSet_t *nrppa_srs_resource_set = in_config->sRSResourceSet_List->list.array[i];
       nrppa_srs_resource_set_t *srs_resource_set = &srs_resource_set_list->srs_resource_set[i];
       srs_resource_set->srs_resource_set_id = nrppa_srs_resource_set->sRSResourceSetID;
-      uint8_t srs_resource_id_list_length = nrppa_srs_resource_set->sRSResourceID_List.list.count;
+      uint8_t srs_resource_id_list_length = nrppa_srs_resource_set->sRSResourceID_List->list.count;
       srs_resource_set->srs_resource_id_list.srs_resource_id_list_length = srs_resource_id_list_length;
       srs_resource_set->srs_resource_id_list.srs_resource_id =
           calloc_or_fail(srs_resource_id_list_length, sizeof(*srs_resource_set->srs_resource_id_list.srs_resource_id));
       for (int j = 0; j < srs_resource_id_list_length; j++) {
-        NRPPA_SRSResourceID_t *nrppa_srs_resource_id = nrppa_srs_resource_set->sRSResourceID_List.list.array[j];
+        NRPPA_SRSResourceID_t *nrppa_srs_resource_id = nrppa_srs_resource_set->sRSResourceID_List->list.array[j];
         srs_resource_set->srs_resource_id_list.srs_resource_id[j] = *nrppa_srs_resource_id;
       }
 
-      NRPPA_ResourceSetType_t *nrppa_res_set_type = &nrppa_srs_resource_set->resourceSetType;
+      NRPPA_ResourceSetType_t *nrppa_res_set_type = nrppa_srs_resource_set->resourceSetType;
       nrppa_resource_set_type_t *res_set_type = &srs_resource_set->resource_set_type;
       switch (nrppa_res_set_type->present) {
         case NRPPA_ResourceSetType_PR_NOTHING:
@@ -552,17 +566,17 @@ static void decode_srs_config(const NRPPA_SRSConfig_t *in_config, nrppa_srs_conf
       NRPPA_PosSRSResourceSet_Item_t *nrppa_pos_srs_resource_set = in_config->posSRSResourceSet_List->list.array[i];
       nrppa_pos_srs_resource_set_item_t *pos_srs_resource_set = &pos_srs_resource_set_list->pos_srs_resource_set_item[i];
       pos_srs_resource_set->pos_srs_resource_set_id = nrppa_pos_srs_resource_set->possrsResourceSetID;
-      uint8_t pos_srs_resource_id_list_length = nrppa_pos_srs_resource_set->possRSResourceIDPerSet_List.list.count;
+      uint8_t pos_srs_resource_id_list_length = nrppa_pos_srs_resource_set->possRSResourceIDPerSet_List->list.count;
       pos_srs_resource_set->pos_srs_resource_id_list.pos_srs_resource_id_list_length = pos_srs_resource_id_list_length;
       pos_srs_resource_set->pos_srs_resource_id_list.srs_pos_resource_id =
           calloc_or_fail(pos_srs_resource_id_list_length,
                          sizeof(*pos_srs_resource_set->pos_srs_resource_id_list.srs_pos_resource_id));
       for (int j = 0; j < pos_srs_resource_id_list_length; j++) {
-        NRPPA_SRSPosResourceID_t *nrppa_pos_srs_resource_id = nrppa_pos_srs_resource_set->possRSResourceIDPerSet_List.list.array[j];
+        NRPPA_SRSPosResourceID_t *nrppa_pos_srs_resource_id = nrppa_pos_srs_resource_set->possRSResourceIDPerSet_List->list.array[j];
         pos_srs_resource_set->pos_srs_resource_id_list.srs_pos_resource_id[j] = *nrppa_pos_srs_resource_id;
       }
 
-      NRPPA_PosResourceSetType_t *nrppa_pos_res_set_type = &nrppa_pos_srs_resource_set->posresourceSetType;
+      NRPPA_PosResourceSetType_t *nrppa_pos_res_set_type = nrppa_pos_srs_resource_set->posresourceSetType;
       nrppa_pos_resource_set_type_t *pos_res_set_type = &pos_srs_resource_set->pos_resource_set_type;
       switch (nrppa_pos_res_set_type->present) {
         case NRPPA_PosResourceSetType_PR_NOTHING:
@@ -595,7 +609,7 @@ static void decode_srs_carrier_list_item(const NRPPA_SRSCarrier_List_Item_t *in_
 
   // Uplink Channel BW-PerSCS-List
   nrppa_uplink_channel_bw_per_scs_list_t *uplink_channel_bw_per_scs_list = &out_item->uplink_channel_bw_per_scs_list;
-  const NRPPA_UplinkChannelBW_PerSCS_List_t *nrppa_uplink_channel_bw_per_scs_list = &in_item->uplinkChannelBW_PerSCS_List;
+  const NRPPA_UplinkChannelBW_PerSCS_List_t *nrppa_uplink_channel_bw_per_scs_list = in_item->uplinkChannelBW_PerSCS_List;
 
   uint32_t scs_specific_carrier_list_length = nrppa_uplink_channel_bw_per_scs_list->list.count;
   AssertFatal(scs_specific_carrier_list_length > 0, "Atleast 1 uplink channel bw per scs list should be present\n");
@@ -630,7 +644,7 @@ static void decode_srs_carrier_list_item(const NRPPA_SRSCarrier_List_Item_t *in_
   }
 
   // Active UL BWP
-  const NRPPA_ActiveULBWP_t *nrppa_active_ul_bwp = &in_item->activeULBWP;
+  const NRPPA_ActiveULBWP_t *nrppa_active_ul_bwp = in_item->activeULBWP;
   nrppa_active_ul_bwp_t *active_ul_bwp = &out_item->active_ul_bwp;
 
   // location and bandwidth
@@ -664,7 +678,7 @@ static void decode_srs_carrier_list_item(const NRPPA_SRSCarrier_List_Item_t *in_
   active_ul_bwp->tx_direct_current_location = nrppa_active_ul_bwp->txDirectCurrentLocation;
 
   // SRS Config
-  const NRPPA_SRSConfig_t *nrppa_sRSConfig = &nrppa_active_ul_bwp->sRSConfig;
+  const NRPPA_SRSConfig_t *nrppa_sRSConfig = nrppa_active_ul_bwp->sRSConfig;
   nrppa_srs_config_t *sRSConfig = &active_ul_bwp->srs_config;
   decode_srs_config(nrppa_sRSConfig, sRSConfig);
 }
@@ -703,7 +717,7 @@ static NRPPA_TrpMeasurementResult_t encode_measurement_results(nrppa_measurement
   for (int i = 0; i < in_result->measurement_result_item_length; i++) {
     asn1cSequenceAdd(out_result.list, NRPPA_TrpMeasurementResultItem_t, out_item);
     nrppa_measurement_result_item_t *in_item = &in_result->measurement_result_item[i];
-    NRPPA_TrpMeasuredResultsValue_t *out_meas_res_val = &out_item->measuredResultsValue;
+    NRPPA_TrpMeasuredResultsValue_t *out_meas_res_val = (out_item->measuredResultsValue = calloc_or_fail(1, sizeof(*out_item->measuredResultsValue)));
     nrppa_measured_results_value_t *in_meas_res_val = &in_item->measured_results_value;
     switch (in_meas_res_val->present) {
       case NRPPA_MEASURED_RESULTS_VALUE_PR_NOTHING:
@@ -729,31 +743,45 @@ static NRPPA_TrpMeasurementResult_t encode_measurement_results(nrppa_measurement
         nrppa_ul_rtoa_measurement_t *in_ul_rtoa = &in_meas_res_val->choice.ul_rtoa;
         switch (in_ul_rtoa->present) {
           case NRPPA_ULRTOAMEAS_PR_NOTHING:
-            out_ul_rtoa->uLRTOAmeas.present = NRPPA_ULRTOAMeas_PR_NOTHING;
+            if (!out_ul_rtoa->uLRTOAmeas)
+              out_ul_rtoa->uLRTOAmeas = calloc_or_fail(1, sizeof(*out_ul_rtoa->uLRTOAmeas));
+            out_ul_rtoa->uLRTOAmeas->present = NRPPA_ULRTOAMeas_PR_NOTHING;
             break;
           case NRPPA_ULRTOAMEAS_PR_K0:
-            out_ul_rtoa->uLRTOAmeas.present = NRPPA_ULRTOAMeas_PR_k0;
-            out_ul_rtoa->uLRTOAmeas.choice.k0 = in_ul_rtoa->choice.k0;
+            if (!out_ul_rtoa->uLRTOAmeas)
+              out_ul_rtoa->uLRTOAmeas = calloc_or_fail(1, sizeof(*out_ul_rtoa->uLRTOAmeas));
+            out_ul_rtoa->uLRTOAmeas->present = NRPPA_ULRTOAMeas_PR_k0;
+            out_ul_rtoa->uLRTOAmeas->choice.k0 = in_ul_rtoa->choice.k0;
             break;
           case NRPPA_ULRTOAMEAS_PR_K1:
-            out_ul_rtoa->uLRTOAmeas.present = NRPPA_ULRTOAMeas_PR_k1;
-            out_ul_rtoa->uLRTOAmeas.choice.k1 = in_ul_rtoa->choice.k1;
+            if (!out_ul_rtoa->uLRTOAmeas)
+              out_ul_rtoa->uLRTOAmeas = calloc_or_fail(1, sizeof(*out_ul_rtoa->uLRTOAmeas));
+            out_ul_rtoa->uLRTOAmeas->present = NRPPA_ULRTOAMeas_PR_k1;
+            out_ul_rtoa->uLRTOAmeas->choice.k1 = in_ul_rtoa->choice.k1;
             break;
           case NRPPA_ULRTOAMEAS_PR_K2:
-            out_ul_rtoa->uLRTOAmeas.present = NRPPA_ULRTOAMeas_PR_k2;
-            out_ul_rtoa->uLRTOAmeas.choice.k2 = in_ul_rtoa->choice.k2;
+            if (!out_ul_rtoa->uLRTOAmeas)
+              out_ul_rtoa->uLRTOAmeas = calloc_or_fail(1, sizeof(*out_ul_rtoa->uLRTOAmeas));
+            out_ul_rtoa->uLRTOAmeas->present = NRPPA_ULRTOAMeas_PR_k2;
+            out_ul_rtoa->uLRTOAmeas->choice.k2 = in_ul_rtoa->choice.k2;
             break;
           case NRPPA_ULRTOAMEAS_PR_K3:
-            out_ul_rtoa->uLRTOAmeas.present = NRPPA_ULRTOAMeas_PR_k3;
-            out_ul_rtoa->uLRTOAmeas.choice.k3 = in_ul_rtoa->choice.k3;
+            if (!out_ul_rtoa->uLRTOAmeas)
+              out_ul_rtoa->uLRTOAmeas = calloc_or_fail(1, sizeof(*out_ul_rtoa->uLRTOAmeas));
+            out_ul_rtoa->uLRTOAmeas->present = NRPPA_ULRTOAMeas_PR_k3;
+            out_ul_rtoa->uLRTOAmeas->choice.k3 = in_ul_rtoa->choice.k3;
             break;
           case NRPPA_ULRTOAMEAS_PR_K4:
-            out_ul_rtoa->uLRTOAmeas.present = NRPPA_ULRTOAMeas_PR_k4;
-            out_ul_rtoa->uLRTOAmeas.choice.k4 = in_ul_rtoa->choice.k4;
+            if (!out_ul_rtoa->uLRTOAmeas)
+              out_ul_rtoa->uLRTOAmeas = calloc_or_fail(1, sizeof(*out_ul_rtoa->uLRTOAmeas));
+            out_ul_rtoa->uLRTOAmeas->present = NRPPA_ULRTOAMeas_PR_k4;
+            out_ul_rtoa->uLRTOAmeas->choice.k4 = in_ul_rtoa->choice.k4;
             break;
           case NRPPA_ULRTOAMEAS_PR_K5:
-            out_ul_rtoa->uLRTOAmeas.present = NRPPA_ULRTOAMeas_PR_k5;
-            out_ul_rtoa->uLRTOAmeas.choice.k5 = in_ul_rtoa->choice.k5;
+            if (!out_ul_rtoa->uLRTOAmeas)
+              out_ul_rtoa->uLRTOAmeas = calloc_or_fail(1, sizeof(*out_ul_rtoa->uLRTOAmeas));
+            out_ul_rtoa->uLRTOAmeas->present = NRPPA_ULRTOAMeas_PR_k5;
+            out_ul_rtoa->uLRTOAmeas->choice.k5 = in_ul_rtoa->choice.k5;
             break;
           default:
             AssertFatal(false, "illegal ul rtoa measure type\n");
@@ -766,31 +794,45 @@ static NRPPA_TrpMeasurementResult_t encode_measurement_results(nrppa_measurement
         nrppa_gnb_rx_tx_time_diff_t *in_rxtx_time_diff = &in_meas_res_val->choice.gnb_rx_tx_time_diff;
         switch (in_rxtx_time_diff->present) {
           case NRPPA_GNBRXTXTIMEDIFFMEAS_PR_NOTHING:
-            out_rxtx_time_diff->rxTxTimeDiff.present = NRPPA_GNBRxTxTimeDiffMeas_PR_NOTHING;
+            if (!out_rxtx_time_diff->rxTxTimeDiff)
+              out_rxtx_time_diff->rxTxTimeDiff = calloc_or_fail(1, sizeof(*out_rxtx_time_diff->rxTxTimeDiff));
+            out_rxtx_time_diff->rxTxTimeDiff->present = NRPPA_GNBRxTxTimeDiffMeas_PR_NOTHING;
             break;
           case NRPPA_GNBRXTXTIMEDIFFMEAS_PR_K0:
-            out_rxtx_time_diff->rxTxTimeDiff.present = NRPPA_GNBRxTxTimeDiffMeas_PR_k0;
-            out_rxtx_time_diff->rxTxTimeDiff.choice.k0 = in_rxtx_time_diff->choice.k0;
+            if (!out_rxtx_time_diff->rxTxTimeDiff)
+              out_rxtx_time_diff->rxTxTimeDiff = calloc_or_fail(1, sizeof(*out_rxtx_time_diff->rxTxTimeDiff));
+            out_rxtx_time_diff->rxTxTimeDiff->present = NRPPA_GNBRxTxTimeDiffMeas_PR_k0;
+            out_rxtx_time_diff->rxTxTimeDiff->choice.k0 = in_rxtx_time_diff->choice.k0;
             break;
           case NRPPA_GNBRXTXTIMEDIFFMEAS_PR_K1:
-            out_rxtx_time_diff->rxTxTimeDiff.present = NRPPA_GNBRxTxTimeDiffMeas_PR_k1;
-            out_rxtx_time_diff->rxTxTimeDiff.choice.k1 = in_rxtx_time_diff->choice.k1;
+            if (!out_rxtx_time_diff->rxTxTimeDiff)
+              out_rxtx_time_diff->rxTxTimeDiff = calloc_or_fail(1, sizeof(*out_rxtx_time_diff->rxTxTimeDiff));
+            out_rxtx_time_diff->rxTxTimeDiff->present = NRPPA_GNBRxTxTimeDiffMeas_PR_k1;
+            out_rxtx_time_diff->rxTxTimeDiff->choice.k1 = in_rxtx_time_diff->choice.k1;
             break;
           case NRPPA_GNBRXTXTIMEDIFFMEAS_PR_K2:
-            out_rxtx_time_diff->rxTxTimeDiff.present = NRPPA_GNBRxTxTimeDiffMeas_PR_k2;
-            out_rxtx_time_diff->rxTxTimeDiff.choice.k2 = in_rxtx_time_diff->choice.k2;
+            if (!out_rxtx_time_diff->rxTxTimeDiff)
+              out_rxtx_time_diff->rxTxTimeDiff = calloc_or_fail(1, sizeof(*out_rxtx_time_diff->rxTxTimeDiff));
+            out_rxtx_time_diff->rxTxTimeDiff->present = NRPPA_GNBRxTxTimeDiffMeas_PR_k2;
+            out_rxtx_time_diff->rxTxTimeDiff->choice.k2 = in_rxtx_time_diff->choice.k2;
             break;
           case NRPPA_GNBRXTXTIMEDIFFMEAS_PR_K3:
-            out_rxtx_time_diff->rxTxTimeDiff.present = NRPPA_GNBRxTxTimeDiffMeas_PR_k3;
-            out_rxtx_time_diff->rxTxTimeDiff.choice.k3 = in_rxtx_time_diff->choice.k3;
+            if (!out_rxtx_time_diff->rxTxTimeDiff)
+              out_rxtx_time_diff->rxTxTimeDiff = calloc_or_fail(1, sizeof(*out_rxtx_time_diff->rxTxTimeDiff));
+            out_rxtx_time_diff->rxTxTimeDiff->present = NRPPA_GNBRxTxTimeDiffMeas_PR_k3;
+            out_rxtx_time_diff->rxTxTimeDiff->choice.k3 = in_rxtx_time_diff->choice.k3;
             break;
           case NRPPA_GNBRXTXTIMEDIFFMEAS_PR_K4:
-            out_rxtx_time_diff->rxTxTimeDiff.present = NRPPA_GNBRxTxTimeDiffMeas_PR_k4;
-            out_rxtx_time_diff->rxTxTimeDiff.choice.k4 = in_rxtx_time_diff->choice.k4;
+            if (!out_rxtx_time_diff->rxTxTimeDiff)
+              out_rxtx_time_diff->rxTxTimeDiff = calloc_or_fail(1, sizeof(*out_rxtx_time_diff->rxTxTimeDiff));
+            out_rxtx_time_diff->rxTxTimeDiff->present = NRPPA_GNBRxTxTimeDiffMeas_PR_k4;
+            out_rxtx_time_diff->rxTxTimeDiff->choice.k4 = in_rxtx_time_diff->choice.k4;
             break;
           case NRPPA_GNBRXTXTIMEDIFFMEAS_PR_K5:
-            out_rxtx_time_diff->rxTxTimeDiff.present = NRPPA_GNBRxTxTimeDiffMeas_PR_k5;
-            out_rxtx_time_diff->rxTxTimeDiff.choice.k5 = in_rxtx_time_diff->choice.k5;
+            if (!out_rxtx_time_diff->rxTxTimeDiff)
+              out_rxtx_time_diff->rxTxTimeDiff = calloc_or_fail(1, sizeof(*out_rxtx_time_diff->rxTxTimeDiff));
+            out_rxtx_time_diff->rxTxTimeDiff->present = NRPPA_GNBRxTxTimeDiffMeas_PR_k5;
+            out_rxtx_time_diff->rxTxTimeDiff->choice.k5 = in_rxtx_time_diff->choice.k5;
             break;
           default:
             AssertFatal(false, "illegal ul rtoa measure type\n");
@@ -802,28 +844,38 @@ static NRPPA_TrpMeasurementResult_t encode_measurement_results(nrppa_measurement
         break;
     }
 
-    NRPPA_TimeStamp_t *out_time_stamp = &out_item->timeStamp;
+    NRPPA_TimeStamp_t *out_time_stamp = (out_item->timeStamp = calloc_or_fail(1, sizeof(*out_item->timeStamp)));
     nrppa_time_stamp_t *in_time_stamp = &in_item->time_stamp;
     out_time_stamp->systemFrameNumber = in_time_stamp->system_frame_number;
     switch (in_time_stamp->slot_index.present) {
       case NRPPA_TIME_STAMP_SLOT_INDEX_PR_NOTHING:
-        out_time_stamp->slotIndex.present = NRPPA_TimeStampSlotIndex_PR_NOTHING;
+        if (!out_time_stamp->slotIndex)
+          out_time_stamp->slotIndex = calloc_or_fail(1, sizeof(*out_time_stamp->slotIndex));
+        out_time_stamp->slotIndex->present = NRPPA_TimeStampSlotIndex_PR_NOTHING;
         break;
       case NRPPA_TIME_STAMP_SLOT_INDEX_PR_SCS_15:
-        out_time_stamp->slotIndex.present = NRPPA_TimeStampSlotIndex_PR_sCS_15;
-        out_time_stamp->slotIndex.choice.sCS_15 = in_time_stamp->slot_index.choice.scs_15;
+        if (!out_time_stamp->slotIndex)
+          out_time_stamp->slotIndex = calloc_or_fail(1, sizeof(*out_time_stamp->slotIndex));
+        out_time_stamp->slotIndex->present = NRPPA_TimeStampSlotIndex_PR_sCS_15;
+        out_time_stamp->slotIndex->choice.sCS_15 = in_time_stamp->slot_index.choice.scs_15;
         break;
       case NRPPA_TIME_STAMP_SLOT_INDEX_PR_SCS_30:
-        out_time_stamp->slotIndex.present = NRPPA_TimeStampSlotIndex_PR_sCS_30;
-        out_time_stamp->slotIndex.choice.sCS_30 = in_time_stamp->slot_index.choice.scs_30;
+        if (!out_time_stamp->slotIndex)
+          out_time_stamp->slotIndex = calloc_or_fail(1, sizeof(*out_time_stamp->slotIndex));
+        out_time_stamp->slotIndex->present = NRPPA_TimeStampSlotIndex_PR_sCS_30;
+        out_time_stamp->slotIndex->choice.sCS_30 = in_time_stamp->slot_index.choice.scs_30;
         break;
       case NRPPA_TIME_STAMP_SLOT_INDEX_PR_SCS_60:
-        out_time_stamp->slotIndex.present = NRPPA_TimeStampSlotIndex_PR_sCS_60;
-        out_time_stamp->slotIndex.choice.sCS_60 = in_time_stamp->slot_index.choice.scs_60;
+        if (!out_time_stamp->slotIndex)
+          out_time_stamp->slotIndex = calloc_or_fail(1, sizeof(*out_time_stamp->slotIndex));
+        out_time_stamp->slotIndex->present = NRPPA_TimeStampSlotIndex_PR_sCS_60;
+        out_time_stamp->slotIndex->choice.sCS_60 = in_time_stamp->slot_index.choice.scs_60;
         break;
       case NRPPA_TIME_STAMP_SLOT_INDEX_PR_SCS_120:
-        out_time_stamp->slotIndex.present = NRPPA_TimeStampSlotIndex_PR_sCS_120;
-        out_time_stamp->slotIndex.choice.sCS_120 = in_time_stamp->slot_index.choice.scs_120;
+        if (!out_time_stamp->slotIndex)
+          out_time_stamp->slotIndex = calloc_or_fail(1, sizeof(*out_time_stamp->slotIndex));
+        out_time_stamp->slotIndex->present = NRPPA_TimeStampSlotIndex_PR_sCS_120;
+        out_time_stamp->slotIndex->choice.sCS_120 = in_time_stamp->slot_index.choice.scs_120;
         break;
       default:
         AssertFatal(false, "illegal slot index\n");
@@ -840,7 +892,7 @@ NRPPA_TRP_MeasurementResponseList_t encode_trp_measurement_reponse_list(nrppa_me
     asn1cSequenceAdd(out_list.list, NRPPA_TRP_MeasurementResponseItem_t, out_item);
     nrppa_measurement_response_item_t *in_item = &in_list->measurement_response_item[i];
     out_item->tRP_ID = in_item->trp_id;
-    out_item->measurementResult = encode_measurement_results(&in_item->measurement_result);
+    asn1cCallocOne(out_item->measurementResult, encode_measurement_results(&in_item->measurement_result));
   }
 
   return out_list;
@@ -890,7 +942,7 @@ int nrppa_gNB_handle_measurement_request(nrppa_gnb_ue_info_t *nrppa_msg_info, co
   NRPPA_MeasurementRequest_IEs_t *ie = NULL;
 
   // IE 9.2.3 Message type : mandatory
-  container = &pdu->choice.initiatingMessage->value.choice.MeasurementRequest;
+  container = pdu->choice.initiatingMessage->value.choice.MeasurementRequest;
 
   // IE 9.2.4 nrppatransactionID : mandatory
   req->transaction_id = pdu->choice.initiatingMessage->nrppatransactionID;
@@ -898,7 +950,7 @@ int nrppa_gNB_handle_measurement_request(nrppa_gnb_ue_info_t *nrppa_msg_info, co
   NRPPA_FIND_PROTOCOLIE_BY_ID(NRPPA_MeasurementRequest_IEs_t, ie, container, NRPPA_ProtocolIE_ID_id_LMF_Measurement_ID, true);
 
   // LMF Measurement  ID : mandatory
-  req->lmf_measurement_id = ie->value.choice.Measurement_ID;
+  req->lmf_measurement_id = *ie->value.choice.Measurement_ID;
 
   // IE TRP Measurement Request List : mandatory
   NRPPA_FIND_PROTOCOLIE_BY_ID(NRPPA_MeasurementRequest_IEs_t,
@@ -906,7 +958,7 @@ int nrppa_gNB_handle_measurement_request(nrppa_gnb_ue_info_t *nrppa_msg_info, co
                               container,
                               NRPPA_ProtocolIE_ID_id_TRP_MeasurementRequestList,
                               true);
-  NRPPA_TRP_MeasurementRequestList_t *nrppa_trp_meas_list = &ie->value.choice.TRP_MeasurementRequestList;
+  NRPPA_TRP_MeasurementRequestList_t *nrppa_trp_meas_list = ie->value.choice.TRP_MeasurementRequestList;
   uint8_t meas_req_item_len = nrppa_trp_meas_list->list.count;
   AssertError(meas_req_item_len > 0, return false, "at least 1 TRP Measurement Request Item must be present");
   nrppa_trp_measurement_request_list_t *trp_meas_list = &req->trp_measurement_request_list;
@@ -919,7 +971,7 @@ int nrppa_gNB_handle_measurement_request(nrppa_gnb_ue_info_t *nrppa_msg_info, co
 
   // IE Report Characteristics : mandatory
   NRPPA_FIND_PROTOCOLIE_BY_ID(NRPPA_MeasurementRequest_IEs_t, ie, container, NRPPA_ProtocolIE_ID_id_ReportCharacteristics, true);
-  switch (ie->value.choice.ReportCharacteristics) {
+  switch (*ie->value.choice.ReportCharacteristics) {
     case NRPPA_ReportCharacteristics_onDemand:
       req->report_characteristics = NRPPA_POSREPORTCHARACTERISTICS_ONDEMAND;
       break;
@@ -934,7 +986,7 @@ int nrppa_gNB_handle_measurement_request(nrppa_gnb_ue_info_t *nrppa_msg_info, co
   // IE Measurement Periodicity : C-if Report Charateristics periodic
   if (req->report_characteristics == NRPPA_POSREPORTCHARACTERISTICS_PERIODIC) {
     NRPPA_FIND_PROTOCOLIE_BY_ID(NRPPA_MeasurementRequest_IEs_t, ie, container, NRPPA_ProtocolIE_ID_id_MeasurementPeriodicity, true);
-    switch (ie->value.choice.MeasurementPeriodicity) {
+    switch (*ie->value.choice.MeasurementPeriodicity) {
       case NRPPA_MeasurementPeriodicity_ms120:
         req->measurement_periodicity = NRPPA_POSMEASUREMENTPERIODICITY_MS120;
         break;
@@ -985,7 +1037,7 @@ int nrppa_gNB_handle_measurement_request(nrppa_gnb_ue_info_t *nrppa_msg_info, co
   if (ie == NULL) {
     LOG_W(NRPPA, "MeasurementQuantities is madatory but not handled in OAI LMF\n");
   } else {
-    NRPPA_TRPMeasurementQuantities_t *nrppa_meas_q = &ie->value.choice.TRPMeasurementQuantities;
+    NRPPA_TRPMeasurementQuantities_t *nrppa_meas_q = ie->value.choice.TRPMeasurementQuantities;
     uint32_t q_len = nrppa_meas_q->list.count;
     AssertError(q_len > 0, return false, "at least 1 TRP Measurement Quantity must be present");
     nrppa_measurement_quantities_t *meas_q = &req->measurement_quantities;
@@ -1016,7 +1068,7 @@ int nrppa_gNB_handle_measurement_request(nrppa_gnb_ue_info_t *nrppa_msg_info, co
   // IE SRS Configuration : optional
   NRPPA_FIND_PROTOCOLIE_BY_ID(NRPPA_MeasurementRequest_IEs_t, ie, container, NRPPA_ProtocolIE_ID_id_SRSConfiguration, false);
   if (ie != NULL) {
-    NRPPA_SRSCarrier_List_t *nrppa_srs_carrier_list = &ie->value.choice.SRSConfiguration.sRSCarrier_List;
+    NRPPA_SRSCarrier_List_t *nrppa_srs_carrier_list = ie->value.choice.SRSConfiguration->sRSCarrier_List;
     req->srs_configuration = calloc_or_fail(1, sizeof(*req->srs_configuration));
     nrppa_srs_carrier_list_t *srs_carrier_list = &req->srs_configuration->srs_carrier_list;
     decode_srs_carrier_list(srs_carrier_list, nrppa_srs_carrier_list);
@@ -1060,34 +1112,40 @@ int nrppa_gNB_measurement_response(instance_t instance, MessageDef *msg_p)
 
   // IE 9.2.4 nrppatransactionID : mandatory
   head->nrppatransactionID = resp->transaction_id;
-  NRPPA_MeasurementResponse_t *out = &head->value.choice.MeasurementResponse;
+  NRPPA_MeasurementResponse_t *out = (head->value.choice.MeasurementResponse = calloc_or_fail(1, sizeof(*head->value.choice.MeasurementResponse)));
 
   // IE LMF Measurement ID : mandatory
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NRPPA_MeasurementResponse_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NRPPA_MeasurementResponse_IEs_t, ie);
     ie->id = NRPPA_ProtocolIE_ID_id_LMF_Measurement_ID;
     ie->criticality = NRPPA_Criticality_reject;
     ie->value.present = NRPPA_MeasurementResponse_IEs__value_PR_Measurement_ID;
-    ie->value.choice.Measurement_ID = resp->lmf_measurement_id;
+    asn1cCallocOne(ie->value.choice.Measurement_ID, resp->lmf_measurement_id);
   }
 
   // IE RAN Measurement ID : mandatory
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NRPPA_MeasurementResponse_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NRPPA_MeasurementResponse_IEs_t, ie);
     ie->id = NRPPA_ProtocolIE_ID_id_RAN_Measurement_ID;
     ie->criticality = NRPPA_Criticality_reject;
     ie->value.present = NRPPA_MeasurementResponse_IEs__value_PR_Measurement_ID_1;
-    ie->value.choice.Measurement_ID_1 = resp->ran_measurement_id;
+    asn1cCallocOne(ie->value.choice.Measurement_ID_1, resp->ran_measurement_id);
   }
 
   // IE TRP Measurement Response List : mandatory
   {
     if (resp->measurement_response_list) {
-      asn1cSequenceAdd(out->protocolIEs.list, NRPPA_MeasurementResponse_IEs_t, ie);
+      if (!out->protocolIEs)
+        out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+      asn1cSequenceAdd(out->protocolIEs->list, NRPPA_MeasurementResponse_IEs_t, ie);
       ie->id = NRPPA_ProtocolIE_ID_id_TRP_MeasurementResponseList;
       ie->criticality = NRPPA_Criticality_reject;
       ie->value.present = NRPPA_MeasurementResponse_IEs__value_PR_TRP_MeasurementResponseList;
-      ie->value.choice.TRP_MeasurementResponseList = encode_trp_measurement_reponse_list(resp->measurement_response_list);
+      asn1cCallocOne(ie->value.choice.TRP_MeasurementResponseList, encode_trp_measurement_reponse_list(resp->measurement_response_list));
     }
   }
 
@@ -1154,24 +1212,28 @@ int nrppa_gNB_measurement_failure(instance_t instance, MessageDef *msg_p)
 
   // IE 9.2.4 nrppatransactionID : mandatory
   head->nrppatransactionID = fail->transaction_id;
-  NRPPA_MeasurementFailure_t *out = &head->value.choice.MeasurementFailure;
+  NRPPA_MeasurementFailure_t *out = (head->value.choice.MeasurementFailure = calloc_or_fail(1, sizeof(*head->value.choice.MeasurementFailure)));
 
   // IE LMF Measurement ID : mandatory
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NRPPA_MeasurementFailure_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NRPPA_MeasurementFailure_IEs_t, ie);
     ie->id = NRPPA_ProtocolIE_ID_id_LMF_Measurement_ID;
     ie->criticality = NRPPA_Criticality_reject;
     ie->value.present = NRPPA_MeasurementFailure_IEs__value_PR_Measurement_ID;
-    ie->value.choice.Measurement_ID = fail->lmf_measurement_id;
+    asn1cCallocOne(ie->value.choice.Measurement_ID, fail->lmf_measurement_id);
   }
 
   // IE Cause : mandatory
   {
-    asn1cSequenceAdd(out->protocolIEs.list, NRPPA_MeasurementFailure_IEs_t, ie);
+    if (!out->protocolIEs)
+      out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+    asn1cSequenceAdd(out->protocolIEs->list, NRPPA_MeasurementFailure_IEs_t, ie);
     ie->id = NRPPA_ProtocolIE_ID_id_Cause;
     ie->criticality = NRPPA_Criticality_reject;
     ie->value.present = NRPPA_MeasurementFailure_IEs__value_PR_Cause;
-    ie->value.choice.Cause = encode_nrppa_cause(fail->cause);
+    asn1cCallocOne(ie->value.choice.Cause, encode_nrppa_cause(fail->cause));
   }
 
   LOG_I(NRPPA, "Calling encoder for Measurement Failure \n");
