@@ -743,7 +743,7 @@ void RCconfig_nr_prs(void)
 /**
  * @brief Get number or blacklisted UL PRBs and their mapping from gNB config
  */
-static int get_prb_blacklist(uint16_t *prbbl)
+static int get_prb_blacklist(int idx, uint16_t *prbbl)
 {
   paramdef_t GNBSParams[] = GNBSPARAMS_DESC;
   paramlist_def_t GNBParamList = {GNB_CONFIG_STRING_GNB_LIST, NULL, 0};
@@ -753,8 +753,13 @@ static int get_prb_blacklist(uint16_t *prbbl)
   paramdef_t GNBParams[] = GNBPARAMS_DESC;
   config_getlist(config_get_if(), &GNBParamList, GNBParams, sizeofArray(GNBParams), NULL);
 
+  if (idx != 0) {
+    LOG_W(GNB_APP, "Warning: requested to read PRB blacklist from index %d, but only 0 supported\n", idx);
+  }
+  idx = 0;
+
   int num_prbbl = 0;
-  char *ulprbbl = *GNBParamList.paramarray[0][GNB_ULPRBBLACKLIST_IDX].strptr;
+  char *ulprbbl = *GNBParamList.paramarray[idx][GNB_ULPRBBLACKLIST_IDX].strptr;
 
   if (!ulprbbl)
     return -1;
@@ -808,7 +813,8 @@ void RCconfig_NR_L1(void)
 
       // PRB Blacklist
       uint16_t prbbl[MAX_BWP_SIZE] = {0};
-      int num_ulprbbl = get_prb_blacklist(prbbl);
+      int idx = 0;
+      int num_ulprbbl = get_prb_blacklist(idx, prbbl);
       if (num_ulprbbl != -1) {
         RC.gNB[j]->num_ulprbbl = num_ulprbbl;
         LOG_D(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", RC.gNB[j]->num_ulprbbl);
@@ -1918,7 +1924,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   cell->identity_pm = *gpd(macrlc_p, macrlc_np, MACRLC_IDENTITY_PM)->u8ptr;
   // PRB Blacklist
   uint16_t prbbl[MAX_BWP_SIZE] = {0};
-  int num_ulprbbl = get_prb_blacklist(prbbl);
+  int num_ulprbbl = get_prb_blacklist(idx, prbbl);
   if (num_ulprbbl != -1) {
     LOG_I(NR_PHY, "Copying %d blacklisted PRB to L1 context\n", num_ulprbbl);
     memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
