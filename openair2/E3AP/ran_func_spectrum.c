@@ -196,7 +196,7 @@ bool nr_mac_ul_slot_is_sensing_reserved(const nr_cell_sched_t *cell, int slot)
 /* Beams active this period (1 unless multi-beam is configured). */
 static inline int nr_mac_active_beams(const nr_cell_sched_t *cell)
 {
-  return cell->beam_info.beam_allocation ? cell->beam_info.beams_per_period : 1;
+  return cell->beam_info.beam_allocation ? cell->beam_info.config.beams_per_period : 1;
 }
 
 /* Hard-reserve the just-reseeded UL slot for sensing: stamp every beam's row

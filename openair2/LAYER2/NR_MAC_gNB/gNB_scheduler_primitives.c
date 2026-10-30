@@ -4079,7 +4079,7 @@ uint64_t get_ssb_bitmap_and_len(const NR_ServingCellConfigCommon_t *scc, uint8_t
 // for now the fapi beam index is the number of SSBs transmitted before ssb_index i
 void fill_beam_index_list(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, nr_cell_sched_t *cell)
 {
-  if (cell->beam_info.bf_method == BF_METHOD_STRAIGHT_WIRE)
+  if (cell->beam_info.config.bf_method == BF_METHOD_STRAIGHT_WIRE)
     return;
 
   uint8_t len = 0;
@@ -4109,17 +4109,17 @@ void fill_beam_index_list(NR_ServingCellConfigCommon_t *scc, const nr_mac_config
 
 static inline int get_beam_index(const NR_beam_info_t *beam_info, int frame, int slot, int slots_per_frame)
 {
-  return ((frame * slots_per_frame + slot) / beam_info->beam_duration) % beam_info->beam_allocation_size;
+  return ((frame * slots_per_frame + slot) / beam_info->config.beam_duration) % beam_info->beam_allocation_size;
 }
 
 NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame)
 {
   // if no beam allocation for analog beamforming we always return beam index 0 (no multiple beams)
-  if (beam_info->bf_method == BF_METHOD_STRAIGHT_WIRE)
+  if (beam_info->config.bf_method == BF_METHOD_STRAIGHT_WIRE)
     return (NR_beam_alloc_t) {.new_beam = false, .idx = 0};
 
   const int index = get_beam_index(beam_info, frame, slot, slots_per_frame);
-  for (int i = 0; i < beam_info->beams_per_period; i++) {
+  for (int i = 0; i < beam_info->config.beams_per_period; i++) {
     NR_beam_alloc_t beam_struct = {.new_beam = false, .idx = i};
     int16_t *beam = &beam_info->beam_allocation[i][index];
     if (*beam == -1) {
@@ -4139,13 +4139,13 @@ uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const NR_beam_info_t *bea
 {
   AssertFatal(beam_idx < 32768, "Beam index out of range. Valid range is [0, 32767]\n");
   // MSB set: use the ID as is; MSB clear: it points into a pre-stored set of weights
-  return beam_info->beam_id_to_ru ? SET_BIT(beam_idx, 15) : beam_idx;
+  return beam_info->config.beam_id_to_ru ? SET_BIT(beam_idx, 15) : beam_idx;
 }
 
 int16_t get_allocated_beam(const NR_beam_info_t *beam_info, int frame, int slot, int slots_per_frame, int beam_number_in_period)
 {
   int16_t beam_idx = 0;
-  if (beam_info->bf_method != BF_METHOD_STRAIGHT_WIRE) {
+  if (beam_info->config.bf_method != BF_METHOD_STRAIGHT_WIRE) {
     const int index = get_beam_index(beam_info, frame, slot, slots_per_frame);
     beam_idx = beam_info->beam_allocation[beam_number_in_period][index];
   }
@@ -4157,7 +4157,7 @@ void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t b
   if(!new_beam) // need to reset only if the beam was allocated specifically for this instance
     return;
   const int index = get_beam_index(beam_info, frame, slot, slots_per_frame);
-  for (int i = 0; i < beam_info->beams_per_period; i++) {
+  for (int i = 0; i < beam_info->config.beams_per_period; i++) {
     if (beam_info->beam_allocation[i][index] == beam_index)
       beam_info->beam_allocation[i][index] = -1;
   }
@@ -4177,7 +4177,7 @@ static int required_hysteresis_count(int rsrp_gap_db)
 
 int beam_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE)
 {
-  if (cell->beam_info.bf_method == BF_METHOD_STRAIGHT_WIRE)
+  if (cell->beam_info.config.bf_method == BF_METHOD_STRAIGHT_WIRE)
     return -1;
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;

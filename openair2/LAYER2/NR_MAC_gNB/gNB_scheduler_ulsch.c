@@ -2825,7 +2825,7 @@ void nr_ulsch_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
   const int koffset = get_NTN_Koffset(scc);
   const int min_rxtx = cell->radio_config.minRXTXTIME + koffset;
 
-  int num_beams = cell->beam_info.beam_allocation ? cell->beam_info.beams_per_period : 1;
+  int num_beams = cell->beam_info.beam_allocation ? cell->beam_info.config.beams_per_period : 1;
   int bw = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
 
   // FAPI cannot handle more than MAX_DCI_CORESET DCIs
