@@ -1796,6 +1796,32 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
     LOG_E(GNB_APP, "RU information not present in config file. Assuming physical antenna ports equal to logical antenna ports %d\n", *num_tx);
   }
 
+#ifdef ENABLE_AERIAL
+  // Aerial: TXRU counts advertised to the L1 in CONFIG.request, decoupled
+  // from the logical antenna ports above
+  // NOTE: this is not an array: for each cell, we fill identical information
+  // from the (single) "Aerial" section
+  GET_PARAMS(Aerial_Params, AERIALPARAMS_DESC, CONFIG_STRING_AERIAL);
+  config.aerial.num_tx_ant = *gpd(Aerial_Params, sizeofArray(Aerial_Params), AERIAL_NUM_TX_ANT)->iptr;
+  config.aerial.num_rx_ant = *gpd(Aerial_Params, sizeofArray(Aerial_Params), AERIAL_NUM_RX_ANT)->iptr;
+  AssertFatal(config.aerial.num_tx_ant >= 0 && config.aerial.num_tx_ant <= 64
+                  && config.aerial.num_rx_ant >= 0 && config.aerial.num_rx_ant <= 64,
+              "Aerial num_tx_ant (%d) and num_rx_ant (%d) must be in 0..64\n",
+              config.aerial.num_tx_ant,
+              config.aerial.num_rx_ant);
+  if (config.aerial.num_tx_ant > 0 || config.aerial.num_rx_ant > 0)
+    LOG_I(GNB_APP, "Aerial TXRUs: num_tx_ant %d num_rx_ant %d\n", config.aerial.num_tx_ant, config.aerial.num_rx_ant);
+
+  /* Aerial applies the beam weights, and the SRS-based precoder, per TXRU and
+   * cannot derive that count from the logical antenna ports. */
+  if (NFAPI_MODE == NFAPI_MODE_AERIAL
+      && (config.beam_config.bf_method == BF_METHOD_PREDEFINED || config.beam_config.bf_method == BF_METHOD_DYNAMIC))
+    AssertFatal(config.aerial.num_tx_ant > 0 && config.aerial.num_rx_ant > 0,
+                MACRLC_BF_METHOD " \"%s\" needs the TXRU counts, set " CONFIG_STRING_AERIAL
+                "." AERIAL_NUM_TX_ANT " and " CONFIG_STRING_AERIAL "." AERIAL_NUM_RX_ANT "\n",
+                *gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD)->strptr);
+#endif
+
   // Read spatial stream indices
   config_spatial_stream_index(macrlc_p, macrlc_np, &config, *num_tx);
 
@@ -1843,21 +1869,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   const paramdef_t *macrlc_p = MacRLC_ParamList.paramarray[idx];
   const int macrlc_np = sizeofArray(MacRLC_Params);
   nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params, macrlc_p, macrlc_np);
-
-#ifdef ENABLE_AERIAL
-  // Aerial: TXRU counts advertised to the L1 in CONFIG.request, decoupled
-  // from the logical antenna ports above
-  GET_PARAMS(Aerial_Params, AERIALPARAMS_DESC, CONFIG_STRING_AERIAL);
-  config.aerial.num_tx_ant = *gpd(Aerial_Params, sizeofArray(Aerial_Params), AERIAL_NUM_TX_ANT)->iptr;
-  config.aerial.num_rx_ant = *gpd(Aerial_Params, sizeofArray(Aerial_Params), AERIAL_NUM_RX_ANT)->iptr;
-  AssertFatal(config.aerial.num_tx_ant >= 0 && config.aerial.num_tx_ant <= 64
-                  && config.aerial.num_rx_ant >= 0 && config.aerial.num_rx_ant <= 64,
-              "Aerial num_tx_ant (%d) and num_rx_ant (%d) must be in 0..64\n",
-              config.aerial.num_tx_ant,
-              config.aerial.num_rx_ant);
-  if (config.aerial.num_tx_ant > 0 || config.aerial.num_rx_ant > 0)
-    LOG_I(GNB_APP, "Aerial TXRUs: num_tx_ant %d num_rx_ant %d\n", config.aerial.num_tx_ant, config.aerial.num_rx_ant);
-#endif
 
   NR_ServingCellConfigCommon_t *scc = get_scc_config(config.minRXTXTIME, config.do_SRS);
   // BWP
@@ -1938,16 +1949,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     memcpy(cell->ulprbbl, prbbl, MAX_BWP_SIZE * sizeof(prbbl[0]));
   }
 
-#ifdef ENABLE_AERIAL
-  /* Aerial applies the beam weights, and the SRS-based precoder, per TXRU and
-   * cannot derive that count from the logical antenna ports. */
-  if (NFAPI_MODE == NFAPI_MODE_AERIAL
-      && (config.beam_config.bf_method == BF_METHOD_PREDEFINED || config.beam_config.bf_method == BF_METHOD_DYNAMIC))
-    AssertFatal(config.aerial.num_tx_ant > 0 && config.aerial.num_rx_ant > 0,
-                MACRLC_BF_METHOD " \"%s\" needs the TXRU counts, set " CONFIG_STRING_AERIAL
-                "." AERIAL_NUM_TX_ANT " and " CONFIG_STRING_AERIAL "." AERIAL_NUM_RX_ANT "\n",
-                *gpd(macrlc_p, macrlc_np, MACRLC_BF_METHOD)->strptr);
-#endif
   /* The weights are applied per TXRU: a native L1 takes that count from the RU
    * section, Aerial from num_tx_ant, which is required just above. */
   const bool have_dbt = config.bt.num_beams > 0;
