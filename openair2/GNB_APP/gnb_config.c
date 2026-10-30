@@ -1582,7 +1582,8 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
                                       paramdef_t *gnb_p,
                                       paramdef_t *timer_p,
                                       const paramdef_t *macrlc_p,
-                                      int macrlc_np)
+                                      int macrlc_np,
+                                      const int bw)
 {
   nr_mac_config_t config = {0};
   config.pdsch_AntennaPorts.N1 = *gnb_p[GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
@@ -1693,6 +1694,12 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
         config.pucch.target_snrx10,
         config.pucch.rssi_threshold,
         config.pucch.failure_thres);
+
+  // BWP
+  get_bwp_config(&config, bw);
+  AssertFatal(config.num_additional_bwps <= 4, "Impossible to configure more than 4 additional BWPs\n");
+  config.first_active_bwp = *gnb_p[GNB_1ST_ACTIVE_BWP_IDX].iptr;
+  AssertFatal(config.first_active_bwp <= config.num_additional_bwps, "1st active BWP does not belog to the configured BWPs\n");
 
   // read before resolving bf_method: the table decides how L1 treats the beam IDs
   config.bt.num_beams = 0;
@@ -1864,18 +1871,12 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
   snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, idx, GNB_CONFIG_STRING_TIMERS_CONFIG);
   GET_PARAMS(Timers_Params, GNB_TIMERS_PARAMS_DESC, aprefix);
+  NR_ServingCellConfigCommon_t *scc = get_scc_config(idx);
+  const int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
 
   const paramdef_t *macrlc_p = MacRLC_ParamList.paramarray[idx];
   const int macrlc_np = sizeofArray(MacRLC_Params);
-  nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params, macrlc_p, macrlc_np);
-
-  // BWP
-  NR_ServingCellConfigCommon_t *scc = get_scc_config(idx);
-  const int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
-  get_bwp_config(&config, bw);
-  AssertFatal(config.num_additional_bwps <= 4, "Impossible to configure more than 4 additional BWPs\n");
-  config.first_active_bwp = *GNBParamList.paramarray[0][GNB_1ST_ACTIVE_BWP_IDX].iptr;
-  AssertFatal(config.first_active_bwp <= config.num_additional_bwps, "1st active BWP does not belog to the configured BWPs\n");
+  nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params, macrlc_p, macrlc_np, bw);
 
   if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
     // check number of instances is same as RRC/PDCP
