@@ -205,16 +205,16 @@ static void UE_synch(void *arg) {
 
   LOG_I(PHY, "[UE thread Synch] Running Initial Synch \n");
 
+  // Start with the last set hardware frequency to track frequency offset.
   uint64_t dl_carrier, ul_carrier;
+  nrue_ru_get_freq(UE, &ul_carrier, &dl_carrier, 0);
+
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
   nr_initial_sync_t ret = {0};
   if (UE->sl_mode == 2) {
     fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
-    dl_carrier = fp->sl_CarrierFreq;
-    ul_carrier = fp->sl_CarrierFreq;
     ret = sl_nr_slss_search(UE, &syncD->proc, SL_NR_SSB_REPETITION_IN_FRAMES, syncD->input_sz, syncD->input);
   } else {
-    nr_get_carrier_frequencies(UE, &dl_carrier, &ul_carrier);
     ret = nr_initial_sync(&syncD->proc, UE, syncD->input_sz, syncD->input, syncD->gscnInfo, syncD->numGscn);
   }
 
