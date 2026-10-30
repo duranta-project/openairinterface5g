@@ -47,6 +47,11 @@ if(OAI_VRTSIM)
   add_subdirectory(vrtsim)
 endif()
 
+add_boolean_option(OAI_OCSDR OFF "Activate the OC1 driver for our own FPGA image (libocsdr)" OFF)
+if(OAI_OCSDR)
+  add_subdirectory(ocsdr)
+endif()
+
 add_boolean_option(OAI_RF_EMULATOR ON "Activate OAI's RF emulator" OFF)
 if(OAI_RF_EMULATOR)
   add_subdirectory(emulator)
