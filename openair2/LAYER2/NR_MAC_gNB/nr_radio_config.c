@@ -434,6 +434,12 @@ int get_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_
         if (check_periodicity(srs_periodicities[i], srs_ideal_period, fs))
           return srs_periodicities[i];
       }
+      // more UEs than SRS occasions in the longest period (MAX_MOBILES_PER_GNB 520 with 2 full UL slots per
+      // period): take the longest period, the UEs beyond its occasions get no SRS resource
+      for (int i = 16; i >= 0; i--) {
+        if (check_periodicity(srs_periodicities[i], 0, fs))
+          return srs_periodicities[i];
+      }
       break;
     }
     case CSI_RS:
