@@ -26,6 +26,7 @@
 #include "s1ap_eNB_nas_procedures.h"
 #include "s1ap_eNB_management_procedures.h"
 #include "s1ap_eNB_context_management_procedures.h"
+#include "S1AP_ProtocolIE-Container.h"
 
 
 int s1ap_ue_context_release_complete(instance_t instance,
@@ -61,10 +62,12 @@ int s1ap_ue_context_release_complete(instance_t instance,
   /* Prepare the S1AP message to encode */
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = S1AP_S1AP_PDU_PR_successfulOutcome;
-  pdu.choice.successfulOutcome.procedureCode = S1AP_ProcedureCode_id_UEContextRelease;
-  pdu.choice.successfulOutcome.criticality = S1AP_Criticality_reject;
-  pdu.choice.successfulOutcome.value.present = S1AP_SuccessfulOutcome__value_PR_UEContextReleaseComplete;
-  out = &pdu.choice.successfulOutcome.value.choice.UEContextReleaseComplete;
+  if (!pdu.choice.successfulOutcome)
+    pdu.choice.successfulOutcome = calloc_or_fail(1, sizeof(*pdu.choice.successfulOutcome));
+  pdu.choice.successfulOutcome->procedureCode = S1AP_ProcedureCode_id_UEContextRelease;
+  pdu.choice.successfulOutcome->criticality = S1AP_Criticality_reject;
+  pdu.choice.successfulOutcome->value.present = S1AP_SuccessfulOutcome__value_PR_UEContextReleaseComplete;
+  out = &pdu.choice.successfulOutcome->value.choice.UEContextReleaseComplete;
 
   /* mandatory */
   ie = (S1AP_UEContextReleaseComplete_IEs_t *)calloc(1, sizeof(S1AP_UEContextReleaseComplete_IEs_t));
@@ -72,7 +75,9 @@ int s1ap_ue_context_release_complete(instance_t instance,
   ie->criticality = S1AP_Criticality_ignore;
   ie->value.present = S1AP_UEContextReleaseComplete_IEs__value_PR_MME_UE_S1AP_ID;
   ie->value.choice.MME_UE_S1AP_ID = ue_context_p->mme_ue_s1ap_id;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   ie = (S1AP_UEContextReleaseComplete_IEs_t *)calloc(1, sizeof(S1AP_UEContextReleaseComplete_IEs_t));
@@ -80,7 +85,7 @@ int s1ap_ue_context_release_complete(instance_t instance,
   ie->criticality = S1AP_Criticality_ignore;
   ie->value.present = S1AP_UEContextReleaseComplete_IEs__value_PR_ENB_UE_S1AP_ID;
   ie->value.choice.ENB_UE_S1AP_ID = ue_release_complete_p->eNB_ue_s1ap_id;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
 
   if (s1ap_eNB_encode_pdu(&pdu, &buffer, &length) < 0) {
@@ -145,10 +150,12 @@ int s1ap_ue_context_release_req(instance_t instance,
   /* Prepare the S1AP message to encode */
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = S1AP_S1AP_PDU_PR_initiatingMessage;
-  pdu.choice.initiatingMessage.procedureCode = S1AP_ProcedureCode_id_UEContextReleaseRequest;
-  pdu.choice.initiatingMessage.criticality = S1AP_Criticality_ignore;
-  pdu.choice.initiatingMessage.value.present = S1AP_InitiatingMessage__value_PR_UEContextReleaseRequest;
-  out = &pdu.choice.initiatingMessage.value.choice.UEContextReleaseRequest;
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = S1AP_ProcedureCode_id_UEContextReleaseRequest;
+  pdu.choice.initiatingMessage->criticality = S1AP_Criticality_ignore;
+  pdu.choice.initiatingMessage->value.present = S1AP_InitiatingMessage__value_PR_UEContextReleaseRequest;
+  out = &pdu.choice.initiatingMessage->value.choice.UEContextReleaseRequest;
 
   /* mandatory */
   ie = (S1AP_UEContextReleaseRequest_IEs_t *)calloc(1, sizeof(S1AP_UEContextReleaseRequest_IEs_t));
@@ -156,7 +163,9 @@ int s1ap_ue_context_release_req(instance_t instance,
   ie->criticality = S1AP_Criticality_reject;
   ie->value.present = S1AP_UEContextReleaseRequest_IEs__value_PR_MME_UE_S1AP_ID;
   ie->value.choice.MME_UE_S1AP_ID = ue_context_p->mme_ue_s1ap_id;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   ie = (S1AP_UEContextReleaseRequest_IEs_t *)calloc(1, sizeof(S1AP_UEContextReleaseRequest_IEs_t));
@@ -164,7 +173,7 @@ int s1ap_ue_context_release_req(instance_t instance,
   ie->criticality = S1AP_Criticality_reject;
   ie->value.present = S1AP_UEContextReleaseRequest_IEs__value_PR_ENB_UE_S1AP_ID;
   ie->value.choice.ENB_UE_S1AP_ID = ue_release_req_p->eNB_ue_s1ap_id;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* mandatory */
   ie = (S1AP_UEContextReleaseRequest_IEs_t *)calloc(1, sizeof(S1AP_UEContextReleaseRequest_IEs_t));
@@ -204,7 +213,7 @@ int s1ap_ue_context_release_req(instance_t instance,
       break;
   }
 
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
 
 

@@ -22,6 +22,7 @@
 #include "s1ap_eNB_management_procedures.h"
 
 #include "assertions.h"
+#include "S1AP_ProtocolIE-Container.h"
 
 int s1ap_eNB_handle_overload_start(sctp_assoc_t assoc_id, uint32_t stream, S1AP_S1AP_PDU_t *pdu)
 {
@@ -31,7 +32,7 @@ int s1ap_eNB_handle_overload_start(sctp_assoc_t assoc_id, uint32_t stream, S1AP_
 
     DevAssert(pdu != NULL);
 
-    container = &pdu->choice.initiatingMessage.value.choice.OverloadStart;
+    container = &pdu->choice.initiatingMessage->value.choice.OverloadStart;
 
     S1AP_FIND_PROTOCOLIE_BY_ID(S1AP_OverloadStartIEs_t, ie, container,
                                S1AP_ProtocolIE_ID_id_OverloadResponse, true);
