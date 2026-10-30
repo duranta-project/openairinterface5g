@@ -326,7 +326,7 @@ static void process_ul_data(int tti, int frame, int slot, PHY_VARS_gNB *gNB, str
       const int slots_per_sf = 1 << s7cfg->mu;
       const bool is_prach_slot = frame % info.x == info.y && xran_is_prach_slot(xran_port, slot / slots_per_sf, p.slot % slots_per_sf, s7cfg->mu);
       if (is_prach_slot) {
-        ret = xran_fh_rx_prach_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, &fh_cfg[xran_port].ru_conf, &fh_cfg[xran_port].perMu[s7cfg->mu].prach_conf, bufs, p);
+        ret = xran_fh_rx_prach_read_slot(tti, xran_port, fh_cfg[xran_port].neAxcUl, &fh_cfg[xran_port].ru_conf, &fh_cfg[xran_port].perMu[s7cfg->mu].prach_conf, s7cfg->prach_kbar, bufs, p);
         if (ret != 0)
           LOG_W(HW, "[%d.%d] xran_fh_rx_prach_read_slot error for xran_port %d\n", frame, slot, xran_port);
       } else {

@@ -485,6 +485,7 @@ void fill_split7_2_config(const RU_t *ru)
   split7->prach_index = prach_config->prach_ConfigurationIndex.value;
   AssertFatal(prach_config->num_prach_fd_occasions.value >= 1, "must have at least one PRACH occasion\n");
   split7->prach_freq_start = prach_config->num_prach_fd_occasions_list[0].k1.value;
+  split7->prach_kbar = 2 * get_PRACH_k_bar(prach_config->prach_sub_c_spacing.value, fp->numerology_index);
 
   DevAssert(cell_config->frame_duplex_type.tl.tag == NFAPI_NR_CONFIG_FRAME_DUPLEX_TYPE_TAG);
   if (cell_config->frame_duplex_type.value == 1 /* TDD */) {

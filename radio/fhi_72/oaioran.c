@@ -23,7 +23,6 @@
 #include "common/utils/threadPool/notified_fifo.h"
 #include <rte_ethdev.h>
 
-#include "oran-config.h" // for g_kbar
 
 #define N_SC_PER_PRB 12
 
@@ -224,7 +223,7 @@ void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status, uin
  * If I/Q compression (bitwidth < 16 bits) is configured, decompresses the data
  * before writing.
  * Called by split7_thread() once oai_xran_fh_rx_callback() signalled the slot. */
-int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, oran_buf_list_t *bufs, prach_item_t p)
+int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t nb_ant, const struct xran_ru_config *ru_conf, const struct xran_prach_config *prach_conf, const int kbar, oran_buf_list_t *bufs, prach_item_t p)
 {
   for (int aa = p.ant_start; aa < p.ant_start + nb_ant; aa++) {
     for (uint8_t sym_idx = prach_conf->startSymId; sym_idx <= prach_conf->lastSymId; sym_idx++) {
@@ -253,11 +252,11 @@ int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t
       if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {
         if (sym_idx == prach_conf->startSymId) {
           for (idx = 0; idx < N_ZC * 2; idx++) {
-            dst[idx] = ((int16_t)ntohs(src[idx + g_kbar]));
+            dst[idx] = ((int16_t)ntohs(src[idx + kbar]));
           }
         } else {
           for (idx = 0; idx < N_ZC * 2; idx++) {
-            dst[idx] += ((int16_t)ntohs(src[idx + g_kbar]));
+            dst[idx] += ((int16_t)ntohs(src[idx + kbar]));
           }
         }
       } else if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_BLKFLOAT) {
@@ -284,10 +283,10 @@ int xran_fh_rx_prach_read_slot(const int tti, const int xran_port, const uint8_t
 #endif
         if (sym_idx == prach_conf->startSymId)
           for (idx = 0; idx < (N_ZC * 2); idx++)
-            dst[idx] = local_dst[idx + g_kbar];
+            dst[idx] = local_dst[idx + kbar];
         else
           for (idx = 0; idx < (N_ZC * 2); idx++)
-            dst[idx] += (local_dst[idx + g_kbar]);
+            dst[idx] += (local_dst[idx + kbar]);
       } // COMPMETHOD_BLKFLOAT
     } // sym_idx
   } // aa

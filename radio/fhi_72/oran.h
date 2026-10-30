@@ -49,6 +49,8 @@ typedef struct split7_config {
   int prach_index;
   /*! PRACH frequency start, from RRC's msg1-FrequencyStart */
   int prach_freq_start;
+  /*! PRACH sequence offset in the PRACH PRBs, in int16 (2 per subcarrier): 2 * k_bar of TS 38.211 Table 6.3.3.2-1 */
+  int prach_kbar;
   /*! the TDD period length, if TDD indicated */
   int n_tdd_period;
   /*! TDD frame structure, if TDD indicated */
