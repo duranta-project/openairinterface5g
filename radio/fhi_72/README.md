@@ -47,6 +47,10 @@ For PDSCH, `oran_dl_up()` calls `xran_fh_tx_send_slot_ant()` for each xran port
 and antenna, which optionally compresses IQ data, then writes it into IQ
 buffers of xran.
 
+If `num_tp_cores`/`tp_cores` are set in the `RUs` section, an RU thread pool is
+created on these cores and passed to the library in `split7_config_t`;
+otherwise U-plane compression and decompression run inline.
+
 For PUSCH/PRACH, `split7_thread()` waits in `oai_xran_wait_slot()` until
 `oai_xran_fh_rx_callback()` signals a complete slot, then `process_ul_data()`
 calls `xran_fh_rx_read_slot_ant()`/`xran_fh_rx_prach_read_slot_ant()` for each
