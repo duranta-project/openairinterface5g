@@ -2722,6 +2722,8 @@ typedef struct {
   int num_prbc;
   const uint8_t *ext;
   size_t ext_len;
+  int sym_inc;
+  int num_symbol; // 0 means 1
 } test_section1_t;
 
 // Sends one Type 1 C-Plane message for eAxC 0 at symbol sym (numerology mu) carrying n sections, with numOfSections set
@@ -2752,10 +2754,11 @@ static void send_cplane_sections(void *ctx, int dir, int mu, uint64_t sym, int n
         (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(mbuf, sizeof(struct xran_cp_radioapp_section1));
     assert(s != NULL);
     memset(s, 0, sizeof(*s));
-    s->hdr.u.s1.numSymbol = 1;
+    s->hdr.u.s1.numSymbol = sec[i].num_symbol > 0 ? sec[i].num_symbol : 1;
     s->hdr.u.s1.beamId = sec[i].beam_id;
     s->hdr.u.s1.ef = sec[i].ext_len > 0;
     s->hdr.u1.common.sectionId = sec[i].section_id;
+    s->hdr.u1.common.symInc = sec[i].sym_inc;
     s->hdr.u1.common.startPrbc = sec[i].start_prbc;
     s->hdr.u1.common.numPrbc = sec[i].num_prbc;
     *((uint64_t *)s) = rte_be_to_cpu_64(*((uint64_t *)s));
@@ -3145,6 +3148,83 @@ static void send_prach_cplane(void *ctx, uint64_t sym, int num_sections, const t
 static int g_prach_section_ids[16];
 
 // Records the sectionId of each PRACH U-Plane packet sent
+// O-RAN CUS 7.5.3.3: symInc = 1 moves the message's symbol number to the symbol after the previous section, for that
+// section and the next ones. The OAI DU sends one one-symbol section per symbol this way (RunSlotPrbMapBySymbol). A
+// section moved out of the DL/UL symbols is a TDD mismatch; the sections before it are kept.
+void test_section_sym_inc(void)
+{
+  printf("Testing symInc in a multi-section C-Plane message...\n");
+  const int mu = 1;
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    0);
+  assert(ctx != NULL);
+  // Symbols 1050-1077 are DL (pattern of 70 symbols, 0-27 DL); the C-Plane window is 5 to 11 symbols ahead
+  uint64_t current_sym = 1050;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  const uint64_t target_sym = current_sym + 6;
+  // One section per symbol: 1056, 1057, 1058, 1059
+  const test_section1_t per_symbol[4] = {{0, 10, 0, 10},
+                                         {1, 10, 0, 10, NULL, 0, 1},
+                                         {2, 10, 0, 10, NULL, 0, 1},
+                                         {3, 10, 0, 10, NULL, 0, 1}};
+  send_cplane_sections(ctx, XRAN_DIR_DL, mu, target_sym, 4, per_symbol, 4);
+  // A 2-symbol section (1056-1057), then symInc: the next section is at 1058, not 1057
+  const test_section1_t multi_symbol[2] = {{10, 11, 20, 10, NULL, 0, 0, 2}, {11, 11, 20, 10, NULL, 0, 1}};
+  send_cplane_sections(ctx, XRAN_DIR_DL, mu, target_sym, 2, multi_symbol, 2);
+  oru_packet_processor_stats_t stats;
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.cplane_err_early == 0 && stats.cplane_err_dup == 0 && stats.dl_tdd_mismatch == 0);
+
+  // The U-Plane window is 2 to 8 symbols ahead: every symbol finds its section
+  current_sym += 3;
+  handle_absolute_symbol_tick(ctx, current_sym);
+  for (int i = 0; i < 4; i++)
+    send_dl_uplane(ctx, mu, target_sym + i, i, 0, 10, 0x1111);
+  send_dl_uplane(ctx, mu, target_sym, 10, 20, 10, 0x2222);
+  send_dl_uplane(ctx, mu, target_sym + 1, 10, 20, 10, 0x2222);
+  send_dl_uplane(ctx, mu, target_sym + 2, 11, 20, 10, 0x2222);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.uplane_err_late == 0 && stats.uplane_missing_cplane == 0 && stats.uplane_err_dup == 0);
+  cleanup_packet_processor(ctx);
+
+  // UL symbols are 42-69 and now is 47: sections at 52, 53, 54, 55 are symbols 10-13 of slot 3
+  ctx = init_ul_test_ctx();
+  const test_section1_t ul[4] = {{0, 3, 0, 10}, {1, 3, 0, 10, NULL, 0, 1}, {2, 3, 0, 10, NULL, 0, 1}, {3, 3, 0, 10, NULL, 0, 1}};
+  send_cplane_sections(ctx, XRAN_DIR_UL, mu, 52, 4, ul, 4);
+  ul_job_t job;
+  for (int i = 0; i < 4; i++) {
+    assert(poll_ul_job(ctx, &job) == 0);
+    assert(job.response_payload.section_id == i && job.slot_in_frame == 3 && job.symbol == 10 + i && job.num_symbols == 1);
+  }
+  assert(poll_ul_job(ctx, &job) != 0);
+  // From 58, the 13th section is at 70, a DL symbol: it alone is dropped
+  test_section1_t past_ul[13];
+  for (int i = 0; i < 13; i++)
+    past_ul[i] = (test_section1_t){i, 3, 0, 10, NULL, 0, i > 0};
+  send_cplane_sections(ctx, XRAN_DIR_UL, mu, 58, 13, past_ul, 13);
+  assert(count_ul_jobs(ctx) == 12);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.ul_tdd_mismatch == 1);
+  cleanup_packet_processor(ctx);
+  printf("symInc in a multi-section C-Plane message passed!\n");
+}
+
 static void test_send_mbuf_prach_section_id(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
@@ -3358,6 +3438,7 @@ int main(int argc, char **argv)
   test_multi_section_extensions_and_truncation();
   usleep(10000);
   test_section_id_repeated();
+  test_section_sym_inc();
   usleep(10000);
   test_cplane_uplane_match();
 
