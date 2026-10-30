@@ -374,8 +374,8 @@ one_measurement_t test_ldpc(short max_iterations,
     for (int j = 0; j < n_segments; j++) {
       start_meas(&ret.time_decoder);
       set_abort(&dec_abort, false);
-      int8_t *input = use32bit ? channel_output_fixed_dev : &channel_output_fixed[j];
-      uint8_t *output = use32bit ? estimated_output_dev : &estimated_output[j * Kprime];
+      int8_t *input = use32bit ? channel_output_fixed_dev : &channel_output_fixed[j * (384 * 68)];
+      uint8_t *output = use32bit ? estimated_output_dev : &estimated_output[j * (Kprime >> 3)];
       // when using LDPC CUDA, the segment interface for decoding handles all
       // segments, unlike the optim/orig libraries (so the API is handled
       // differently). Account for this below by calling into it only on first
