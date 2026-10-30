@@ -1242,8 +1242,9 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
 
   for (int id = 0; id < csi_measconfig->nzp_CSI_RS_ResourceToAddModList->list.count; id++) {
     NR_NZP_CSI_RS_Resource_t *nzpcsi = csi_measconfig->nzp_CSI_RS_ResourceToAddModList->list.array[id];
-    int period, offset;
-    csi_period_offset(NULL, nzpcsi->periodicityAndOffset, &period, &offset);
+    int period = 0, offset = 0;
+    if (!csi_period_offset(NULL, nzpcsi->periodicityAndOffset, &period, &offset) || period <= 0)
+      continue;
     if (!is_periodic_occasion(frame, slot, mac->frame_structure.numb_slots_frame, period, offset))
       continue;
     bool is_last_res = false;
