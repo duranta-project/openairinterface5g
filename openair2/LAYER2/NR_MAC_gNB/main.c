@@ -298,7 +298,7 @@ void mac_top_init_gNB(ngran_node_t node_type,
       cell->cset0_bwp_start = 0;
       cell->cset0_bwp_size = 0;
 
-      cell->ul_next = (fsn_t) {.mu = *scc->ssbSubcarrierSpacing};
+      cell->ul_next = (fsn_t) {.f = UINT16_MAX, .mu = *scc->ssbSubcarrierSpacing};
       RC.nrmac[i]->print_ue_stats = true;
 
       pthread_mutex_init(&RC.nrmac[i]->sched_lock, NULL);
