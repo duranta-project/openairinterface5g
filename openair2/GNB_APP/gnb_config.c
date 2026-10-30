@@ -1878,32 +1878,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   const int macrlc_np = sizeofArray(MacRLC_Params);
   nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx], Timers_Params, macrlc_p, macrlc_np, bw);
 
-  if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
-    // check number of instances is same as RRC/PDCP
-
-  } else if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "f1") == 0
-             || strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "cudu") == 0) {
-    char **f1caddr = gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_ADDRESS)->strptr;
-    char **f1uaddr = gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_ADDRESS_F1U)->strptr;
-    f1ap_net_config_t nc = {
-      .CU_f1_ip_address = strdup(*gpd(macrlc_p, macrlc_np, MACRLC_REMOTE_N_ADDRESS)->strptr),
-      .DU_f1c_ip_address = strdup(*f1caddr),
-      .DU_f1u_ip_address = f1uaddr != NULL ? strdup(*f1uaddr) : strdup(*f1caddr),
-      .DUport = *gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_PORTD)->iptr,
-      .CUport = *gpd(macrlc_p, macrlc_np, MACRLC_REMOTE_N_PORTD)->iptr,
-    };
-    nrmac->net_config = nc;
-    LOG_I(F1AP,
-          "F1-C DU IPaddr %s, connect to F1-C CU %s, binding GTP to %s ports local %d remote %d\n",
-          nc.DU_f1c_ip_address,
-          nc.CU_f1_ip_address,
-          nc.DU_f1u_ip_address,
-          nc.DUport,
-          nc.CUport);
-  } else { // other midhaul
-    AssertFatal(1 == 0, "MACRLC %d: %s unknown northbound midhaul\n", 0, *gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr);
-  }
-
   cell->ulsch_max_frame_inactivity = *gpd(macrlc_p, macrlc_np, MACRLC_ULSCH_MAX_FRAME_INACTIVITY)->uptr;
   nrmac->stats_max_ue = *gpd(macrlc_p, macrlc_np, MACRLC_STATS_MAX_UE)->iptr;
   nrmac->print_ue_stats = nrmac->stats_max_ue > 0;
@@ -1987,6 +1961,32 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 
   nr_mac_cell_config_scc(cell, scc, &config);
   nrmac->positioning_config = RCconfig_nr_positioning();
+
+  if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "local_RRC") == 0) {
+    // check number of instances is same as RRC/PDCP
+
+  } else if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "f1") == 0
+             || strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr, "cudu") == 0) {
+    char **f1caddr = gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_ADDRESS)->strptr;
+    char **f1uaddr = gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_ADDRESS_F1U)->strptr;
+    f1ap_net_config_t nc = {
+      .CU_f1_ip_address = strdup(*gpd(macrlc_p, macrlc_np, MACRLC_REMOTE_N_ADDRESS)->strptr),
+      .DU_f1c_ip_address = strdup(*f1caddr),
+      .DU_f1u_ip_address = f1uaddr != NULL ? strdup(*f1uaddr) : strdup(*f1caddr),
+      .DUport = *gpd(macrlc_p, macrlc_np, MACRLC_LOCAL_N_PORTD)->iptr,
+      .CUport = *gpd(macrlc_p, macrlc_np, MACRLC_REMOTE_N_PORTD)->iptr,
+    };
+    nrmac->net_config = nc;
+    LOG_I(F1AP,
+          "F1-C DU IPaddr %s, connect to F1-C CU %s, binding GTP to %s ports local %d remote %d\n",
+          nc.DU_f1c_ip_address,
+          nc.CU_f1_ip_address,
+          nc.DU_f1u_ip_address,
+          nc.DUport,
+          nc.CUport);
+  } else { // other midhaul
+    AssertFatal(1 == 0, "MACRLC %d: %s unknown northbound midhaul\n", 0, *gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_N_PREFERENCE)->strptr);
+  }
 
   if (strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "local_L1") == 0) {
     // triggers also PHY initialization in case we have L1 via FAPI
