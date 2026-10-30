@@ -16,8 +16,9 @@
  *   rx_gain=dB    AD9371 RX gain 0..30 above index 195 (default 20, index 235)
  *   rx2_gain=dB   AD9371 RX2 gain only, overrides rx_gain
  *   tx_advance=N  samples TX is sent ahead of RX time (default 174, measured with "ocsdr stream latency")
- *   tx_gate=0/1   FPGA TX gating (image v16s+, board over Ethernet): TX PAs off between the bursts that the
- *                 write flags end (TX_BURST_END...), i.e. in TDD uplink slots; run without --continuous-tx
+ *   tx_gate=0/1   FPGA TX gating (image v16s+ over Ethernet; over PCIe, an image that gates on the PCIe TX stream):
+ *                 TX PAs off between the bursts that the write flags end (TX_BURST_END...), i.e. in TDD uplink
+ *                 slots; run without --continuous-tx
  *   tx_gate_lead=N, tx_gate_lag=N  samples the gate opens before / stays open after a burst (128 / 256)
  *   tx_gate_mode=M  0 PAs off between bursts, 1 PAs off + TX switches to the 50 ohm loads, 2 switches only,
  *                   PAs stay on (default; per-burst PA shutdown leaves RX1 ~6 dB noisier for >100 us)
@@ -647,18 +648,19 @@ extern "C" int device_init(openair0_device_t *device, openair0_config_t *openair
     LOG_I(HW, "ocsdr: receive only: TX shut down (RF control 0x%08x), TX samples dropped\n", ocsdr_rfctrl(s->dev));
   }
   if (s->args.tx_gate) {
-    if (s->args.host.empty()
-        || ocsdr_tx_gate(s->dev,
-                         true,
-                         s->args.tx_gate_lead,
-                         s->args.tx_gate_lag,
-                         s->args.tx_gate_mode == 0   ? 0u
-                         : s->args.tx_gate_mode == 1 ? OCSDR_TXGATE_LOAD
-                                                     : OCSDR_TXGATE_LOAD | OCSDR_TXGATE_PA_ON)
-               != 0) {
-      LOG_E(HW, "ocsdr: TX gating needs the board over Ethernet with FPGA image v16s or later\n");
+    if (ocsdr_tx_gate(s->dev,
+                      true,
+                      s->args.tx_gate_lead,
+                      s->args.tx_gate_lag,
+                      s->args.tx_gate_mode == 0   ? 0u
+                      : s->args.tx_gate_mode == 1 ? OCSDR_TXGATE_LOAD
+                                                  : OCSDR_TXGATE_LOAD | OCSDR_TXGATE_PA_ON)
+        != 0) {
+      LOG_E(HW, "ocsdr: TX gating needs FPGA image v16s or later\n");
       return -1;
     }
+    if (s->args.host.empty())
+      LOG_I(HW, "ocsdr: TX gating over PCIe needs an image that gates on the PCIe TX stream, else the gate stays open\n");
     LOG_I(HW,
           "ocsdr: TX gating on between bursts, mode %u (lead %u, lag %u samples)\n",
           s->args.tx_gate_mode,
