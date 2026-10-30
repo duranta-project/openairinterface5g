@@ -4168,19 +4168,17 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
     uint8_t rx_lcid = ((NR_MAC_SUBHEADER_FIXED *)pduP)->LCID;
 
     LOG_D(MAC, "[UE] LCID %d, PDU length %d\n", rx_lcid, pdu_len);
-    bool ret;
     switch (rx_lcid) {
       //  MAC CE
       case DL_SCH_LCID_CCCH:
         //  MSG4 RRC Setup 38.331
         //  variable length
-        ret=get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len);
-        if (!ret) {
+        if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len)) {
           // A subheader with LCID 0 whose length exceeds the PDU: drop the PDU,
           // as for the other LCIDs, instead of aborting.
           LOG_E(MAC, "CCCH: invalid mac_len %d for PDU len %d, dropping the PDU\n", mac_len, pdu_len);
           done = 1;
-          break;
+          continue;
         }
 
         // Check if it is a valid CCCH message, we get all 00's messages very often
@@ -4210,7 +4208,11 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
 
         //  38.321 Ch6.1.3.14
         //  varialbe length
-        get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len);
+        if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len)) {
+          LOG_E(MAC, "get_mac_len(): invalid variable MAC CE PDU length %d\n", pdu_len);
+          done = 1;
+          continue;
+        }
         break;
 
       case DL_SCH_LCID_RECOMMENDED_BITRATE:
@@ -4258,6 +4260,11 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
       case DL_SCH_LCID_TA_COMMAND:
         //  38.321 Ch6.1.3.4
         mac_len = 1;
+        if (mac_subheader_len + mac_len > pdu_len) {
+          LOG_E(MAC, "Truncated timing advance MAC CE, PDU length %d\n", pdu_len);
+          done = 1;
+          continue;
+        }
 
         const int ta = ((NR_MAC_CE_TA *)pduP)[1].TA_COMMAND;
         const int tag = ((NR_MAC_CE_TA *)pduP)[1].TAGID;
@@ -4280,6 +4287,11 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
         // MAC Header: 1 byte (R/R/LCID)
         // MAC SDU: 6 bytes (UE Contention Resolution Identity)
         mac_len = 6;
+        if (mac_subheader_len + mac_len > pdu_len) {
+          LOG_E(MAC, "Truncated contention resolution MAC CE, PDU length %d\n", pdu_len);
+          done = 1;
+          continue;
+        }
 
         if (ra->ra_state == nrRA_WAIT_CONTENTION_RESOLUTION) {
           LOG_D(NR_MAC,
@@ -4315,7 +4327,7 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
         if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len)) {
           LOG_E(MAC, "get_mac_len(): invalid pdu_len %d (mac_len %d mac_subheader_len %d)\n", pdu_len, mac_len, mac_subheader_len);
           done = 1;
-          break;
+          continue;
         }
         // discard the received subPDU if RB is suspended
         if (is_lcid_suspended(mac, rx_lcid)) {
