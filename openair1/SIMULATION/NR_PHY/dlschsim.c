@@ -12,37 +12,27 @@
 #include "common/config/config_userapi.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/load_module_shlib.h"
-#include "T.h"
 #include "PHY/defs_gNB.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/defs_nr_UE.h"
-#include "PHY/types.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
 #include "PHY/INIT/nr_phy_init.h"
-#include "PHY/MODULATION/modulation_eNB.h"
-#include "PHY/MODULATION/modulation_UE.h"
 #include "PHY/NR_TRANSPORT/nr_dlsch.h"
-#include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "SCHED_NR/sched_nr.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
-#include "openair1/SIMULATION/RF/rf.h"
 #include "openair1/SIMULATION/NR_PHY/nr_unitary_defs.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "executables/nr-uesoftmodem.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "openair1/PHY/phy_extern_nr_ue.h"
+#include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 
 //#define DEBUG_NR_DLSCHSIM
 
-THREAD_STRUCT thread_struct;
-PHY_VARS_gNB *gNB;
 RAN_CONTEXT_t RC;
 UE_nr_rxtx_proc_t proc;
-int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
-uint64_t downlink_frequency[MAX_NUM_CCs][4];
 
-uint8_t const nr_rv_round_map[4] = {0, 2, 3, 1};
 // needed for some functions
 PHY_VARS_NR_UE ***nrPHY_vars_UE_g;
 uint16_t n_rnti = 0x1234;
@@ -51,18 +41,9 @@ softmodem_params_t *get_softmodem_params(void) {
   return &softmodem_params;
 }
 void init_downlink_harq_status(NR_DL_UE_HARQ_t *dl_harq) {}
-NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { return (NULL); }
-nfapi_mode_t nfapi_getmode(void) { return NFAPI_MODE_UNKNOWN; }
-
-void inc_ref_sched_response(int _)
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id)
 {
-  LOG_E(PHY, "fatal\n");
-  exit(1);
-}
-void deref_sched_response(int _)
-{
-  LOG_E(PHY, "fatal\n");
-  exit(1);
+  return (NULL);
 }
 
 nrUE_params_t nrUE_params={0};
@@ -74,6 +55,7 @@ configmodule_interface_t *uniqCfg = NULL;
 
 int main(int argc, char **argv)
 {
+  PHY_VARS_gNB *gNB;
   stop = false;
   __attribute__((unused)) struct sigaction oldaction;
   sigaction(SIGINT, &sigint_action, &oldaction);
@@ -287,35 +269,42 @@ int main(int argc, char **argv)
 		  gNBthreads[sizeof(gNBthreads)-1]=0;
 		  break;
 
-
-		default:
-		case 'h':
-			printf("%s -h(elp) -p(extended_prefix) -N cell_id -f output_filename -F input_filename -g channel_model -n n_frames -t Delayspread -s snr0 -S snr1  -y TXant -z RXant -i Intefrence0 -j Interference1 -A interpolation_file -C(alibration offset dB) -N CellId\n", argv[0]);
-			printf("-h This message\n");
-			printf("-p Use extended prefix mode\n");
-			//printf("-d Use TDD\n");
-			printf("-n Number of frames to simulate\n");
-			printf("-s Starting SNR, runs from SNR0 to SNR0 + 5 dB.  If n_frames is 1 then just SNR is simulated\n");
-			printf("-S Ending SNR, runs from SNR0 to SNR1\n");
-			printf("-t Delay spread for multipath channel\n");
-			printf("-g [A,B,C,D,E,F,G] Use 3GPP SCM (A,B,C,D) or 36-101 (E-EPA,F-EVA,G-ETU) models (ignores delay spread and Ricean factor)\n");
-			//printf("-x Transmission mode (1,2,6 for the moment)\n");
-			printf("-y Number of TX antennas used in eNB\n");
-			printf("-z Number of RX antennas used in UE\n");
-			//printf("-i Relative strength of first intefering eNB (in dB) - cell_id mod 3 = 1\n");
-			//printf("-j Relative strength of second intefering eNB (in dB) - cell_id mod 3 = 2\n");
-                        printf("-M Multiple SSB positions in burst\n");
-			printf("-N Nid_cell\n");
-			printf("-R N_RB_DL\n");
-			printf("-O oversampling factor (1,2,4,8,16)\n");
-			printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
-			//printf("-C Generate Calibration information for Abstraction (effective SNR adjustment to remove Pe bias w.r.t. AWGN)\n");
-			//printf("-f Output filename (.txt format) for Pe/SNR results\n");
-			printf("-F Input filename (.txt format) for RX conformance testing\n");
-			printf("-d number of dlsch threads, 0: no dlsch parallelization\n");
-			exit(-1);
-			break;
-		}
+    case 'h':
+    default:
+      if (c != 'h')
+        printf("Unknown option -%c\n", optopt);
+      printf(
+          "%s -h(elp) -p(extended_prefix) -N cell_id -f output_filename -F input_filename -g channel_model -n n_frames -t "
+          "Delayspread -s snr0 -S snr1  -y TXant -z RXant -i Intefrence0 -j Interference1 -A interpolation_file -C(alibration "
+          "offset dB) -N CellId\n",
+          argv[0]);
+      printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
+      // printf("-C Generate Calibration information for Abstraction (effective SNR adjustment to remove Pe bias w.r.t. AWGN)\n");
+      // printf("-d Use TDD\n");
+      printf("-d number of dlsch threads, 0: no dlsch parallelization\n");
+      // printf("-f Output filename (.txt format) for Pe/SNR results\n");
+      printf("-F Input filename (.txt format) for RX conformance testing\n");
+      printf(
+          "-g [A,B,C,D,E,F,G] Use 3GPP SCM (A,B,C,D) or 36-101 (E-EPA,F-EVA,G-ETU) models (ignores delay spread and Ricean "
+          "factor)\n");
+      printf("-h This message\n");
+      // printf("-i Relative strength of first intefering eNB (in dB) - cell_id mod 3 = 1\n");
+      // printf("-j Relative strength of second intefering eNB (in dB) - cell_id mod 3 = 2\n");
+      printf("-M Multiple SSB positions in burst\n");
+      printf("-n Number of frames to simulate\n");
+      printf("-N Nid_cell\n");
+      printf("-O oversampling factor (1,2,4,8,16)\n");
+      printf("-p Use extended prefix mode\n");
+      printf("-R N_RB_DL\n");
+      printf("-s Starting SNR, runs from SNR0 to SNR0 + 5 dB.  If n_frames is 1 then just SNR is simulated\n");
+      printf("-S Ending SNR, runs from SNR0 to SNR1\n");
+      printf("-t Delay spread for multipath channel\n");
+      // printf("-x Transmission mode (1,2,6 for the moment)\n");
+      printf("-y Number of TX antennas used in eNB\n");
+      printf("-z Number of RX antennas used in UE\n");
+      exit(-1);
+      break;
+    }
   }
 
   logInit();
@@ -593,10 +582,7 @@ int main(int argc, char **argv)
 
   free_channel_desc_scm(gNB2UE);
 
-  int nb_slots_to_set = (1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
-  for (int i = 0; i < nb_slots_to_set; ++i)
-    free(gNB->gNB_config.tdd_table.max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
-  free(gNB->gNB_config.tdd_table.max_tdd_periodicity_list);
+  free_config_request(&gNB->gNB_config);
 
   abortTpool(&gNB->threadPool);
 

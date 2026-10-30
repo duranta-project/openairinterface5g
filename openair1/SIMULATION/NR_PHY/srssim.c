@@ -11,13 +11,9 @@
 #include "common/utils/assertions.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/MODULATION/nr_modulation.h"
-#include "PHY/NR_REFSIG/ul_ref_seq_nr.h"
-#include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_ue.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
-#include "PHY/NR_ESTIMATION/nr_ul_estimation.h"
-#include "PHY/phy_vars_nr_ue.h"
 #include "e1ap_messages_types.h"
 #include "executables/nr-uesoftmodem.h"
 #include "SIMULATION/NR_PHY/nr_unitary_defs.h"
@@ -25,15 +21,12 @@
 #include "common/ran_context.h"
 #include "time_meas.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
+#include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 
-PHY_VARS_gNB *gNB;
-PHY_VARS_NR_UE *UE;
 RAN_CONTEXT_t RC;
-char *uecap_file = NULL;
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
-uint64_t uplink_frequency[MAX_NUM_CCs][4];
 THREAD_STRUCT thread_struct;
 
 // needed for some functions
@@ -46,30 +39,14 @@ nrUE_params_t *get_nrUE_params(void)
   return &nrUE_params;
 }
 
-channel_desc_t *UE2gNB[MAX_MOBILES_PER_GNB][NUMBER_OF_gNB_MAX];
 configmodule_interface_t *uniqCfg = NULL;
 
 NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { return (NULL); }
 
-void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
-{
-  abort();
-}
-void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req)
-{
-  abort();
-}
-void e1_bearer_context_mod_confirm(const e1ap_bearer_mod_confirm_t *conf)
-{
-  abort();
-}
-void e1_bearer_release_cmd(const e1ap_bearer_release_cmd_t *cmd)
-{
-  abort();
-}
-
 int main(int argc, char *argv[])
 {
+  PHY_VARS_NR_UE *UE;
+  PHY_VARS_gNB *gNB;
   stop = false;
   __attribute__((unused)) struct sigaction oldaction;
   sigaction(SIGINT, &sigint_action, &oldaction);
@@ -271,8 +248,10 @@ int main(int argc, char *argv[])
         loglvl = atoi(optarg);
         break;
 
-      default:
       case 'h':
+      default:
+        if (c != 'h')
+          printf("Unknown option -%c\n", optopt);
         printf("%s -h(elp)\n", argv[0]);
         printf("-a SRS starting symbol (8 .. 13)\n");
         printf("-b SRS number of symbols (1, 2, 4)\n");
@@ -284,19 +263,19 @@ int main(int argc, char *argv[])
             "-g Channel model configuration. Arguments list: Number of arguments = 3, {Channel model: [A] TDLA30, [B] TDLB100, [C] "
             "TDLC300}, {Correlation: [l] Low, [m] Medium, [h] High}, {Maximum Doppler shift} e.g. -g A,l,10\n");
         printf("-h This message\n");
+        printf("-H Slot number\n");
         printf("-i SRS cyclic shift, 0 .. 7 (comb size 2), 0 .. 11 (comb size 4) \n");
         printf("-k 3/4 sampling\n");
+        printf("-L <log level, 0(errors), 1(warning), 2(info) 3(debug) 4 (trace)>\n");
         printf("-n Number of trials to simulate\n");
         printf("-p Use extended prefix mode\n");
+        printf("-P Print SRS performances\n");
+        printf("-R Maximum number of available resorce blocks (N_RB_DL)\n");
         printf("-s Starting SNR, runs from SNR0 to SNR0 + 10 dB if ending SNR isn't given\n");
         printf("-S Ending SNR, runs from SNR0 to SNR1\n");
         printf("-u Set the numerology\n");
         printf("-y Number of TX antennas used at UE\n");
         printf("-z Number of RX antennas used at gNB\n");
-        printf("-H Slot number\n");
-        printf("-L <log level, 0(errors), 1(warning), 2(info) 3(debug) 4 (trace)>\n");
-        printf("-P Print SRS performances\n");
-        printf("-R Maximum number of available resorce blocks (N_RB_DL)\n");
         exit(-1);
         break;
     }
@@ -665,9 +644,11 @@ int main(int argc, char *argv[])
   free(r_im);
   free(rxdata);
 
+  free_config_request(&gNB->gNB_config);
   phy_free_nr_gNB(gNB);
   free_channel_desc_scm(UE2gNB);
   free(gNB->RU_list[0]);
+  free(gNB);
   free(UE);
 
   return ret;

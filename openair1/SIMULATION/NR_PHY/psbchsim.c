@@ -10,14 +10,10 @@
 #include <sys/mman.h>
 #include "common/config/config_userapi.h"
 #include "common/ran_context.h"
-#include "PHY/types.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/defs_gNB.h"
-#include "PHY/phy_vars.h"
 #include "NR_MasterInformationBlockSidelink.h"
-#include "PHY/INIT/phy_init.h"
-#include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
 #include "common/utils/nr/nr_common.h"
 #include "openair2/RRC/LTE/rrc_vars.h"
@@ -30,70 +26,19 @@
 #include "nr-uesoftmodem.h"
 #include "nr_unitary_defs.h"
 
-void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
-{
-  abort();
-}
-void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req)
-{
-  abort();
-}
-void e1_bearer_context_mod_confirm(const e1ap_bearer_mod_confirm_t *conf)
-{
-  abort();
-}
-void e1_bearer_release_cmd(const e1ap_bearer_release_cmd_t *cmd)
-{
-  abort();
-}
-int8_t nr_rrc_RA_succeeded(const module_id_t mod_id, const uint8_t gNB_index)
-{
-  return 1;
-}
 // to solve link errors
 // void init_downlink_harq_status(NR_DL_UE_HARQ_t *dl_harq) {}
-void get_num_re_dmrs(nfapi_nr_ue_pusch_pdu_t *pusch_pdu, uint8_t *nb_dmrs_re_per_rb, uint16_t *number_dmrs_symbols)
-{
-}
 
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 THREAD_STRUCT thread_struct;
 openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
 
-RAN_CONTEXT_t RC;
-char *uecap_file;
-
-void nr_rrc_ue_generate_RRCSetupRequest(module_id_t module_id, const uint8_t gNB_index)
-{
-  return;
-}
-
-int8_t nr_mac_rrc_data_req_ue(const module_id_t Mod_idP,
-                              const int CC_id,
-                              const uint8_t gNB_id,
-                              const frame_t frameP,
-                              const rb_id_t Srb_id,
-                              uint8_t *buffer_pP)
-{
-  return 0;
-}
-
 nrUE_params_t nrUE_params = {0};
 
 nrUE_params_t *get_nrUE_params(void)
 {
   return &nrUE_params;
-}
-uint8_t check_if_ue_is_sl_syncsource()
-{
-  return 0;
-}
-void nr_rrc_mac_config_req_sl_mib(module_id_t module_id,
-                                  NR_SL_SSB_TimeAllocation_r16_t *ssb_ta,
-                                  uint16_t rx_slss_id,
-                                  uint8_t *sl_mib)
-{
 }
 //////////////////////////////////////////////////////////////////////////
 static void prepare_mib_bits(uint8_t *buf, uint32_t frame_tx, uint32_t slot_tx)
@@ -428,17 +373,19 @@ int main(int argc, char **argv)
 
       case 'h':
       default:
+        if (c != 'h')
+          printf("Unknown option -%c\n", optopt);
         printf("\n\nSIDELINK PSBCH SIM OPTIONS LIST - hus:FL:T:\n");
-        printf("-h: HELP\n");
         printf("-c Carrier frequency offset in Hz\n");
-        printf("-n Number of trials\n");
-        printf("-o ssb offset from PointA - indicates ssb_start subcarrier\n");
-        printf("-s: set Sidelink sync id slss_id. ex -s 100\n");
         printf("-F: Run PSBCH frequency domain loopback test of the samples\n");
+        printf("-h: HELP\n");
         printf("-I: Sidelink SLSS search will be tested.\n");
         printf("-L: Set Log Level.\n");
+        printf("-n Number of trials\n");
         printf("-N: Test with Noise. target SNR0 eg -N 10\n");
+        printf("-o ssb offset from PointA - indicates ssb_start subcarrier\n");
         printf("-R N_RB_DL\n");
+        printf("-s: set Sidelink sync id slss_id. ex -s 100\n");
         printf("-S Ending SNR, runs from SNR0 to SNR1\n");
         printf("-T: Frame,Slot to be sent in sl-MIB eg -T 4 2\n");
         return 1;

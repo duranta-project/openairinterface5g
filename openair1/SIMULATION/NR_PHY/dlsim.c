@@ -80,8 +80,6 @@ const char *__asan_default_options()
   return "detect_leaks=0";
 }
 
-PHY_VARS_gNB *gNB;
-PHY_VARS_NR_UE *UE;
 RAN_CONTEXT_t RC;
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 char *uecap_file;
@@ -89,10 +87,8 @@ char *uecap_file;
 //uint8_t nfapi_mode = 0;
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
 THREAD_STRUCT thread_struct;
-nfapi_ue_release_request_body_t release_rntis;
 
 // NTN cellSpecificKoffset-r17, but in slots for DL SCS
-unsigned int NTN_UE_Koffset = 0;
 
 void nr_derive_key_ng_ran_star(uint16_t pci, uint64_t nr_arfcn_dl, const uint8_t key[32], uint8_t *key_ng_ran_star)
 {
@@ -103,9 +99,6 @@ void nr_derive_key_ng_ran_star(uint16_t pci, uint64_t nr_arfcn_dl, const uint8_t
  * however, if E2 agent is defined, the following functions are used in
  * rrc_gNB.c, but defined in RAN functions. In order to avoid pulling this in
  * here as well, only provide a prototype (and abort if they are ever called). */
-void signal_rrc_msg(void /*const nr_rrc_class_e nr_channel, const uint32_t rrc_msg_id, const byte_array_t rrc_ba*/ ) { abort(); }
-void signal_rrc_state_changed_to(void /* const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state */) { abort(); }
-void signal_ue_id(void /* const gNB_RRC_UE_t *rrc_ue_context, const uint16_t class, const uint32_t msg_id */) { abort(); }
 
 /* Function to set or overwrite PTRS DL RRC parameters */
 static void rrc_config_dl_ptrs_params(NR_BWP_Downlink_t *bwp, long *ptrsNrb, long *ptrsMcs, long *epre_Ratio, long *reOffset)
@@ -151,16 +144,10 @@ void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req) { abort(); }
 void e1_bearer_context_mod_confirm(const e1ap_bearer_mod_confirm_t *conf) { abort(); }
 void e1_bearer_release_cmd(const e1ap_bearer_release_cmd_t *cmd) { abort(); }
 
-int8_t nr_rrc_RA_succeeded(const module_id_t mod_id, const uint8_t gNB_index) {
-  return 0;
-}
-
 void nr_derive_key(int alg_type, uint8_t alg_id, const uint8_t key[32], uint8_t out[16])
 {
   (void)alg_type;
 }
-
-void processSlotTX(void *arg) {}
 
 // needed for some functions
 openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
@@ -351,6 +338,8 @@ void validate_input_pmi(nfapi_nr_config_request_scf_t *gNB_config,
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  PHY_VARS_NR_UE *UE;
+  PHY_VARS_gNB *gNB;
   stop = false;
   __attribute__((unused)) struct sigaction oldaction;
   sigaction(SIGINT, &sigint_action, &oldaction);
@@ -682,51 +671,58 @@ int main(int argc, char **argv)
       tx_amp = atoi(optarg);
       break;
 
-    default:
     case 'h':
-      printf("%s -h(elp) -p(extended_prefix) -N cell_id -F input_filename -g channel_model -n n_frames -s snr0 -S snr1 -x transmission_mode -y TXant -z RXant -i Intefrence0 -j Interference1 -A interpolation_file -C(alibration offset dB) -N CellId\n",
-             argv[0]);
-      printf("-h This message\n");
-      printf("-L <log level, 0(errors), 1(warning), 2(analysis), 3(info), 4(debug), 5(trace)>\n");
-      printf("-i Change channel estimation technique. Arguments list: Frequency domain {0:Linear interpolation, 1:PRB based averaging}, Time domain {0:Estimates of last DMRS symbol, 1:Average of DMRS symbols}\n");
-      printf("-O oversampling factor (1,2,4,8,16)\n");
-      printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
-      printf("-F Input filename (.txt format) for RX conformance testing\n");
+    default:
+      if (c != 'h')
+        printf("Unknown option -%c\n", optopt);
+      printf(
+          "%s -h(elp) -p(extended_prefix) -N cell_id -F input_filename -g channel_model -n n_frames -s snr0 -S snr1 -x "
+          "transmission_mode -y TXant -z RXant -i Intefrence0 -j Interference1 -A interpolation_file -C(alibration offset dB) -N "
+          "CellId\n",
+          argv[0]);
       printf("-a Start PRB for PDSCH\n");
+      printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
       printf("-b Number of PRB for PDSCH\n");
       printf("-d number of dlsch threads, 0: no dlsch parallelization\n");
       printf("-e MSC index\n");
       printf("-E Enable ML-based LLR for 2-layer MIMO (QPSK/16QAM/64QAM). Default: MMSE equalization\n");
-      printf("-K Number of PRBs for retransmissions, keeping the initial TBS (reserved MCS index). Default: same as initial\n");
       printf("-f <flag> Enable optional feature flag. Available flags:\n");
 #ifdef CHANNEL_SIM_CUDA
       printf("          cuda    Enable CUDA channel simulation\n");
 #else
       printf("          (none)  No optional features were compiled into this executable\n");
 #endif
+      printf("-F Input filename (.txt format) for RX conformance testing\n");
       printf("-g Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300, e.g. -g A\n");
+      printf("-h This message\n");
       printf("-H Slot number\n");
+      printf(
+          "-i Change channel estimation technique. Arguments list: Frequency domain {0:Linear interpolation, 1:PRB based "
+          "averaging}, Time domain {0:Estimates of last DMRS symbol, 1:Average of DMRS symbols}\n");
+      printf("-I Maximum LDPC decoder iterations\n");
+      printf("-K Number of PRBs for retransmissions, keeping the initial TBS (reserved MCS index). Default: same as initial\n");
+      printf("-L <log level, 0(errors), 1(warning), 2(analysis), 3(info), 4(debug), 5(trace)>\n");
       printf("-m Numerology\n");
       printf("-n Number of frames to simulate\n");
       printf("-o Introduce delay in terms of number of samples\n");
+      printf("-O oversampling factor (1,2,4,8,16)\n");
       printf("-p Precoding matrix index\n");
+      printf("-P Print DLSCH performances\n");
       printf("-q MCS Table index\n");
+      printf("-Q Backoff in dB of the gNB modulation amplitude from full scale (default 36)\n");
+      printf("-R N_RB_DL\n");
       printf("-s Starting SNR, runs from SNR0 to SNR0 + 5 dB.  If n_frames is 1 then just SNR is simulated\n");
       printf("-S Ending SNR, runs from SNR0 to SNR1\n");
       printf("-t Acceptable effective throughput (in percentage)\n");
+      printf("-T Enable PTRS, arguments list L_PTRS{0,1,2} K_PTRS{2,4}, e.g. -T 2 0 2 \n");
+      printf("-U Change DMRS Config, arguments list DMRS TYPE{0=A,1=B} DMRS AddPos{0:2} DMRS ConfType{1:2}, e.g. -U 3 0 2 1 \n");
       printf("-v Maximum number of rounds\n");
       printf("-w Write txdata to binary file (one frame)\n");
       printf("-x Num of layer for PDSCH\n");
-      printf("-y Number of TX antennas used in gNB\n");
-      printf("-z Number of RX antennas used in UE\n");
-      printf("-I Maximum LDPC decoder iterations\n");
-      printf("-P Print DLSCH performances\n");
-      printf("-Q Backoff in dB of the gNB modulation amplitude from full scale (default 36)\n");
-      printf("-R N_RB_DL\n");
-      printf("-T Enable PTRS, arguments list L_PTRS{0,1,2} K_PTRS{2,4}, e.g. -T 2 0 2 \n");
-      printf("-U Change DMRS Config, arguments list DMRS TYPE{0=A,1=B} DMRS AddPos{0:2} DMRS ConfType{1:2}, e.g. -U 3 0 2 1 \n");
       printf("-X gNB thread pool configuration, n => no threads\n");
+      printf("-y Number of TX antennas used in gNB\n");
       printf("-Y Number of symbols processed per PDSCH generation thread\n");
+      printf("-z Number of RX antennas used in UE\n");
       printf("-Z Output filename (.csv format) for stats\n");
       exit (-1);
       break;
