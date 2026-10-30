@@ -85,7 +85,7 @@ static inline int get_mac_len(uint8_t *pdu, uint32_t pdu_len, uint16_t *mac_ce_l
     *mac_subheader_len = sizeof(*s);
     *mac_ce_len = s->L;
   }
-  if (*mac_ce_len > pdu_len) {
+  if (*mac_ce_len > pdu_len - *mac_subheader_len) {
     LOG_E(NR_MAC, "MAC sdu len impossible (%d)\n", *mac_ce_len);
     return false;
   }
