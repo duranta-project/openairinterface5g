@@ -221,6 +221,60 @@ TEST(test_init_ra, four_step_cfra)
   EXPECT_EQ(mac.ra.cfra, 1);
 }
 
+TEST(test_nr_config_pusch, tp_null_dmrs_config)
+{
+  NR_UE_MAC_INST_t mac = {0};
+  NR_UE_UL_BWP_t current_bwp = {0};
+  NR_UE_DL_BWP_t dl_bwp = {0};
+  mac.current_UL_BWP = &current_bwp;
+  mac.current_DL_BWP = &dl_bwp;
+  mac.physCellId = 42;
+  mac.crnti = 0x1234;
+  mac.sc_info.initial_ul_BWPSize = 51;
+  mac.nr_band = 78;
+  mac.p_Max = 23;
+  mac.frequency_range = FR1;
+  current_bwp.channel_bandwidth = 40;
+
+  long scs = 1;
+  current_bwp.scs = scs;
+  current_bwp.BWPSize = 51;
+  current_bwp.BWPStart = 0;
+  current_bwp.pusch_Config = NULL;
+
+  long msg3_tp = 0;
+  NR_RACH_ConfigCommon_t rach_cc = {0};
+  rach_cc.msg3_transformPrecoder = &msg3_tp;
+  current_bwp.rach_ConfigCommon = &rach_cc;
+
+  NR_tda_info_t tda_info = {};
+  tda_info.mapping_type = typeA;
+  tda_info.startSymbolIndex = 0;
+  tda_info.nrOfSymbols = 14;
+
+  nfapi_nr_ue_pusch_pdu_t pusch_config_pdu = {0};
+  dci_pdu_rel15_t dci = {0};
+  dci.ulsch_indicator = 1;
+  dci.frequency_domain_assignment.val = 1;
+  dci.mcs = 9;
+  dci.harq_pid.val = 0;
+  dci.ndi = 1;
+  dci.rv = 0;
+
+  int ret = nr_config_pusch_pdu(&mac,
+                                &tda_info,
+                                &pusch_config_pdu,
+                                &dci,
+                                NULL,
+                                NULL,
+                                0x1234,
+                                NR_SearchSpace__searchSpaceType_PR_common,
+                                NR_UL_DCI_FORMAT_0_0);
+  EXPECT_EQ(ret, 0);
+  EXPECT_EQ(pusch_config_pdu.dfts_ofdm.low_papr_group_number, mac.physCellId % 30);
+  EXPECT_EQ(pusch_config_pdu.dfts_ofdm.low_papr_sequence_number, 0);
+}
+
 int main(int argc, char **argv)
 {
   logInit();
