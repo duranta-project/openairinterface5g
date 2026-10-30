@@ -13,20 +13,15 @@
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/LOG/log.h"
 #include "common/ran_context.h"
-#include "PHY/types.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/defs_gNB.h"
-#include "PHY/MODULATION/modulation_eNB.h"
-#include "PHY/MODULATION/modulation_UE.h"
 #include "PHY/NR_ESTIMATION/nr_ul_estimation.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
-#include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "PHY/NR_UE_TRANSPORT/pucch_nr.h"
 #include "SCHED_NR/sched_nr.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
-#include "openair1/SIMULATION/RF/rf.h"
 #include "openair1/SIMULATION/NR_PHY/nr_unitary_defs.h"
 #include "executables/nr-uesoftmodem.h"
 #include "nfapi/oai_integration/vendor_ext.h"
@@ -34,15 +29,10 @@
 #include "openair1/PHY/phy_vars_nr_ue.h"
 #include "PHY/nr_phy_common/inc/nr_sequences_tables.h"
 #include "SIMULATION/LTE_PHY/common_sim.h"
+#include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 
-THREAD_STRUCT thread_struct;
-PHY_VARS_gNB *gNB;
-PHY_VARS_NR_UE *UE;
 RAN_CONTEXT_t RC;
-int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
-uint64_t downlink_frequency[MAX_NUM_CCs][4];
 
-uint8_t const nr_rv_round_map[4] = {0, 2, 3, 1};
 // needed for some functions
 static softmodem_params_t softmodem_params;
 softmodem_params_t *get_softmodem_params(void)
@@ -57,21 +47,6 @@ NR_IF_Module_t *NR_IF_Module_init(int Mod_id)
 {
   return (NULL);
 }
-nfapi_mode_t nfapi_getmode(void)
-{
-  return NFAPI_MODE_UNKNOWN;
-}
-
-void inc_ref_sched_response(int _)
-{
-  LOG_E(PHY, "fatal\n");
-  exit(1);
-}
-void deref_sched_response(int _)
-{
-  LOG_E(PHY, "fatal\n");
-  exit(1);
-}
 
 nrUE_params_t nrUE_params = {0};
 
@@ -83,6 +58,8 @@ nrUE_params_t *get_nrUE_params(void)
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  PHY_VARS_NR_UE *UE;
+  PHY_VARS_gNB *gNB;
   stop = false;
   __attribute__((unused)) struct sigaction oldaction;
   sigaction(SIGINT, &sigint_action, &oldaction);
@@ -328,28 +305,31 @@ int main(int argc, char **argv)
         print_perf = 1;
         cpu_meas_enabled = 1;
         break;
-      default:
       case 'h':
+      default:
+        if (c != 'h')
+          printf("Unknown option -%c\n", optopt);
         printf(
             "%s -h(elp) -p(extended_prefix) -N cell_id -f output_filename -F input_filename -g channel_model -n n_frames -t "
             "Delayspread -s snr0 -S snr1 -x transmission_mode -y TXant -z RXant -i Intefrence0 -j Interference1 -A "
             "interpolation_file -C(alibration offset dB) -N CellId\n",
             argv[0]);
-        // printf("-C Generate Calibration information for Abstraction (effective SNR adjustment to remove Pe bias w.r.t. AWGN)\n");
         printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
         printf("-b number of HARQ bits (1-2)\n");
         printf("-B payload to be transmitted on PUCCH\n");
         printf("-c Activate scheduling request\n");
+        // printf("-C Generate Calibration information for Abstraction (effective SNR adjustment to remove Pe bias w.r.t. AWGN)\n");
+        printf("-C print CPU cost\n");
         printf("-d Use TDD\n");
         printf("-f Output filename (.txt format) for Pe/SNR results\n");
         printf("-F Input filename (.txt format) for RX conformance testing\n");
         printf(
             "-g [A,B,C,D,E,F,G] Use 3GPP SCM (A,B,C,D) or 36-101 (E-EPA,F-EVA,G-ETU) models (ignores delay spread and Ricean "
             "factor)\n");
-        printf("-i Enter number of ofdm symbols for pucch\n");
-        printf("-I Starting symbol index for pucch\n");
         printf("-h This message\n");
         printf("-H Enable frequency hopping for two-symbol PUCCH format 0\n");
+        printf("-i Enter number of ofdm symbols for pucch\n");
+        printf("-I Starting symbol index for pucch\n");
         printf("-m initial cyclic shift m0\n");
         printf("-n Number of frames to simulate\n");
         printf("-N Nid_cell\n");
@@ -367,7 +347,6 @@ int main(int argc, char **argv)
         printf("-x Transmission mode (1,2,6 for the moment)\n");
         printf("-y Number of TX antennas used in eNB\n");
         printf("-z Number of RX antennas used in UE\n");
-        printf("-C print CPU cost\n");
         exit(-1);
         break;
     }
@@ -817,10 +796,7 @@ int main(int argc, char **argv)
   free_channel_desc_scm(UE2gNB);
   term_freq_channel();
 
-  int nb_slots_to_set = (1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
-  for (int i = 0; i < nb_slots_to_set; ++i)
-    free(gNB->gNB_config.tdd_table.max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
-  free(gNB->gNB_config.tdd_table.max_tdd_periodicity_list);
+  free_config_request(&gNB->gNB_config);
 
   for (i = 0; i < n_rx; i++)
     free(gNB->common_vars.rxdataF[i]);

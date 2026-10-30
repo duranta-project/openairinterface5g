@@ -11,9 +11,8 @@
 #include "common/config/config_userapi.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/load_module_shlib.h"
-#include "common/ran_context.h" 
+#include "common/ran_context.h"
 #include "common/utils/nr/nr_common.h"
-#include "PHY/types.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/defs_gNB.h"
@@ -24,7 +23,6 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "PHY/NR_UE_ESTIMATION/nr_estimation.h"
-#include "PHY/phy_vars.h"
 #include "SCHED_NR/sched_nr.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
 #include "openair1/SIMULATION/RF/rf.h"
@@ -32,28 +30,14 @@
 #include <executables/softmodem-common.h>
 #include <executables/nr-uesoftmodem.h>
 #include "nfapi/oai_integration/vendor_ext.h"
+#include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 //#define DEBUG_NR_PBCHSIM
 
-PHY_VARS_gNB *gNB;
-PHY_VARS_NR_UE *UE;
 RAN_CONTEXT_t RC;
-int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 
 // needed for some functions
 openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
 
-uint8_t const nr_rv_round_map[4] = {0, 2, 3, 1};
-
-void inc_ref_sched_response(int _)
-{
-  LOG_E(PHY, "fatal\n");
-  exit(1);
-}
-void deref_sched_response(int _)
-{
-  LOG_E(PHY, "fatal\n");
-  exit(1);
-}
 static softmodem_params_t softmodem_params;
 softmodem_params_t *get_softmodem_params(void) {
   return &softmodem_params;
@@ -66,8 +50,10 @@ nrUE_params_t *get_nrUE_params(void) {
 }
 
 void init_downlink_harq_status(NR_DL_UE_HARQ_t *dl_harq) {}
-NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { return (NULL); }
-nfapi_mode_t nfapi_getmode(void) { return NFAPI_MODE_UNKNOWN; }
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id)
+{
+  return (NULL);
+}
 
 void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
                            uint8_t pdu_type,
@@ -83,6 +69,8 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  PHY_VARS_NR_UE *UE;
+  PHY_VARS_gNB *gNB;
   stop = false;
   __attribute__((unused)) struct sigaction oldaction;
   sigaction(SIGINT, &sigint_action, &oldaction);
@@ -328,8 +316,10 @@ int main(int argc, char **argv)
       }
       break;
 
-    default:
     case 'h':
+    default:
+      if (c != 'h')
+        printf("Unknown option -%c\n", optopt);
       printf(
           "OAI_RNGSEED=xxx ./%s -F input_filename -g channel_mod -h(elp) -I(nitial sync) -L log_lvl -n n_frames -M SSBs -n frames "
           "-N cell_id -o FO -P phase -R RBs -s snr0 -S snr1 -x transmission_mode -y TXant -z RXant\n",
@@ -723,10 +713,7 @@ int main(int argc, char **argv)
 
   free_channel_desc_scm(gNB2UE);
 
-  int nb_slots_to_set = (1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
-  for (int i = 0; i < nb_slots_to_set; ++i)
-    free(gNB->gNB_config.tdd_table.max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
-  free(gNB->gNB_config.tdd_table.max_tdd_periodicity_list);
+  free_config_request(&gNB->gNB_config);
 
   phy_free_nr_gNB(gNB);
   free(RC.gNB[0]);

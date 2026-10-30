@@ -12,60 +12,38 @@
 #include "common/utils/load_module_shlib.h"
 #include "common/utils/LOG/log.h"
 #include "common/ran_context.h"
-#include "PHY/types.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/defs_gNB.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
 #include "PHY/INIT/nr_phy_init.h"
-#include "PHY/MODULATION/modulation_eNB.h"
-#include "PHY/MODULATION/modulation_UE.h"
-#include "PHY/NR_TRANSPORT/nr_transport_proto.h"
-#include "PHY/NR_TRANSPORT/nr_dlsch.h"
 #include "PHY/NR_TRANSPORT/nr_ulsch.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "SCHED_NR/sched_nr.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
-#include "openair1/SIMULATION/RF/rf.h"
 #include "openair1/SIMULATION/NR_PHY/nr_unitary_defs.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "executables/nr-uesoftmodem.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "bits.h"
+#include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p5_utils.h"
 
 //#define DEBUG_NR_ULSCHSIM
 
-THREAD_STRUCT thread_struct;
-PHY_VARS_gNB *gNB;
-PHY_VARS_NR_UE *UE;
 RAN_CONTEXT_t RC;
-int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
-uint64_t downlink_frequency[MAX_NUM_CCs][4];
 
 static softmodem_params_t softmodem_params;
 softmodem_params_t *get_softmodem_params(void) {
   return &softmodem_params;
 }
 void init_downlink_harq_status(NR_DL_UE_HARQ_t *dl_harq) {}
-NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { return (NULL); }
-nfapi_mode_t nfapi_getmode(void) { return NFAPI_MODE_UNKNOWN; }
-
-uint8_t const nr_rv_round_map[4] = {0, 2, 3, 1};
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id)
+{
+  return (NULL);
+}
 
 // needed for some functions
-PHY_VARS_NR_UE *PHY_vars_UE_g[1][1] = { { NULL } };
 uint16_t n_rnti = 0x1234;
-
-void inc_ref_sched_response(int _)
-{
-  LOG_E(PHY, "fatal\n");
-  exit(1);
-}
-void deref_sched_response(int _)
-{
-  LOG_E(PHY, "fatal\n");
-  exit(1);
-}
 
 nrUE_params_t nrUE_params;
 
@@ -76,6 +54,8 @@ nrUE_params_t *get_nrUE_params(void) {
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  PHY_VARS_NR_UE *UE;
+  PHY_VARS_gNB *gNB;
   stop = false;
   __attribute__((unused)) struct sigaction oldaction;
   sigaction(SIGINT, &sigint_action, &oldaction);
@@ -304,37 +284,45 @@ int main(int argc, char **argv)
         transmission_mode = atoi(optarg);
         break;*/
 
+      case 'h':
       default:
-        case 'h':
-          printf("%s -h(elp) -g channel_model -n n_frames -s snr0 -S snr1 -p(extended_prefix) -y TXant -z RXant -M -N cell_id -R -F input_filename -m -l -r\n", argv[0]);
-          //printf("%s -h(elp) -p(extended_prefix) -N cell_id -f output_filename -F input_filename -g channel_model -n n_frames -t Delayspread -s snr0 -S snr1 -x transmission_mode -y TXant -z RXant -i Intefrence0 -j Interference1 -A interpolation_file -C(alibration offset dB) -N CellId\n", argv[0]);
-          printf("-h This message\n");
-          printf("-g [A,B,C,D,E,F,G] Use 3GPP SCM (A,B,C,D) or 36-101 (E-EPA,F-EVA,G-ETU) models (ignores delay spread and Ricean factor)\n");
-          printf("-n Number of frames to simulate\n");
-          //printf("-d Use TDD\n");
-          printf("-s Starting SNR, runs from SNR0 to SNR0 + 5 dB.  If n_frames is 1 then just SNR is simulated\n");
-          printf("-S Ending SNR, runs from SNR0 to SNR1\n");
-          printf("-p Use extended prefix mode\n");
-          //printf("-t Delay spread for multipath channel\n");
-          //printf("-x Transmission mode (1,2,6 for the moment)\n");
-          printf("-y Number of TX antennas used in eNB\n");
-          printf("-z Number of RX antennas used in UE\n");
-          //printf("-i Relative strength of first intefering eNB (in dB) - cell_id mod 3 = 1\n");
-          //printf("-j Relative strength of second intefering eNB (in dB) - cell_id mod 3 = 2\n");
-          printf("-W number of layer\n");
-          printf("-M Multiple SSB positions in burst\n");
-          printf("-N Nid_cell\n");
-          printf("-R N_RB_UL\n");
-          printf("-F Input filename (.txt format) for RX conformance testing\n");
-          printf("-m MCS\n");
-          printf("-l number of symbol\n");
-          printf("-r number of RB\n");
-          //printf("-O oversampling factor (1,2,4,8,16)\n");
-          //printf("-A Interpolation_filname Run with Abstraction to generate Scatter plot using interpolation polynomial in file\n");
-          //printf("-C Generate Calibration information for Abstraction (effective SNR adjustment to remove Pe bias w.r.t. AWGN)\n");
-          //printf("-f Output filename (.txt format) for Pe/SNR results\n");
-          exit(-1);
-          break;
+        if (c != 'h')
+          printf("Unknown option -%c\n", optopt);
+        printf(
+            "%s -h(elp) -g channel_model -n n_frames -s snr0 -S snr1 -p(extended_prefix) -y TXant -z RXant -M -N cell_id -R -F "
+            "input_filename -m -l -r\n",
+            argv[0]);
+        // printf("%s -h(elp) -p(extended_prefix) -N cell_id -f output_filename -F input_filename -g channel_model -n n_frames -t
+        // Delayspread -s snr0 -S snr1 -x transmission_mode -y TXant -z RXant -i Intefrence0 -j Interference1 -A interpolation_file
+        // -C(alibration offset dB) -N CellId\n", argv[0]); printf("-A Interpolation_filname Run with Abstraction to generate
+        // Scatter plot using interpolation polynomial in file\n"); printf("-C Generate Calibration information for Abstraction
+        // (effective SNR adjustment to remove Pe bias w.r.t. AWGN)\n"); printf("-d Use TDD\n"); printf("-f Output filename (.txt
+        // format) for Pe/SNR results\n");
+        printf("-F Input filename (.txt format) for RX conformance testing\n");
+        printf(
+            "-g [A,B,C,D,E,F,G] Use 3GPP SCM (A,B,C,D) or 36-101 (E-EPA,F-EVA,G-ETU) models (ignores delay spread and Ricean "
+            "factor)\n");
+        printf("-h This message\n");
+        // printf("-i Relative strength of first intefering eNB (in dB) - cell_id mod 3 = 1\n");
+        // printf("-j Relative strength of second intefering eNB (in dB) - cell_id mod 3 = 2\n");
+        printf("-l number of symbol\n");
+        printf("-m MCS\n");
+        printf("-M Multiple SSB positions in burst\n");
+        printf("-n Number of frames to simulate\n");
+        printf("-N Nid_cell\n");
+        // printf("-O oversampling factor (1,2,4,8,16)\n");
+        printf("-p Use extended prefix mode\n");
+        printf("-r number of RB\n");
+        printf("-R N_RB_UL\n");
+        printf("-s Starting SNR, runs from SNR0 to SNR0 + 5 dB.  If n_frames is 1 then just SNR is simulated\n");
+        printf("-S Ending SNR, runs from SNR0 to SNR1\n");
+        // printf("-t Delay spread for multipath channel\n");
+        printf("-W number of layer\n");
+        // printf("-x Transmission mode (1,2,6 for the moment)\n");
+        printf("-y Number of TX antennas used in eNB\n");
+        printf("-z Number of RX antennas used in UE\n");
+        exit(-1);
+        break;
     }
   }
 
@@ -590,10 +578,7 @@ int main(int argc, char **argv)
 
   free_nr_ue_ul_harq(UE->ul_harq_processes, NR_MAX_HARQ_PROCESSES, UE->frame_parms.N_RB_UL, UE->frame_parms.nb_antennas_tx);
 
-  int nb_slots_to_set = (1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
-  for (int i = 0; i < nb_slots_to_set; ++i)
-    free(gNB->gNB_config.tdd_table.max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
-  free(gNB->gNB_config.tdd_table.max_tdd_periodicity_list);
+  free_config_request(&gNB->gNB_config);
 
   term_nr_ue_signal(UE);
   free(UE);
