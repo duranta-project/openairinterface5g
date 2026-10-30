@@ -417,13 +417,15 @@ static NR_SIB4_t *get_sib4_inter_freq_neighbors(const neighbour_cell_configurati
     }
 
     if (neigh_list->list.count > 0) {
-      asn1cSeqAdd(&sib4->interFreqCarrierFreqList.list, carrier);
+      if (!sib4->interFreqCarrierFreqList)
+        sib4->interFreqCarrierFreqList = calloc_or_fail(1, sizeof(*sib4->interFreqCarrierFreqList));
+      asn1cSeqAdd(&sib4->interFreqCarrierFreqList->list, carrier);
     } else {
       ASN_STRUCT_FREE(asn_DEF_NR_InterFreqCarrierFreqInfo, carrier);
     }
   }
 
-  if (sib4->interFreqCarrierFreqList.list.count == 0) {
+  if (sib4->interFreqCarrierFreqList->list.count == 0) {
     ASN_STRUCT_FREE(asn_DEF_NR_SIB4, sib4);
     return NULL;
   }

@@ -216,7 +216,7 @@ static bool check_csi_resource_consistency(const NR_CSI_MeasConfig_t *meas)
     return true;
   for (int i = 0; i < meas->nzp_CSI_RS_ResourceToAddModList->list.count; i++) {
     NR_NZP_CSI_RS_Resource_t *res = meas->nzp_CSI_RS_ResourceToAddModList->list.array[i];
-    if (!check_csi_resourceMapping_consistency(res->resourceMapping))
+    if (!check_csi_resourceMapping_consistency(*res->resourceMapping))
       return false;
   }
   return true;

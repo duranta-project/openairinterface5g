@@ -295,12 +295,14 @@ int do_RRCReject(uint8_t *const buffer)
     NR_RRCReject_t                                   *rrcReject;
 
     memset((void *)&dl_ccch_msg, 0, sizeof(NR_DL_CCCH_Message_t));
-    dl_ccch_msg.message.present = NR_DL_CCCH_MessageType_PR_c1;
-    dl_ccch_msg.message.choice.c1          = CALLOC(1, sizeof(struct NR_DL_CCCH_MessageType__c1));
-    dl_ccch_msg.message.choice.c1->present = NR_DL_CCCH_MessageType__c1_PR_rrcReject;
+    if (!dl_ccch_msg.message)
+      dl_ccch_msg.message = calloc_or_fail(1, sizeof(*dl_ccch_msg.message));
+    dl_ccch_msg.message->present = NR_DL_CCCH_MessageType_PR_c1;
+    dl_ccch_msg.message->choice.c1          = CALLOC(1, sizeof(struct NR_DL_CCCH_MessageType__c1));
+    dl_ccch_msg.message->choice.c1->present = NR_DL_CCCH_MessageType__c1_PR_rrcReject;
 
-    dl_ccch_msg.message.choice.c1->choice.rrcReject = CALLOC(1,sizeof(NR_RRCReject_t));
-    rrcReject = dl_ccch_msg.message.choice.c1->choice.rrcReject;
+    dl_ccch_msg.message->choice.c1->choice.rrcReject = CALLOC(1,sizeof(NR_RRCReject_t));
+    rrcReject = dl_ccch_msg.message->choice.c1->choice.rrcReject;
 
     rrcReject->criticalExtensions.choice.rrcReject           = CALLOC(1, sizeof(struct NR_RRCReject_IEs));
     rrcReject->criticalExtensions.choice.rrcReject->waitTime = CALLOC(1, sizeof(NR_RejectWaitTime_t));
@@ -337,8 +339,10 @@ int do_RRCSetup(uint8_t *const buffer,
 //------------------------------------------------------------------------------
 {
   NR_DL_CCCH_Message_t dl_ccch_msg = {0};
-  dl_ccch_msg.message.present = NR_DL_CCCH_MessageType_PR_c1;
-  asn1cCalloc(dl_ccch_msg.message.choice.c1, dl_msg);
+  if (!dl_ccch_msg.message)
+    dl_ccch_msg.message = calloc_or_fail(1, sizeof(*dl_ccch_msg.message));
+  dl_ccch_msg.message->present = NR_DL_CCCH_MessageType_PR_c1;
+  asn1cCalloc(dl_ccch_msg.message->choice.c1, dl_msg);
   dl_msg->present = NR_DL_CCCH_MessageType__c1_PR_rrcSetup;
   asn1cCalloc(dl_msg->choice.rrcSetup, rrcSetup);
   rrcSetup->criticalExtensions.present = NR_RRCSetup__criticalExtensions_PR_rrcSetup;
@@ -347,11 +351,13 @@ int do_RRCSetup(uint8_t *const buffer,
   NR_RRCSetup_IEs_t *ie = rrcSetup->criticalExtensions.choice.rrcSetup;
 
   /****************************** radioBearerConfig ******************************/
-  ie->radioBearerConfig.srb_ToAddModList = SRBs;
-  ie->radioBearerConfig.srb3_ToRelease = NULL;
-  ie->radioBearerConfig.drb_ToAddModList = NULL;
-  ie->radioBearerConfig.drb_ToReleaseList = NULL;
-  ie->radioBearerConfig.securityConfig = NULL;
+  if (!ie->radioBearerConfig)
+    ie->radioBearerConfig = calloc_or_fail(1, sizeof(*ie->radioBearerConfig));
+  ie->radioBearerConfig->srb_ToAddModList = SRBs;
+  ie->radioBearerConfig->srb3_ToRelease = NULL;
+  ie->radioBearerConfig->drb_ToAddModList = NULL;
+  ie->radioBearerConfig->drb_ToReleaseList = NULL;
+  ie->radioBearerConfig->securityConfig = NULL;
 
   /****************************** masterCellGroup ******************************/
   DevAssert(masterCellGroup && masterCellGroup_len > 0);
@@ -367,7 +373,7 @@ int do_RRCSetup(uint8_t *const buffer,
 
   AssertFatal(enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
   // free what we did not allocate ourselves
-  ie->radioBearerConfig.srb_ToAddModList = NULL;
+  ie->radioBearerConfig->srb_ToAddModList = NULL;
   ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NR_DL_CCCH_Message, &dl_ccch_msg);
 
   LOG_D(NR_RRC, "RRCSetup Encoded %zd bits (%zd bytes)\n", enc_rval.encoded, (enc_rval.encoded + 7) / 8);
@@ -382,8 +388,10 @@ int do_NR_SecurityModeCommand(uint8_t *const buffer,
 {
   NR_DL_DCCH_Message_t dl_dcch_msg={0};
   asn_enc_rval_t enc_rval;
-  dl_dcch_msg.message.present           = NR_DL_DCCH_MessageType_PR_c1;
-  asn1cCalloc(dl_dcch_msg.message.choice.c1, c1);
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = NR_DL_DCCH_MessageType_PR_c1;
+  asn1cCalloc(dl_dcch_msg.message->choice.c1, c1);
   c1->present = NR_DL_DCCH_MessageType__c1_PR_securityModeCommand;
   asn1cCalloc(c1->choice.securityModeCommand,scm);
   scm->rrc_TransactionIdentifier = Transaction_id;
@@ -391,9 +399,17 @@ int do_NR_SecurityModeCommand(uint8_t *const buffer,
 
   asn1cCalloc(scm->criticalExtensions.choice.securityModeCommand,scmIE);
   // the two following information could be based on the mod_id
-  scmIE->securityConfigSMC.securityAlgorithmConfig.cipheringAlgorithm
+  if (!scmIE->securityConfigSMC)
+    scmIE->securityConfigSMC = calloc_or_fail(1, sizeof(*scmIE->securityConfigSMC));
+  if (!scmIE->securityConfigSMC->securityAlgorithmConfig)
+    scmIE->securityConfigSMC->securityAlgorithmConfig = calloc_or_fail(1, sizeof(*scmIE->securityConfigSMC->securityAlgorithmConfig));
+  scmIE->securityConfigSMC->securityAlgorithmConfig->cipheringAlgorithm
     = (NR_CipheringAlgorithm_t)cipheringAlgorithm;
-  asn1cCallocOne(scmIE->securityConfigSMC.securityAlgorithmConfig.integrityProtAlgorithm, integrityProtAlgorithm);
+  if (!scmIE->securityConfigSMC)
+    scmIE->securityConfigSMC = calloc_or_fail(1, sizeof(*scmIE->securityConfigSMC));
+  if (!scmIE->securityConfigSMC->securityAlgorithmConfig)
+    scmIE->securityConfigSMC->securityAlgorithmConfig = calloc_or_fail(1, sizeof(*scmIE->securityConfigSMC->securityAlgorithmConfig));
+  asn1cCallocOne(scmIE->securityConfigSMC->securityAlgorithmConfig->integrityProtAlgorithm, integrityProtAlgorithm);
 
   if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
     xer_fprint(stdout, &asn_DEF_NR_DL_DCCH_Message, (void *)&dl_dcch_msg);
@@ -425,13 +441,15 @@ int do_NR_SA_UECapabilityEnquiry(uint8_t *const buffer, const uint8_t Transactio
   NR_UE_CapabilityRAT_Request_t *ue_capabilityrat_request;
 
   memset(&dl_dcch_msg,0,sizeof(NR_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = NR_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1 = CALLOC(1,sizeof(struct NR_DL_DCCH_MessageType__c1));
-  dl_dcch_msg.message.choice.c1->present = NR_DL_DCCH_MessageType__c1_PR_ueCapabilityEnquiry;
-  dl_dcch_msg.message.choice.c1->choice.ueCapabilityEnquiry = CALLOC(1,sizeof(struct NR_UECapabilityEnquiry));
-  dl_dcch_msg.message.choice.c1->choice.ueCapabilityEnquiry->rrc_TransactionIdentifier = Transaction_id;
-  dl_dcch_msg.message.choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.present = NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry;
-  dl_dcch_msg.message.choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry = CALLOC(1,sizeof(struct NR_UECapabilityEnquiry_IEs));
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = NR_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1 = CALLOC(1,sizeof(struct NR_DL_DCCH_MessageType__c1));
+  dl_dcch_msg.message->choice.c1->present = NR_DL_DCCH_MessageType__c1_PR_ueCapabilityEnquiry;
+  dl_dcch_msg.message->choice.c1->choice.ueCapabilityEnquiry = CALLOC(1,sizeof(struct NR_UECapabilityEnquiry));
+  dl_dcch_msg.message->choice.c1->choice.ueCapabilityEnquiry->rrc_TransactionIdentifier = Transaction_id;
+  dl_dcch_msg.message->choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.present = NR_UECapabilityEnquiry__criticalExtensions_PR_ueCapabilityEnquiry;
+  dl_dcch_msg.message->choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry = CALLOC(1,sizeof(struct NR_UECapabilityEnquiry_IEs));
   ue_capabilityrat_request =  CALLOC(1,sizeof(NR_UE_CapabilityRAT_Request_t));
   memset(ue_capabilityrat_request,0,sizeof(NR_UE_CapabilityRAT_Request_t));
   ue_capabilityrat_request->rat_Type = NR_RAT_Type_nr;
@@ -461,7 +479,9 @@ int do_NR_SA_UECapabilityEnquiry(uint8_t *const buffer, const uint8_t Transactio
 
   ue_capabilityrat_request->capabilityRequestFilter = req_freq;
 
-  asn1cSeqAdd(&dl_dcch_msg.message.choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry->ue_CapabilityRAT_RequestList.list,
+  if (!dl_dcch_msg.message->choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry->ue_CapabilityRAT_RequestList)
+    dl_dcch_msg.message->choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry->ue_CapabilityRAT_RequestList = calloc_or_fail(1, sizeof(*dl_dcch_msg.message->choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry->ue_CapabilityRAT_RequestList));
+  asn1cSeqAdd(&dl_dcch_msg.message->choice.c1->choice.ueCapabilityEnquiry->criticalExtensions.choice.ueCapabilityEnquiry->ue_CapabilityRAT_RequestList->list,
                    ue_capabilityrat_request);
 
 
@@ -486,11 +506,13 @@ int do_NR_RRCRelease(uint8_t *buffer, size_t buffer_size, uint8_t Transaction_id
   NR_DL_DCCH_Message_t dl_dcch_msg;
   NR_RRCRelease_t *rrcConnectionRelease;
   memset(&dl_dcch_msg,0,sizeof(NR_DL_DCCH_Message_t));
-  dl_dcch_msg.message.present           = NR_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1=CALLOC(1,sizeof(struct NR_DL_DCCH_MessageType__c1));
-  dl_dcch_msg.message.choice.c1->present = NR_DL_DCCH_MessageType__c1_PR_rrcRelease;
-  dl_dcch_msg.message.choice.c1->choice.rrcRelease = CALLOC(1, sizeof(NR_RRCRelease_t));
-  rrcConnectionRelease = dl_dcch_msg.message.choice.c1->choice.rrcRelease;
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = NR_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1=CALLOC(1,sizeof(struct NR_DL_DCCH_MessageType__c1));
+  dl_dcch_msg.message->choice.c1->present = NR_DL_DCCH_MessageType__c1_PR_rrcRelease;
+  dl_dcch_msg.message->choice.c1->choice.rrcRelease = CALLOC(1, sizeof(NR_RRCRelease_t));
+  rrcConnectionRelease = dl_dcch_msg.message->choice.c1->choice.rrcRelease;
   // RRCConnectionRelease
   rrcConnectionRelease->rrc_TransactionIdentifier = Transaction_id;
   rrcConnectionRelease->criticalExtensions.present = NR_RRCRelease__criticalExtensions_PR_rrcRelease;
@@ -635,8 +657,8 @@ static void dump_mcg(const NR_DL_DCCH_Message_t *dl_dcch_msg)
   const NR_RRCReconfiguration_IEs_t *reconf_ies = NULL;
   const struct NR_DL_DCCH_MessageType__c1 *c1 = NULL;
 
-  if (dl_dcch_msg->message.present == NR_DL_DCCH_MessageType_PR_c1
-      && (c1 = dl_dcch_msg->message.choice.c1)
+  if (dl_dcch_msg->message->present == NR_DL_DCCH_MessageType_PR_c1
+      && (c1 = dl_dcch_msg->message->choice.c1)
       && c1->present == NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration
       && c1->choice.rrcReconfiguration
       && c1->choice.rrcReconfiguration->criticalExtensions.present
@@ -665,9 +687,11 @@ byte_array_t do_RRCReconfiguration(const nr_rrc_reconfig_param_t *params)
   }
 
   NR_DL_DCCH_Message_t dl_dcch_msg = {0};
-  dl_dcch_msg.message.present = NR_DL_DCCH_MessageType_PR_c1;
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present = NR_DL_DCCH_MessageType_PR_c1;
 
-  asn1cCalloc(dl_dcch_msg.message.choice.c1, c1);
+  asn1cCalloc(dl_dcch_msg.message->choice.c1, c1);
   c1->present = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
   asn1cCalloc(c1->choice.rrcReconfiguration, rrcReconf);
   rrcReconf->rrc_TransactionIdentifier = params->transaction_id;
@@ -703,15 +727,21 @@ byte_array_t do_RRCReconfiguration(const nr_rrc_reconfig_param_t *params)
 int do_RRCSetupRequest(uint8_t *buffer, size_t buffer_size, uint8_t *rv, uint64_t fiveG_S_TMSI)
 {
   NR_UL_CCCH_Message_t ul_ccch_msg = {0};
-  ul_ccch_msg.message.present           = NR_UL_CCCH_MessageType_PR_c1;
-  asn1cCalloc(ul_ccch_msg.message.choice.c1, c1);
+  if (!ul_ccch_msg.message)
+    ul_ccch_msg.message = calloc_or_fail(1, sizeof(*ul_ccch_msg.message));
+  ul_ccch_msg.message->present           = NR_UL_CCCH_MessageType_PR_c1;
+  asn1cCalloc(ul_ccch_msg.message->choice.c1, c1);
   c1->present = NR_UL_CCCH_MessageType__c1_PR_rrcSetupRequest;
   asn1cCalloc(c1->choice.rrcSetupRequest, rrcSetupRequest);
 
   if (fiveG_S_TMSI == UINT64_MAX) {
     /* set the ue-Identity to a random value */
-    rrcSetupRequest->rrcSetupRequest.ue_Identity.present = NR_InitialUE_Identity_PR_randomValue;
-    BIT_STRING_t *str = &rrcSetupRequest->rrcSetupRequest.ue_Identity.choice.randomValue;
+    if (!rrcSetupRequest->rrcSetupRequest)
+      rrcSetupRequest->rrcSetupRequest = calloc_or_fail(1, sizeof(*rrcSetupRequest->rrcSetupRequest));
+    if (!rrcSetupRequest->rrcSetupRequest->ue_Identity)
+      rrcSetupRequest->rrcSetupRequest->ue_Identity = calloc_or_fail(1, sizeof(*rrcSetupRequest->rrcSetupRequest->ue_Identity));
+    rrcSetupRequest->rrcSetupRequest->ue_Identity->present = NR_InitialUE_Identity_PR_randomValue;
+    BIT_STRING_t *str = &rrcSetupRequest->rrcSetupRequest->ue_Identity->choice.randomValue;
     str->size = 5;
     str->bits_unused = 1;
     str->buf = calloc_or_fail(str->size, sizeof(str->buf[0]));
@@ -726,8 +756,12 @@ int do_RRCSetupRequest(uint8_t *buffer, size_t buffer_size, uint8_t *rv, uint64_
      * ng-5G-S-TMSI-Part1: the rightmost 39 bits of 5G-S-TMSI
      * BIT STRING (SIZE (39)) - 3GPP TS 38.331 */
     LOG_D(NR_RRC, "5G-S-TMSI: %lu, set the ue-Identity to ng-5G-S-TMSI-Part1 %lu\n", fiveG_S_TMSI, fiveG_S_TMSI_part1);
-    rrcSetupRequest->rrcSetupRequest.ue_Identity.present = NR_InitialUE_Identity_PR_ng_5G_S_TMSI_Part1;
-    BIT_STRING_t *str = &rrcSetupRequest->rrcSetupRequest.ue_Identity.choice.ng_5G_S_TMSI_Part1;
+    if (!rrcSetupRequest->rrcSetupRequest)
+      rrcSetupRequest->rrcSetupRequest = calloc_or_fail(1, sizeof(*rrcSetupRequest->rrcSetupRequest));
+    if (!rrcSetupRequest->rrcSetupRequest->ue_Identity)
+      rrcSetupRequest->rrcSetupRequest->ue_Identity = calloc_or_fail(1, sizeof(*rrcSetupRequest->rrcSetupRequest->ue_Identity));
+    rrcSetupRequest->rrcSetupRequest->ue_Identity->present = NR_InitialUE_Identity_PR_ng_5G_S_TMSI_Part1;
+    BIT_STRING_t *str = &rrcSetupRequest->rrcSetupRequest->ue_Identity->choice.ng_5G_S_TMSI_Part1;
     str->size = 5;
     str->bits_unused = 1;
     str->buf = calloc_or_fail(str->size, sizeof(str->buf[0]));
@@ -738,11 +772,13 @@ int do_RRCSetupRequest(uint8_t *buffer, size_t buffer_size, uint8_t *rv, uint64_
     str->buf[4] = (fiveG_S_TMSI_part1 << 1) & 0xff;
   }
 
-  rrcSetupRequest->rrcSetupRequest.establishmentCause = NR_EstablishmentCause_mo_Signalling; //EstablishmentCause_mo_Data;
-  rrcSetupRequest->rrcSetupRequest.spare.buf = CALLOC(1, 1);
-  rrcSetupRequest->rrcSetupRequest.spare.buf[0] = 0; // spare not used
-  rrcSetupRequest->rrcSetupRequest.spare.size=1;
-  rrcSetupRequest->rrcSetupRequest.spare.bits_unused = 7;
+  if (!rrcSetupRequest->rrcSetupRequest)
+    rrcSetupRequest->rrcSetupRequest = calloc_or_fail(1, sizeof(*rrcSetupRequest->rrcSetupRequest));
+  rrcSetupRequest->rrcSetupRequest->establishmentCause = NR_EstablishmentCause_mo_Signalling; //EstablishmentCause_mo_Data;
+  rrcSetupRequest->rrcSetupRequest->spare.buf = CALLOC(1, 1);
+  rrcSetupRequest->rrcSetupRequest->spare.buf[0] = 0; // spare not used
+  rrcSetupRequest->rrcSetupRequest->spare.size=1;
+  rrcSetupRequest->rrcSetupRequest->spare.bits_unused = 7;
 
   if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
     xer_fprint(stdout, &asn_DEF_NR_UL_CCCH_Message, (void *)&ul_ccch_msg);
@@ -792,8 +828,10 @@ int do_NR_RRCReconfigurationComplete(uint8_t *buffer, size_t buffer_size, const 
 //------------------------------------------------------------------------------
 {
   NR_UL_DCCH_Message_t ul_dcch_msg = {0};
-  ul_dcch_msg.message.present                     = NR_UL_DCCH_MessageType_PR_c1;
-  asn1cCalloc(ul_dcch_msg.message.choice.c1, c1);
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present                     = NR_UL_DCCH_MessageType_PR_c1;
+  asn1cCalloc(ul_dcch_msg.message->choice.c1, c1);
   c1->present = NR_UL_DCCH_MessageType__c1_PR_rrcReconfigurationComplete;
   asn1cCalloc(c1->choice.rrcReconfigurationComplete, reconfComplete);
   reconfComplete->rrc_TransactionIdentifier = Transaction_id;
@@ -823,11 +861,13 @@ int do_RRCSetupComplete(uint8_t *buffer,
                         const char *dedicatedInfoNAS)
 {
   NR_UL_DCCH_Message_t ul_dcch_msg = {0};
-  ul_dcch_msg.message.present = NR_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1 = CALLOC(1,sizeof(struct NR_UL_DCCH_MessageType__c1));
-  ul_dcch_msg.message.choice.c1->present = NR_UL_DCCH_MessageType__c1_PR_rrcSetupComplete;
-  ul_dcch_msg.message.choice.c1->choice.rrcSetupComplete = CALLOC(1, sizeof(NR_RRCSetupComplete_t));
-  NR_RRCSetupComplete_t *RrcSetupComplete = ul_dcch_msg.message.choice.c1->choice.rrcSetupComplete;
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present = NR_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1 = CALLOC(1,sizeof(struct NR_UL_DCCH_MessageType__c1));
+  ul_dcch_msg.message->choice.c1->present = NR_UL_DCCH_MessageType__c1_PR_rrcSetupComplete;
+  ul_dcch_msg.message->choice.c1->choice.rrcSetupComplete = CALLOC(1, sizeof(NR_RRCSetupComplete_t));
+  NR_RRCSetupComplete_t *RrcSetupComplete = ul_dcch_msg.message->choice.c1->choice.rrcSetupComplete;
   RrcSetupComplete->rrc_TransactionIdentifier = Transaction_id;
   RrcSetupComplete->criticalExtensions.present = NR_RRCSetupComplete__criticalExtensions_PR_rrcSetupComplete;
   RrcSetupComplete->criticalExtensions.choice.rrcSetupComplete = CALLOC(1, sizeof(NR_RRCSetupComplete_IEs_t));
@@ -895,20 +935,24 @@ int do_nrMeasurementReport_SA(long trigger_to_measid,
   asn_enc_rval_t enc_rval;
   NR_UL_DCCH_Message_t ul_dcch_msg = {0};
 
-  ul_dcch_msg.message.present = NR_UL_DCCH_MessageType_PR_c1;
-  asn1cCalloc(ul_dcch_msg.message.choice.c1, c1);
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present = NR_UL_DCCH_MessageType_PR_c1;
+  asn1cCalloc(ul_dcch_msg.message->choice.c1, c1);
   c1->present = NR_UL_DCCH_MessageType__c1_PR_measurementReport;
 
   asn1cCalloc(c1->choice.measurementReport, measurementReport);
   measurementReport->criticalExtensions.present = NR_MeasurementReport__criticalExtensions_PR_measurementReport;
 
   asn1cCalloc(measurementReport->criticalExtensions.choice.measurementReport, mrIE);
-  mrIE->measResults.measId = trigger_to_measid;
+  if (!mrIE->measResults)
+    mrIE->measResults = calloc_or_fail(1, sizeof(*mrIE->measResults));
+  mrIE->measResults->measId = trigger_to_measid;
 
   // Serving cell
   NR_MeasResultServMO_t *measResultServMo = calloc_or_fail(1, sizeof(*measResultServMo));
 
-  NR_MeasResultNR_t *measResultServingCell = &measResultServMo->measResultServingCell;
+  NR_MeasResultNR_t *measResultServingCell = (measResultServMo->measResultServingCell = calloc_or_fail(1, sizeof(*measResultServMo->measResultServingCell)));
   asn1cCalloc(measResultServingCell->physCellId, pci);
   *pci = Nid_cell;
 
@@ -923,12 +967,14 @@ int do_nrMeasurementReport_SA(long trigger_to_measid,
       measResultServingCell->measResult.cellResults.resultsCSI_RS_Cell = active_mq_res;
   }
 
-  ASN_SEQUENCE_ADD(&mrIE->measResults.measResultServingMOList.list, measResultServMo);
+  if (!mrIE->measResults->measResultServingMOList)
+    mrIE->measResults->measResultServingMOList = calloc_or_fail(1, sizeof(*mrIE->measResults->measResultServingMOList));
+  ASN_SEQUENCE_ADD(&mrIE->measResults->measResultServingMOList->list, measResultServMo);
 
   // Neighbor cells
   if (num_neighbor_cells > 0) {
     struct NR_MeasResults__measResultNeighCells *measResultNeighCells = calloc_or_fail(1, sizeof(*measResultNeighCells));
-    mrIE->measResults.measResultNeighCells = measResultNeighCells;
+    mrIE->measResults->measResultNeighCells = measResultNeighCells;
     measResultNeighCells->present = NR_MeasResults__measResultNeighCells_PR_measResultListNR;
     NR_MeasResultListNR_t *measResultListNR = calloc_or_fail(1, sizeof(*measResultListNR));
     measResultNeighCells->choice.measResultListNR = measResultListNR;
@@ -969,8 +1015,10 @@ byte_array_t do_NR_DLInformationTransfer(uint8_t transaction_id, uint32_t pdu_le
 {
   byte_array_t msg = {0};
   NR_DL_DCCH_Message_t dl_dcch_msg = {0};
-  dl_dcch_msg.message.present = NR_DL_DCCH_MessageType_PR_c1;
-  asn1cCalloc(dl_dcch_msg.message.choice.c1, c1);
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present = NR_DL_DCCH_MessageType_PR_c1;
+  asn1cCalloc(dl_dcch_msg.message->choice.c1, c1);
   c1->present = NR_DL_DCCH_MessageType__c1_PR_dlInformationTransfer;
 
   asn1cCalloc(c1->choice.dlInformationTransfer, infoTransfer);
@@ -999,13 +1047,15 @@ int do_NR_ULInformationTransfer(uint8_t **buffer, uint32_t pdu_length, uint8_t *
     ssize_t encoded;
     NR_UL_DCCH_Message_t ul_dcch_msg;
     memset(&ul_dcch_msg, 0, sizeof(NR_UL_DCCH_Message_t));
-    ul_dcch_msg.message.present           = NR_UL_DCCH_MessageType_PR_c1;
-    ul_dcch_msg.message.choice.c1          = CALLOC(1,sizeof(struct NR_UL_DCCH_MessageType__c1));
-    ul_dcch_msg.message.choice.c1->present = NR_UL_DCCH_MessageType__c1_PR_ulInformationTransfer;
-    ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer = CALLOC(1,sizeof(struct NR_ULInformationTransfer));
-    ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer->criticalExtensions.present = NR_ULInformationTransfer__criticalExtensions_PR_ulInformationTransfer;
-    ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer->criticalExtensions.choice.ulInformationTransfer = CALLOC(1,sizeof(struct NR_ULInformationTransfer_IEs));
-    struct NR_ULInformationTransfer_IEs *ulInformationTransfer = ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer->criticalExtensions.choice.ulInformationTransfer;
+    if (!ul_dcch_msg.message)
+      ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+    ul_dcch_msg.message->present           = NR_UL_DCCH_MessageType_PR_c1;
+    ul_dcch_msg.message->choice.c1          = CALLOC(1,sizeof(struct NR_UL_DCCH_MessageType__c1));
+    ul_dcch_msg.message->choice.c1->present = NR_UL_DCCH_MessageType__c1_PR_ulInformationTransfer;
+    ul_dcch_msg.message->choice.c1->choice.ulInformationTransfer = CALLOC(1,sizeof(struct NR_ULInformationTransfer));
+    ul_dcch_msg.message->choice.c1->choice.ulInformationTransfer->criticalExtensions.present = NR_ULInformationTransfer__criticalExtensions_PR_ulInformationTransfer;
+    ul_dcch_msg.message->choice.c1->choice.ulInformationTransfer->criticalExtensions.choice.ulInformationTransfer = CALLOC(1,sizeof(struct NR_ULInformationTransfer_IEs));
+    struct NR_ULInformationTransfer_IEs *ulInformationTransfer = ul_dcch_msg.message->choice.c1->choice.ulInformationTransfer->criticalExtensions.choice.ulInformationTransfer;
     ulInformationTransfer->dedicatedNAS_Message = CALLOC(1,sizeof(NR_DedicatedNAS_Message_t));
     ulInformationTransfer->dedicatedNAS_Message->buf = pdu_buffer;
     ulInformationTransfer->dedicatedNAS_Message->size = pdu_length;
@@ -1030,22 +1080,32 @@ int do_RRCReestablishmentRequest(uint8_t *buffer,
   NR_UL_CCCH_Message_t ul_ccch_msg;
   NR_RRCReestablishmentRequest_t *rrcReestablishmentRequest;
   uint8_t buf[2];
+  uint8_t spare[1] = {0};
 
   memset((void *)&ul_ccch_msg,0,sizeof(NR_UL_CCCH_Message_t));
-  ul_ccch_msg.message.present            = NR_UL_CCCH_MessageType_PR_c1;
-  ul_ccch_msg.message.choice.c1          = CALLOC(1, sizeof(struct NR_UL_CCCH_MessageType__c1));
-  ul_ccch_msg.message.choice.c1->present = NR_UL_CCCH_MessageType__c1_PR_rrcReestablishmentRequest;
-  ul_ccch_msg.message.choice.c1->choice.rrcReestablishmentRequest = CALLOC(1, sizeof(NR_RRCReestablishmentRequest_t));
+  if (!ul_ccch_msg.message)
+    ul_ccch_msg.message = calloc_or_fail(1, sizeof(*ul_ccch_msg.message));
+  ul_ccch_msg.message->present            = NR_UL_CCCH_MessageType_PR_c1;
+  ul_ccch_msg.message->choice.c1          = CALLOC(1, sizeof(struct NR_UL_CCCH_MessageType__c1));
+  ul_ccch_msg.message->choice.c1->present = NR_UL_CCCH_MessageType__c1_PR_rrcReestablishmentRequest;
+  ul_ccch_msg.message->choice.c1->choice.rrcReestablishmentRequest = CALLOC(1, sizeof(NR_RRCReestablishmentRequest_t));
 
-  rrcReestablishmentRequest = ul_ccch_msg.message.choice.c1->choice.rrcReestablishmentRequest;
+  rrcReestablishmentRequest = ul_ccch_msg.message->choice.c1->choice.rrcReestablishmentRequest;
   // test
-  rrcReestablishmentRequest->rrcReestablishmentRequest.reestablishmentCause = cause;
-  rrcReestablishmentRequest->rrcReestablishmentRequest.ue_Identity.c_RNTI = c_rnti;
-  rrcReestablishmentRequest->rrcReestablishmentRequest.ue_Identity.physCellId = cell_id;
-  rrcReestablishmentRequest->rrcReestablishmentRequest.ue_Identity.shortMAC_I.buf = buf;
-  rrcReestablishmentRequest->rrcReestablishmentRequest.ue_Identity.shortMAC_I.buf[0] = (short_mac_i >> 8) & 0xFF;
-  rrcReestablishmentRequest->rrcReestablishmentRequest.ue_Identity.shortMAC_I.buf[1] = short_mac_i & 0xFF;
-  rrcReestablishmentRequest->rrcReestablishmentRequest.ue_Identity.shortMAC_I.size = 2;
+  if (!rrcReestablishmentRequest->rrcReestablishmentRequest)
+    rrcReestablishmentRequest->rrcReestablishmentRequest = calloc_or_fail(1, sizeof(*rrcReestablishmentRequest->rrcReestablishmentRequest));
+  rrcReestablishmentRequest->rrcReestablishmentRequest->reestablishmentCause = cause;
+  if (!rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity)
+    rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity = calloc_or_fail(1, sizeof(*rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity));
+  rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity->c_RNTI = c_rnti;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity->physCellId = cell_id;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity->shortMAC_I.buf = buf;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity->shortMAC_I.buf[0] = (short_mac_i >> 8) & 0xFF;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity->shortMAC_I.buf[1] = short_mac_i & 0xFF;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity->shortMAC_I.size = 2;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->spare.buf = spare;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->spare.size = 1;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->spare.bits_unused = 7;
 
   if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
     xer_fprint(stdout, &asn_DEF_NR_UL_CCCH_Message, (void *)&ul_ccch_msg);
@@ -1058,7 +1118,8 @@ int do_RRCReestablishmentRequest(uint8_t *buffer,
                                    100);
   AssertFatal (enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
   // shortMAC_I.buf is on the stack, cannot free useing ASN_STRUCT_FREE macro
-  rrcReestablishmentRequest->rrcReestablishmentRequest.ue_Identity.shortMAC_I.buf = NULL;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->ue_Identity->shortMAC_I.buf = NULL;
+  rrcReestablishmentRequest->rrcReestablishmentRequest->spare.buf = NULL;
   ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NR_UL_CCCH_Message, &ul_ccch_msg);
   LOG_D(NR_RRC,"[UE] RRCReestablishmentRequest Encoded %zd bits (%zd bytes)\n", enc_rval.encoded, (enc_rval.encoded+7)/8);
   return((enc_rval.encoded+7)/8);
@@ -1071,11 +1132,13 @@ int do_RRCReestablishment(int8_t nh_ncc, uint8_t *const buffer, size_t buffer_si
   NR_DL_DCCH_Message_t dl_dcch_msg = {0};
   NR_RRCReestablishment_t *rrcReestablishment = NULL;
 
-  dl_dcch_msg.message.present = NR_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1 = calloc(1, sizeof(struct NR_DL_DCCH_MessageType__c1));
-  dl_dcch_msg.message.choice.c1->present = NR_DL_DCCH_MessageType__c1_PR_rrcReestablishment;
-  dl_dcch_msg.message.choice.c1->choice.rrcReestablishment = CALLOC(1, sizeof(NR_RRCReestablishment_t));
-  rrcReestablishment = dl_dcch_msg.message.choice.c1->choice.rrcReestablishment;
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present = NR_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1 = calloc(1, sizeof(struct NR_DL_DCCH_MessageType__c1));
+  dl_dcch_msg.message->choice.c1->present = NR_DL_DCCH_MessageType__c1_PR_rrcReestablishment;
+  dl_dcch_msg.message->choice.c1->choice.rrcReestablishment = CALLOC(1, sizeof(NR_RRCReestablishment_t));
+  rrcReestablishment = dl_dcch_msg.message->choice.c1->choice.rrcReestablishment;
 
   /****************************** masterCellGroup ******************************/
   rrcReestablishment->rrc_TransactionIdentifier = Transaction_id;
@@ -1108,12 +1171,14 @@ int do_RRCReestablishmentComplete(uint8_t *buffer, size_t buffer_size, int64_t r
   NR_RRCReestablishmentComplete_t *rrcReestablishmentComplete;
 
   memset((void *)&ul_dcch_msg,0,sizeof(NR_UL_DCCH_Message_t));
-  ul_dcch_msg.message.present            = NR_UL_DCCH_MessageType_PR_c1;
-  ul_dcch_msg.message.choice.c1          = CALLOC(1, sizeof(struct NR_UL_DCCH_MessageType__c1));
-  ul_dcch_msg.message.choice.c1->present = NR_UL_DCCH_MessageType__c1_PR_rrcReestablishmentComplete;
-  ul_dcch_msg.message.choice.c1->choice.rrcReestablishmentComplete = CALLOC(1, sizeof(NR_RRCReestablishmentComplete_t));
+  if (!ul_dcch_msg.message)
+    ul_dcch_msg.message = calloc_or_fail(1, sizeof(*ul_dcch_msg.message));
+  ul_dcch_msg.message->present            = NR_UL_DCCH_MessageType_PR_c1;
+  ul_dcch_msg.message->choice.c1          = CALLOC(1, sizeof(struct NR_UL_DCCH_MessageType__c1));
+  ul_dcch_msg.message->choice.c1->present = NR_UL_DCCH_MessageType__c1_PR_rrcReestablishmentComplete;
+  ul_dcch_msg.message->choice.c1->choice.rrcReestablishmentComplete = CALLOC(1, sizeof(NR_RRCReestablishmentComplete_t));
 
-  rrcReestablishmentComplete = ul_dcch_msg.message.choice.c1->choice.rrcReestablishmentComplete;
+  rrcReestablishmentComplete = ul_dcch_msg.message->choice.c1->choice.rrcReestablishmentComplete;
   rrcReestablishmentComplete->rrc_TransactionIdentifier = rrc_TransactionIdentifier;
   rrcReestablishmentComplete->criticalExtensions.present = NR_RRCReestablishmentComplete__criticalExtensions_PR_rrcReestablishmentComplete;
   rrcReestablishmentComplete->criticalExtensions.choice.rrcReestablishmentComplete = CALLOC(1, sizeof(NR_RRCReestablishmentComplete_IEs_t));
@@ -1145,10 +1210,13 @@ static NR_MeasObjectToAddMod_t *get_MeasObject(const struct NR_MeasTiming__frequ
   mo->measObjectId = measObjectId;
   mo->measObject.present = NR_MeasObjectToAddMod__measObject_PR_measObjectNR;
   NR_MeasObjectNR_t *monr = calloc_or_fail(1, sizeof(*monr));
+  monr->offsetMO = calloc_or_fail(1, sizeof(*monr->offsetMO));
   asn1cCallocOne(monr->ssbFrequency, ssbFrequency);
   asn1cCallocOne(monr->ssbSubcarrierSpacing, ft->ssbSubcarrierSpacing);
-  monr->referenceSignalConfig.ssb_ConfigMobility = calloc_or_fail(1, sizeof(*monr->referenceSignalConfig.ssb_ConfigMobility));
-  monr->referenceSignalConfig.ssb_ConfigMobility->deriveSSB_IndexFromCell = true;
+  if (!monr->referenceSignalConfig)
+    monr->referenceSignalConfig = calloc_or_fail(1, sizeof(*monr->referenceSignalConfig));
+  monr->referenceSignalConfig->ssb_ConfigMobility = calloc_or_fail(1, sizeof(*monr->referenceSignalConfig->ssb_ConfigMobility));
+  monr->referenceSignalConfig->ssb_ConfigMobility->deriveSSB_IndexFromCell = true;
   monr->absThreshSS_BlocksConsolidation = calloc_or_fail(1, sizeof(*monr->absThreshSS_BlocksConsolidation));
   asn1cCallocOne(monr->absThreshSS_BlocksConsolidation->thresholdRSRP, 36);
   asn1cCallocOne(monr->nrofSS_BlocksToAverage, 8);
@@ -1221,6 +1289,7 @@ NR_MeasConfig_t *get_MeasConfig(gNB_RRC_UE_t *ue,
   NR_MeasObjectNR_t *monr1 = mo1->measObject.choice.measObjectNR;
   monr1->cellsToAddModList = calloc_or_fail(1, sizeof(*monr1->cellsToAddModList));
   NR_CellsToAddMod_t *cell = calloc_or_fail(1, sizeof(*cell));
+  cell->cellIndividualOffset = calloc_or_fail(1, sizeof(*cell->cellIndividualOffset));
   cell->physCellId = nr_pci;
   ASN_SEQUENCE_ADD(&monr1->cellsToAddModList->list, cell);
   asn1cSeqAdd(&mc->measObjectToAddModList->list, mo1);
@@ -1239,6 +1308,7 @@ NR_MeasConfig_t *get_MeasConfig(gNB_RRC_UE_t *ue,
       NR_MeasObjectNR_t *monr = mo_neighbour->measObject.choice.measObjectNR;
       monr->cellsToAddModList = calloc_or_fail(1, sizeof(*monr->cellsToAddModList));
       NR_CellsToAddMod_t *cell = calloc_or_fail(1, sizeof(*cell));
+      cell->cellIndividualOffset = calloc_or_fail(1, sizeof(*cell->cellIndividualOffset));
       cell->physCellId = neigh_cell->physicalCellId;
       ASN_SEQUENCE_ADD(&monr->cellsToAddModList->list, cell);
       asn1cSeqAdd(&mc->measObjectToAddModList->list, mo_neighbour);
@@ -1292,8 +1362,14 @@ NR_MeasConfig_t *get_MeasConfig(gNB_RRC_UE_t *ue,
   mc->quantityConfig = calloc_or_fail(1, sizeof(*mc->quantityConfig));
   mc->quantityConfig->quantityConfigNR_List = calloc_or_fail(1, sizeof(*mc->quantityConfig->quantityConfigNR_List));
   NR_QuantityConfigNR_t *qcnr = calloc_or_fail(1, sizeof(*qcnr));
-  asn1cCallocOne(qcnr->quantityConfigCell.ssb_FilterConfig.filterCoefficientRSRP, NR_FilterCoefficient_fc6);
-  asn1cCallocOne(qcnr->quantityConfigCell.csi_RS_FilterConfig.filterCoefficientRSRP, NR_FilterCoefficient_fc6);
+  if (!qcnr->quantityConfigCell)
+    qcnr->quantityConfigCell = calloc_or_fail(1, sizeof(*qcnr->quantityConfigCell));
+  if (!qcnr->quantityConfigCell->ssb_FilterConfig)
+    qcnr->quantityConfigCell->ssb_FilterConfig = calloc_or_fail(1, sizeof(*qcnr->quantityConfigCell->ssb_FilterConfig));
+  asn1cCallocOne(qcnr->quantityConfigCell->ssb_FilterConfig->filterCoefficientRSRP, NR_FilterCoefficient_fc6);
+  if (!qcnr->quantityConfigCell->csi_RS_FilterConfig)
+    qcnr->quantityConfigCell->csi_RS_FilterConfig = calloc_or_fail(1, sizeof(*qcnr->quantityConfigCell->csi_RS_FilterConfig));
+  asn1cCallocOne(qcnr->quantityConfigCell->csi_RS_FilterConfig->filterCoefficientRSRP, NR_FilterCoefficient_fc6);
   asn1cSeqAdd(&mc->quantityConfig->quantityConfigNR_List->list, qcnr);
 
   free(neighbour_measurement_object_id);
@@ -1419,8 +1495,10 @@ byte_array_t doRRCReconfiguration_from_HandoverCommand(const byte_array_t handov
 
   // Prepare DL DCCH message for RRCReconfiguration
   NR_DL_DCCH_Message_t dl_dcch_msg = {0};
-  dl_dcch_msg.message.present = NR_DL_DCCH_MessageType_PR_c1;
-  asn1cCalloc(dl_dcch_msg.message.choice.c1, c1);
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present = NR_DL_DCCH_MessageType_PR_c1;
+  asn1cCalloc(dl_dcch_msg.message->choice.c1, c1);
   c1->present = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
   asn1cCalloc(c1->choice.rrcReconfiguration, rrcReconf);
 
@@ -1511,7 +1589,7 @@ byte_array_t get_HandoverPreparationInformation(nr_rrc_reconfig_param_t *params)
     LOG_W(NR_RRC, "Failed to decode UE capability container list for HandoverPreparationInformation, ignoring capabilities\n");
     return buffer;
   }
-  hpi->ue_CapabilityRAT_List = *clist;
+  asn1cCallocOne(hpi->ue_CapabilityRAT_List, *clist);
   free(clist);
 
   /* sourceConfig: Encode RRCReconfiguration as used in the source cell */
@@ -1547,8 +1625,10 @@ byte_array_t do_NR_Paging(int count, const nr_paging_params_t *params)
   byte_array_t msg = {.buf = NULL, .len = 0};
 
   NR_PCCH_Message_t pcch_msg = {0};
-  pcch_msg.message.present = NR_PCCH_MessageType_PR_c1;
-  asn1cCalloc(pcch_msg.message.choice.c1, c1);
+  if (!pcch_msg.message)
+    pcch_msg.message = calloc_or_fail(1, sizeof(*pcch_msg.message));
+  pcch_msg.message->present = NR_PCCH_MessageType_PR_c1;
+  asn1cCalloc(pcch_msg.message->choice.c1, c1);
   c1->present = NR_PCCH_MessageType__c1_PR_paging;
   asn1cCalloc(c1->choice.paging, paging);
 
@@ -1561,14 +1641,16 @@ byte_array_t do_NR_Paging(int count, const nr_paging_params_t *params)
     const nr_paging_params_t *p = &params[i];
 
     /* PagingUE-Identity (choice) { ng-5G-S-TMSI | fullI-RNTI } */
-    paging_record_p->ue_Identity.present = p->ue_identity_type;
+    if (!paging_record_p->ue_Identity)
+      paging_record_p->ue_Identity = calloc_or_fail(1, sizeof(*paging_record_p->ue_Identity));
+    paging_record_p->ue_Identity->present = p->ue_identity_type;
     if (p->ue_identity_type == NR_PagingUE_Identity_PR_ng_5G_S_TMSI) {
       /* ng-5G-S-TMSI: BIT STRING (SIZE(48)) - AMF Set ID, AMF Pointer, 5G-TMSI (TS 38.331 / 23.003) */
-      BIT_STRING_t *tmsi_bs = &paging_record_p->ue_Identity.choice.ng_5G_S_TMSI;
+      BIT_STRING_t *tmsi_bs = &paging_record_p->ue_Identity->choice.ng_5G_S_TMSI;
       FIVEG_S_TMSI_TO_BIT_STRING(p->ue_identity.fiveg_s_tmsi, tmsi_bs);
     } else {
       /* fullI-RNTI: I-RNTI-Value BIT STRING (SIZE(40)) for RAN-initiated paging (RRC_INACTIVE). */
-      BIT_STRING_t *i_rnti_bs = &paging_record_p->ue_Identity.choice.fullI_RNTI;
+      BIT_STRING_t *i_rnti_bs = &paging_record_p->ue_Identity->choice.fullI_RNTI;
       i_rnti_bs->size = NR_PAGING_FULL_I_RNTI_SIZE;
       i_rnti_bs->buf = calloc_or_fail(NR_PAGING_FULL_I_RNTI_SIZE, sizeof(uint8_t));
       i_rnti_bs->bits_unused = 0;
@@ -1643,19 +1725,19 @@ int nr_pcch_decode(const byte_array_t pcch, nr_paging_params_t *out_params, int 
     return -1;
   }
 
-  if (pcch_msg->message.present != NR_PCCH_MessageType_PR_c1) {
+  if (pcch_msg->message->present != NR_PCCH_MessageType_PR_c1) {
     LOG_E(NR_RRC, "PCCH message (%zu bytes) is not a paging message\n", pcch.len);
     ASN_STRUCT_FREE(asn_DEF_NR_PCCH_Message, pcch_msg);
     return -1;
   }
 
-  if (pcch_msg->message.choice.c1->present != NR_PCCH_MessageType__c1_PR_paging) {
+  if (pcch_msg->message->choice.c1->present != NR_PCCH_MessageType__c1_PR_paging) {
     LOG_E(NR_RRC, "PCCH message (%zu bytes) is not a paging message\n", pcch.len);
     ASN_STRUCT_FREE(asn_DEF_NR_PCCH_Message, pcch_msg);
     return -1;
   }
 
-  NR_Paging_t *paging = pcch_msg->message.choice.c1->choice.paging;
+  NR_Paging_t *paging = pcch_msg->message->choice.c1->choice.paging;
   if (paging->pagingRecordList == NULL || paging->pagingRecordList->list.count == 0) {
     LOG_E(NR_RRC, "PCCH message (%zu bytes) has no paging records\n", pcch.len);
     ASN_STRUCT_FREE(asn_DEF_NR_PCCH_Message, pcch_msg);
@@ -1667,14 +1749,14 @@ int nr_pcch_decode(const byte_array_t pcch, nr_paging_params_t *out_params, int 
     NR_PagingRecord_t *record = paging->pagingRecordList->list.array[i];
     nr_paging_params_t *p = &out_params[n];
     *p = (nr_paging_params_t){0};
-    p->ue_identity_type = record->ue_Identity.present;
+    p->ue_identity_type = record->ue_Identity->present;
     p->access_type = (record->accessType != NULL && *record->accessType == NR_PagingRecord__accessType_non3GPP);
-    if (record->ue_Identity.present == NR_PagingUE_Identity_PR_ng_5G_S_TMSI) {
-      const BIT_STRING_t *ng_5g_s_tmsi = &record->ue_Identity.choice.ng_5G_S_TMSI;
+    if (record->ue_Identity->present == NR_PagingUE_Identity_PR_ng_5G_S_TMSI) {
+      const BIT_STRING_t *ng_5g_s_tmsi = &record->ue_Identity->choice.ng_5G_S_TMSI;
       DevAssert(ng_5g_s_tmsi->size >= 6);
       p->ue_identity.fiveg_s_tmsi = BIT_STRING_to_uint64(ng_5g_s_tmsi) & ((1ULL << 48) - 1);
-    } else if (record->ue_Identity.present == NR_PagingUE_Identity_PR_fullI_RNTI) {
-      BIT_STRING_t *i_rnti = &record->ue_Identity.choice.fullI_RNTI;
+    } else if (record->ue_Identity->present == NR_PagingUE_Identity_PR_fullI_RNTI) {
+      BIT_STRING_t *i_rnti = &record->ue_Identity->choice.fullI_RNTI;
       DevAssert(i_rnti->size == NR_PAGING_FULL_I_RNTI_SIZE);
       memcpy(p->ue_identity.full_i_rnti, i_rnti->buf, NR_PAGING_FULL_I_RNTI_SIZE);
     }

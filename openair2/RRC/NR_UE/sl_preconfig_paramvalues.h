@@ -77,11 +77,11 @@
    TDD ul dl configuration used for sidelink operation set in Sidelink Preconfiguration IE
 */
 #define SL_TDDCONFIGPARAMS_DESC(sl_tdd_ul_dl_cfg) { \
-{SL_CONFIG_STRING_DLULTRANSMISSIONPERIODICITY,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.dl_UL_TransmissionPeriodicity,.defint64val=6,TYPE_INT64,0}, \
-{SL_CONFIG_STRING_NROFDOWNLINKSLOTS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofDownlinkSlots,.defint64val=7,TYPE_INT64,0},\
-{SL_CONFIG_STRING_NROFDOWNLINKSYMBOLS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofDownlinkSymbols,.defint64val=10,TYPE_INT64,0}, \
-{SL_CONFIG_STRING_NROFUPLINKSLOTS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofUplinkSlots,.defint64val=2,TYPE_INT64,0},\
-{SL_CONFIG_STRING_NROFUPLINKSYMBOLS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofUplinkSymbols,.defint64val=4,TYPE_INT64,0}}
+{SL_CONFIG_STRING_DLULTRANSMISSIONPERIODICITY,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1->dl_UL_TransmissionPeriodicity,.defint64val=6,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_NROFDOWNLINKSLOTS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1->nrofDownlinkSlots,.defint64val=7,TYPE_INT64,0},\
+{SL_CONFIG_STRING_NROFDOWNLINKSYMBOLS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1->nrofDownlinkSymbols,.defint64val=10,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_NROFUPLINKSLOTS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1->nrofUplinkSlots,.defint64val=2,TYPE_INT64,0},\
+{SL_CONFIG_STRING_NROFUPLINKSYMBOLS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1->nrofUplinkSymbols,.defint64val=4,TYPE_INT64,0}}
 
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
