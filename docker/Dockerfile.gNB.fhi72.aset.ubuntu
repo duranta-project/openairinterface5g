@@ -1,0 +1,109 @@
+#/*
+# * gNB/DU with FHI 7.2 runtime image (doc/tutorial_resources/aset/README.md)
+# * Tag: oai-gnb-fhi72-aset:latest
+# *
+# * Contexts aset-ran-base / aset-ran-build: see Dockerfile.nrORU.fhi72.aset.ubuntu
+# * (must not FROM the published ran-build tag under COMPOSE_BAKE).
+# */
+ARG UBUNTU_IMAGE=ubuntu:noble
+ARG BUILD_IMAGE=aset-ran-build
+FROM aset-ran-base AS ran-base
+FROM ${BUILD_IMAGE} AS gnb-build
+
+FROM ${UBUNTU_IMAGE} AS oai-gnb-fhi72
+ARG BUILD_OPTION
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe
+
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    apt-get install --yes \
+        software-properties-common \
+        procps \
+        pkg-config \
+        libsctp1 \
+        tzdata \
+        libconfig9 \
+        openssl \
+        net-tools \
+        iperf \
+        iproute2 \
+        iputils-ping \
+        gdb \
+        pciutils \
+        libpcap-dev \
+        xz-utils \
+        libnuma-dev \
+        libatomic1 \
+        libibverbs1 \
+        ibverbs-providers \
+        rdma-core \
+        python3 \
+        python3-six \
+        python3-requests \
+        libyaml-cpp-dev \
+        libforms2 \
+        libx11-6 \
+        libxpm4 \
+        libglfw3 \
+        libopengl0 \
+        libgl1 \
+        libglx0 \
+        libgl1-mesa-dri && \
+    /bin/bash -c 'if [[ "$BUILD_OPTION" = "--sanitize" ]]; then DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+        libasan8 libubsan1; fi' && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/oai-gnb/bin
+COPY --from=gnb-build \
+    /oai-ran/cmake_targets/ran_build/build/nr-softmodem ./
+COPY ./docker/scripts/gnb_entrypoint.sh ./entrypoint.sh
+COPY ./docker/scripts/check-prach-io.sh ./check-prach-io.sh
+
+COPY --from=gnb-build \
+    /oai-ran/cmake_targets/ran_build/build/librfsimulator.so \
+    /oai-ran/cmake_targets/ran_build/build/liboai_transpro.so \
+    /oai-ran/cmake_targets/ran_build/build/libcoding.so \
+    /oai-ran/cmake_targets/ran_build/build/libparams_libconfig.so \
+    /oai-ran/cmake_targets/ran_build/build/libdfts.so \
+    /oai-ran/cmake_targets/ran_build/build/libldpc*.so \
+    /oai-ran/cmake_targets/ran_build/build/libtelnetsrv.so \
+    /oai-ran/cmake_targets/ran_build/build/libtelnetsrv_ci.so \
+    /oai-ran/cmake_targets/ran_build/build/libparams_yaml.so \
+    /oai-ran/cmake_targets/ran_build/build/libvrtsim.so \
+    /oai-ran/cmake_targets/ran_build/build/libnrscope.so \
+    /oai-ran/cmake_targets/ran_build/build/libimscope.so \
+    /usr/local/lib/
+
+COPY --from=gnb-build \
+    /oai-ran/cmake_targets/ran_build/build/imscope-init.ini \
+    /opt/oai-gnb/imscope-init.ini
+
+COPY --from=gnb-build \
+    /opt/phy/fhi_lib/lib/build/libxran.so \
+    /opt/phy/fhi_lib/lib/build/
+
+COPY --from=gnb-build \
+    /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g.so \
+    /usr/local/lib/
+
+COPY --from=gnb-build /opt/oai-arm-libs/ /usr/local/lib/
+
+COPY --from=gnb-build /opt/oai-dpdk-lib/ /tmp/oai-dpdk-lib/
+COPY --from=gnb-build /opt/oai-dpdk-libdir /tmp/oai-dpdk-libdir
+RUN DPDK_LIBDIR=$(cat /tmp/oai-dpdk-libdir) && \
+    mkdir -p "/usr/local/lib/${DPDK_LIBDIR}" && \
+    cp -a /tmp/oai-dpdk-lib/. "/usr/local/lib/${DPDK_LIBDIR}/" && \
+    rm -rf /tmp/oai-dpdk-lib /tmp/oai-dpdk-libdir
+
+RUN ldconfig && \
+    echo "---- ldd on nr-softmodem ----" && \
+    ldd /opt/oai-gnb/bin/nr-softmodem
+
+WORKDIR /opt/oai-gnb
+
+COPY --from=ran-base /usr/local/bin/yq /usr/local/bin/yq
+COPY --from=ran-base /tini /tini
+
+ENTRYPOINT ["/tini", "-v", "--", "/opt/oai-gnb/bin/entrypoint.sh"]
+CMD ["/opt/oai-gnb/bin/nr-softmodem"]
