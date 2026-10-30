@@ -352,20 +352,34 @@ int tx_rf_symbols(RU_t *ru, int frame, int slot, uint64_t timestamp, int start_s
 //
 // Only calls trx_set_beams() when the beam vector actually changes between symbols, to avoid
 // issuing redundant beam-switch commands to real hardware.
+// beam_id is [concurrent_beam][symbol_in_frame] (nr_init.c); trx_set_beams() wants one value
+// per antenna, so expand each beam's value across its group of antennas (num_beams_period==1
+// puts every antenna in beam 0, same as before this array became beam-major).
+static void expand_beams_to_antennas(int **beam_id, int symbol_in_frame, int nb_tx, int num_beams_period, uint16_t *out)
+{
+  const int ant_per_beam = (num_beams_period > 0) ? (nb_tx / num_beams_period) : nb_tx;
+  for (int ant = 0; ant < nb_tx; ant++) {
+    const int beam = (num_beams_period > 1 && ant_per_beam > 0) ? ant / ant_per_beam : 0;
+    out[ant] = (uint16_t)beam_id[beam][symbol_in_frame];
+  }
+}
+
 static void ctrl_rf(RU_t *ru, int frame, int slot, uint64_t timestamp)
 {
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   int nb_tx = ru->nb_tx;
-  uint16_t **beam_id = ru->gNB_list[0]->common_vars.beam_id;
+  int **beam_id = ru->gNB_list[0]->common_vars.beam_id;
+  int num_beams_period = ru->gNB_list[0]->common_vars.num_beams_period;
 
   uint16_t last_beams[nb_tx];
-  memcpy(last_beams, beam_id[slot * fp->symbols_per_slot], nb_tx * sizeof(uint16_t));
+  expand_beams_to_antennas(beam_id, slot * fp->symbols_per_slot, nb_tx, num_beams_period, last_beams);
   uint64_t event_ts = timestamp + ru->ts_offset;
   LOG_D(NR_PHY, "RU Control [%d.%d]: set beams at symbol 0, ts %lu\n", frame, slot, event_ts);
   ru->rfdevice.trx_set_beams(&ru->rfdevice, last_beams, nb_tx, event_ts);
 
   for (int j = 1; j < fp->symbols_per_slot; j++) {
-    uint16_t *cur_beams = beam_id[slot * fp->symbols_per_slot + j];
+    uint16_t cur_beams[nb_tx];
+    expand_beams_to_antennas(beam_id, slot * fp->symbols_per_slot + j, nb_tx, num_beams_period, cur_beams);
     if (memcmp(cur_beams, last_beams, nb_tx * sizeof(uint16_t)) == 0)
       continue;
     memcpy(last_beams, cur_beams, nb_tx * sizeof(uint16_t));

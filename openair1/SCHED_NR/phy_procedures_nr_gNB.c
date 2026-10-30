@@ -122,18 +122,26 @@ void beam_index_allocation(uint16_t fapi_beam_index,
                            int slot,
                            uint16_t bitmap_symbols,
                            int num_ant_max,
-                           uint16_t **ant_beam_id_list)
+                           int num_beams_period,
+                           int **ant_beam_id_list)
 {
   if (!ant_beam_id_list)
     return;
 
   AssertFatal(IS_BIT_SET(fapi_beam_index, 15), "Can't handle preconfigured DBM yet\n");
   uint16_t ru_beam_idx = fapi_beam_index & 0x7fff;
+  // beam_id is allocated [num_beams_period][symbols_per_frame] (nr_init.c) and read by the FHI
+  // C-Plane packer as beam_id[ant/(num_ant_max/num_beams_period)][symbol_in_frame] (oaioran.c).
+  // Map the antenna to its concurrent-beam index the same way so writer and reader agree. For
+  // num_beams_period==1 every antenna maps to beam 0.
+  const int ant_per_beam = (num_beams_period > 0) ? (num_ant_max / num_beams_period) : num_ant_max;
   for (int j = 0; j < symbols_per_slot; j++) {
     if (((bitmap_symbols >> j) & 0x01))
       for (uint_fast8_t p = 0; p < num_ports; p++) {
         DevAssert(ant + p < num_ant_max);
-        ant_beam_id_list[slot * symbols_per_slot + j][ant + p] = ru_beam_idx;
+        const int beam = (num_beams_period > 1 && ant_per_beam > 0) ? (ant + p) / ant_per_beam : 0;
+        DevAssert(beam < num_beams_period);
+        ant_beam_id_list[beam][slot * symbols_per_slot + j] = ru_beam_idx;
       }
   }
 }
@@ -198,7 +206,15 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const n
                                         fp->nb_antennas_tx / gNB->common_vars.num_beams_period,
                                         beam_id,
                                         (pdu->param_v4.spatialStreamIndexPresent ? pdu->param_v4.spatialStreamIndex : 0));
-  beam_index_allocation(beam_id, ant_port, 1, fp->symbols_per_slot, slot, sym_bitmap, fp->nb_antennas_tx, gNB->common_vars.beam_id);
+  beam_index_allocation(beam_id,
+                        ant_port,
+                        1,
+                        fp->symbols_per_slot,
+                        slot,
+                        sym_bitmap,
+                        fp->nb_antennas_tx,
+                        gNB->common_vars.num_beams_period,
+                        gNB->common_vars.beam_id);
 
   nr_generate_pss(txdataF[ant_port], gNB->TX_AMP, ssb_start_symbol, cfg, fp);
   nr_generate_sss(txdataF[ant_port], gNB->TX_AMP, ssb_start_symbol, cfg->cell_config.phy_cell_id.value, fp);
@@ -248,8 +264,8 @@ void clear_slot_beamid(PHY_VARS_gNB *gNB, int slot)
   const NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
   int slot_sz = fp->symbols_per_slot;
   if (gNB->common_vars.beam_id)
-    for (int i = 0; i < slot_sz; i++) {
-      memset(gNB->common_vars.beam_id[slot * slot_sz + i], 0, fp->nb_antennas_tx * sizeof(**gNB->common_vars.beam_id));
+    for (int b = 0; b < gNB->common_vars.num_beams_period; b++) {
+      memset(&gNB->common_vars.beam_id[b][slot * slot_sz], 0, slot_sz * sizeof(**gNB->common_vars.beam_id));
     }
 }
 
@@ -287,6 +303,7 @@ static void nr_generate_csi_rs_gNB(PHY_VARS_gNB *gNB, int slot, const nfapi_nr_d
                         slot,
                         csi_bitmap,
                         gNB->frame_parms.nb_antennas_tx,
+                        gNB->common_vars.num_beams_period,
                         gNB->common_vars.beam_id);
 
   nr_generate_csi_rs(&gNB->frame_parms,

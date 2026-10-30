@@ -1990,7 +1990,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
       }
       config.num_ssb_beams = num_ssb_beams;
       if (beam_info->bf_method != BF_METHOD_STRAIGHT_WIRE) {
-        beam_info->beam_allocation = malloc16(beams_per_period * sizeof(beam_info->beam_allocation));
+        beam_info->beam_allocation = malloc16(beams_per_period * sizeof(*beam_info->beam_allocation));
         beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
       }
       LOG_I(GNB_APP,

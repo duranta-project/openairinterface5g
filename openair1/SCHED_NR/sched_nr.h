@@ -41,6 +41,7 @@ void beam_index_allocation(uint16_t fapi_beam_index,
                            int slot,
                            uint16_t bitmap_symbols,
                            int num_ant_max,
-                           uint16_t **ant_beam_id_list);
+                           int num_beams_period,
+                           int **ant_beam_id_list);
 uint16_t get_first_ant_idx(bool das, uint16_t num_ports_beams, uint16_t beam_id, uint16_t fapi_start_port);
 #endif

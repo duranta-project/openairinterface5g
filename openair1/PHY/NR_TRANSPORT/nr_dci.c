@@ -115,6 +115,7 @@ void nr_generate_dci(PHY_VARS_gNB *gNB,
                           slot,
                           symb_bitmap,
                           frame_parms->nb_antennas_tx,
+                          gNB->common_vars.num_beams_period,
                           gNB->common_vars.beam_id);
 
     LOG_D(NR_PHY_DCI, "pdcch: Coreset rb_offset %d, nb_rb %d BWP Start %d\n", rb_offset, n_rb, pdcch_pdu_rel15->BWPStart);

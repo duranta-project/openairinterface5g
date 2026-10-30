@@ -48,7 +48,15 @@ void nr_fill_pucch(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_pucch_pdu_t 
     int bitmap = SL_to_bitmap(pucch_pdu->start_symbol_index, pucch_pdu->nr_of_symbols);
     const nfapi_nr_spatial_stream_index_t *p = &pucch_pdu->param_v4;
     const uint16_t ant_port = p->numSpatialStreamIndices > 0 ? p->spatialStreamIndices[0] : 0;
-    beam_index_allocation(fapi_beam_idx, ant_port, 1, NR_SYMBOLS_PER_SLOT, slot, bitmap, gNB->frame_parms.nb_antennas_rx, gNB->common_vars.beam_id);
+    beam_index_allocation(fapi_beam_idx,
+                          ant_port,
+                          1,
+                          NR_SYMBOLS_PER_SLOT,
+                          slot,
+                          bitmap,
+                          gNB->frame_parms.nb_antennas_rx,
+                          gNB->common_vars.num_beams_period,
+                          gNB->common_vars.beam_id);
   }
   bool found = spsc_q_put(&gNB->pucch_queue, &pucch, sizeof(pucch));
   if (!found)

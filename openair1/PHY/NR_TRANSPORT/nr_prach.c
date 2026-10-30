@@ -301,6 +301,7 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
                             Slot,
                             bitmap,
                             gNB->frame_parms.nb_antennas_rx,
+                            gNB->common_vars.num_beams_period,
                             gNB->common_vars.beam_id);
       prach.ant_start = ant_start;
     }

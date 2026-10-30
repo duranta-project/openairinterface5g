@@ -44,6 +44,7 @@ void nr_fill_srs(PHY_VARS_gNB *gNB, frame_t frame, slot_t slot, nfapi_nr_srs_pdu
                           slot,
                           bitmap,
                           gNB->frame_parms.nb_antennas_rx,
+                          gNB->common_vars.num_beams_period,
                           gNB->common_vars.beam_id);
   }
   bool found = spsc_q_put(&gNB->srs_queue, &srs, sizeof(srs));

@@ -1160,6 +1160,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
                           slot,
                           symb_bitmap,
                           frame_parms->nb_antennas_tx,
+                          gNB->common_vars.num_beams_period,
                           gNB->common_vars.beam_id);
   }
 

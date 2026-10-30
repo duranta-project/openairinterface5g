@@ -598,9 +598,21 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
 }
 
 // Send CP DL/UL packets
-int xran_send_cp_slot(const int tti, const int slot, const int xran_port, const uint8_t nb_ant, uint16_t **beams, struct xran_buffer_list buf[XRAN_MAX_ANTENNA_NR][XRAN_N_FE_BUF_LEN])
+int xran_send_cp_slot(const int tti,
+                      const int slot,
+                      const int xran_port,
+                      const uint8_t nb_ant,
+                      const int num_beams_period,
+                      int **beams,
+                      struct xran_buffer_list buf[XRAN_MAX_ANTENNA_NR][XRAN_N_FE_BUF_LEN])
 {
+  // beams is [concurrent_beam][symbol_in_frame] (see nr_init.c / beam_index_allocation in
+  // phy_procedures_nr_gNB.c); recover each antenna's beam index the same way the PHY writer
+  // grouped antennas into beams. num_beams_period==1 puts every antenna in beam 0.
+  const int ant_per_beam = (num_beams_period > 0) ? (nb_ant / num_beams_period) : nb_ant;
   for (uint8_t ant_id = 0; ant_id < nb_ant; ant_id++) {
+    const int global_ant = ant_id + (xran_port * nb_ant);
+    const int beam = (num_beams_period > 1 && ant_per_beam > 0) ? global_ant / ant_per_beam : 0;
     struct xran_prb_map *pPrbMap = (struct xran_prb_map *)buf[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
     // (1) nPrbElm is the number of fragments; (2) For Liteon FR2 with RunSlotPrbMapBySymbolEnable each idxElm matches to one symbol
     LOG_D(HW, "pPrbMap->nPrbElm %d\n", pPrbMap->nPrbElm);
@@ -612,7 +624,7 @@ int xran_send_cp_slot(const int tti, const int slot, const int xran_port, const 
 
       for (int32_t sym_idx = pRbElm->nStartSymb; sym_idx < pRbElm->nStartSymb + pRbElm->numSymb; sym_idx++) {
         LOG_D(HW, "ant_id %d sym_idx %d pPrbMap[%d] (startRB %d numRB %d)\n", ant_id, sym_idx, idxElm, startRB, numRB);
-        pRbElm->nBeamIndex = beams[slot * XRAN_NUM_OF_SYMBOL_PER_SLOT + sym_idx][ant_id + (xran_port * nb_ant)];
+        pRbElm->nBeamIndex = beams[beam][slot * XRAN_NUM_OF_SYMBOL_PER_SLOT + sym_idx];
       }
     }
   }

@@ -222,10 +222,10 @@ typedef struct {
   /// - first index: tx antenna [0..16) where 16 is the total supported antenna ports.
   /// - second index: sample [0..ofdm_symbol_size*symbols_per_frame)
   c16_t **txdataF;
-  /// \brief Analogue beam ID for each [symbol, antenna] pair
-  /// - first index: symbol [slot * fp->symbols_per_slot + sym_idx]
-  /// - second index: logical antenna [0..nb_rx/nb_tx]
-  uint16_t **beam_id;
+  /// \brief Analogue beam ID for each [beam, symbol] pair, one row per concurrent beam
+  /// - first index: concurrent beam [0..num_beams_period)
+  /// - second index: symbol [slot * fp->symbols_per_slot + sym_idx]
+  int **beam_id;
   int num_beams_period;
   bool analog_bf;
   int32_t *debugBuff;

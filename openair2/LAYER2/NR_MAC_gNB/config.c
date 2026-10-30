@@ -898,7 +898,7 @@ static void initialize_beam_information(NR_beam_info_t *beam_info, int mu, int s
               slots_per_frame);
   beam_info->beam_allocation_size = size / beam_info->beam_duration;
   for (int i = 0; i < beam_info->beams_per_period; i++) {
-    beam_info->beam_allocation[i] = malloc16(beam_info->beam_allocation_size * sizeof(*beam_info->beam_allocation));
+    beam_info->beam_allocation[i] = malloc16(beam_info->beam_allocation_size * sizeof(**beam_info->beam_allocation));
     for (int j = 0; j < beam_info->beam_allocation_size; j++)
       beam_info->beam_allocation[i][j] = -1;
   }

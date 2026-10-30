@@ -153,12 +153,12 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
    * RU to copy/recover freq-domain memory from there */
   common_vars->rxdataF = malloc16_clear(Prx * sizeof(*common_vars->rxdataF));
 
-  /* beam_id array is common for tx and rx so the max number of both is taken */
-  const unsigned int num_antenna_ports = max(Ptx, Prx);
+  /* beam_id is [concurrent_beam][symbol_in_frame]: one row per concurrent analog beam,
+   * each row holding the FAPI beam index active on that beam for every symbol in the frame. */
   if (cfg->analog_beamforming_ve.analog_bf_vendor_ext.value) {
-    common_vars->beam_id = (uint16_t **)malloc16(fp->slots_per_frame * fp->symbols_per_slot * sizeof(*common_vars->beam_id));
-    for (int i = 0; i < fp->slots_per_frame * fp->symbols_per_slot; i++)
-      common_vars->beam_id[i] = (uint16_t *)malloc16_clear(num_antenna_ports * sizeof(**common_vars->beam_id));
+    common_vars->beam_id = (int **)malloc16(common_vars->num_beams_period * sizeof(*common_vars->beam_id));
+    for (int i = 0; i < common_vars->num_beams_period; i++)
+      common_vars->beam_id[i] = (int *)malloc16_clear(fp->slots_per_frame * fp->symbols_per_slot * sizeof(**common_vars->beam_id));
   }
 
   common_vars->txdataF = (c16_t **)malloc16_clear(Ptx * sizeof(*common_vars->txdataF));
@@ -222,7 +222,7 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
 
   NR_gNB_COMMON * common_vars = &gNB->common_vars;
   if (common_vars->beam_id) {
-    for (int j = 0; j < gNB->frame_parms.slots_per_frame * gNB->frame_parms.symbols_per_slot; j++) {
+    for (int j = 0; j < common_vars->num_beams_period; j++) {
       free_and_zero(common_vars->beam_id[j]);
     }
   }

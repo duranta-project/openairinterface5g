@@ -213,7 +213,13 @@ void oran_fh_if4p5_ctrl(RU_t *ru, int frame, int slot, uint64_t timestamp)
       // UL slot
       if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_ul_guard_slot(frame_conf, slot)) {
         // Send CP UL
-        ret = xran_send_cp_slot(tti, slot, xran_port, fh_cfg->neAxcUl, ru->gNB_list[0]->common_vars.beam_id, bufs->dstcp);
+        ret = xran_send_cp_slot(tti,
+                                slot,
+                                xran_port,
+                                fh_cfg->neAxcUl,
+                                ru->gNB_list[0]->common_vars.num_beams_period,
+                                ru->gNB_list[0]->common_vars.beam_id,
+                                bufs->dstcp);
         if (ret != 0) {
           LOG_W(HW, "[%d.%d] xran_send_cp_slot UL error for xran_port %d\n", frame, slot, xran_port);
         }
@@ -222,7 +228,13 @@ void oran_fh_if4p5_ctrl(RU_t *ru, int frame, int slot, uint64_t timestamp)
       // DL slot
       if (frame_conf->nFrameDuplexType == XRAN_FDD || is_tdd_dl_guard_slot(frame_conf, slot)) {
         // Send CP DL
-        ret = xran_send_cp_slot(tti, slot, xran_port, fh_cfg->neAxc, ru->gNB_list[0]->common_vars.beam_id, bufs->srccp);
+        ret = xran_send_cp_slot(tti,
+                                slot,
+                                xran_port,
+                                fh_cfg->neAxc,
+                                ru->gNB_list[0]->common_vars.num_beams_period,
+                                ru->gNB_list[0]->common_vars.beam_id,
+                                bufs->srccp);
         if (ret != 0) {
           LOG_W(HW, "[%d.%d] xran_send_cp_slot DL error for xran_port %d\n", frame, slot, xran_port);
         }

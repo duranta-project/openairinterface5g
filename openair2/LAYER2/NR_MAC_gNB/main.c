@@ -376,6 +376,13 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
   for (size_t i = 0; i < sizeofArray(mac->cells); i++) {
     nr_cell_sched_t *cell = &mac->cells[i];
     free(cell->radio_config.ssb_beams);
+    NR_beam_info_t *beam_info = &cell->beam_info;
+    if (beam_info->beam_allocation) {
+      // inner arrays exist only once the frame structure is known (beam_allocation_size set)
+      for (int b = 0; beam_info->beam_allocation_size > 0 && b < beam_info->beams_per_period; b++)
+        free(beam_info->beam_allocation[b]);
+      free(beam_info->beam_allocation);
+    }
     if (cell->common_channels.ServingCellConfigCommon == NULL)
       continue;
     NR_COMMON_channels_t *cc = &cell->common_channels;
