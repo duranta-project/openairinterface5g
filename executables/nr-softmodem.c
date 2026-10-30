@@ -293,19 +293,6 @@ static void get_options(configmodule_interface_t *cfg)
   CONFIG_CLEARRTFLAG(CONFIG_NOEXITONHELP);
 }
 
-void wait_RUs(void) {
-  LOG_D(PHY, "Waiting for RUs to be configured ... RC.ru_mask:%02lx\n", RC.ru_mask);
-  // wait for all RUs to be configured over fronthaul
-  pthread_mutex_lock(&RC.ru_mutex);
-
-  while (RC.ru_mask>0) {
-    pthread_cond_wait(&RC.ru_cond,&RC.ru_mutex);
-  }
-
-  pthread_mutex_unlock(&RC.ru_mutex);
-  LOG_D(PHY, "RUs configured\n");
-}
-
 void wait_gNBs(void) {
   int i;
   int waiting=1;
@@ -419,8 +406,6 @@ int start_L1L2(module_id_t gnb_id, nr_cell_sched_t *cell)
 
   init_NR_RU(config_get_if(), NULL);
 
-  start_NR_RU();
-  wait_RUs();
   init_eNB_afterRU();
   LOG_I(GNB_APP, "Sending sync to all threads\n");
   pthread_mutex_lock(&sync_mutex);
@@ -634,13 +619,8 @@ int main( int argc, char **argv ) {
   if (NFAPI_MODE != NFAPI_MODE_PNF && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)))
     wait_f1_setup_response();
 
-  if (RC.nb_RU > 0)
-    start_NR_RU();
-
-  if (NFAPI_MODE == NFAPI_MODE_PNF) {
-    wait_RUs();
+  if (NFAPI_MODE == NFAPI_MODE_PNF)
     config_sync_var = 0;
-  }
 
 #ifdef ENABLE_AERIAL
   gNB_MAC_INST *nrmac = RC.nrmac[0];
@@ -672,9 +652,6 @@ int main( int argc, char **argv ) {
   }
 
   if (RC.nb_nr_L1_inst > 0) {
-    wait_RUs();
-    // once all RUs are ready initialize the rest of the gNBs ((dependence on final RU parameters after configuration)
-
     if (IS_SOFTMODEM_DOSCOPE) {
       sleep(1);
       scopeParms_t p;

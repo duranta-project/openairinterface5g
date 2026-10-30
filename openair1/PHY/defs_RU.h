@@ -532,7 +532,7 @@ typedef struct RU_t_s {
   time_stats_t ofdm_mod_wait_stats;
   /// Timing wakeup statistics (TX)
   time_stats_t ofdm_mod_wakeup_stats;
-  /// Timing statistics (RX Fronthaul + Compression)
+  /// Timing statistics (RX Fronthaul + Decompression)
   time_stats_t rx_fhaul;
   /// Timing statistics (TX Fronthaul + Compression)
   time_stats_t tx_fhaul;
@@ -597,6 +597,10 @@ typedef struct RU_t_s {
   int num_tpcores;
   void* scopeData;
 } RU_t;
+
+/* defined in executables/nr-ru.c */
+void ru_rx_slot(RU_t *ru, struct PHY_VARS_gNB_s *gNB, int frame_rx, int slot_rx);
+void ru_push_tx_job(struct PHY_VARS_gNB_s *gNB, int frame_tx, int slot_tx, int frame_rx, int slot_rx, uint64_t timestamp_tx);
 
 
 typedef enum {

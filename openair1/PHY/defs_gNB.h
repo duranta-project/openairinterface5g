@@ -21,6 +21,7 @@
 #include "common/utils/threadPool/task_ans.h"
 #include "openair1/PHY/defs_RU.h"
 #include "common/utils/ds/spsc_q.h"
+#include "radio/fhi_72/oran.h"
 
 #define MAX_NUM_RU_PER_gNB 8
 #define MAX_PUCCH0_NID 8
@@ -357,6 +358,9 @@ typedef struct PHY_VARS_gNB_s {
   NR_DL_FRAME_PARMS frame_parms;
   PHY_MEASUREMENTS_gNB measurements;
   NR_IF_Module_t *if_inst;
+
+  // split 7.2 fronthaul, non-NULL only if ru->if_south == REMOTE_IF4p5
+  fhi72_transport_t *fhi72_transport;
 
   nfapi_nr_ul_tti_request_t UL_tti_req;
 

@@ -597,13 +597,9 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
     rdata->ans = &ans;
     rdata->pusch_ch_est_dmrs_pos_slot_mem = pusch_ch_est_dmrs_pos_slot_mem;
     rdata->dmrs_symbol_start_idx = dmrs_symbol_start_idx;
-    // Call the nr_pusch_antenna_processing function
-    if (job_id == num_jobs - 1) {
-      // Run the last job inline
-      nr_pusch_antenna_processing(rdata);
-    } else {
-      pushTpool(&gNB->threadPool, task);
-    }
+    // Call the nr_pusch_antenna_processing function. The last job runs on this thread,
+    // which would otherwise just block in join_task_ans() below.
+    pushTpool_batch(&gNB->threadPool, task, job_id == num_jobs - 1);
   } // Antenna Loop
 
   join_task_ans(&ans);
