@@ -136,7 +136,7 @@
 // clang-format off
 #define ORAN_PRACH_DESC {\
   {ORAN_PRACH_CONFIG_EAXC_OFFSET, "RU's eAxC offset for PRACH\n", 0,                   .u8ptr=NULL, .defuintval=0, TYPE_UINT8, 0}, \
-  {ORAN_PRACH_CONFIG_KBAR,        "PRACH guard interval\n",       0,                   .uptr=NULL,  .defuintval=4, TYPE_UINT,  0}, \
+  {ORAN_PRACH_CONFIG_KBAR,        "PRACH sequence offset in the PRACH PRBs, in int16; default: 2 * k_bar of TS 38.211 Table 6.3.3.2-1\n", 0, .uptr=NULL, .type=TYPE_UINT, .numelt=0}, \
 }
 // clang-format on
 

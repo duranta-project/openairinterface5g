@@ -666,7 +666,7 @@ fhi_72 = {
   ...
   fh_config = ({
     ...
-    Ta4 = (0, 831);  # format 0 spans more than one slot
+    Ta4 = (0, 900);  # format 0 spans more than one slot
     ru_config = {
       # no comp_hdr_type: static compression, matching the RU
       iq_width = 9;

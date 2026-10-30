@@ -778,15 +778,8 @@ static bool set_fh_init(void *mplane_api, struct xran_fh_init *fh_init, enum xra
   return true;
 }
 
-// PRACH guard interval. Raymond: "[it] is not in the configuration, (i.e. it
-// is deterministic depending on others). LiteON must hard-code this in the
-// O-RU itself, benetel doesn't (as O-RAN specifies). So we will need to tell
-// the driver what the case is and provide"
-// this is a hack
-int g_kbar;
-
 static bool set_fh_prach_config(void *mplane_api,
-                                const split7_config_t *s7cfg,
+                                split7_config_t *s7cfg,
                                 const uint32_t max_num_ant,
                                 const paramdef_t *prachp,
                                 int nprach,
@@ -826,7 +819,10 @@ static bool set_fh_prach_config(void *mplane_api,
   prach_config->prachEaxcOffset = pd->paramflags & PARAMFLAG_PARAMSET ? *pd->u8ptr : max_num_ant;
 #endif
 
-  g_kbar = *gpd(prachp, nprach, ORAN_PRACH_CONFIG_KBAR)->uptr;
+  // for LiteON RUs, the kbar must be set explicitely
+  const paramdef_t *kbar = gpd(prachp, nprach, ORAN_PRACH_CONFIG_KBAR);
+  if (kbar->paramflags & PARAMFLAG_PARAMSET)
+    s7cfg->prach_kbar = *kbar->uptr;
 
   return true;
 }
@@ -895,7 +891,7 @@ static bool set_maxmin_pd(const paramdef_t *pd, int num, const char *name, uint1
   return true;
 }
 
-static bool set_fh_per_mu_cfg(void *mplane_api, int ru_idx, int num_rus, const split7_config_t *s7cfg, struct xran_fh_per_mu_cfg *perMu)
+static bool set_fh_per_mu_cfg(void *mplane_api, int ru_idx, int num_rus, split7_config_t *s7cfg, struct xran_fh_per_mu_cfg *perMu)
 {
   char aprefix[MAX_OPTNAME_SIZE] = {0};
 
@@ -968,7 +964,7 @@ static bool set_activeMUs(xran_active_numerologies_per_tti *p_activeMUs, uint8_t
   return true;
 }
 
-static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_category xran_cat, const split7_config_t *s7cfg, struct xran_fh_config *fh_config)
+static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_category xran_cat, split7_config_t *s7cfg, struct xran_fh_config *fh_config)
 {
   AssertFatal(num_rus == 1 || num_rus == 2, "only support 1 or 2 RUs as of now\n");
   AssertFatal(ru_idx < num_rus, "illegal ru_idx %d: must be < %d\n", ru_idx, num_rus);
@@ -1083,7 +1079,7 @@ static bool set_fh_config(void *mplane_api, int ru_idx, int num_rus, enum xran_c
   return true;
 }
 
-bool get_xran_config(void *mplane_api, const struct split7_config *s7cfg, struct xran_fh_init *fh_init, struct xran_fh_config *fh_config)
+bool get_xran_config(void *mplane_api, struct split7_config *s7cfg, struct xran_fh_init *fh_init, struct xran_fh_config *fh_config)
 {
   /* This xran integration release is only valid for O-RU CAT A.
     Therefore, each FH parameter is hardcoded to CAT A.
