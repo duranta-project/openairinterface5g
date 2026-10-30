@@ -1149,10 +1149,10 @@ static f1ap_setup_req_t *RC_read_F1Setup(uint64_t id,
   return req;
 }
 
-static nr_ptrs_config_t *get_ptrs_config()
+static nr_ptrs_config_t *get_ptrs_config(int idx)
 {
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
-  snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
+  snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, idx);
   GET_PARAMS_LIST(ptrs_ParamsList, ptrs_Params, GNB_PTRS_PARAMS_DESC, GNB_CONFIG_STRING_PTRS, aprefix);
   if (ptrs_ParamsList.numelt == 0) {
     LOG_I(GNB_APP, "No PTRS configuration found\n");
@@ -1577,7 +1577,7 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
   }
 }
 
-static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx, paramdef_t *gnb_p)
+static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx, int idx, paramdef_t *gnb_p)
 {
   nr_mac_config_t config = {0};
   config.pdsch_AntennaPorts.N1 = *gnb_p[GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
@@ -1623,6 +1623,9 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg, int *num_tx
         config.num_ulharq);
   int tot_ant = config.pdsch_AntennaPorts.N1 * config.pdsch_AntennaPorts.N2 * config.pdsch_AntennaPorts.XP;
   AssertFatal(config.maxMIMO_layers != 0 && config.maxMIMO_layers <= tot_ant, "Invalid maxMIMO_layers %d\n", config.maxMIMO_layers);
+
+  config.redcap = get_redcap_config(idx);
+  config.ptrs = get_ptrs_config(idx);
 
   int beams_per_period = 1; // TODO verification after beams_per_period/pdsch
                             // have been read
@@ -1678,7 +1681,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   int idx = 0;
   AssertFatal(MacRLC_ParamList.numelt == 1, "only one MACRLCs section supported!\n");
 
-  nr_mac_config_t config = get_mac_config(cfg, &num_tx, GNBParamList.paramarray[idx]);
+  nr_mac_config_t config = get_mac_config(cfg, &num_tx, idx, GNBParamList.paramarray[idx]);
 
 #ifdef ENABLE_AERIAL
   // Aerial: TXRU counts advertised to the L1 in CONFIG.request, decoupled
@@ -1694,9 +1697,6 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   if (config.aerial.num_tx_ant > 0 || config.aerial.num_rx_ant > 0)
     LOG_I(GNB_APP, "Aerial TXRUs: num_tx_ant %d num_rx_ant %d\n", config.aerial.num_tx_ant, config.aerial.num_rx_ant);
 #endif
-
-  config.redcap = get_redcap_config(0);
-  config.ptrs = get_ptrs_config();
 
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
   snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_TIMERS_CONFIG);
