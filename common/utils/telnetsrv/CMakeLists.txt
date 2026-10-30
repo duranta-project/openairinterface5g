@@ -52,7 +52,7 @@ add_dependencies(telnetsrv telnetsrv_rrc)
 
 message(STATUS "Add CI specific telnet functions in libtelnetsrv_o1.so")
 add_library(telnetsrv_o1 MODULE telnetsrv_o1.c)
-target_link_libraries(telnetsrv_o1 PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_link_libraries(telnetsrv_o1 PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap)
 add_dependencies(telnetsrv telnetsrv_o1)
 
 # all libraries should be written to root build dir
