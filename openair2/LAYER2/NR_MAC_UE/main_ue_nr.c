@@ -33,6 +33,44 @@ void send_pcch_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data
   itti_send_msg_to_task(TASK_RRC_NRUE, ue_id, message_p);
 }
 
+void nr_ue_init_mac_sl(NR_UE_MAC_INST_t *mac)
+{
+  int k = 0;
+
+  // consider the next reception on each sidelink RX process as a new TB
+  for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++)
+    mac->sl_rx_harq_info[i].last_ndi = -1; // initialize to invalid value
+
+  mac->SL_MAC_PARAMS = CALLOC(1, sizeof(sl_nr_ue_mac_params_t));
+  seq_arr_init(&mac->sl_sensing_data, sizeof(sensing_data_t));
+  seq_arr_init(&mac->sl_transmit_history, sizeof(frameslot_t));
+  mac->sl_candidate_resources = NULL;
+  mac->sl_prev_rx_frame = -1;
+  mac->sl_prev_rx_slot = -1;
+
+  // Assuming only 2 UEs in the system: the SyncRef UE (sync_ref != 0) and the
+  // Nearby UE (sync_ref == 0). They must use distinct source IDs, otherwise the
+  // receiver's find_UE(SRC) cannot match the transmitter in its peer list and
+  // drops every received SLSCH PDU. Give the SyncRef UE src_id 0 and the Nearby
+  // UE src_id 1, so each appears as the single peer (uid) in the other's peer
+  // list built below.
+  mac->src_id = get_nrUE_params()->sync_ref ? 0 : 1;
+
+  for (int i = 0; i < CUR_SL_UE_CONNECTIONS + 1; i++) {
+    if (mac->src_id == i)
+	  continue;
+    mac->sl_info.list[k] = calloc(1, sizeof(NR_SL_UE_info_t));
+    mac->sl_info.list[k]->uid = i;
+    NR_SL_UE_sched_ctrl_t *UE_sched_ctrl = &mac->sl_info.list[k]->UE_sched_ctrl;
+    id_list_init(&UE_sched_ctrl->available_sl_harq, 16);
+    for (int harq = 0; harq < 16; harq++)
+      id_list_push_back(&UE_sched_ctrl->available_sl_harq, harq);
+    id_list_init(&UE_sched_ctrl->feedback_sl_harq, 16);
+    id_list_init(&UE_sched_ctrl->retrans_sl_harq, 16);
+    k++;
+  }
+}
+
 void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
 {
   LOG_I(NR_MAC, "[UE%d] Initializing MAC\n", mac->ue_id);
@@ -55,6 +93,8 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
   mac->phy_config.config_req.ntn_config.params_changed = false;
   initNotifiedFIFO(&mac->input_nf);
   reset_mac_inst(mac);
+  if (get_softmodem_params()->sl_mode != SL_NOT_SUPPORTED)
+    nr_ue_init_mac_sl(mac);
 
   // need to inizialize because might not been setup (optional timer)
   nr_timer_stop(&mac->scheduling_info.sr_DelayTimer);
@@ -257,6 +297,7 @@ static void release_dedicated_bwp0_config(NR_UE_MAC_INST_t *mac)
 
 void release_mac_configuration(NR_UE_MAC_INST_t *mac, NR_UE_MAC_reset_cause_t cause)
 {
+  nr_ue_sl_mac_free(mac);
   NR_UE_ServingCell_Info_t *sc = &mac->sc_info;
   /* Partial release for normal no-redirection RRCRelease: RRC keeps the current cell selected for idle camping
    * (TS 38.304 §5.2.5), so keep SIB1/common BWP0/paging PDCCH and drop only connected-mode MAC config. */
