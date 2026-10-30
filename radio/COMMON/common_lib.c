@@ -24,7 +24,7 @@
 #include "openair1/PHY/TOOLS/tools_defs.h"
 
 const char *const devtype_names[MAX_RF_DEV_TYPE] =
-    {"", "USRP B200", "USRP X300", "USRP N300", "USRP X400", "BLADERF", "LMSSDR", "IRIS", "No HW", "UEDv2", "RFSIMULATOR"};
+    {"", "USRP B200", "USRP X300", "USRP N300", "USRP X400", "BLADERF", "LMSSDR", "IRIS", "No HW", "UEDv2", "RFSIMULATOR", "OCSDR"};
 
 const char *get_devname(int devtype) {
   if (devtype < MAX_RF_DEV_TYPE && devtype !=MIN_RF_DEV_TYPE )
