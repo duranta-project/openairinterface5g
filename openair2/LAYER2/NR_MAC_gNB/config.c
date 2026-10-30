@@ -29,6 +29,7 @@
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
 #include "executables/softmodem-common.h"
+#include "f1ap_interface_management.h"
 #include "f1ap_messages_types.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "nfapi_interface.h"
@@ -1276,7 +1277,7 @@ bool nr_trigger_bwp_switch(uint16_t rnti, int bwp_id)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[0];
   NR_SCHED_LOCK(&nrmac->sched_lock);
-  NR_UE_info_t *UE = find_nr_UE(&nrmac->UE_info, rnti);
+  NR_UE_info_t *UE = find_connected_nr_ue(&nrmac->UE_info, rnti);
   bool success = false;
   if (!UE) {
     LOG_W(NR_MAC, "could not find UE for RNTI %04x\n", rnti);
@@ -1313,6 +1314,7 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
     update.cell_to_modify[0].sys_info = get_sys_info(mib, sib1, NULL);
   }
   mac->mac_rrc.gnb_du_configuration_update(&update);
+  free_f1ap_du_configuration_update(&update);
 }
 
 void nr_mac_configure_sib1(nr_cell_sched_t *cell, const plmn_id_t *plmn, uint64_t cellID, int tac)
@@ -1350,7 +1352,7 @@ bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, uint32_t rnt
   bool res = add_connected_nr_ue(nrmac, UE);
   if (!res) {
     LOG_E(NR_MAC, "Error adding UE %04x\n", rnti);
-    delete_nr_ue_data(nrmac, UE);
+    release_nr_ue_inst(&nrmac->UE_info.uid_allocator, UE);
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
     return false;
   }

@@ -170,12 +170,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
     dump_mac_stats(gNB, cell, stats_output, sizeof(stats_output), true);
     LOG_I(NR_MAC, "Frame.Slot %d.%d\n%s\n", frame, slot, stats_output);
 
-    // TODO: this should be replaced with a size() operation on connected_ue_list
-    int num_ue = 0;
-    UE_iterator(gNB->UE_info.connected_ue_list, it) {
-      (void) it; // not used
-      num_ue++;
-    }
+    int num_ue = get_num_connected_ue(&gNB->UE_info);
     if (gNB->print_ue_stats && num_ue > gNB->stats_max_ue) {
       gNB->print_ue_stats = false;
       LOG_W(NR_MAC,
