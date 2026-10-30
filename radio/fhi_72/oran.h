@@ -7,6 +7,7 @@
 
 #include "common/utils/time_meas.h" // time_stats_t
 #include "radio/COMMON/common_lib.h" // duplex_mode_t
+#include "common/utils/threadPool/thread-pool.h" // tpool_t
 
 struct PHY_VARS_gNB_s;
 
@@ -45,6 +46,8 @@ typedef struct split7_config {
   int32_t **rxdataF;
   /*! precoded frequency-domain TX buffers, index: [0..tx_num_channels[; points to RU_t common.txdataF_BF */
   int32_t **txdataF_BF;
+  /*! RU thread pool for per-antenna U-plane (de)compression; NULL: inline. Points to RU_t threadPool */
+  tpool_t *tpool;
   /*! PRACH index used for PRACH */
   int prach_index;
   /*! PRACH frequency start, from RRC's msg1-FrequencyStart */

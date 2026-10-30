@@ -467,6 +467,7 @@ void fill_split7_2_config(const RU_t *ru)
     split7->rx_freq[i] = fp->ul_CarrierFreq;
   split7->rxdataF = ru->common.rxdataF;
   split7->txdataF_BF = ru->common.txdataF_BF;
+  split7->tpool = ru->threadPool;
 
   const nfapi_nr_prach_config_t *prach_config = &config->prach_config;
   const nfapi_nr_tdd_table_t *tdd_table = &config->tdd_table;
@@ -792,9 +793,27 @@ static void start_split8(RU_t *ru)
   threadCreate(&ru->proc.pthread_FH, ru_thread, ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
 }
 
+/* RU thread pool on num_tp_cores/tp_cores: FEP for split 8, U-plane (de)compression for split 7.2 */
+static void init_ru_tpool(RU_t *ru)
+{
+  int threadCnt = ru->num_tpcores;
+  if (threadCnt < 2)
+    LOG_E(PHY, "Number of threads for gNB should be more than 1. Allocated only %d\n", threadCnt);
+  char pool[80];
+  int s_offset = sprintf(pool,"%d",ru->tpcores[0]);
+  for (int icpu = 1; icpu < threadCnt; icpu++) {
+    s_offset += sprintf(pool + s_offset, ",%d", ru->tpcores[icpu]);
+  }
+  LOG_I(PHY, "RU thread-pool core string %s (size %d)\n", pool, threadCnt);
+  ru->threadPool = malloc(sizeof(tpool_t));
+  initTpool(pool, ru->threadPool, cpumeas(CPUMEAS_GETSTATE));
+}
+
 /* split 7.2 (REMOTE_IF4p5): load the fhi_72 library; oran_fhi72_init() spawns split7_thread() */
 static void start_split72(RU_t *ru)
 {
+  if (ru->num_tpcores > 0)
+    init_ru_tpool(ru);
   ru->gNB_list[0]->fhi72_transport = calloc_or_fail(1, sizeof(*ru->gNB_list[0]->fhi72_transport));
   fill_split7_2_config(ru);
   fhi72_init_t init = (fhi72_init_t)load_transport_shlib("oran_fhi72_init");
@@ -857,8 +876,10 @@ void kill_NR_RU_proc(int inst) {
     pthread_join(proc->pthread_FH, NULL);
   }
 
-  if (ru->if_south != REMOTE_IF4p5) {
+  // split 7.2 has a pool only if num_tp_cores is configured
+  if (ru->threadPool)
     abortTpool(ru->threadPool);
+  if (ru->if_south != REMOTE_IF4p5) {
     abortNotifiedFIFO(ru->respfeprx);
     abortNotifiedFIFO(ru->respfeptx);
   }
@@ -909,17 +930,7 @@ static void init_split8(RU_t *ru)
       break;
   } // switch on interface type
 
-  int threadCnt = ru->num_tpcores;
-  if (threadCnt < 2)
-    LOG_E(PHY, "Number of threads for gNB should be more than 1. Allocated only %d\n", threadCnt);
-  char pool[80];
-  int s_offset = sprintf(pool,"%d",ru->tpcores[0]);
-  for (int icpu = 1; icpu < threadCnt; icpu++) {
-    s_offset += sprintf(pool + s_offset, ",%d", ru->tpcores[icpu]);
-  }
-  LOG_I(PHY, "RU thread-pool core string %s (size %d)\n", pool, threadCnt);
-  ru->threadPool = malloc(sizeof(tpool_t));
-  initTpool(pool, ru->threadPool, cpumeas(CPUMEAS_GETSTATE));
+  init_ru_tpool(ru);
   // FEP RX result FIFO
   ru->respfeprx = malloc(sizeof(notifiedFIFO_t));
   initNotifiedFIFO(ru->respfeprx);
@@ -1113,6 +1124,9 @@ void NRRCconfig_RU(configmodule_interface_t *cfg)
     ru->openair0_cfg.rxfh_cores[0] = *param[RU_RXFH_CORE_ID].iptr;
     ru->openair0_cfg.txfh_cores[0] = *param[RU_TXFH_CORE_ID].iptr;
     ru->num_tpcores = *param[RU_NUM_TP_CORES].iptr;
+    // split 7.2 (de)compresses inline unless a pool is configured explicitly
+    if (ru->if_south == REMOTE_IF4p5 && !config_isparamset(param, RU_NUM_TP_CORES))
+      ru->num_tpcores = 0;
     ru->half_slot_parallelization = *param[RU_HALF_SLOT_PARALLELIZATION].iptr;
     ru->ru_thread_core = *param[RU_RU_THREAD_CORE].iptr;
     LOG_D(PHY, "[RU %d] Setting half-slot parallelization to %d\n", j, ru->half_slot_parallelization);
