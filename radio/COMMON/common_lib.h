@@ -76,6 +76,7 @@ typedef enum {
   /*!\brief device is UEDv2 */
   UEDv2_DEV,
   RFSIMULATOR,
+  OCSDR_DEV,
   MAX_RF_DEV_TYPE
 } dev_type_t;
 /* list of names of devices, needs to match dev_type_t */
