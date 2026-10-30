@@ -2180,22 +2180,22 @@ void init_UE_threads_stub(int inst) {
 void fill_ue_band_info(void) {
   LTE_UE_EUTRA_Capability_t *UE_EUTRA_Capability = UE_rrc_inst[0].UECap->UE_EUTRA_Capability;
   int i,j;
-  bands_to_scan.nbands = UE_EUTRA_Capability->rf_Parameters.supportedBandListEUTRA.list.count;
+  bands_to_scan.nbands = UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA->list.count;
 
   for (i=0; i<bands_to_scan.nbands; i++) {
     for (j=0; j<sizeof (eutra_bands) / sizeof (eutra_bands[0]); j++)
-      if (eutra_bands[j].band == UE_EUTRA_Capability->rf_Parameters.supportedBandListEUTRA.list.array[i]->bandEUTRA) {
+      if (eutra_bands[j].band == UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA->list.array[i]->bandEUTRA) {
         memcpy(&bands_to_scan.band_info[i],
                &eutra_bands[j],
                sizeof(eutra_band_t));
         printf("Band %d (%lu) : DL %u..%u Hz, UL %u..%u Hz, Duplex %s \n",
                bands_to_scan.band_info[i].band,
-               UE_EUTRA_Capability->rf_Parameters.supportedBandListEUTRA.list.array[i]->bandEUTRA,
+               UE_EUTRA_Capability->rf_Parameters->supportedBandListEUTRA->list.array[i]->bandEUTRA,
                bands_to_scan.band_info[i].dl_min,
                bands_to_scan.band_info[i].dl_max,
                bands_to_scan.band_info[i].ul_min,
                bands_to_scan.band_info[i].ul_max,
-               (bands_to_scan.band_info[i].frame_type==FDD) ? "FDD" : "TDD");
+               (bands_to_scan.band_info[i].frame_type == FDD) ? "FDD" : "TDD");
         break;
       }
   }

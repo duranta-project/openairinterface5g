@@ -279,7 +279,7 @@ void static_dl(module_id_t mod_id,
     ue_sched_ctrl->pre_dci_dl_pdu_idx = -1;
   }
 
-  const int N_RBG = to_rbg(RC.mac[mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  const int N_RBG = to_rbg(RC.mac[mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
   const int RBGsize = get_min_rb_unit(mod_id, CC_id);
   uint8_t *vrb_map = RC.mac[mod_id]->common_channels[CC_id].vrb_map;
   uint8_t rbgalloc_mask[N_RBG_MAX];
@@ -522,7 +522,7 @@ pp_impl_param_t static_dl_init(module_id_t mod_id, int CC_id) {
   /* insert default slice, all resources */
   static_slice_param_t *dlp = malloc(sizeof(static_slice_param_t));
   dlp->posLow = 0;
-  dlp->posHigh = to_rbg(RC.mac[mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth) - 1;
+  dlp->posHigh = to_rbg(RC.mac[mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth) - 1;
   default_sched_dl_algo_t *algo = &RC.mac[mod_id]->pre_processor_dl.dl_algo;
   algo->data = NULL;
   DevAssert(0 == addmod_static_slice_dl(si, 0, strdup("default"), algo, dlp));

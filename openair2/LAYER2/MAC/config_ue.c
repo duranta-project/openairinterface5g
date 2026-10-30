@@ -300,17 +300,17 @@ rrc_mac_config_req_ue(module_id_t Mod_idP,
   if (measObj != NULL) {
     if (measObj[0] != NULL &&
         measObj[0]->measObject.present == LTE_MeasObjectToAddMod__measObject_PR_measObjectEUTRA &&
-        measObj[0]->measObject.choice.measObjectEUTRA.cellsToAddModList != NULL) {
+        measObj[0]->measObject.choice.measObjectEUTRA->cellsToAddModList != NULL) {
       UE_mac_inst[Mod_idP].n_adj_cells =
         measObj[0]->measObject.choice.
-        measObjectEUTRA.cellsToAddModList->list.count;
+        measObjectEUTRA->cellsToAddModList->list.count;
       LOG_I(MAC, "Number of adjacent cells %d\n",
             UE_mac_inst[Mod_idP].n_adj_cells);
 
       for (i = 0; i < UE_mac_inst[Mod_idP].n_adj_cells; i++) {
         UE_mac_inst[Mod_idP].adj_cell_id[i] =
           measObj[0]->measObject.choice.
-          measObjectEUTRA.cellsToAddModList->list.array[i]->
+          measObjectEUTRA->cellsToAddModList->list.array[i]->
           physCellId;
         LOG_I(MAC, "Cell %d : Nid_cell %d\n", i,
               UE_mac_inst[Mod_idP].adj_cell_id[i]);
@@ -327,33 +327,35 @@ rrc_mac_config_req_ue(module_id_t Mod_idP,
           Mod_idP, eNB_index);
     ue_mac_reset(Mod_idP, eNB_index);
 
-    if (mobilityControlInfo->radioResourceConfigCommon.
+    if (mobilityControlInfo->radioResourceConfigCommon->
         rach_ConfigCommon) {
       memcpy((void *)
              &UE_mac_inst[Mod_idP].radioResourceConfigCommon->
              rach_ConfigCommon,
              (void *) mobilityControlInfo->
-             radioResourceConfigCommon.rach_ConfigCommon,
+             radioResourceConfigCommon->rach_ConfigCommon,
              sizeof(LTE_RACH_ConfigCommon_t));
     }
 
+    if (!radioResourceConfigCommon->prach_Config)
+      radioResourceConfigCommon->prach_Config = calloc_or_fail(1, sizeof(*radioResourceConfigCommon->prach_Config));
     memcpy((void *) &UE_mac_inst[Mod_idP].
-           radioResourceConfigCommon->prach_Config.prach_ConfigInfo,
+           radioResourceConfigCommon->prach_Config->prach_ConfigInfo,
            (void *) mobilityControlInfo->
-           radioResourceConfigCommon.prach_Config.prach_ConfigInfo,
+           radioResourceConfigCommon->prach_Config->prach_ConfigInfo,
            sizeof(LTE_PRACH_ConfigInfo_t));
     UE_mac_inst[Mod_idP].radioResourceConfigCommon->
-    prach_Config.rootSequenceIndex =
-      mobilityControlInfo->radioResourceConfigCommon.
-      prach_Config.rootSequenceIndex;
+    prach_Config->rootSequenceIndex =
+      mobilityControlInfo->radioResourceConfigCommon->
+      prach_Config->rootSequenceIndex;
 
-    if (mobilityControlInfo->radioResourceConfigCommon.
+    if (mobilityControlInfo->radioResourceConfigCommon->
         pdsch_ConfigCommon) {
       memcpy((void *)
              &UE_mac_inst[Mod_idP].radioResourceConfigCommon->
              pdsch_ConfigCommon,
              (void *) mobilityControlInfo->
-             radioResourceConfigCommon.pdsch_ConfigCommon,
+             radioResourceConfigCommon->pdsch_ConfigCommon,
              sizeof(LTE_PDSCH_ConfigCommon_t));
     }
 
@@ -361,62 +363,62 @@ rrc_mac_config_req_ue(module_id_t Mod_idP,
     memcpy((void *) &UE_mac_inst[Mod_idP].
            radioResourceConfigCommon->pusch_ConfigCommon,
            (void *) &mobilityControlInfo->
-           radioResourceConfigCommon.pusch_ConfigCommon,
+           radioResourceConfigCommon->pusch_ConfigCommon,
            sizeof(LTE_PUSCH_ConfigCommon_t));
 
-    if (mobilityControlInfo->radioResourceConfigCommon.phich_Config) {
+    if (mobilityControlInfo->radioResourceConfigCommon->phich_Config) {
       /* memcpy((void *)&UE_mac_inst[Mod_idP].radioResourceConfigCommon->phich_Config,
       (void *)mobilityControlInfo->radioResourceConfigCommon.phich_Config,
       sizeof(LTE_PHICH_Config_t)); */
     }
 
-    if (mobilityControlInfo->radioResourceConfigCommon.
+    if (mobilityControlInfo->radioResourceConfigCommon->
         pucch_ConfigCommon) {
       memcpy((void *)
              &UE_mac_inst[Mod_idP].radioResourceConfigCommon->
              pucch_ConfigCommon,
              (void *) mobilityControlInfo->
-             radioResourceConfigCommon.pucch_ConfigCommon,
+             radioResourceConfigCommon->pucch_ConfigCommon,
              sizeof(LTE_PUCCH_ConfigCommon_t));
     }
 
     if (mobilityControlInfo->
-        radioResourceConfigCommon.soundingRS_UL_ConfigCommon) {
+        radioResourceConfigCommon->soundingRS_UL_ConfigCommon) {
       memcpy((void *)
              &UE_mac_inst[Mod_idP].radioResourceConfigCommon->
              soundingRS_UL_ConfigCommon,
              (void *) mobilityControlInfo->
-             radioResourceConfigCommon.soundingRS_UL_ConfigCommon,
+             radioResourceConfigCommon->soundingRS_UL_ConfigCommon,
              sizeof(LTE_SoundingRS_UL_ConfigCommon_t));
     }
 
     if (mobilityControlInfo->
-        radioResourceConfigCommon.uplinkPowerControlCommon) {
+        radioResourceConfigCommon->uplinkPowerControlCommon) {
       memcpy((void *)
              &UE_mac_inst[Mod_idP].radioResourceConfigCommon->
              uplinkPowerControlCommon,
              (void *) mobilityControlInfo->
-             radioResourceConfigCommon.uplinkPowerControlCommon,
+             radioResourceConfigCommon->uplinkPowerControlCommon,
              sizeof(LTE_UplinkPowerControlCommon_t));
     }
 
     //configure antennaInfoCommon somewhere here..
-    if (mobilityControlInfo->radioResourceConfigCommon.p_Max) {
+    if (mobilityControlInfo->radioResourceConfigCommon->p_Max) {
       //to be configured
     }
 
-    if (mobilityControlInfo->radioResourceConfigCommon.tdd_Config) {
+    if (mobilityControlInfo->radioResourceConfigCommon->tdd_Config) {
       UE_mac_inst[Mod_idP].tdd_Config =
-        mobilityControlInfo->radioResourceConfigCommon.tdd_Config;
+        mobilityControlInfo->radioResourceConfigCommon->tdd_Config;
     }
 
     if (mobilityControlInfo->
-        radioResourceConfigCommon.ul_CyclicPrefixLength) {
+        radioResourceConfigCommon->ul_CyclicPrefixLength) {
       memcpy((void *)
              &UE_mac_inst[Mod_idP].radioResourceConfigCommon->
              ul_CyclicPrefixLength,
              (void *) mobilityControlInfo->
-             radioResourceConfigCommon.ul_CyclicPrefixLength,
+             radioResourceConfigCommon->ul_CyclicPrefixLength,
              sizeof(LTE_UL_CyclicPrefixLength_t));
     }
 
@@ -489,7 +491,7 @@ rrc_mac_config_req_ue(module_id_t Mod_idP,
 
     for (i = 0; i < pmch_InfoList->list.count; i++) {
       UE_mac_inst[Mod_idP].pmch_Config[i] =
-        &pmch_InfoList->list.array[i]->pmch_Config_r9;
+        pmch_InfoList->list.array[i]->pmch_Config_r9;
       LOG_I(MAC, "[UE %d] PMCH[%d]: MCH_Scheduling_Period = %ld\n",
             Mod_idP, i,
             UE_mac_inst[Mod_idP].
