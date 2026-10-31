@@ -294,6 +294,7 @@ extern "C" {
                                                                               c16_t *y,
                                                                               const int N)
   {
+#ifdef __AVX2__
     // Default implementation for x86
     const int8_t makePairs[32] __attribute__((aligned(32)))={
       0,1,0+16,1+16,
@@ -321,6 +322,22 @@ extern "C" {
       y128++;
       x128++;
     }
+#else
+    // Without AVX2, SIMDE implements simde_mm256_mulhrs_epi16() with a C loop, which clang doesn't vectorize on Arm.
+    // The 128-bit simde_mm_mulhrs_epi16() maps to NEON.
+    const simde__m128i alpha128 = simde_mm_set1_epi32(*(int32_t *)alpha);
+    const simde__m128i *x128 = (const simde__m128i *)x;
+    simde__m128i *y128 = (simde__m128i *)y;
+    AssertFatal(N % 8 == 0, "Not implemented\n");
+    for (int i = 0; i < N / 8; i++) {
+      // x0 x0 x1 x1 x2 x2 x3 x3 and x4 x4 ... x7 x7, times alpha.r alpha.i alpha.r alpha.i ...
+      const simde__m128i lo = simde_mm_mulhrs_epi16(alpha128, simde_mm_unpacklo_epi16(x128[i], x128[i]));
+      const simde__m128i hi = simde_mm_mulhrs_epi16(alpha128, simde_mm_unpackhi_epi16(x128[i], x128[i]));
+      // doubled, as above
+      y128[2 * i] = simde_mm_adds_epi16(simde_mm_adds_epi16(lo, lo), y128[2 * i]);
+      y128[2 * i + 1] = simde_mm_adds_epi16(simde_mm_adds_epi16(hi, hi), y128[2 * i + 1]);
+    }
+#endif
   }
 
 /*!\fn void multadd_real_vector_complex_scalar(int16_t *x,int16_t *alpha,int16_t *y,uint32_t N)
