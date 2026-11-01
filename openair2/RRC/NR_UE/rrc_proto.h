@@ -36,7 +36,7 @@ void set_rlf_sib1_timers_and_constants(NR_UE_Timers_Constants_t *tac, NR_UE_Time
    \param void *args_p Pointer on arguments to start the task. */
 void *rrc_nrue_task(void *args_p);
 void *rrc_nrue(void *args_p);
-
+void nr_rrc_ue_update_capability(NR_UE_RRC_INST_t *rrc, const NR_FreqBandList_t *filter, const OCTET_STRING_t *ue_CapEnquiryExt);
 void nr_rrc_handle_timers(NR_UE_RRC_INST_t *rrc);
 void handle_rlf_detection(NR_UE_RRC_INST_t *rrc);
 void handle_302_expired_stopped(NR_UE_RRC_INST_t *rrc);
