@@ -73,6 +73,7 @@ struct position; /* forward declaration */
 void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19_r17, int hfn, int frame, bool can_start_ra);
 void nr_rrc_mac_resume_rb(module_id_t module_id, bool is_srb, int rb_id);
 void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t cause);
+void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t *scc, int cc_idP, int hfn, int frame);
 
 typedef struct nr_neighbor_cell_info {
   int16_t Nid_cell; // Physical Cell ID

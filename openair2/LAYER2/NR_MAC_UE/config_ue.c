@@ -410,7 +410,7 @@ static void configure_ntn_ta(fapi_nr_ntn_config_t *ntn_ta,
   ntn_ta->params_changed = true;
 }
 
-static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t *scc, int cc_idP, int hfn, int frame)
+void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t *scc, int cc_idP, int hfn, int frame)
 {
   fapi_nr_config_request_t *cfg = &mac->phy_config.config_req;
 
@@ -420,32 +420,49 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
 
   // carrier config
   LOG_D(MAC, "[UE %d] Entering UE Config Common\n", mac->ue_id);
-  mac->numerology = *scc->ssbSubcarrierSpacing;
 
   AssertFatal(scc->downlinkConfigCommon, "Not expecting downlinkConfigCommon to be NULL here\n");
   NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
+
+  // ssbSubcarrierSpacing is optional (3GPP TS 38.331 Cond HOAndServCellWithSSB)
+  int scs = -1;
+  if (scc->ssbSubcarrierSpacing) {
+    scs = *scc->ssbSubcarrierSpacing;
+  } else if (frequencyInfoDL && frequencyInfoDL->scs_SpecificCarrierList.list.count > 0
+             && frequencyInfoDL->scs_SpecificCarrierList.list.array[0]) {
+    scs = frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
+  } else if (scc->downlinkConfigCommon->initialDownlinkBWP) {
+    scs = scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.subcarrierSpacing;
+  } else {
+    scs = mac->numerology;
+  }
+  mac->numerology = scs;
+
   if (frequencyInfoDL) { // NeedM for inter-freq handover
     mac->nr_band = *frequencyInfoDL->frequencyBandList.list.array[0];
     frame_type = get_frame_type(mac->nr_band, mac->numerology);
     mac->frequency_range = get_freq_range_from_band(mac->nr_band);
 
-    AssertFatal(mac->numerology == frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing, "DL and SSB subcarrierSpacing must be the same!\n");
+    if (scc->ssbSubcarrierSpacing) {
+      AssertFatal(mac->numerology == frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing,
+                  "DL and SSB subcarrierSpacing must be the same!\n");
+    }
     int bw_index = get_supported_band_index(frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing,
                                             mac->frequency_range,
                                             frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth);
     cfg->carrier_config.dl_bandwidth = get_supported_bw_mhz(mac->frequency_range, bw_index);
 
     cfg->carrier_config.dl_frequency = from_nrarfcn(mac->nr_band,
-                                                    *scc->ssbSubcarrierSpacing,
+                                                    scs,
                                                     frequencyInfoDL->absoluteFrequencyPointA)
                                        / 1000; // freq in kHz
     LOG_I(NR_MAC,
-          "[UE %d] Set dl_frequency=%u kHz (from absoluteFrequencyPointA=%ld, band=%d, scs=%ld)\n",
+          "[UE %d] Set dl_frequency=%u kHz (from absoluteFrequencyPointA=%ld, band=%d, scs=%d)\n",
           mac->ue_id,
           cfg->carrier_config.dl_frequency,
           frequencyInfoDL->absoluteFrequencyPointA,
           mac->nr_band,
-          *scc->ssbSubcarrierSpacing);
+          scs);
 
     for (int i = 0; i < 5; i++) {
       if (i == frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing) {
@@ -476,7 +493,7 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
 
     if (UL_pointA)
       cfg->carrier_config.uplink_frequency = from_nrarfcn(*frequencyInfoUL->frequencyBandList->list.array[0],
-                                                          *scc->ssbSubcarrierSpacing,
+                                                          scs,
                                                           *UL_pointA)
                                              / 1000; // freq in kHz
 
@@ -492,13 +509,14 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
   }
 
   // cell config
-  cfg->cell_config.phy_cell_id = *scc->physCellId;
+  if (scc->physCellId)
+    cfg->cell_config.phy_cell_id = *scc->physCellId;
   cfg->cell_config.frame_duplex_type = frame_type;
   cfg->cell_config.N_TA_offset = get_ta_offset(scc->n_TimingAdvanceOffset);
 
   // SSB config
   cfg->ssb_config.ss_pbch_power = scc->ss_PBCH_BlockPower;
-  cfg->ssb_config.scs_common = *scc->ssbSubcarrierSpacing;
+  cfg->ssb_config.scs_common = scc->ssbSubcarrierSpacing ? *scc->ssbSubcarrierSpacing : scs;
 
   // SSB Table config
   if (frequencyInfoDL && frequencyInfoDL->absoluteFrequencySSB) {
@@ -506,37 +524,41 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
                                                                  frequencyInfoDL->absoluteFrequencyPointA,
                                                                  cfg->ssb_config.scs_common,
                                                                  mac->frequency_range);
-    cfg->ssb_table.ssb_period = *scc->ssb_periodicityServingCell;
+    cfg->ssb_table.ssb_period = scc->ssb_periodicityServingCell ? *scc->ssb_periodicityServingCell : 0;
     // NSA -> take ssb offset from SCS
     cfg->ssb_table.ssb_subcarrier_offset = get_ssb_subcarrier_offset(*frequencyInfoDL->absoluteFrequencySSB,
                                                                      frequencyInfoDL->absoluteFrequencyPointA,
                                                                      cfg->ssb_config.scs_common);
-    cfg->ssb_table.ssb_case = set_ssb_case(*scc->ssbSubcarrierSpacing, mac->nr_band);
+    cfg->ssb_table.ssb_case = set_ssb_case(scc->ssbSubcarrierSpacing ? *scc->ssbSubcarrierSpacing : scs, mac->nr_band);
   }
 
-  switch (scc->ssb_PositionsInBurst->present) {
-  case 1 :
-    cfg->ssb_table.ssb_mask_list[0].ssb_mask = ((uint32_t) scc->ssb_PositionsInBurst->choice.shortBitmap.buf[0]) << 24;
-    cfg->ssb_table.ssb_mask_list[1].ssb_mask = 0;
-    break;
-  case 2 :
-    cfg->ssb_table.ssb_mask_list[0].ssb_mask = ((uint32_t) scc->ssb_PositionsInBurst->choice.mediumBitmap.buf[0]) << 24;
-    cfg->ssb_table.ssb_mask_list[1].ssb_mask = 0;
-    break;
-  case 3 :
-    cfg->ssb_table.ssb_mask_list[0].ssb_mask = 0;
-    cfg->ssb_table.ssb_mask_list[1].ssb_mask = 0;
-    for (int i = 0; i < 4; i++) {
-      cfg->ssb_table.ssb_mask_list[0].ssb_mask += (uint32_t) scc->ssb_PositionsInBurst->choice.longBitmap.buf[3 - i] << i * 8;
-      cfg->ssb_table.ssb_mask_list[1].ssb_mask += (uint32_t) scc->ssb_PositionsInBurst->choice.longBitmap.buf[7 - i] << i * 8;
+  if (scc->ssb_PositionsInBurst) {
+    switch (scc->ssb_PositionsInBurst->present) {
+    case 1 :
+      cfg->ssb_table.ssb_mask_list[0].ssb_mask = ((uint32_t) scc->ssb_PositionsInBurst->choice.shortBitmap.buf[0]) << 24;
+      cfg->ssb_table.ssb_mask_list[1].ssb_mask = 0;
+      break;
+    case 2 :
+      cfg->ssb_table.ssb_mask_list[0].ssb_mask = ((uint32_t) scc->ssb_PositionsInBurst->choice.mediumBitmap.buf[0]) << 24;
+      cfg->ssb_table.ssb_mask_list[1].ssb_mask = 0;
+      break;
+    case 3 :
+      cfg->ssb_table.ssb_mask_list[0].ssb_mask = 0;
+      cfg->ssb_table.ssb_mask_list[1].ssb_mask = 0;
+      for (int i = 0; i < 4; i++) {
+        cfg->ssb_table.ssb_mask_list[0].ssb_mask += (uint32_t) scc->ssb_PositionsInBurst->choice.longBitmap.buf[3 - i] << i * 8;
+        cfg->ssb_table.ssb_mask_list[1].ssb_mask += (uint32_t) scc->ssb_PositionsInBurst->choice.longBitmap.buf[7 - i] << i * 8;
+      }
+      break;
+    default:
+      AssertFatal(1 == 0, "SSB bitmap size value %d undefined (allowed values 1,2,3) \n", scc->ssb_PositionsInBurst->present);
     }
-    break;
-  default:
-    AssertFatal(1==0,"SSB bitmap size value %d undefined (allowed values 1,2,3) \n", scc->ssb_PositionsInBurst->present);
+  } else {
+    memset(cfg->ssb_table.ssb_mask_list, 0, sizeof(cfg->ssb_table.ssb_mask_list));
   }
 
   int period_idx = mac->tdd_UL_DL_ConfigurationCommon ? get_tdd_period_idx(mac->tdd_UL_DL_ConfigurationCommon) : 0;
-  config_frame_structure(*scc->ssbSubcarrierSpacing,
+  config_frame_structure(scs,
                          mac->tdd_UL_DL_ConfigurationCommon,
                          period_idx,
                          frame_type,
