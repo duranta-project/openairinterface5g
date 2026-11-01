@@ -17,23 +17,12 @@
 #define SL_NR_FIRST_SSS_SYMBOL 3
 #define SL_NR_NUM_PSS_SSS_SYMBOLS 4
 
-// #define SL_DEBUG
-
 static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int length, c16_t **rxdata)
 {
   sl_nr_ue_phy_params_t *sl_ue = &UE->SL_UE_PHY_PARAMS;
   SL_NR_SYNC_PARAMS_t *sync_params = &sl_ue->sync_params;
   NR_DL_FRAME_PARMS *sl_fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
   c16_t **pss_for_correlation = (c16_t **)sl_ue->init_params.sl_pss_for_correlation;
-
-#ifdef SL_DEBUG
-  char fname[50], sname[25];
-  LOG_M(fname, sname, &rxdata[0][sl_fp->samples_per_frame], sl_fp->samples_per_frame, 1, 1);
-  LOG_M("pss_for_correlation0.m", "pss_id0", pss_for_correlation[0], 2048, 1, 1);
-  LOG_M("pss_for_correlation1.m", "pss_id1", pss_for_correlation[1], 2048, 1, 1);
-
-  int64_t *pss_corr_debug_values[SL_NR_NUM_IDs_IN_PSS];
-#endif
 
   int maxval = 0;
   for (int i = 0; i < sl_fp->ofdm_symbol_size; i++) {
@@ -45,22 +34,11 @@ static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int length, c16_t **rxdata)
 
   int shift = log2_approx(maxval); //*(sl_fp->ofdm_symbol_size + sl_fp->nb_prefix_samples)*2);
 
-#ifdef SL_DEBUG
-  LOG_I(PHY, "SIDELINK SLSS SEARCH: Function:%s\n", __func__);
-  LOG_I(PHY, "maxval:%d, shift:%d\n", maxval, shift);
-#endif
-
   int64_t avg[SL_NR_NUM_IDs_IN_PSS] = {0};
   int64_t peak_value = 0, psss_corr_value = 0;
   unsigned int peak_position = 0, pss_source = 0;
   for (int pss_index = 0; pss_index < SL_NR_NUM_IDs_IN_PSS; pss_index++)
     avg[pss_index] = 0;
-
-#ifdef SL_DEBUG
-  int64_t *pss_corr_debug_values[SL_NR_NUM_IDs_IN_PSS];
-  for (int pss_index = 0; pss_index < SL_NR_NUM_IDs_IN_PSS; pss_index++)
-    pss_corr_debug_values[pss_index] = malloc16_clear(length * sizeof(int64_t));
-#endif
 
   for (int n = 0; n < length - sl_fp->ofdm_symbol_size; n += 4) { //
 
@@ -86,15 +64,6 @@ static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int length, c16_t **rxdata)
     }
   }
 
-#ifdef SL_DEBUG
-  LOG_M("pss_corr_debug_values_0.m", "pss_corr0", &pss_corr_debug_values[0][0], length, 1, 6);
-  LOG_M("pss_corr_debug_values_1.m", "pss_corr1", &pss_corr_debug_values[1][0], length, 1, 6);
-
-  for (int pss_index = 0; pss_index < SL_NR_NUM_IDs_IN_PSS; pss_index++) {
-    free(pss_corr_debug_values[pss_index]);
-  }
-#endif
-
   double ffo_est = 0;
   if (UE->UE_fo_compensation) { // Not tested
 
@@ -117,9 +86,6 @@ static int sl_nr_pss_correlation(PHY_VARS_NR_UE *UE, int length, c16_t **rxdata)
     // estimation of fractional frequency offset: angle[(result1)'*(result2)]/pi
     ffo_est = atan2(r1d.r * r2d.i - r2d.r * r1d.i, r1d.r * r2d.r + r1d.i * r2d.i) / M_PI;
 
-#ifdef SL_DEBUG
-    printf("ffo %lf\n", ffo_est);
-#endif
   }
 
   // computing absolute value of frequency offset
@@ -218,18 +184,6 @@ static void sl_nr_extract_sss(PHY_VARS_NR_UE *ue,
 
     LOG_D(PHY, "SIDELINK SLSS SEARCH: Ch. estimation SSS done\n");
   }
-
-  /*
-
-  #ifdef SL_DEBUG
-
-    write_output("rxsig0.m","rxs0",&ue->common_vars.rxdata[0][0],ue->frame_parms.samples_per_subframe,1,1);
-    write_output("rxdataF0_pss.m","rxF0_pss",&ue->common_vars.rxdataF[0][0],frame_parms->ofdm_symbol_size,1,1);
-    write_output("rxdataF0_sss.m","rxF0_sss",&ue->common_vars.rxdataF[0][(SSS_SYMBOL_NB-PSS_SYMBOL_NB)*frame_parms->ofdm_symbol_size],frame_parms->ofdm_symbol_size,1,1);
-    write_output("pss_ext.m","pss_ext",pss_ext,LENGTH_PSS_NR,1,1);
-
-  #endif
-  */
 
   /* for phase evaluation, one uses an array of possible phase shifts */
   /* then a correlation is done between received signal with a shift pĥase and the reference signal */
@@ -408,6 +362,7 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
       /* In order to achieve correct processing for NR prefix samples is forced to 0 and then restored after function call */
       int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2] = {0};
       int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2] = {0};
+      uint8_t log2_maxh = 0;
       int psbch_e_rx_offset = 0;
 
       for (int symbol = 0; symbol < SL_NR_NUMSYM_SLSS_NORMAL_CP; symbol++) {
@@ -442,7 +397,8 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
                                      true,
                                      rx_slss_id);
         }
-        nr_generate_psbch_llr(frame_parms, rxdataF_symb, dl_ch_estimates, symbol, &psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
+        nr_generate_psbch_llr(
+            frame_parms, rxdataF_symb, dl_ch_estimates, symbol, &log2_maxh, &psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
 
         UE->adjust_rxgain = nr_sl_psbch_rsrp_measurements(UE, sl_ue, frame_parms, symbol, rxdataF, false);
 
@@ -482,10 +438,18 @@ nr_initial_sync_t sl_nr_slss_search(PHY_VARS_NR_UE *UE, UE_nr_rxtx_proc_t *proc,
 
         result.rx_offset = sync_params->rx_offset;
 
-        nr_sidelink_indication_t sl_indication;
         sl_nr_rx_indication_t rx_ind = {0};
         uint16_t number_pdus = 1;
-        nr_fill_sl_indication(&sl_indication, &rx_ind, NULL, proc, UE, NULL);
+        nr_sidelink_indication_t sl_indication = {.module_id = UE->Mod_id,
+                                                  .hfn_rx = proc->hfn_rx,
+                                                  .frame_rx = proc->frame_rx,
+                                                  .slot_rx = proc->nr_slot_rx,
+                                                  .hfn_tx = proc->hfn_tx,
+                                                  .frame_tx = proc->frame_tx,
+                                                  .slot_tx = proc->nr_slot_tx,
+                                                  .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                                  .rx_ind = &rx_ind,
+                                                  .phy_data = NULL};
         nr_fill_sl_rx_indication(&rx_ind, SL_NR_RX_PDU_TYPE_SSB, UE, number_pdus, (void *)decoded_output, rx_slss_id);
 
         LOG_D(PHY, "Sidelink SLSS SEARCH PSBCH RX OK. Send SL-SSB TO MAC\n");

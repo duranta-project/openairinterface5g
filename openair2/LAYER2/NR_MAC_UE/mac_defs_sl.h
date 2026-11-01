@@ -10,7 +10,11 @@
 #include "NR_TDD-UL-DL-ConfigCommon.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
 #include "NR_UE_PHY_INTERFACE/NR_IF_Module.h"
+#include "nr_ue_sci.h"
+#include <pthread.h>
+#include "mac_defs.h"
 
+#define HARQ_ROUND_MAX 4
 #define SL_NR_MAC_NUM_RX_RESOURCE_POOLS 1
 #define SL_NR_MAC_NUM_TX_RESOURCE_POOLS 1
 
@@ -25,6 +29,40 @@
 #define NR_SBCCH_SL_BCH 0xFF
 
 #define sci_field_t dci_field_t
+
+// 38321 section 6.1.6 Figure 6.1.6-1
+typedef struct {
+  uint8_t V: 4; // octet 1 [7:4]
+  uint8_t R: 4; // octet 1 [3:0]
+  uint16_t  SRC: 16; // octet 2, octet 3
+  uint8_t DST: 8; // octet 4
+}__attribute__ ((__packed__)) NR_SLSCH_MAC_SUBHEADER_FIXED;
+
+// SL BSR MAC CEs
+// TS 38.321 ch. 6.1.3.33
+// Short BSR for a specific logical channel group ID
+typedef struct {
+  uint8_t destination_index: 5;    // octet 1 MSB
+  uint8_t LcgID: 3;                // octet 1 LSB
+  uint8_t Buffer_size: 8;
+} __attribute__ ((__packed__)) NR_SL_BSR_SHORT;
+
+typedef NR_SL_BSR_SHORT NR_SL_BSR_SHORT_TRUNCATED;
+
+#define SL_SCH_LCID_SCCH_PC5_NOT_PROT              0	// SCCH carrying PC5-S messages that are not protected
+#define SL_SCH_LCID_SCCH_PC5_DSMC                  1    // SCCH carrying PC5-S messages "Direct Security Mode Command" and "Direct Security Mode Complete"
+#define SL_SCH_LCID_SCCH_PC5_PROT                  2	// SCCH carrying other PC5-S messages that are protected
+#define SL_SCH_LCID_SCCH_PC5_RRC                   3	// SCCH carrying PC5-RRC messages
+#define SL_SCH_LCID_4_19                           4    // 4–19	Identity of the logical channel
+#define SL_SCH_LCID_20_55                          20   // 20–55	Reserved
+#define SL_SCH_LCID_SCCH_RRC_SL_RLC0               56	// SCCH carrying RRC messages delivered via SL-RLC0 as specified in TS 38.331 [5]
+#define SL_SCH_LCID_SCCH_RRC_SL_RLC1               57	// SCCH carrying RRC message delivered via SL-RLC1 as specified in TS 38.331 [5]
+#define SL_SCH_LCID_SCCH_SL_DISCOVERY              58	// SCCH for Sidelink Discovery Messages
+#define SL_SCH_LCID_SL_INTER_UE_COORD_REQ          59	// Sidelink Inter-UE Coordination Request
+#define SL_SCH_LCID_SL_INTER_UE_COORD_INFO         60	// Sidelink Inter-UE Coordination Information
+#define SL_SCH_LCID_SL_DRX_CMD                     61	// Sidelink DRX Command
+#define SL_SCH_LCID_SL_CSI_REPORT                  62	// Sidelink CSI Reporting
+#define SL_SCH_LCID_SL_PADDING                     63	// Padding
 
 typedef struct sidelink_sci_format_1a_fields {
 
@@ -78,6 +116,7 @@ typedef struct SL_ResourcePool_params {
   //This holds the structure from RRC
   NR_SL_ResourcePool_r16_t *respool;
 
+  BIT_STRING_t phy_sl_bitmap;
   //NUM Subchannels in this resource pool
   uint16_t num_subch;
 
@@ -87,6 +126,13 @@ typedef struct SL_ResourcePool_params {
   //SCI-1A configuration according to RESPOOL configured.
   sidelink_sci_format_1a_fields_t sci_1a;
 
+  uint8_t tproc0;  // T_proc0 in slots
+  uint8_t tproc1;  // T_proc1 in slots
+  uint16_t t0;      // T0 - Sensing window
+  uint8_t t1; // T1 - The offset in number of slots between the slot in which the resource
+              // selection is triggered and the start of the selection window
+  uint16_t t2;  // T2 - The configured value of T2 (end of selection window)
+  uint8_t t2min; // t2min
 } SL_ResourcePool_params_t;
 
 typedef struct sl_ssb_timealloc {
@@ -113,6 +159,23 @@ typedef struct sl_bch_params {
 
 } sl_bch_params_t;
 
+/**
+ * \brief Structure to pass parameters to trigger the selection of candidate
+ * resources as per TR 38.214 Section 8.1.4
+ */
+typedef struct {
+    uint8_t priority;    // L1 priority prio_TX
+    uint16_t packet_delay_budget_ms;   // remaining packet delay budget
+    uint16_t l_subch;    // L_subCH; number of subchannels to be used
+    uint16_t rri;        // resource reservation interval
+    uint16_t resel_counter;       // C_resel counter
+    int sl_thresh_rsrp;  // A threshold in dBm used for sensing based UE autonomous resource selection
+    float sl_res_ratio;  /* The percentage threshold to indicate the
+                                 minimum number of candidate single-slot
+                                 resources to be selected using sensing procedure.
+                              */
+} nr_sl_transmission_params_t;
+
 typedef struct sl_stored_tti_req {
   uint32_t sl_action;
   int frame;
@@ -130,11 +193,26 @@ typedef struct sl_nr_ue_mac_params {
   //Holds either the TDD config from RRC
   //or TDD config decoded from SL-MIB
   NR_TDD_UL_DL_ConfigCommon_t *sl_TDD_config;
+  nr_sl_transmission_params_t  mac_tx_params;
 
-  //Configured from RRC
-  uint32_t sl_MaxNumConsecutiveDTX;
+  // CSI params configured locally
+  uint8_t symb_l0;
+  uint8_t csi_type;
+  uint8_t power_control_offset;
+  uint8_t power_control_offset_ss;
+  uint8_t freq_density;
+  uint8_t subcarrier_spacing;
+  uint8_t cyclic_prefix;
+  uint16_t start_rb;
+  uint16_t nr_of_rbs;
+  uint8_t row;
+  uint16_t freq_domain;
+  uint8_t cdm_type;
+  uint16_t scramb_id;
+  uint8_t measurement_bitmap;
+  uint8_t sl_LatencyBoundCSI_Report;
+
   uint32_t sl_SSB_PriorityNR;
-  uint8_t sl_CSI_Acquisition;
 
   //MAC prepares this and sends it to PHY
   nr_sl_phy_config_t sl_phy_config;

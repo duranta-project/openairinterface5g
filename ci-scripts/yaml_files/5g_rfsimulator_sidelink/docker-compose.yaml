@@ -3,7 +3,7 @@
 services:
     oai-nr-ue-1:
         image: ${REGISTRY-oaisoftwarealliance/}${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
-        container_name: rfsim5g-oai-nr-ue-1
+        container_name: rfsim5g-oai-nr-ue
         cap_drop:
             - ALL
         cap_add:
@@ -17,7 +17,7 @@ services:
         devices:
             - /dev/net/tun:/dev/net/tun
         volumes:
-            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+            - ../../../targets/PROJECTS/NR-SIDELINK/CONF/sl_sync_ref.conf:/opt/oai-nr-ue/etc/nr-ue.conf
         healthcheck:
             test: /bin/bash -c "pgrep nr-uesoftmodem"
             start_period: 10s
@@ -28,7 +28,7 @@ services:
 
     oai-nr-ue-2:
         image: ${REGISTRY-oaisoftwarealliance/}${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
-        container_name: rfsim5g-oai-nr-ue-2
+        container_name: rfsim5g-oai-nr-ue2
         cap_drop:
             - ALL
         cap_add:
@@ -44,7 +44,7 @@ services:
         devices:
              - /dev/net/tun:/dev/net/tun
         volumes:
-            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+            - ../../../targets/PROJECTS/NR-SIDELINK/CONF/sl_ue1.conf:/opt/oai-nr-ue/etc/nr-ue.conf
         healthcheck:
             test: /bin/bash -c "pgrep nr-uesoftmodem"
             start_period: 10s

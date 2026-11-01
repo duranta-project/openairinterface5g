@@ -178,16 +178,6 @@ typedef int8_t (nr_ue_scheduled_response_f)(nr_scheduled_response_t *scheduled_r
 /*
  * Generic type of an application-defined callback to return various
  * types of data to the application.
- * EXPECTED RETURN VALUES:
- *  -1: Failed to consume bytes. Abort the mission.
- * Non-negative return values indicate success, and ignored.
- */
-typedef void (nr_sl_ue_scheduled_response_f)(nr_scheduled_response_t *sl_scheduled_response);
-
-
-/*
- * Generic type of an application-defined callback to return various
- * types of data to the application.
  */
 typedef void (nr_ue_phy_config_request_f)(nr_phy_config_t *phy_config);
 

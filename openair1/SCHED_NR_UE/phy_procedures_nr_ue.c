@@ -819,13 +819,16 @@ static bool is_ssb_index_transmitted(const PHY_VARS_NR_UE *ue, const int index)
     return ue->frame_parms.ssb_index == index;
 }
 
-static int get_pdcch_max_rbs(NR_UE_PDCCH_CONFIG *phy_pdcch_config)
+static int get_pdcch_max_rbs(NR_UE_PDCCH_CONFIG *phy_pdcch_config, bool pscch_processing)
 {
   int nb_rb = 0;
   int rb_offset = 0;
   for (int i = 0; i < phy_pdcch_config->nb_search_space; i++) {
     int tmp = 0;
-    get_coreset_rballoc(phy_pdcch_config->pdcch_config[i].coreset.frequency_domain_resource, &tmp, &rb_offset);
+    if (pscch_processing)
+      tmp = phy_pdcch_config->pdcch_config[i].coreset.frequency_domain_resource[1];
+    else
+      get_coreset_rballoc(phy_pdcch_config->pdcch_config[i].coreset.frequency_domain_resource, &tmp, &rb_offset);
     if (tmp > nb_rb)
       nb_rb = tmp;
   }
@@ -842,7 +845,7 @@ static int get_max_pdcch_symb(const NR_UE_PDCCH_CONFIG *phy_pdcch_config)
   return max_pdcch_symb;
 }
 
-void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data, int pscch_processing)
 {
   NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
   if (phy_pdcch_config->nb_search_space == 0)
@@ -850,12 +853,16 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
 
   TracyCZone(ctx, true);
   /* process PDCCH */
-  LOG_D(PHY, " ------ --> PDCCH ChannelComp/LLR Frame.slot %d.%d ------  \n", proc->frame_rx % 1024, proc->nr_slot_rx);
+  LOG_D(PHY, " ------ --> %s ChannelComp/LLR Frame.slot %d.%d ------  \n", pscch_processing ? "PSCCH" : "PDCCH", proc->frame_rx % 1024, proc->nr_slot_rx);
   start_meas_nr_ue_phy(ue, DLSCH_RX_PDCCH_STATS);
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
-  int num_monitoring_occ = get_max_pdcch_monOcc(phy_pdcch_config, fp->symbols_per_slot);
+  NR_DL_FRAME_PARMS *fep_fp = pscch_processing ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : fp;
+  const int num_monitoring_occ = get_max_pdcch_monOcc(phy_pdcch_config, fep_fp->symbols_per_slot);
+  // Only the sidelink caller guarantees an occasion here; the DL path keeps
+  // tolerating a slot without one, as it did before PSCCH shared this code.
+  AssertFatal(!pscch_processing || num_monitoring_occ > 0, "PSCCH has no monitoring occasion in this slot\n");
   int max_nb_symb_pdcch = get_max_pdcch_symb(phy_pdcch_config);
-  int llr_size_symbol = get_pdcch_max_rbs(phy_pdcch_config) * 9;
+  int llr_size_symbol = get_pdcch_max_rbs(phy_pdcch_config, pscch_processing) * 9;
   c16_t pdcch_llr[phy_pdcch_config->nb_search_space][num_monitoring_occ][max_nb_symb_pdcch * llr_size_symbol];
   int start_symb_pdcch, last_symb_pdcch;
   set_first_last_pdcch_symb(phy_pdcch_config, fp->symbols_per_slot, &start_symb_pdcch, &last_symb_pdcch);
@@ -866,16 +873,20 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
   __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
 
+  // Sidelink PSCCH was transmitted with the SL frame params (link_type_sl, SL
+  // carrier). Demodulate with the matching rotation table, otherwise the wrong
+  // per-symbol phase / timeshift derotation corrupts the PSCCH symbols.
+  enum nr_Link fep_link = pscch_processing ? link_type_sl : link_type_dl;
   for (int symbol = start_symb_pdcch; symbol <= last_symb_pdcch; symbol++) {
-    nr_slot_fep(ue, fp, proc->nr_slot_rx, symbol, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+    nr_slot_fep(ue, fep_fp, proc->nr_slot_rx, symbol, rxdataF, fep_link, 0, ue->common_vars.rxdata);
     __attribute__((aligned(32))) c16_t rxdataF_symb[fp->nb_antennas_rx][((fp->ofdm_symbol_size + 7) / 8) * 8];
 
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++)
       memcpy(rxdataF_symb[ant], &rxdataF[ant][symbol * fp->ofdm_symbol_size], sizeof(c16_t) * fp->ofdm_symbol_size);
 
-    nr_pdcch_generate_llr(ue, proc, symbol, phy_data, llr_size_symbol, num_monitoring_occ, max_nb_symb_pdcch, rxdataF_symb, pdcch_llr);
+    nr_pdcch_generate_llr(ue, proc, symbol, phy_data, llr_size_symbol, num_monitoring_occ, max_nb_symb_pdcch, rxdataF_symb, pdcch_llr,pscch_processing);
     if (symbol == last_symb_pdcch) {
-      nr_pdcch_dci_indication(proc, llr_size_symbol * max_nb_symb_pdcch, num_monitoring_occ, ue, phy_data, pdcch_llr);
+      nr_pdcch_dci_indication(proc, llr_size_symbol * max_nb_symb_pdcch, num_monitoring_occ, ue, phy_data, pdcch_llr,pscch_processing);
       UEscopeCopy(ue, pdcchLlr, pdcch_llr, sizeof(c16_t), 1, sizeof(pdcch_llr) / sizeof(c16_t), 0);
     }
   }

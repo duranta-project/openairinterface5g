@@ -10,6 +10,9 @@
 #define __NR_POLAR_DCI_DEFS__H__
 
 #define NR_POLAR_DCI_MESSAGE_TYPE 1 // int8_t
+// Message type 4 is reserved for UCI on PUSCH.
+#define NR_POLAR_SCI_MESSAGE_TYPE 5 // int8_t
+#define NR_POLAR_SCI2_MESSAGE_TYPE (NR_POLAR_SCI_MESSAGE_TYPE + 1) //int8_t
 #define NR_POLAR_DCI_CRC_PARITY_BITS 24
 #define NR_POLAR_DCI_CRC_ERROR_CORRECTION_BITS 3
 
