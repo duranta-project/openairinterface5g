@@ -189,8 +189,8 @@ int esm_ebr_context_create(
               const char *ifn = get_softmodem_params()->nsa ? "oaitun_nru" : "oaitun_ue";
               char ifname[IFNAMSIZ];
               tun_generate_ifname(ifname, ifn, 0);
-              tun_config(ifname, ip, NULL);
-              setup_ue_ipv4_route(ifname, 0, pid, ip);
+              if (tun_config(ifname, ip, NULL))
+                setup_ue_ipv4_route(ifname, 0, pid, ip);
             } break;
 
             case NET_PDN_TYPE_IPV6:

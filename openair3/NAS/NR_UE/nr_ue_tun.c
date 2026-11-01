@@ -19,8 +19,7 @@ void nr_ue_tun_create_ip_if(nas_ue_pdu_tun_t *t, const char *ipv4, const char *i
     return;
 
   t->sock = tuntap_alloc(IFF_TUN, t->ifname);
-  tun_config(t->ifname, ipv4, ipv6);
-  if (ipv4)
+  if (tun_config(t->ifname, ipv4, ipv6) && ipv4)
     setup_ue_ipv4_route(t->ifname, ue_id, pdu_session_id, ipv4);
 }
 
