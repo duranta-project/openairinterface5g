@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <UE-NR-Capability>
-    <accessStratumRelease><rel15/></accessStratumRelease>
+    <accessStratumRelease><rel16/></accessStratumRelease>
     <pdcp-Parameters>
         <supportedROHC-Profiles>
             <profile0x0000><false/></profile0x0000>
