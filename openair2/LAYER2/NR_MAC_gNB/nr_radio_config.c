@@ -3090,7 +3090,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
       *sib1_1700->intraFreqReselectionRedCap_r17 = redcap_config->intraFreqReselectionRedCap_r17;
     }
 
-    if (is_ntn_band(band)) {
+    if (is_ntn_band(band) || (scc->ext2 && scc->ext2->ntn_Config_r17)) {
       // If cell provides NTN access, set cellBarredNTN to notBarred.
       asn1cCallocOne(sib1_1700->cellBarredNTN_r17, NR_SIB1_v1700_IEs__cellBarredNTN_r17_notBarred);
     }
