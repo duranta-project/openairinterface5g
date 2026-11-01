@@ -832,22 +832,22 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.time_since_last_timing_info = (uint32_t)(elapsed_us / 1000); // Convert to ms
 
 	// Use RFC 3550 calculated jitter values (in microseconds)
-	timing_info.dl_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_DL_TTI);
-	timing_info.tx_data_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_TX_DATA);
-	timing_info.ul_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_TTI);
-	timing_info.ul_dci_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_DCI);
+	timing_info.dl_tti.jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_DL_TTI);
+	timing_info.tx_data.jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_TX_DATA);
+	timing_info.ul_tti.jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_TTI);
+	timing_info.ul_dci.jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_DCI);
 
 	// If latest_delay is still INT32_MIN, no packets of that type were received; report 0
 	// If earliest_arrival is still INT32_MAX, no packets of that type were received; report 0
-	timing_info.dl_tti_latest_delay = (pnf_p7->dl_tti_latest_delay == INT32_MIN) ? 0 : pnf_p7->dl_tti_latest_delay;
-	timing_info.tx_data_latest_delay = (pnf_p7->tx_data_latest_delay == INT32_MIN) ? 0 : pnf_p7->tx_data_latest_delay;
-	timing_info.ul_tti_latest_delay = (pnf_p7->ul_tti_latest_delay == INT32_MIN) ? 0 : pnf_p7->ul_tti_latest_delay;
-	timing_info.ul_dci_latest_delay = (pnf_p7->ul_dci_latest_delay == INT32_MIN) ? 0 : pnf_p7->ul_dci_latest_delay;
+	timing_info.dl_tti.latest_delay = (pnf_p7->dl_tti_latest_delay == INT32_MIN) ? 0 : pnf_p7->dl_tti_latest_delay;
+	timing_info.tx_data.latest_delay = (pnf_p7->tx_data_latest_delay == INT32_MIN) ? 0 : pnf_p7->tx_data_latest_delay;
+	timing_info.ul_tti.latest_delay = (pnf_p7->ul_tti_latest_delay == INT32_MIN) ? 0 : pnf_p7->ul_tti_latest_delay;
+	timing_info.ul_dci.latest_delay = (pnf_p7->ul_dci_latest_delay == INT32_MIN) ? 0 : pnf_p7->ul_dci_latest_delay;
 
-	timing_info.dl_tti_earliest_arrival = (pnf_p7->dl_tti_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->dl_tti_earliest_arrival;
-	timing_info.tx_data_request_earliest_arrival = (pnf_p7->tx_data_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->tx_data_earliest_arrival;
-	timing_info.ul_tti_earliest_arrival = (pnf_p7->ul_tti_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->ul_tti_earliest_arrival;
-	timing_info.ul_dci_earliest_arrival = (pnf_p7->ul_dci_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->ul_dci_earliest_arrival;
+	timing_info.dl_tti.earliest_arrival = (pnf_p7->dl_tti_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->dl_tti_earliest_arrival;
+	timing_info.tx_data.earliest_arrival = (pnf_p7->tx_data_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->tx_data_earliest_arrival;
+	timing_info.ul_tti.earliest_arrival = (pnf_p7->ul_tti_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->ul_tti_earliest_arrival;
+	timing_info.ul_dci.earliest_arrival = (pnf_p7->ul_dci_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->ul_dci_earliest_arrival;
   AssertFatal(pnf_p7->_public.send_p7_msg, "The function pointer to pack and send P7 messages must be set");
   pnf_p7->_public.send_p7_msg(pnf_p7, &(timing_info.header), sizeof(timing_info));
 

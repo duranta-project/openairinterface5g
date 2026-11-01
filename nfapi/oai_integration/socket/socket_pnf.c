@@ -701,7 +701,7 @@ int pnf_nr_p7_message_pump(pnf_p7_t *pnf_p7)
 
   if (pnf_p7->rx_message_buffer == NULL) {
     pnf_p7->rx_message_buffer_size = PNF_P7_RX_MESSAGE_BUFFER_MAX_SIZE;
-    pnf_p7->rx_message_buffer = malloc(pnf_p7->rx_message_buffer_size);
+    pnf_p7->rx_message_buffer = pnf_p7_malloc(pnf_p7, pnf_p7->rx_message_buffer_size);
     if (pnf_p7->rx_message_buffer == NULL) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate PNF_P7 rx message buffer\n");
       return -1;

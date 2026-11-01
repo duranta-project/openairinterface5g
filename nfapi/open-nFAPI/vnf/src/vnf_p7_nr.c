@@ -456,10 +456,10 @@ int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 	 * A negative latest_delay means the message arrived before deadline.
 	 */
 	int32_t latest_delay_values[4] = {
-		ind->dl_tti_latest_delay,
-		ind->tx_data_latest_delay,
-		ind->ul_tti_latest_delay,
-		ind->ul_dci_latest_delay
+		ind->dl_tti.latest_delay,
+		ind->tx_data.latest_delay,
+		ind->ul_tti.latest_delay,
+		ind->ul_dci.latest_delay
 	};
 	/*
 	 * Earliest arrival values:
@@ -467,10 +467,10 @@ int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 	 * They should not override a positive latest_delay.
 	 */
 	int32_t earliest_arrival_values[4] = {
-		ind->dl_tti_earliest_arrival,
-		ind->tx_data_request_earliest_arrival,
-		ind->ul_tti_earliest_arrival,
-		ind->ul_dci_earliest_arrival
+		ind->dl_tti.earliest_arrival,
+		ind->tx_data.earliest_arrival,
+		ind->ul_tti.earliest_arrival,
+		ind->ul_dci.earliest_arrival
 	};
 	int32_t worst_late = INT32_MIN;
 	int32_t worst_early = INT32_MAX;
@@ -741,10 +741,10 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	}
 
 	pthread_mutex_lock(&p7_con->mutex);
-	if (!p7_con->initial_timinginfo_received) {
+	if (!p7_con->initial_timing_info_received) {
 		p7_con->sfn = ind.last_sfn;
 		p7_con->slot = ind.last_slot;
-		p7_con->initial_timinginfo_received = 1;
+		p7_con->initial_timing_info_received = 1;
 	}
 	pthread_cond_signal(&p7_con->initial_timinginfo_cond);
 	pthread_mutex_unlock(&p7_con->mutex);

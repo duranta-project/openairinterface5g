@@ -2362,17 +2362,20 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
     //send VNF slot indication, which is aligned with TX thread, so that it can call the scheduler
     //we give four additional slots (2ms) which should be enough time for the VNF to
     //answer
-#ifndef ENABLE_WLS
+#ifndef ENABLE_SOCKET
   int slot_ahead = 2 << mu;
 #else
   int slot_ahead = 1 << mu;
 #endif
+  // The incoming SFN/slot are already set by the PNF radio/slot callback.
+  // Only the transport-facing indication is advanced by slot_ahead; the
+  // P7 message lookup below must continue to use the original SFN/slot.
   uint16_t sfn_tx = sfn;
   uint16_t slot_tx = slot;
   sfnslot_add_slot(mu, &sfn_tx, &slot_tx, slot_ahead); // modify: do in place
 
   // printf("send slot indication for sfn/slot:%4d.%2d current:%4d.%2d\n", sfn_tx, slot_tx, sfn, slot);
-#ifdef ENABLE_WLS
+#ifndef ENABLE_SOCKET
   nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
   oai_nfapi_nr_slot_indication(&ind);
 #endif

@@ -1237,6 +1237,9 @@ uint8_t pack_nr_config_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
                         &pack_uint8_tlv_value);
   numTLVs++;
 
+  // These four per-message timing offsets are OAI's PR242 delay-management
+  // extension.  They are not SCF225 Table 3-19 CONFIG.request TLVs, so both
+  // endpoints must explicitly support this extension.
   retval &= pack_nr_tlv(NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET,
                         &(pNfapiMsg->nfapi_config.dl_tti_timing_offset),
                         ppWritePackedMsg,
@@ -1264,7 +1267,10 @@ uint8_t pack_nr_config_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
                         end,
                         &pack_uint32_tlv_value);
   numTLVs++;
-  // END nFAPI TLVs included in CONFIG.request for IDLE and CONFIGURED states
+  // END nFAPI TLVs included in CONFIG.request for IDLE and CONFIGURED states.
+  // The four timing-offset TLVs above are an OAI extension, not SCF225
+  // Table 3-19 fields; keep them only for interoperating OAI endpoints that
+  // implement the PR242 delay-management extension.
 
   if (pNfapiMsg->vendor_extension != 0 && config != 0) {
     retval &= pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);

@@ -56,7 +56,11 @@ static pthread_t vnf_p5_init_and_receive_pthread;
 static pthread_t vnf_timing_thread_handle;
 static bool vnf_timing_thread_created;
 
-static int nr_start_resp_received = 0;
+/* Set by the P5 thread before the autonomous timing thread starts using the
+ * configured P7 connection.  Volatile is sufficient for this one-way flag;
+ * the connection/configuration data it guards is initialized before the
+ * START.response is sent. */
+static volatile bool nr_start_resp_received = false;
 
 vnf_p7_t *get_p7_nr_vnf();
 
@@ -394,7 +398,7 @@ void *vnf_timing_thread(void *arg)
     if (vnf_p7->terminate) {
       return NULL;
     }
-    if (__atomic_load_n(&nr_start_resp_received, __ATOMIC_ACQUIRE)) {
+    if (nr_start_resp_received) {
       if (vnf_p7->p7_connections) {
         p7_info = vnf_p7->p7_connections;
         if (RC.nrmac && RC.nrmac[0]) {
@@ -416,7 +420,7 @@ void *vnf_timing_thread(void *arg)
     usleep(1000000); // poll once per second until the gNB numerology (mu) is configured
   }
   pthread_mutex_lock(&p7_info->mutex);
-  while (!p7_info->initial_timinginfo_received && !vnf_p7->terminate) {
+  while (!p7_info->initial_timing_info_received && !vnf_p7->terminate) {
     pthread_cond_wait(&p7_info->initial_timinginfo_cond, &p7_info->mutex);
   }
   pthread_mutex_unlock(&p7_info->mutex);
@@ -427,7 +431,7 @@ void *vnf_timing_thread(void *arg)
   p7_info->mu = mu;
   p7_info->slot_duration_us = 1000 >> p7_info->mu;
   LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread: mu = %d, slot duration = %d us\n", mu, p7_info->slot_duration_us);
-  if (p7_info->initial_timinginfo_received) {
+  if (p7_info->initial_timing_info_received) {
     int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
     sfnslot_dec = (sfnslot_dec + 1) % NFAPI_MAX_SFNSLOTDEC(p7_info->mu);
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
@@ -851,7 +855,7 @@ int nr_config_resp_cb(nfapi_nr_vnf_config_t *config, int p5_idx, nfapi_nr_config
 int nr_start_resp_cb(nfapi_nr_vnf_config_t *config, int p5_idx, nfapi_nr_start_response_scf_t *resp) {
   UNUSED(config);
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
-  __atomic_store_n(&nr_start_resp_received, 1, __ATOMIC_RELEASE);
+  nr_start_resp_received = true;
   return 0;
 }
 
