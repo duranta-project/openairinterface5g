@@ -22,6 +22,12 @@
 // Extension to the generic structures for single tlv values
 
 typedef struct {
+  uint32_t jitter;
+  int32_t latest_delay;
+  int32_t earliest_arrival;
+} nfapi_nr_timing_info_metrics_t;
+
+typedef struct {
   /// Value: 0 -> 1, 0: Payload is carried directly in the value field, 1: Pointer to payload is in the value field
   uint16_t tag;
   /// Length of the actual payload in bytes, without the padding bytes Value: 0 → 0xFFFFFFFF
@@ -1227,20 +1233,10 @@ typedef struct {
   uint32_t last_slot;
   uint32_t time_since_last_timing_info;
 
-  uint32_t dl_tti_jitter;
-  uint32_t tx_data_request_jitter;
-  uint32_t ul_tti_jitter;
-  uint32_t ul_dci_jitter;
-
-  int32_t dl_tti_latest_delay;
-  int32_t tx_data_request_latest_delay;
-  int32_t ul_tti_latest_delay;
-  int32_t ul_dci_latest_delay;
-
-  int32_t dl_tti_earliest_arrival;
-  int32_t tx_data_request_earliest_arrival;
-  int32_t ul_tti_earliest_arrival;
-  int32_t ul_dci_earliest_arrival;
+  nfapi_nr_timing_info_metrics_t dl_tti;
+  nfapi_nr_timing_info_metrics_t tx_data;
+  nfapi_nr_timing_info_metrics_t ul_tti;
+  nfapi_nr_timing_info_metrics_t ul_dci;
   nfapi_vendor_extension_tlv_t vendor_extension;
 } nfapi_nr_timing_info_t;
 
