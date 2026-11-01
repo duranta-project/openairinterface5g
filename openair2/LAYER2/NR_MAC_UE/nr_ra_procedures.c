@@ -242,6 +242,7 @@ static void configure_ra_preamble(NR_UE_MAC_INST_t *mac)
   ra->ro_mask_index = -1; // init as not selected
   NR_RACH_ConfigDedicated_t *rach_ConfigDedicated = ra->rach_ConfigDedicated;
   if (ra->ra_type == RA_4_STEP) {
+    ra->ssb_ro_config = mac->ssb_ro_preambles;
     // TODO if the Random Access procedure was initiated for SpCell beam failure recovery
     // TODO if the Random Access procedure was initiated for SI request
 
