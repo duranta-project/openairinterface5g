@@ -45,8 +45,7 @@ typedef struct {
   /* CLOCK_REALTIME timescale: FH_CLOCK_UTC (default) or FH_CLOCK_TAI. */
   fh_clock_timebase_t clock_timebase;
   oru_fh_tdd_pattern_t tdd_pattern;
-  int prach_eaxc_offset;
-  oru_eaxc_lists_t eaxc_lists; // all empty: RU port layout with prach_eaxc_offset
+  oru_eaxc_lists_t eaxc_lists; // the configured lists, or oru_eaxc_ru_port_lists(prach_eaxc_offset)
   int prach_kbar;
 } oru_fh_config_t;
 

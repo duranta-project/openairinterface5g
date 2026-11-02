@@ -220,7 +220,7 @@ void *oru_fh_init(oru_fh_config_t *cfg)
     return NULL;
   }
 
-  oru_pcap_init_from_env(cfg->prach_eaxc_offset, cfg->mtu);
+  oru_pcap_init_from_env(cfg->mtu);
 
   fh->packet_processor = init_packet_processor(cfg->numerology,
                                                cfg->num_prbs,
@@ -237,14 +237,9 @@ void *oru_fh_init(oru_fh_config_t *cfg)
                                                (send_func_t)oru_io_send_uplane,
                                                &fh->io,
                                                cfg->mtu,
-                                               cfg->prach_eaxc_offset,
+                                               &cfg->eaxc_lists,
                                                cfg->comp_type,
                                                cfg->prach_kbar);
-  const oru_eaxc_lists_t *lists = &cfg->eaxc_lists;
-  if (lists->num[ORU_EAXC_DL] + lists->num[ORU_EAXC_UL] + lists->num[ORU_EAXC_PRACH] > 0) {
-    set_eaxc_lists(fh->packet_processor, lists);
-    oru_pcap_set_prach_eaxcs(lists->id[ORU_EAXC_PRACH], lists->num[ORU_EAXC_PRACH]);
-  }
 
   return fh;
 }
