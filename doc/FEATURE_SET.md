@@ -15,12 +15,12 @@
 -  FAPI (IF2)  : specified by Small Cell Forum (open-nFAPI implementation)
 -  IF1         : F1 in 3GPP Release 15
 
-![Functional Split Architecture](./images/oai_enb_func_split_arch.png)
+![Functional Split Architecture](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/oai_enb_func_split_arch.png)
 
 
 ## OpenAirInterface Block Diagram
 
-![Block Diagram](./images/oai_enb_block_diagram.png)
+![Block Diagram](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/oai_enb_block_diagram.png)
 
 ## OpenAirInterface 5G-NR Feature Set
 

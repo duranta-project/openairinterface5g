@@ -312,6 +312,6 @@ Enter number of active gNBs: <Active_gNBs>
 This script reads the IQ data from the extracted PRS dumps (`chF_gnbX_Y.raw` and
 `chT_gnbX_Y.raw`) and plots them as shown below:
 
-![PRS CFR FR2](./images/PRS_CFR_FR2_64PRB_8rsc.PNG)
+![PRS CFR FR2](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/PRS_CFR_FR2_64PRB_8rsc.PNG)
 
-![PRS CIR FR2](./images/PRS_CIR_FR2_64PRB_8rsc.PNG)
+![PRS CIR FR2](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/PRS_CIR_FR2_64PRB_8rsc.PNG)

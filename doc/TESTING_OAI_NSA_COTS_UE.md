@@ -48,12 +48,12 @@ Our code might not work with all 5G phones yet, but we are constantly improving 
 
 The scheme below depicts our typical setup:
 
-![image info](./images/oai_fr1_setup.jpg)
+![image info](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/oai_fr1_setup.jpg)
 
 The photo depicts the FR1 setup part of the scheme above:  
 
 
-![image info](./images/oai_fr1_lab.jpg)
+![image info](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/oai_fr1_lab.jpg)
 
 ## Build and Install
 
@@ -236,7 +236,7 @@ The test case corresponds to the UE attachement, that is the UE connection and i
 
 **Source** : [5G/LTE interworking](https://www.sharetechnote.com/html/5G/5G_LTE_Interworking.html )
 
-![image info](./images/attach_signaling_scheme.jpg)
+![image info](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/attach_signaling_scheme.jpg)
 
 The test reaches step **12. E-RAB modifcation confirmation** , eventhough not all the messages will appear in the log file. 
 
