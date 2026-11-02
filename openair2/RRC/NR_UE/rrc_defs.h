@@ -192,15 +192,17 @@ typedef struct l3_measurements_s {
   float csi_RS_filter_coeff_rsrp;
   meas_t serving_cell;
   meas_t neighboring_cell[NUMBER_OF_NEIGHBORING_CELLS_MAX];
-  meas_report_params_t meas_report[NR_MAX_MEAS_ID];
+  meas_report_params_t meas_report[NR_MAX_MEAS_ID + 1];
 } l3_measurements_t;
 
 typedef struct rrcPerNB {
-  NR_MeasObjectToAddMod_t *MeasObj[NR_MAX_MEAS_OBJ];
-  NR_ReportConfigToAddMod_t *ReportConfig[NR_MAX_MEAS_CONFIG];
+  // Indexed directly by the network-assigned id, which is 1..NR_MAX_MEAS_* in TS 38.331 §6.3.2 (MeasObjectId, ReportConfigId,
+  // MeasId), so slot 0 is unused and the last valid id needs a slot of its own.
+  NR_MeasObjectToAddMod_t *MeasObj[NR_MAX_MEAS_OBJ + 1];
+  NR_ReportConfigToAddMod_t *ReportConfig[NR_MAX_MEAS_CONFIG + 1];
   NR_QuantityConfigNR_t *QuantityConfig[MAX_QUANTITY_CONFIG];
-  NR_MeasIdToAddMod_t *MeasId[NR_MAX_MEAS_ID];
-  NR_VarMeasReport_t *MeasReport[NR_MAX_MEAS_ID];
+  NR_MeasIdToAddMod_t *MeasId[NR_MAX_MEAS_ID + 1];
+  NR_VarMeasReport_t *MeasReport[NR_MAX_MEAS_ID + 1];
   NR_MeasGapConfig_t *measGapConfig;
   NR_UE_RRC_SI_INFO SInfo;
   NR_RSRP_Range_t s_measure;
