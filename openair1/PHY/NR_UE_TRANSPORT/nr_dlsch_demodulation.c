@@ -920,9 +920,14 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     fuse_env = e ? atoi(e) : 0;
   }
   const bool fuse_1layer = fuse_env && (nl == 1) && !scope_req->copy_rxdataF_comp_to_scope;
+  // Fused 2-layer near-ML (nr_inner_rx_2layer_ml): the joint ML-LLR path below, QPSK/16QAM/64QAM
+  // or 256QAM under the L-best (ml256) gate. The 256QAM-MMSE and do_ml-off paths are not fused.
+  const uint8_t qam_fuse = dlsch->cw_info.qamModOrder;
+  const bool fuse_2layer_ml = fuse_env && (nl == 2) && do_ml && (qam_fuse <= 6 || (qam_fuse == 8 && ml256))
+                              && !scope_req->copy_rxdataF_comp_to_scope;
 
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
-  if (!fuse_1layer)
+  if (!fuse_1layer && !fuse_2layer_ml)
     nr_channel_compensation(rx_size_symbol,
                             pdsch_buf_size_max,
                             nbRx,
@@ -1009,17 +1014,32 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     // padded to 16 REs: the SIMD ML LLR kernels write whole groups of REs
     __attribute__((aligned(32))) int16_t sym_llr[2][ceil_mod(nb_re_pdsch, 16) * qamModOrder];
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    nr_compute_ML_llr(rxdataF_comp[0],
-                      rxdataF_comp[1],
-                      dl_ch_mag[0],
-                      dl_ch_mag[1],
-                      sym_llr[0],
-                      sym_llr[1],
-                      rho_dl[1],
-                      rho_dl[nl],
-                      nb_re_pdsch,
-                      qamModOrder,
-                      lbest_gate);
+    if (fuse_2layer_ml)
+      nr_inner_rx_2layer_ml(nb_re_pdsch,
+                            rx_size_symbol,
+                            nbRx,
+                            rxdataF_ext,
+                            chFext,
+                            ptrs_phase,
+                            qamModOrder,
+                            lbest_gate,
+                            *log2_maxh,
+                            sym_llr[0],
+                            sym_llr[1],
+                            NULL,
+                            NULL);
+    else
+      nr_compute_ML_llr(rxdataF_comp[0],
+                        rxdataF_comp[1],
+                        dl_ch_mag[0],
+                        dl_ch_mag[1],
+                        sym_llr[0],
+                        sym_llr[1],
+                        rho_dl[1],
+                        rho_dl[nl],
+                        nb_re_pdsch,
+                        qamModOrder,
+                        lbest_gate);
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
 
     int16_t *p_symllr[2] = {sym_llr[0], sym_llr[1]};
