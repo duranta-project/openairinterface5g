@@ -168,6 +168,7 @@ void nr_up_drb_budget_sync(ue_id_t ue_id, rb_id_t drb_id, uint32_t tx_space)
     drb_budget = nr_up_manager_insert_drb(ue_id, drb_id);
   }
   drb_budget->available_tx_bytes = tx_space;
+  drb_budget->max_tx_bytes = tx_space;
   drb_budget->last_budget_sync = nr_up_current_time_ms();
   nr_up_manager_unlock();
 }
