@@ -392,6 +392,7 @@ void free_nr_ue_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors)
       free_and_zero(buffers[i].llr[c]);
 #endif
     }
+    free_and_zero(buffers[i].scramble);
   }
 }
 
@@ -516,6 +517,7 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
 #endif
     }
     buffers[i].llr[1] = NULL;
+    buffers[i].scramble = malloc16(llr_buf_max * sizeof(int16_t));
   }
 }
 
