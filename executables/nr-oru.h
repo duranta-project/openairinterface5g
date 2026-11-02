@@ -75,6 +75,8 @@ typedef struct {
   time_stats_t rx;
   prach_item_t prach_item;
   oru_codebook_t codebook;
+  // UL Rx combine weights (PUSCH, PRACH): ul_codebook_weights if set, else a copy of codebook
+  oru_codebook_t ul_codebook;
   bool threequarter_fs;
 
   // Real-time Self-diagnosis metrics

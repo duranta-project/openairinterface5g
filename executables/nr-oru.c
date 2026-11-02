@@ -36,6 +36,7 @@
 #define CONFIG_STRING_NB_FH_STREAMS "nb_fh_streams"
 #define CONFIG_STRING_CODEBOOK_NB_BEAMS "codebook_nb_beams"
 #define CONFIG_STRING_CODEBOOK_WEIGHTS "codebook_weights"
+#define CONFIG_STRING_UL_CODEBOOK_WEIGHTS "ul_codebook_weights"
 #define CONFIG_STRING_ORU_TX_CORE "tx_core"
 
 #define HLP_ORU_TX_BW "set the TX bandwidth list per component carrier"
@@ -53,9 +54,12 @@
 #define HLP_ORU_NUM_UL_SYMBOLS "set the number of UL symbols in the mixed slot"
 #define HLP_NB_FH_STREAMS "number of fronthaul streams from DU (0=passthrough, enables codebook beamforming when > 0)"
 #define HLP_CODEBOOK_NB_BEAMS "number of beams in the O-RU codebook"
-#define HLP_CODEBOOK_WEIGHTS \
+#define HLP_CODEBOOK_WEIGHTS                                                                         \
   "Q15 codebook weights: nb_beams * nb_tx * nb_fh_streams interleaved Re/Im pairs; per beam, the tx" \
-  " antenna row, conjugated, is also the UL Rx combine weight for that RX antenna"
+  " antenna row, conjugated, is also the UL Rx combine weight for that RX antenna unless ul_codebook_weights is set"
+#define HLP_UL_CODEBOOK_WEIGHTS                                                                                               \
+  "optional UL Rx combine weights, same layout as codebook_weights (conjugated per RX antenna); unset: use codebook_weights." \
+  " Lets DL fan one stream out to all antennas while UL keeps one stream per antenna"
 #define HLP_ORU_THREEQUARTER_FS "set the 3/4 sampling frequency"
 
 // clang-format off
@@ -77,6 +81,7 @@
   {CONFIG_STRING_NB_FH_STREAMS,                 HLP_NB_FH_STREAMS,                  0,    .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}, \
   {CONFIG_STRING_CODEBOOK_NB_BEAMS,             HLP_CODEBOOK_NB_BEAMS,              0,    .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}, \
   {CONFIG_STRING_CODEBOOK_WEIGHTS,              HLP_CODEBOOK_WEIGHTS,               0,    .iptr=NULL,       .defintarrayval=NULL,          TYPE_INTARRAY,     0}, \
+  {CONFIG_STRING_UL_CODEBOOK_WEIGHTS,           HLP_UL_CODEBOOK_WEIGHTS,            0,    .iptr=NULL,       .defintarrayval=NULL,          TYPE_INTARRAY,     0}, \
   {CONFIG_STRING_ORU_TX_CORE,                   "The CPU core to be used to deploy south write thread for O-RU.", 0, .iptr=NULL, .defintval=-1, TYPE_INT, 0}, \
 }
 
@@ -399,6 +404,36 @@ void prepare_prach_item(ORU_t *oru)
   }
 }
 
+// Fill cb->w from a codebook weight array (nb_beams x nb_tx x nb_fh_streams Re/Im pairs) of cb's dimensions
+static void read_codebook_weights(const paramdef_t *wgt, int nb_tx, oru_codebook_t *cb)
+{
+  const int expected = cb->nb_beams * nb_tx * cb->nb_fh_streams * 2;
+  AssertFatal(wgt->numelt == expected,
+              "%s: expected %d elements (nb_beams=%d * nb_tx=%d * nb_fh_streams=%d * 2)\n",
+              wgt->optname,
+              expected,
+              cb->nb_beams,
+              nb_tx,
+              cb->nb_fh_streams);
+  int idx = 0;
+  for (int b = 0; b < cb->nb_beams; b++)
+    for (int t = 0; t < nb_tx; t++)
+      for (int s = 0; s < cb->nb_fh_streams; s++) {
+        AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
+                    "%s[%d] value %d out of Q15 range\n",
+                    wgt->optname,
+                    idx,
+                    wgt->iptr[idx]);
+        cb->w[b][t][s].r = (int16_t)wgt->iptr[idx++];
+        AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
+                    "%s[%d] value %d out of Q15 range\n",
+                    wgt->optname,
+                    idx,
+                    wgt->iptr[idx]);
+        cb->w[b][t][s].i = (int16_t)wgt->iptr[idx++];
+      }
+}
+
 int get_oru_options(ORU_t *oru)
 {
   int DEFBW[] = {273};
@@ -449,30 +484,17 @@ int get_oru_options(ORU_t *oru)
                 "codebook beamforming needs nb_rx %d <= nb_tx %d (one weight row per RX antenna)\n",
                 oru->ru->nb_rx,
                 oru->ru->nb_tx);
-    const paramdef_t *wgt = gpd(param, nump, CONFIG_STRING_CODEBOOK_WEIGHTS);
-    int expected = oru->codebook.nb_beams * oru->ru->nb_tx * oru->codebook.nb_fh_streams * 2;
-    AssertFatal(wgt->numelt == expected,
-                "codebook_weights: expected %d elements (nb_beams=%d * nb_tx=%d * nb_fh_streams=%d * 2)\n",
-                expected,
-                oru->codebook.nb_beams,
-                oru->ru->nb_tx,
-                oru->codebook.nb_fh_streams);
-    int idx = 0;
-    for (int b = 0; b < oru->codebook.nb_beams; b++)
-      for (int t = 0; t < oru->ru->nb_tx; t++)
-        for (int s = 0; s < oru->codebook.nb_fh_streams; s++) {
-          AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
-                      "codebook_weights[%d] value %d out of Q15 range\n", idx, wgt->iptr[idx]);
-          oru->codebook.w[b][t][s].r = (int16_t)wgt->iptr[idx++];
-          AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
-                      "codebook_weights[%d] value %d out of Q15 range\n", idx, wgt->iptr[idx]);
-          oru->codebook.w[b][t][s].i = (int16_t)wgt->iptr[idx++];
-        }
+    read_codebook_weights(gpd(param, nump, CONFIG_STRING_CODEBOOK_WEIGHTS), oru->ru->nb_tx, &oru->codebook);
+    oru->ul_codebook = oru->codebook;
+    const paramdef_t *ul_wgt = gpd(param, nump, CONFIG_STRING_UL_CODEBOOK_WEIGHTS);
+    if (ul_wgt->numelt > 0)
+      read_codebook_weights(ul_wgt, oru->ru->nb_tx, &oru->ul_codebook);
     LOG_I(NR_PHY,
-          "Codebook beamforming enabled: nb_fh_streams=%d nb_beams=%d nb_tx=%d\n",
+          "Codebook beamforming enabled: nb_fh_streams=%d nb_beams=%d nb_tx=%d, UL weights from %s\n",
           oru->codebook.nb_fh_streams,
           oru->codebook.nb_beams,
-          oru->ru->nb_tx);
+          oru->ru->nb_tx,
+          ul_wgt->numelt > 0 ? CONFIG_STRING_UL_CODEBOOK_WEIGHTS : CONFIG_STRING_CODEBOOK_WEIGHTS);
   }
 
   oru->tx_write.core = *gpd(param, nump, CONFIG_STRING_ORU_TX_CORE)->iptr;
@@ -907,7 +929,7 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   for (int aarx = 0; aarx < ru->nb_rx; aarx++) {
     rxdataF_ptr[aarx] = rxdataF[aarx];
   }
-  const oru_codebook_t *cb = &oru->codebook;
+  const oru_codebook_t *cb = &oru->ul_codebook;
   if (cb->nb_fh_streams <= 0) {
     oru_fh_rx_send_prach(oru->fronthaul, (uint32_t **)rxdataF_ptr, ru->nb_rx, frame, slot, symbol);
     return;
@@ -938,7 +960,7 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
   RU_t *ru = oru->ru;
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   int aarx = job->antenna_id;
-  const oru_codebook_t *cb = &oru->codebook;
+  const oru_codebook_t *cb = &oru->ul_codebook;
   const bool beamforming = cb->nb_fh_streams > 0;
 
   if (beamforming) {
