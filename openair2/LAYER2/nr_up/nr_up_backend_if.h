@@ -17,6 +17,8 @@ typedef struct nr_up_drb_dl_drop_log_s {
 typedef struct nr_up_drb_budget_s {
   // Per-DRB remaining TX headroom
   uint32_t available_tx_bytes;
+  // Last reported tx_space
+  uint32_t max_tx_bytes;
   // Managed milliseconds when the budget was last synced
   uint64_t last_budget_sync;
   // Managed milliseconds when Report Polling was last taken

@@ -70,7 +70,14 @@ static void *nr_up_rlc_data_req_thread(void *_)
     }
 
     nr_up_rlc_data_req_queue_item *item = &g_nr_up_rlc_queue.q[i];
-    int tx_space = nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    int tx_space;
+    if (item->sdu_pP == NULL) {
+      /* status request: read TX space only */
+      const int rnti = item->ctxt_pP.rntiMaybeUEid;
+      tx_space = nr_rlc_get_available_tx_space(rnti, nr_rlc_get_lcid_from_rb(rnti, false, item->rb_idP));
+    } else {
+      tx_space = nr_rlc_data_req(&item->ctxt_pP, item->srb_flagP, item->rb_idP, item->sdu_id, item->sdu_sizeP, item->sdu_pP);
+    }
 
     if (!item->srb_flagP && tx_space >= 0) {
       nr_up_dl_budget_sync(item->pdcp_ue_id, item->rb_idP, tx_space);

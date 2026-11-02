@@ -15,6 +15,9 @@
  * Without this, DROP with an empty queue never syncs again and can stall DL. */
 #define NR_UP_MONO_BUDGET_STALE_MS 20u
 
+/* Percentage of last maximum TX space above which we start soft-dropping */
+#define NR_UP_SOFT_DROP_THRESHOLD 80u
+
 /** @brief Enqueue a DL DRB PDU toward RLC on the monolithic gNB path
  * Copies the PDU into a memblock and enqueues to the RLC queue */
 static nr_up_dl_transfer_response_t nr_up_mono_deliver_drb(const nr_up_dl_transfer_req_t *req)
@@ -35,26 +38,46 @@ static nr_up_dl_transfer_response_t nr_up_mono_deliver_drb(const nr_up_dl_transf
   return NR_UP_DL_OK;
 }
 
-/** @brief Mono congestion precheck with stale-cache ALLOW if last budget sync
- * is older than threshold */
+/** @brief Mono congestion: 0-80% ALLOW, 80-100% soft (ALLOW once + status), over 100% DROP */
 static nr_up_congestion_action_t nr_up_mono_dl_congestion_precheck(ue_id_t ue_id, rb_id_t drb_id, size_t pdu_len)
 {
-  nr_up_drb_budget_t *drb_budget;
-  uint64_t ms_since_sync;
+  uint64_t now = nr_up_current_time_ms();
 
   nr_up_manager_lock();
-  drb_budget = nr_up_manager_lookup_drb(ue_id, drb_id);
-  if (drb_budget != NULL) {
-    ms_since_sync = nr_up_current_time_ms() - drb_budget->last_budget_sync;
-    /* RLC has not refreshed this budget for too long: allow the packet.
-     * The old occupancy value may be wrong, and keeping DROP would stop all DL. */
-    if (ms_since_sync > NR_UP_MONO_BUDGET_STALE_MS) {
-      nr_up_manager_unlock();
-      return NR_UP_CONGESTION_ALLOW;
-    }
+  nr_up_drb_budget_t *drb_budget = nr_up_manager_lookup_drb(ue_id, drb_id);
+  if (drb_budget == NULL) { // entry is not found, allow packet and wait for the next budget sync
+    nr_up_manager_unlock();
+    return NR_UP_CONGESTION_ALLOW;
   }
+
+  /* RLC has not refreshed this budget for too long: allow the packet.
+   * The old occupancy value may be wrong, and keeping DROP would stop all DL. */
+  if (now - drb_budget->last_budget_sync > NR_UP_MONO_BUDGET_STALE_MS) {
+    nr_up_manager_unlock();
+    return NR_UP_CONGESTION_ALLOW;
+  }
+
+  /* Over 100%: PDU does not fit */
+  if (pdu_len > drb_budget->available_tx_bytes) {
+    nr_up_drb_budget_log_drop(drb_budget);
+    return NR_UP_CONGESTION_DROP;
+  }
+
+  /* 0-80%: ALLOW while available stays above 20% of last reported tx_space */
+  uint64_t available = drb_budget->available_tx_bytes;
+  uint64_t max_tx = drb_budget->max_tx_bytes;
+  if (max_tx == 0 || available * 100u > (100u - NR_UP_SOFT_DROP_THRESHOLD) * max_tx) {
+    nr_up_manager_unlock();
+    return NR_UP_CONGESTION_ALLOW;
+  }
+
+  /* 80-100% soft: ALLOW this PDU once, zero budget, refresh RLC status */
+  drb_budget->available_tx_bytes = 0;
   nr_up_manager_unlock();
-  return nr_up_drb_budget_precheck(ue_id, drb_id, pdu_len);
+  f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_id);
+  protocol_ctxt_t ctxt = {.enb_flag = 1, .rntiMaybeUEid = ue_data.secondary_ue};
+  nr_up_enqueue_rlc_data_req(&ctxt, SRB_FLAG_NO, drb_id, 0, 0, NULL, ue_id);
+  return NR_UP_CONGESTION_ALLOW;
 }
 
 /** @brief Starts the RLC enqueue worker and binds the mono nr-up backend on iface */
