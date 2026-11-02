@@ -12,7 +12,7 @@ FROM $BASE_IMAGE AS ran-base
 ARG TARGETARCH
 ENV TZ=Europe/Paris
 ENV BUILD_UHD_FROM_SOURCE=True
-ENV UHD_VERSION=4.8.0.0
+ENV UHD_VERSION=4.11.0.0
 
 RUN dnf install 'dnf-command(config-manager)' -y && \
     dnf install epel-release -y && crb enable && \

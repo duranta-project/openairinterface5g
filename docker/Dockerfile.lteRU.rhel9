@@ -16,6 +16,9 @@ FROM ran-build:latest AS ru-build
 FROM registry.redhat.io/ubi9/ubi:latest AS oai-lte-ru
 ENV TZ=Europe/Paris
 
+# Install EPEL for RHEL9
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+
 RUN dnf update -y && \
     dnf install -y \
         tzdata \
@@ -60,9 +63,21 @@ COPY --from=ru-base \
     /lib64/libboost_regex.so.1.75.0 \
     /lib64/
 
+# grpc/protobuf runtime of libuhd >= 4.11
+COPY --from=ru-base \
+    /lib64/libproto*.so.* \
+    /lib64/libgrpc*.so.* \
+    /lib64/libgpr.so.* \
+    /lib64/libupb.so.* \
+    /lib64/libaddress_sorting.so.* \
+    /lib64/libabsl_*.so.* \
+    /lib64/libre2.so.* \
+    /lib64/libcares.so.* \
+    /lib64/
+
 # Copying from the ran-build image the USRP needed packages
 COPY --from=ru-base /usr/local/bin/uhd_find_devices /usr/local/bin
-COPY --from=ru-base /usr/local/lib64/libuhd.so.4.8.0 /usr/local/lib64
+COPY --from=ru-base /usr/local/lib64/libuhd.so.4.11.0 /usr/local/lib64
 COPY --from=ru-base /usr/local/lib64/uhd/utils/uhd_images_downloader.py /opt/oai-lte-ru/bin
 
 WORKDIR /usr/local/share/uhd/rfnoc
@@ -78,7 +93,7 @@ RUN /bin/bash -c "ln -s /usr/local/lib/liboai_usrpdevif.so /usr/local/lib/liboai
         /usr/local/lib/liboai_usrpdevif.so \
         /usr/local/lib/libparams_libconfig.so \
         /usr/local/lib/libdfts.so \
-        /usr/local/lib64/libuhd.so.4.8.0
+        /usr/local/lib64/libuhd.so.4.11.0
 
 WORKDIR /opt/oai-lte-ru
 

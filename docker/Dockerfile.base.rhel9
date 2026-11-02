@@ -14,7 +14,7 @@ ARG NEEDED_GIT_PROXY
 ARG TARGETARCH
 ENV TZ=Europe/Paris
 ENV BUILD_UHD_FROM_SOURCE=True
-ENV UHD_VERSION=4.8.0.0
+ENV UHD_VERSION=4.11.0.0
 
 # Copy the entitlements
 COPY ./etc-pki-entitlement /etc/pki/entitlement
