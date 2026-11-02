@@ -1021,50 +1021,45 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   const int llr_per_symbol = nb_re_pdsch * qamModOrder;
 
   start_meas_nr_ue_phy(ue, DLSCH_LLR_LAYER_DEMAP_STATS);
-  if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
-    // 2-layer QPSK/16QAM/64QAM (and 256QAM with the lbest receiver):
-    // joint ML-LLR using inter-layer Tx correlation
-    // rho_dl is laid out as [nl*nl][rx_size_symbol]:
-    // index 1 = rho[0][1], index nl (=2) = rho[1][0]
+  // Single layer, or 2-layer near-ML (QPSK/16QAM/64QAM, and 256QAM under the OAI_LBEST gate): the
+  // detector set shared with the gNB. nr_inner_rx writes this symbol's layer-demapped, descrambled
+  // codeword straight into llr (fused kernels under OAI_FUSE, else LLR on the compensated stream).
+  // rho_dl is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl (=2) = rho[1][0].
+  const bool ml2 = (nl == 2) && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256));
+  if (nl == 1 || ml2) {
     // padded to 16 REs: the SIMD ML LLR kernels write whole groups of REs
-    __attribute__((aligned(32))) int16_t sym_llr[2][ceil_mod(nb_re_pdsch, 16) * qamModOrder];
-    start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    if (fuse_2layer_ml) {
-      // Codeword mode: layer demap + descramble folded into the fused kernel's store.
-      nr_inner_rx_2layer_ml(nb_re_pdsch,
-                            rx_size_symbol,
-                            nbRx,
-                            rxdataF_ext,
-                            chFext,
-                            ptrs_phase,
-                            qamModOrder,
-                            lbest_gate,
-                            *log2_maxh,
-                            NULL,
-                            NULL,
-                            llr,
-                            scramble);
-      stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    } else {
-      nr_compute_ML_llr(rxdataF_comp[0],
-                        rxdataF_comp[1],
-                        dl_ch_mag[0],
-                        dl_ch_mag[1],
-                        sym_llr[0],
-                        sym_llr[1],
-                        rho_dl[1],
-                        rho_dl[nl],
-                        nb_re_pdsch,
-                        qamModOrder,
-                        lbest_gate);
-      stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-
-      int16_t *p_symllr[2] = {sym_llr[0], sym_llr[1]};
-      start_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
-      nr_layer_demapping(2, qamModOrder, nb_re_pdsch, p_symllr, llr);
-      nr_dlsch_descramble_symbol(llr, scramble, 2 * llr_per_symbol);
-      stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
+    __attribute__((aligned(32))) int16_t sym_llr[nl][ceil_mod(nb_re_pdsch, 16) * qamModOrder];
+    int16_t *p_symllr[nl];
+    c16_t *mag_a[nl], *mag_b[nl], *mag_c[nl];
+    for (int l = 0; l < nl; l++) {
+      p_symllr[l] = sym_llr[l];
+      mag_a[l] = dl_ch_mag[l];
+      mag_b[l] = dl_ch_magb[l];
+      mag_c[l] = dl_ch_magr[l];
     }
+    start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
+    nr_inner_rx(nb_re_pdsch,
+                rx_size_symbol,
+                nbRx,
+                nl,
+                qamModOrder,
+                rxdataF_ext,
+                chFext,
+                ptrs_phase,
+                p_rxComp,
+                mag_a,
+                mag_b,
+                mag_c,
+                ml2 ? rho_dl[1] : NULL,
+                ml2 ? rho_dl[nl] : NULL,
+                *log2_maxh,
+                fuse_1layer || fuse_2layer_ml,
+                ml2,
+                lbest_gate,
+                p_symllr,
+                scramble,
+                llr);
+    stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
   } else if (nl == 2) {
     // 2-layer linear MMSE, every case the ML branch above did not take (mmse receiver, or 256QAM
     // with the ml receiver): fused Gram-fed per-RE MMSE (L=1) + per-layer LLR, as in the gNB inner_rx.
@@ -1096,26 +1091,6 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     nr_layer_demapping(2, qamModOrder, nb_re_pdsch, p_symllr, llr);
     nr_dlsch_descramble_symbol(llr, scramble, 2 * llr_per_symbol);
     stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
-  } else if (nl == 1) {
-    /* Single layer: write LLRs directly into the output buffer — no temp buffer or
-     * demapping step needed. */
-    start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    if (fuse_1layer) {
-      nr_inner_rx_1layer(nb_re_pdsch, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], ptrs_phase, qamModOrder, *log2_maxh, llr, scramble);
-    } else {
-      nr_dlsch_llr(dlsch,
-                   nb_re_pdsch,
-                   pdsch_buf_size_max,
-                   dl_ch_mag[0],
-                   dl_ch_magb[0],
-                   dl_ch_magr[0],
-                   nbRx,
-                   rxdataF_comp,
-                   llr_per_symbol,
-                   (int16_t(*)[llr_per_symbol])llr);
-      nr_dlsch_descramble_symbol(llr, scramble, llr_per_symbol);
-    }
-    stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
   } else {
     /* Multi-layer: LLR into per-layer temp buffers, then demapped into output. */
     __attribute__((aligned(32))) int16_t sym_llr[nl][llr_per_symbol];

@@ -4,7 +4,9 @@
 
 #include "nr_channel_compensation.h"
 #include "nr_compute_llr.h"
+#include "nr_layer_demapping.h"
 #include <stdlib.h>
+#include <string.h>
 #include "PHY/sse_intrin.h"
 #include "PHY/impl_defs_top.h"
 #include <simde/x86/avx2.h>
@@ -312,4 +314,84 @@ void nr_inner_rx_2layer_ml(uint32_t length,
   else
     nr_inner_rx_2layer_ml_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift, llr0, llr1, llr_cw, scramble);
 #endif
+}
+
+// Interleave per-layer LLRs into the codeword slice (layer demap) and, if scramble is given,
+// descramble it in place (+-1 int16 multiply, bit-exact with the codeword unscrambling pass).
+static void nr_demap_descramble(int nb_layer, int mod_order, uint32_t length, int16_t *layers[], const int16_t *scramble, int16_t *llr_cw)
+{
+  if (nb_layer > 1)
+    nr_layer_demapping((uint8_t)nb_layer, (uint8_t)mod_order, (int)length, layers, llr_cw);
+  else if (layers[0] != llr_cw)
+    memcpy(llr_cw, layers[0], sizeof(int16_t) * length * mod_order);
+  if (scramble) {
+    const uint32_t n = length * (uint32_t)nb_layer * (uint32_t)mod_order;
+    uint32_t k = 0;
+    for (; k + 16 <= n; k += 16) {
+      simde__m256i v = simde_mm256_loadu_si256((const simde__m256i *)&llr_cw[k]);
+      simde__m256i q = simde_mm256_loadu_si256((const simde__m256i *)&scramble[k]);
+      simde_mm256_storeu_si256((simde__m256i *)&llr_cw[k], simde_mm256_mullo_epi16(v, q));
+    }
+    for (; k < n; k++)
+      llr_cw[k] = (int16_t)(llr_cw[k] * scramble[k]);
+  }
+}
+
+/* Shared post-extraction inner RX for the detector set common to the UE (PDSCH) and the gNB (PUSCH):
+ * single layer, and 2-layer near-ML (full ML or L-best). Either writes the layer-demapped
+ * (+ descrambled) codeword to llr_cw, or, when llr_cw == NULL, leaves per-layer LLRs in
+ * layer_scratch[] for the caller to demap (e.g. the gNB MU-MIMO group path). The non-fused paths
+ * need compensation already done (rxComp / mag_a-c per layer, rho01/rho10 for 2 layers); the fused
+ * paths (fuse) do MRC inline from rxFext/chFext. ml2 selects the 2-layer near-ML detector, lbest its
+ * reduced search. Returns false for the caller-specific paths (2-layer MMSE, 3-layer, >2 layers). */
+bool nr_inner_rx(uint32_t length,
+                 uint32_t buffer_length,
+                 int nb_rx_ant,
+                 int nb_layer,
+                 int mod_order,
+                 c16_t rxFext[nb_rx_ant][buffer_length],
+                 c16_t chFext[nb_layer][nb_rx_ant][buffer_length],
+                 c16_t cpe,
+                 c16_t *rxComp[nb_layer],
+                 c16_t *mag_a[nb_layer],
+                 c16_t *mag_b[nb_layer],
+                 c16_t *mag_c[nb_layer],
+                 c16_t *rho01,
+                 c16_t *rho10,
+                 int output_shift,
+                 bool fuse,
+                 bool ml2,
+                 int lbest,
+                 int16_t *layer_scratch[nb_layer],
+                 const int16_t *scramble,
+                 int16_t *llr_cw)
+{
+  const bool cw = (llr_cw != NULL);
+
+  if (nb_layer == 1) {
+    // Single layer: per-layer order is the codeword order, so the codeword output only adds descrambling.
+    int16_t *out = cw ? llr_cw : layer_scratch[0];
+    if (fuse) {
+      nr_inner_rx_1layer(length, buffer_length, nb_rx_ant, rxFext, chFext[0], cpe, mod_order, output_shift, out, cw ? scramble : NULL);
+      return true;
+    }
+    nr_compute_llr(rxComp[0], mag_a[0], mag_b[0], mag_c[0], out, length, 0, mod_order);
+    if (cw)
+      nr_demap_descramble(1, mod_order, length, &out, scramble, llr_cw);
+    return true;
+  }
+
+  if (nb_layer == 2 && ml2) {
+    if (fuse) {
+      nr_inner_rx_2layer_ml(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift,
+                            cw ? NULL : layer_scratch[0], cw ? NULL : layer_scratch[1], llr_cw, cw ? scramble : NULL);
+      return true;
+    }
+    nr_compute_ML_llr(rxComp[0], rxComp[1], mag_a[0], mag_a[1], layer_scratch[0], layer_scratch[1], rho01, rho10, length, mod_order, lbest);
+    if (cw)
+      nr_demap_descramble(2, mod_order, length, layer_scratch, scramble, llr_cw);
+    return true;
+  }
+
+  return false;
 }

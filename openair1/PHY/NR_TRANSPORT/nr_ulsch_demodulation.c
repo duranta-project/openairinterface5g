@@ -151,7 +151,7 @@ static int get_nb_re_pusch(NR_DL_FRAME_PARMS *frame_parms,
 }
 
 // Returns true iff it wrote the final layer-demapped + descrambled codeword LLRs straight into
-// llr_cw at the store (fused paths only); the caller then skips its demap + unscramble/demux pass.
+// llr_cw (shared nr_inner_rx detectors); the caller then skips its demap + unscramble/demux pass.
 // llr_cw is this symbol's slice of the UE's ulsch_llrs (or NULL to keep the per-layer path via
 // llr[]); scramble is the matching descrambling-sequence slice.
 static bool inner_rx(PHY_VARS_gNB *gNB,
@@ -270,81 +270,75 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
     nr_idft((int32_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length], pusch_vars->ul_valid_re_per_slot[symbol]);
   }
   /* PTRS processing and start_meas(ulsch_llr) now happen earlier, per upstream's ptrs refactor */
+  const uint32_t valid_re = pusch_vars->ul_valid_re_per_slot[symbol];
+  const int mod = rel15_ul->qam_mod_order;
+  const bool ml2 = (nb_layer == 2) && (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE);
+  if (nb_layer == 1 || ml2) {
+    // Single layer, or 2-layer near-ML (pusch_mimo_receiver = lbest | ml): the detector set shared
+    // with the UE. With llr_cw it writes the layer-demapped, descrambled codeword directly.
+    c16_t *rxComp[nb_layer], *mag_a[nb_layer], *mag_b[nb_layer], *mag_c[nb_layer];
+    for (int l = 0; l < nb_layer; l++) {
+      rxComp[l] = &pusch_vars->rxdataF_comp[l][symbol * buffer_length];
+      mag_a[l] = rxF_ch_maga[l];
+      mag_b[l] = rxF_ch_magb[l];
+      mag_c[l] = rxF_ch_magc[l];
+    }
+    nr_inner_rx(valid_re,
+                buffer_length,
+                nb_rx_ant,
+                nb_layer,
+                mod,
+                rxFext,
+                chFext,
+                cpe,
+                rxComp,
+                mag_a,
+                mag_b,
+                mag_c,
+                ml2 ? rho[0][1] : NULL,
+                ml2 ? rho[1][0] : NULL,
+                output_shift,
+                fuse_1layer || fuse_2layer_ml,
+                ml2,
+                gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST,
+                llr,
+                scramble,
+                llr_cw);
+    return llr_cw != NULL;
+  }
   if (nb_layer == 2) {
-    if (fuse_2layer_ml) {
-      nr_inner_rx_2layer_ml(pusch_vars->ul_valid_re_per_slot[symbol],
-                            buffer_length,
-                            nb_rx_ant,
-                            rxFext,
-                            chFext,
-                            cpe,
-                            rel15_ul->qam_mod_order,
-                            gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST,
-                            output_shift,
-                            llr[0],
-                            llr[1],
-                            llr_cw,
-                            llr_cw ? scramble : NULL);
-      return llr_cw != NULL;
-    } else if (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE) {
-      nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
-                        (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
-                        rxF_ch_maga[0],
-                        rxF_ch_maga[1],
-                        llr[0],
-                        llr[1],
+    // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1). Replaces {nr_mmse_2layers + scalar loop}.
+    nr_compute_MMSE_llr(pusch_vars->rxdataF_comp,
+                        buffer_length,
+                        buffer_length,
+                        nb_rx_ant,
+                        nb_layer,
+                        rxF_ch_maga,
+                        rxF_ch_magb,
+                        rxF_ch_magc,
+                        chFext,
+                        rel15_ul->rb_size,
+                        mod,
+                        pusch_vars->log2_maxh,
+                        symbol,
+                        valid_re,
+                        nvar,
+                        rho[0][0],
                         rho[0][1],
                         rho[1][0],
-                        pusch_vars->ul_valid_re_per_slot[symbol],
-                        rel15_ul->qam_mod_order,
-                        gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST);
-    } else {
-      // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1). Replaces {nr_mmse_2layers + scalar loop}.
-      nr_compute_MMSE_llr(pusch_vars->rxdataF_comp,
-                          buffer_length,
-                          buffer_length,
-                          nb_rx_ant,
-                          nb_layer,
-                          rxF_ch_maga,
-                          rxF_ch_magb,
-                          rxF_ch_magc,
-                          chFext,
-                          rel15_ul->rb_size,
-                          rel15_ul->qam_mod_order,
-                          pusch_vars->log2_maxh,
-                          symbol,
-                          pusch_vars->ul_valid_re_per_slot[symbol],
-                          nvar,
-                          rho[0][0],
-                          rho[0][1],
-                          rho[1][0],
-                          rho[1][1],
-                          llr);
-    }
-  }
-  if (fuse_1layer) {
-    // Single layer: per-layer LLR order is the codeword order, so llr_cw only adds descrambling.
-    nr_inner_rx_1layer(pusch_vars->ul_valid_re_per_slot[symbol],
-                       buffer_length,
-                       nb_rx_ant,
-                       rxFext,
-                       chFext[0],
-                       cpe,
-                       rel15_ul->qam_mod_order,
-                       output_shift,
-                       llr_cw ? llr_cw : llr[0],
-                       llr_cw ? scramble : NULL);
-    return llr_cw != NULL;
-  } else if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
-    for (int aatx = 0; aatx < nb_layer; aatx++)
-           nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
+                        rho[1][1],
+                        llr);
+  } else {
+    for (int aatx = 0; aatx < nb_layer; aatx++) // >2 layers: per-layer LLR on the MRC'd stream
+      nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
                      rxF_ch_maga[aatx],
                      rxF_ch_magb[aatx],
                      rxF_ch_magc[aatx],
                      llr[aatx],
-                     pusch_vars->ul_valid_re_per_slot[symbol],
+                     valid_re,
                      symbol,
-                     rel15_ul->qam_mod_order);
+                     mod);
+  }
   return false;
 }
 
