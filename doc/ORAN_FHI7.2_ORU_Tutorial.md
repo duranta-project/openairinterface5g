@@ -82,6 +82,7 @@ An example configuration file can be found at
 | `T2a_cp` | Int Array (2) | Timing window bounds `(T2a_cp_min, T2a_cp_max)` | **Mandatory** |
 | `mtu` | Integer | Maximum Transmission Unit (MTU) | `9600` |
 | `prach_eaxc_offset`| Integer | Offset for PRACH eAxC ID mapping | `0` |
+| `bfw_num_weights` | Integer Array | Weight counts of the ext1/ext11 weight vectors from the DU (L_TRX), codebook mode only. Each count is from `nb_tx` to `64`, at most `4` counts, at least `4` apart. A vector is decoded with the first count that fits its length. The O-RU applies the first `nb_tx` (DL) or `nb_rx` (UL) weights. cuBB sends `num_rx_ants` dynamic weights and `64` static weights, so use for example `[32, 64]`, or `[4, 64]` on a 4-antenna cell. Write it as an array: a scalar is read as empty | `[]` (= `[nb_tx]`) |
 | `extra_eal_args` | String List | EAL arguments passed to DPDK | `[]` |
 
 ### `RUs.[0]` threadpool parameters
