@@ -42,6 +42,7 @@ extern int get_currentchannels_type(const char *buf,
 }
 #include <queue>
 #include <mutex>
+#include <atomic>
 #include <vector>
 #include <sstream>
 #include <algorithm>
@@ -75,6 +76,10 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
 #define RFSIMU_TIMESCALE "timescale"
 #define RFSIMU_ENABLE_BEAMS "enable_beams"
 #define RFSIMU_BEAM_GAINS "beam_gains"
+#define RFSIMU_TX_CAL "tx_cal_dBm"
+#define RFSIMU_PATHLOSS "pathloss"
+#define RFSIMU_RX_GAIN "rx_gain"
+#define RFSIMU_NOISE_FIGURE "noise_figure"
 
 #define RFSIM_CONFIG_HELP_OPTIONS                                                                  \
   " list of comma separated options to enable rf simulator functionalities. Available options: \n" \
@@ -102,6 +107,10 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
   DOUBLEPARAM(RFSIMU_TIMESCALE,         "<simulated time / wall clock time at most, 0: as fast as possible>\n", simOpt, NULL,  0.0),                   \
   BOOLPARAM(RFSIMU_ENABLE_BEAMS,        "<enable simplified beam simulation>\n",    simBool,NULL,                             0),                     \
   STRINGPARAM(RFSIMU_BEAM_GAINS,        "<per-beam gain in dB, one value per gNB beam id>\n", simOpt, NULL,                   NULL),                  \
+  DOUBLEPARAM(RFSIMU_TX_CAL,            "<RF chain: power in dBm at the antenna of a full-scale sample>\n", simOpt, NULL,       30.0),                  \
+  DOUBLEPARAM(RFSIMU_PATHLOSS,          "<RF chain: path loss in dB to the other side, both directions (UE side)>\n", simOpt, NULL, 0.0),            \
+  DOUBLEPARAM(RFSIMU_RX_GAIN,           "<RF chain: RX gain in dB, reported to the PHY>\n", simOpt, NULL,                       0.0),                   \
+  DOUBLEPARAM(RFSIMU_NOISE_FIGURE,      "<RF chain: receiver noise figure in dB, adds thermal noise; <0: none>\n", simOpt, NULL, -1.0),             \
 };
 // clang-format on
 static void getset_currentchannels_type(char *buf, int debug, webdatadef_t *tdata, telnet_printfunc_t prnt);
@@ -110,6 +119,7 @@ static int rfsimu_setdistance_cmd(char *buff, int debug, telnet_printfunc_t prnt
 static int rfsimu_getdistance_cmd(char *buff, int debug, telnet_printfunc_t prnt, void *arg);
 static int rfsimu_vtime_cmd(char *buff, int debug, telnet_printfunc_t prnt, void *arg);
 static int rfsimu_set_beam_gains(char *buff, int debug, telnet_printfunc_t prnt, void *arg);
+static int rfsimu_rfchain_cmd(char *buff, int debug, telnet_printfunc_t prnt, void *arg);
 // clang-format off
 static telnetshell_cmddef_t rfsimu_cmdarray[] = {
     {"show models", "", (cmdfunc_t)rfsimu_setchanmod_cmd, {(webfunc_t)getset_currentchannels_type}, TELNETSRV_CMDFLAG_WEBSRVONLY | TELNETSRV_CMDFLAG_GETWEBTBLDATA, NULL},
@@ -118,6 +128,7 @@ static telnetshell_cmddef_t rfsimu_cmdarray[] = {
     {"getdistance", "<model name>", (cmdfunc_t)rfsimu_getdistance_cmd, {NULL}, TELNETSRV_CMDFLAG_PUSHINTPOOLQ},
     {"vtime", "", (cmdfunc_t)rfsimu_vtime_cmd, {NULL}, TELNETSRV_CMDFLAG_PUSHINTPOOLQ | TELNETSRV_CMDFLAG_AUTOUPDATE},
     {"setbeamgains", "gain1,gain2,...", (cmdfunc_t)rfsimu_set_beam_gains, {NULL}, TELNETSRV_CMDFLAG_PUSHINTPOOLQ | TELNETSRV_CMDFLAG_NEEDPARAM},
+    {"rfchain", "[pathloss <dB>] [rx_gain <dB>] [tx_cal <dBm>] [noise_figure <dB>]", (cmdfunc_t)rfsimu_rfchain_cmd, {NULL}, TELNETSRV_CMDFLAG_PUSHINTPOOLQ},
     {"", "", NULL},
 };
 // clang-format on
@@ -212,7 +223,28 @@ typedef struct {
   struct timespec rt_start;
   openair0_timestamp_t rt_start_ts;
   bool rt_started;
+  /* RF chain emulation (dB, dBm): a full-scale sample is tx_cal_dBm at the antenna; the receiver reports rx_gain to
+     the PHY, whose convention is P_dBm = dBFS + 30 - rx_gain, so a received sample is scaled by
+     tx_cal(sender) - 30 - pathloss + rx_gain. The sender puts tx_cal - 30 - pathloss in the per-antenna gain it
+     sends with its samples, the receiver adds rx_gain - pathloss: the path loss set on the UE side applies in both
+     directions. Defaults (30, 0, 0) give 0 dB: no change. Set at run time with the telnet command "rfchain". */
+  std::atomic<float> tx_cal_dBm;
+  std::atomic<float> pathloss_dB;
+  std::atomic<float> rx_gain_dB;
+  std::atomic<float> noise_figure_dB; // < 0: no thermal noise
+  bool tx_cal_set; // tx_cal_dBm given: reported to the PHY, which then applies the UL powers
+  openair0_config_t *openair0_cfg;
 } rfsimulator_state_t;
+
+static float rfchain_tx_db(const rfsimulator_state_t *t)
+{
+  return t->tx_cal_dBm - 30.0f - t->pathloss_dB;
+}
+
+static float rfchain_rx_db(const rfsimulator_state_t *t)
+{
+  return t->rx_gain_dB - t->pathloss_dB;
+}
 
 /**
  * @brief Get the current beam map for a given timestamp and number of samples.
@@ -525,6 +557,12 @@ static void rfsimulator_readconfig(rfsimulator_state_t *rfsimulator)
   rfsimulator->prop_delay_ms = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_PROP_DELAY)->dblptr);
   rfsimulator->wait_timeout = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_WAIT_TIMEOUT)->iptr);
   rfsimulator->timescale = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_TIMESCALE)->dblptr);
+  const paramdef_t *tx_cal = gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_TX_CAL);
+  rfsimulator->tx_cal_dBm = *tx_cal->dblptr;
+  rfsimulator->tx_cal_set = tx_cal->paramflags & PARAMFLAG_PARAMSET;
+  rfsimulator->pathloss_dB = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_PATHLOSS)->dblptr);
+  rfsimulator->rx_gain_dB = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_RX_GAIN)->dblptr);
+  rfsimulator->noise_figure_dB = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_NOISE_FIGURE)->dblptr);
 
   rfsim_beam_ctrl_t *beam_ctrl = rfsimulator->beam_ctrl;
   beam_ctrl->enable_beams = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_ENABLE_BEAMS)->iptr);
@@ -986,8 +1024,9 @@ static int rfsimulator_write(openair0_device_t *device,
     // a plain per-antenna dB value and folds it into its own per-sample pass over the buffer 
     // (see combine_received_beams() and the no-channel-model loop)
     std::vector<float> tx_gains_db(nbAnt);
+    const float rf_tx_db = rfchain_tx_db(t);
     for (int aatx = 0; aatx < nbAnt; aatx++) {
-      tx_gains_db[aatx] = get_beam_gain_db(t, tx_beams[aatx]);
+      tx_gains_db[aatx] = get_beam_gain_db(t, tx_beams[aatx]) + rf_tx_db;
     }
     rfsimulator_write_internal(t, timestamp, samples, nsamps_beam_map, nbAnt, tx_gains_db, flags);
 
@@ -1136,7 +1175,7 @@ static void combine_received_beams(rfsimulator_state_t *t,
     // this same per-sample accumulation loop
     const float *sender_gain_db = reinterpret_cast<const float *>(pkt->payload);
     c16_t *buffer = (c16_t *)&pkt->payload[sizeof(float) * pkt->header.nbAnt];
-    float own_gain_dB = get_beam_gain_db(t, rx_beam_id);
+    float own_gain_dB = get_beam_gain_db(t, rx_beam_id) + rfchain_rx_db(t);
     uint64_t overlap_start = std::max(start_timestamp, pkt->header.timestamp);
     uint64_t overlap_end = std::min(start_timestamp + num_samples, pkt->header.timestamp + pkt->header.size);
     int write_start_idx = overlap_start - start_timestamp;
@@ -1292,7 +1331,7 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
           c16_t *buffer = (c16_t *)&pkt->payload[sizeof(float) * pkt->header.nbAnt];
 
           for (int aarx = 0; aarx < nbAnt; aarx++) {
-            float own_gain_dB = get_beam_gain_db(t, rx_beams[aarx]);
+            float own_gain_dB = get_beam_gain_db(t, rx_beams[aarx]) + rfchain_rx_db(t);
             double H_awgn_mimo_coeff[pkt->header.nbAnt];
             for (int aatx = 0; aatx < (int)pkt->header.nbAnt; aatx++) {
               uint32_t ant_diff = std::abs(aatx - aarx);
@@ -1316,12 +1355,20 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
   }
 
   bool apply_global_noise = get_noise_power_dBFS() != INVALID_DBFS_VALUE;
-  if (apply_global_noise) {
+  const float nf = t->noise_figure_dB;
+  if (apply_global_noise || nf >= 0) {
     if (!channel_modelling) {
       memset(temp_array, 0, sizeof(temp_array));
       channel_modelling = true;
     }
-    int16_t noise_power = (int16_t)(32767.0 / powf(10.0, .05 * -get_noise_power_dBFS()));
+    /* standard deviation of each real component relative to full scale: the global level in dBFS, plus the receiver
+       thermal noise kTB + NF in dBm brought to dBFS with the PHY convention (dBFS = dBm - 30 + rx_gain) */
+    double sigma2 = 0;
+    if (apply_global_noise)
+      sigma2 += pow(10.0, .1 * get_noise_power_dBFS());
+    if (nf >= 0)
+      sigma2 += pow(10.0, .1 * (-174.0 + 10 * log10(t->sample_rate) + nf - 30.0 + t->rx_gain_dB)) / 2;
+    const float noise_power = (float)(32767.0 * sqrt(sigma2));
     for (int a = 0; a < nbAnt; a++) {
       for (int i = 0; i < nsamps; i++) {
         temp_array[a][i].r += noise_power * gaussZiggurat(0.0, 1.0);
@@ -1545,6 +1592,46 @@ static int rfsimulator_set_gains(openair0_device_t *device, openair0_config_t *o
   UNUSED(openair0_cfg);
   return 0;
 }
+
+// "rfchain [pathloss <dB>] [rx_gain <dB>] [tx_cal <dBm>] [noise_figure <dB>]": change the RF chain emulation, then
+// print it; the RX gain is reported to the PHY at once (measurements in dBm follow)
+static int rfsimu_rfchain_cmd(char *buff, int debug, telnet_printfunc_t prnt, void *arg)
+{
+  UNUSED(debug);
+  rfsimulator_state_t *t = static_cast<rfsimulator_state_t *>(arg);
+  char key[32];
+  float v;
+  int n = 0;
+  const char *p = buff ? buff : "";
+  while (sscanf(p, "%31s %f%n", key, &v, &n) == 2) {
+    if (!strcmp(key, "pathloss"))
+      t->pathloss_dB = v;
+    else if (!strcmp(key, "rx_gain")) {
+      t->rx_gain_dB = v;
+      if (t->openair0_cfg)
+        t->openair0_cfg->rx_gain[0] = v;
+    } else if (!strcmp(key, "tx_cal")) {
+      t->tx_cal_dBm = v;
+      if (t->openair0_cfg) {
+        t->openair0_cfg->tx_power_full_scale_dBm = v;
+        t->openair0_cfg->tx_power_calibrated = true;
+      }
+    } else if (!strcmp(key, "noise_figure"))
+      t->noise_figure_dB = v;
+    else {
+      prnt("unknown key %s (pathloss, rx_gain, tx_cal, noise_figure)\n", key);
+      return CMDSTATUS_VARNOTFOUND;
+    }
+    p += n;
+  }
+  prnt("rfchain: tx_cal %.1f dBm, pathloss %.1f dB, rx_gain %.1f dB, noise_figure %.1f dB%s\n",
+       (float)t->tx_cal_dBm,
+       (float)t->pathloss_dB,
+       (float)t->rx_gain_dB,
+       (float)t->noise_figure_dB,
+       t->noise_figure_dB < 0 ? " (no thermal noise)" : "");
+  return CMDSTATUS_FOUND;
+}
 static int rfsimulator_write_init(openair0_device_t *device)
 {
   UNUSED(device);
@@ -1594,7 +1681,11 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   /* let's pretend to be a b2x0 */
   device->type = RFSIMULATOR;
   device->host_type = RAU_HOST;
-  openair0_cfg->rx_gain[0] = 0;
+  openair0_cfg->rx_gain[0] = rfsimulator->rx_gain_dB;
+  openair0_cfg->rx_gain_offset[0] = 0;
+  openair0_cfg->tx_power_calibrated = rfsimulator->tx_cal_set;
+  openair0_cfg->tx_power_full_scale_dBm = rfsimulator->tx_cal_dBm;
+  rfsimulator->openair0_cfg = openair0_cfg;
   device->openair0_cfg = openair0_cfg;
   device->priv = rfsimulator;
   device->trx_write_init = rfsimulator_write_init;
