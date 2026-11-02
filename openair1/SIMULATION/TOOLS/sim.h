@@ -7,6 +7,7 @@
 #include "PHY/defs_common.h"
 #include "common_lib.h"
 #include <pthread.h>
+#include "gaussian_rng.h"
 /** @defgroup _numerical_ Useful Numerical Functions
  *@{
 The present clause specifies several numerical functions for testing of digital communication systems.
@@ -429,6 +430,21 @@ void add_noise_float(c16_t **rxdata,
                      bool apply_phase_noise,
                      const uint8_t nb_antennas_rx);
 
+/* Explicit-state C16 noise. Float arithmetic; truncation retains the low 16 bits.
+ * Nonfinite or out-of-int32-range values convert to zero. Phase rotation remains
+ * shared and ordered by sample, then antenna. */
+void add_noise_float_batch(c16_t **rxdata,
+                           const float **r_re,
+                           const float **r_im,
+                           const float sigma2,
+                           const int length,
+                           const int slot_offset,
+                           const double ts,
+                           const int delay,
+                           bool apply_phase_noise,
+                           const uint8_t nb_antennas_rx,
+                           gaussian_rng_t *noise_state);
+
 void add_rx_signals(float **y_re, float **y_im, float **x_re, float **x_im, int n_rx, int length);
 
 /*
@@ -542,6 +558,7 @@ void fill_random(void *buf, size_t sz);
 double gaussdouble(double,double);
 void randominit(); // fix seed number by env variable OAI_RNGSEED
 double uniformrandom(void);
+/* Legacy shared-state API: not thread-safe. Use gaussian_rng_t for independent generators. */
 double gaussZiggurat(double mean, double variance);
 int freq_channel(channel_desc_t *desc,uint16_t nb_rb, int16_t n_samples,int scs);
 int init_freq_channel(channel_desc_t *desc,uint16_t nb_rb,int16_t n_samples,int scs);

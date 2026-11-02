@@ -1653,12 +1653,16 @@ set (SIMUSRC
   ${OPENAIR1_DIR}/SIMULATION/TOOLS/channel_sim.c
   ${OPENAIR1_DIR}/SIMULATION/TOOLS/random_channel.c
   ${OPENAIR1_DIR}/SIMULATION/TOOLS/rangen_double.c
+  ${OPENAIR1_DIR}/SIMULATION/TOOLS/gaussian_rng.c
   ${OPENAIR1_DIR}/SIMULATION/TOOLS/phase_noise.c
   ${OPENAIR1_DIR}/SIMULATION/RF/rf.c
   ${OPENAIR1_DIR}/SIMULATION/RF/dac.c
   ${OPENAIR1_DIR}/SIMULATION/RF/adc.c
 )
 add_library(SIMU STATIC ${SIMUSRC} )
+target_link_libraries(SIMU PUBLIC PHY_TOOLS m pthread)
+set_source_files_properties(${OPENAIR1_DIR}/SIMULATION/TOOLS/gaussian_rng.c
+  PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 target_include_directories(SIMU PUBLIC ${OPENAIR1_DIR}/SIMULATION/TOOLS ${OPENAIR1_DIR}/SIMULATION/RF)
 
 option(CHANNEL_SSE "Enable SSE optimizations for channel simulation" OFF)

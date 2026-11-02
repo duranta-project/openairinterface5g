@@ -98,6 +98,8 @@ add_physim_test(physim.5g.nr_pbchsim.otherSCS.test2 "PBCH-only, 120Khz, 50Mhz" n
 ####################################################################################
 
 add_physim_test(physim.5g.nr_dlsim.basic.test1 "106 PRB" nr_dlsim -P -n300 -R106 -b106 -s5)
+add_physim_test(physim.5g.nr_dlsim.batch_noise.basic "Batched Gaussian noise, 106 PRB" nr_dlsim -P -n300 -R106 -b106 -s5)
+add_physim_test(physim.5g.nr_dlsim.batch_noise.mimo "Batched Gaussian noise, 4x4 MIMO" nr_dlsim -P -n30 -s20 -U 3 0 0 2 -gA -x1 -y4 -z4)
 add_physim_test(physim.5g.nr_dlsim.basic.test2 "217 PRB" nr_dlsim -P -n300 -R217 -b217 -s5)
 add_physim_test(physim.5g.nr_dlsim.basic.test3 "273 PRB" nr_dlsim -P -n300 -R273 -b273 -s5)
 add_physim_test(physim.5g.nr_dlsim.basic.test4 "HARQ test 25% TP 4 rounds" nr_dlsim -P -n300 -s1 -S2 -t25)
@@ -501,6 +503,8 @@ if(ENABLE_PHYSIM_TESTS)
     physim.5g.nr_pbchsim.otherSCS.test1
     physim.5g.nr_pbchsim.otherSCS.test2
     physim.5g.nr_dlsim.basic.test1
+    physim.5g.nr_dlsim.batch_noise.basic
+    physim.5g.nr_dlsim.batch_noise.mimo
     physim.5g.nr_dlsim.basic.test2
     physim.5g.nr_dlsim.basic.test4
     physim.5g.nr_dlsim.offset.test1
