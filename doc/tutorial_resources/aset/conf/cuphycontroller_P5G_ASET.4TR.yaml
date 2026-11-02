@@ -23,7 +23,7 @@
 # the O-RU's UL tag. The RU VF's VST inserts PCP 0 by default, so we use pcp: 0 (tci 0x0003);
 # pcp 7 (tci 0xE003) would not match and UL would leak to the kernel netdev (uplane_rx stays 0).
 
-aerial_sdk_version: AERIAL_SDK_INTERNAL_VERSION
+aerial_sdk_version: 26-2-cubb
 l2adapter_filename: l2_adapter_config_P5G_GH.yaml
 aerial_metrics_backend_address: 127.0.0.1:8081
 

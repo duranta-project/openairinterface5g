@@ -51,7 +51,7 @@ services:
       context: ${CUBB_SDK:-${HOME}/aerial-cuda-accelerated-ran}
       dockerfile: Dockerfile
       args:
-        AERIAL_BASE_IMAGE: ${AERIAL_BASE_IMAGE:-nvcr.io/nvidia/aerial/aerial-cuda-accelerated-ran:26-1}
+        AERIAL_BASE_IMAGE: ${AERIAL_BASE_IMAGE:-nvcr.io/nvidia/aerial/aerial-cuda-accelerated-ran:26-2}
         PROFILE: ${AERIAL_PROFILE:-oai.conf}
         AERIAL_BUILD_FLAGS: ${AERIAL_BUILD_FLAGS:---cuda-archs 90}
     container_name: nv-cubb
