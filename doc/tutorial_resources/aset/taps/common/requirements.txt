@@ -1,0 +1,4 @@
+# Core producer deps (always installed). nanomsg is used via ctypes against the
+# system libnanomsg5, so it is not listed here.
+flatbuffers>=23.5.26
+numpy>=1.24
