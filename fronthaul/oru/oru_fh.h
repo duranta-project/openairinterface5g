@@ -46,6 +46,7 @@ typedef struct {
   fh_clock_timebase_t clock_timebase;
   oru_fh_tdd_pattern_t tdd_pattern;
   int prach_eaxc_offset;
+  oru_eaxc_lists_t eaxc_lists; // all empty: RU port layout with prach_eaxc_offset
   int prach_kbar;
 } oru_fh_config_t;
 

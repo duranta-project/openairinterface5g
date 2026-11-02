@@ -1790,8 +1790,8 @@ static void test_send_mbuf_eaxc(void *io_controller, struct rte_mbuf **mbufs, ui
   }
 }
 
-// One-section C-Plane message of section_type on wire eAxC eaxc, for target_sym
-static void send_cplane_on_eaxc(void *ctx, uint16_t eaxc, int section_type, uint64_t target_sym)
+// One-section C-Plane message of section_type and direction dir on wire eAxC eaxc, for target_sym
+static void send_cplane_on_eaxc(void *ctx, uint16_t eaxc, int section_type, int dir, uint64_t target_sym)
 {
   const int num_symbols_per_frame = 10 * 2 * 14;
   const int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
@@ -1802,7 +1802,7 @@ static void send_cplane_on_eaxc(void *ctx, uint16_t eaxc, int section_type, uint
   const size_t hdr_len = prach ? sizeof(struct xran_cp_radioapp_section3_header) : sizeof(struct xran_cp_radioapp_section1_header);
   struct xran_cp_radioapp_common_header *cmn = (struct xran_cp_radioapp_common_header *)rte_pktmbuf_append(mbuf, hdr_len);
   memset(cmn, 0, hdr_len);
-  cmn->field.dataDirection = XRAN_DIR_UL;
+  cmn->field.dataDirection = dir;
   cmn->field.payloadVer = XRAN_PAYLOAD_VER;
   cmn->field.frameId = (target_sym / num_symbols_per_frame) % 256;
   cmn->field.subframeId = slot_in_frame / 2;
@@ -1858,7 +1858,7 @@ void test_ul_eaxc_du_port(void)
 
   // PUSCH on DU port 1, band sector 2, RU port 3
   g_packets_sent = 0;
-  send_cplane_on_eaxc(ctx, 0x1203, XRAN_CP_SECTIONTYPE_1, target_sym);
+  send_cplane_on_eaxc(ctx, 0x1203, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
   ul_job_t job;
   assert(poll_ul_job(ctx, &job) == 0);
   assert(job.antenna_id == 3 && job.eaxc == 0x1203);
@@ -1867,7 +1867,7 @@ void test_ul_eaxc_du_port(void)
   assert(g_packets_sent == 1 && g_last_eaxc == 0x1203);
 
   // PRACH on DU port 2, RU port 1 (prach_eaxc_offset 1: stream 0)
-  send_cplane_on_eaxc(ctx, 0x2001, XRAN_CP_SECTIONTYPE_3, target_sym);
+  send_cplane_on_eaxc(ctx, 0x2001, XRAN_CP_SECTIONTYPE_3, XRAN_DIR_UL, target_sym);
   uint32_t *txdataF[1] = {iq};
   const int slot_in_frame = (target_sym % (10 * 2 * 14)) / 14;
   write_prach_iq(ctx, txdataF, 1, (target_sym / (10 * 2 * 14)) % 1024, slot_in_frame, target_sym % 14);
@@ -1875,6 +1875,79 @@ void test_ul_eaxc_du_port(void)
 
   cleanup_packet_processor(ctx);
   printf("UL U-Plane eAxC DU_Port_ID passed!\n");
+}
+
+// eAxC lists as cuBB mMIMO assigns them: PDSCH and PUSCH on 0..15, PRACH on 16..31, compared on all 16 bits
+void test_eaxc_lists(void)
+{
+  printf("Testing eAxC lists...\n");
+  void *ctx = init_packet_processor(1,
+                                    100,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf_eaxc,
+                                    NULL,
+                                    1500,
+                                    0,
+                                    FH_COMP_NONE,
+                                    TEST_PRACH_KBAR);
+  assert(ctx != NULL);
+  oru_eaxc_lists_t lists = {.num = {16, 16, 16}};
+  for (int i = 0; i < 16; i++) {
+    lists.id[ORU_EAXC_DL][i] = i;
+    lists.id[ORU_EAXC_UL][i] = i;
+    lists.id[ORU_EAXC_PRACH][i] = 16 + i;
+  }
+  set_eaxc_lists(ctx, &lists);
+  // Pattern: 5 slots, 2 DL, 2 UL. Symbols 0-27 DL, 42-69 UL.
+  const uint64_t cur_sym = 1030;
+  handle_absolute_symbol_tick(ctx, cur_sym);
+  const uint64_t target_sym = cur_sym + 5;
+  const int slot_in_frame = (target_sym % (10 * 2 * 14)) / 14;
+  oru_packet_processor_stats_t stats;
+
+  // PUSCH on eAxC 15 is UL stream 15, and its U-Plane goes out on eAxC 15
+  g_packets_sent = 0;
+  send_cplane_on_eaxc(ctx, 15, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) == 0);
+  assert(job.antenna_id == 15 && job.eaxc == 15);
+  static uint32_t iq[2][100 * 12];
+  write_ul_iq(ctx, iq[0], target_sym % 14, &job);
+  assert(g_packets_sent == 1 && g_last_eaxc == 15);
+
+  // PRACH on eAxC 17 is PRACH stream 1, and its U-Plane goes out on eAxC 17
+  send_cplane_on_eaxc(ctx, 17, XRAN_CP_SECTIONTYPE_3, XRAN_DIR_UL, target_sym);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 1, target_sym % 14) == 0);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, target_sym % 14) == -1);
+  uint32_t *txdataF[2] = {iq[0], iq[1]};
+  write_prach_iq(ctx, txdataF, 2, (target_sym / (10 * 2 * 14)) % 1024, slot_in_frame, target_sym % 14);
+  assert(g_packets_sent == 2 && g_last_eaxc == 17);
+
+  // Not in the list of their flow: UL on a PRACH eAxC, PRACH on a UL eAxC, DL with other DU_Port_ID bits
+  send_cplane_on_eaxc(ctx, 16, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
+  assert(poll_ul_job(ctx, &job) != 0);
+  send_cplane_on_eaxc(ctx, 1, XRAN_CP_SECTIONTYPE_3, XRAN_DIR_UL, target_sym);
+  const uint64_t dl_sym = 1050; // first DL symbol of the next pattern
+  handle_absolute_symbol_tick(ctx, dl_sym - 7);
+  send_cplane_on_eaxc(ctx, 0x100F, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_DL, dl_sym);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.invalid_eaxc_id == 3);
+  // A DL eAxC of the list is taken
+  send_cplane_on_eaxc(ctx, 15, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_DL, dl_sym);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.invalid_eaxc_id == 3 && stats.dl_tdd_mismatch == 0 && stats.cplane_err_late == 0 && stats.cplane_err_early == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("eAxC lists passed!\n");
 }
 
 void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
@@ -3569,6 +3642,7 @@ int main(int argc, char **argv)
   test_uplink_large_mtu();
   usleep(10000);
   test_ul_eaxc_du_port();
+  test_eaxc_lists();
   test_prach_generation(4, false);
   const int offsets[] = {0, 1, 4, 15};
   for (unsigned i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {

@@ -37,6 +37,9 @@
 #define MAX_CONCURRENT_DL_JOBS (DL_JOB_RING_SIZE - 1)
 #define NUM_CONCURRENT_DL_SYMBOL_WINDOWS MAX_CONCURRENT_DL_JOBS
 #define NUM_CONCURRENT_UL_SYMBOL_WINDOWS 128
+_Static_assert(ORU_MAX_EAXC_PER_KIND == MAX_ANTENNAS, "an eAxC list index is a stream or antenna index");
+#define ORU_EAXC_NONE 0xFF // eAxC ID not in the flows of a kind
+#define NUM_EAXC_IDS (1 << 16)
 #define NR_NUMBER_OF_SUBFRAMES_PER_FRAME 10
 #define MAX_TDD_PATTERN_LENGTH_MS 10
 #define MAX_SLOTS_PER_MS 4
@@ -132,7 +135,10 @@ typedef struct {
   uint32_t T2a_min_up_dl_sym_diff;
   uint32_t T2a_max_up_dl_sym_diff;
   struct xran_eaxcid_config eaxcid_config;
-  int prach_eaxc_offset;
+  // Stream index of each eAxC ID for each flow kind, or ORU_EAXC_NONE. The ID is masked with eaxc_key_mask first: the
+  // default layout uses the RU port only, eAxC lists use all 16 bits.
+  uint16_t eaxc_key_mask;
+  uint8_t eaxc_index[ORU_EAXC_NUM_KINDS][NUM_EAXC_IDS];
   int prach_kbar;
   int numerology;
   int num_prb;
@@ -145,7 +151,7 @@ typedef struct {
   send_func_t send_func;
   void *io_controller;
   // O-RAN CUS, 5.1.3.2.8: sequence IDs advance per U-plane UL eAxC, not per channel type.
-  _Atomic(uint8_t) ul_seq_id[NUM_RU_PORT_IDS];
+  _Atomic(uint8_t) ul_seq_id[NUM_EAXC_IDS];
   size_t mtu;
   fh_comp_method_t dl_comp_method;
   int num_bf_weights;
@@ -251,7 +257,19 @@ void *init_packet_processor(int numerology,
   ctx->num_prb = num_prb;
   ctx->numerology = numerology;
   ctx->mtu = mtu;
-  ctx->prach_eaxc_offset = prach_eaxc_offset;
+  // Default layout: the RU port is the stream index, and PRACH stream i is on RU port prach_eaxc_offset + i
+  AssertFatal(prach_eaxc_offset >= 0 && prach_eaxc_offset < NUM_RU_PORT_IDS,
+              "prach_eaxc_offset %d out of range [0..%d]\n",
+              prach_eaxc_offset,
+              NUM_RU_PORT_IDS - 1);
+  memset(ctx->eaxc_index, ORU_EAXC_NONE, sizeof(ctx->eaxc_index));
+  ctx->eaxc_key_mask = 0x000F;
+  for (int i = 0; i < NUM_RU_PORT_IDS; i++) {
+    ctx->eaxc_index[ORU_EAXC_DL][i] = i;
+    ctx->eaxc_index[ORU_EAXC_UL][i] = i;
+    if (i >= prach_eaxc_offset)
+      ctx->eaxc_index[ORU_EAXC_PRACH][i] = i - prach_eaxc_offset;
+  }
   AssertFatal(prach_kbar >= 0 && prach_kbar + FH_PRACH_NUM_SUBCARRIERS * 2 <= FH_PRACH_NUM_PRBS * FH_VALS_PER_PRB,
               "PRACH kbar %d out of range\n",
               prach_kbar);
@@ -314,6 +332,33 @@ void set_num_bf_weights(void *context, int num_bf_weights)
               num_bf_weights,
               ORU_MAX_BF_WEIGHTS);
   ctx->num_bf_weights = num_bf_weights;
+}
+
+// The O-DU assigns the eAxC IDs and the O-RU needs no bit layout for them (CUS 5.1.3.2.7). Call before C-Plane traffic.
+void set_eaxc_lists(void *context, const oru_eaxc_lists_t *lists)
+{
+  oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
+  memset(ctx->eaxc_index, ORU_EAXC_NONE, sizeof(ctx->eaxc_index));
+  ctx->eaxc_key_mask = 0xFFFF;
+  for (int k = 0; k < ORU_EAXC_NUM_KINDS; k++) {
+    AssertFatal(lists->num[k] >= 0 && lists->num[k] <= ORU_MAX_EAXC_PER_KIND,
+                "eAxC list %d has %d IDs, at most %d supported\n",
+                k,
+                lists->num[k],
+                ORU_MAX_EAXC_PER_KIND);
+    for (int i = 0; i < lists->num[k]; i++) {
+      uint16_t id = lists->id[k][i];
+      AssertFatal(ctx->eaxc_index[k][id] == ORU_EAXC_NONE, "eAxC ID %u is twice in eAxC list %d\n", id, k);
+      ctx->eaxc_index[k][id] = i;
+    }
+  }
+}
+
+// Stream index of eAxC ID eaxc among the flows of kind, or -1
+static int eaxc_index(const oru_packet_processor_context_t *ctx, oru_eaxc_kind_t kind, uint16_t eaxc)
+{
+  uint8_t i = ctx->eaxc_index[kind][eaxc & ctx->eaxc_key_mask];
+  return i == ORU_EAXC_NONE ? -1 : i;
 }
 
 void cleanup_packet_processor(void *context)
@@ -447,6 +492,7 @@ void handle_uplane_packet(void *context, void *pkt)
 {
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
   ctx->stats.total_uplane_received++;
+  const uint16_t eaxc = rte_be_to_cpu_16(rte_pktmbuf_mtod((struct rte_mbuf *)pkt, struct xran_ecpri_hdr *)->ecpri_xtc_id);
   void *iq_data_start = NULL;
   uint8_t CC_ID = 0xFF;
   uint8_t Ant_ID = 0xFF;
@@ -495,6 +541,8 @@ void handle_uplane_packet(void *context, void *pkt)
     rte_pktmbuf_free(pkt);
     return;
   }
+  // The DL stream of the eAxC replaces its RU port: ORU_EAXC_NONE (>= MAX_ANTENNAS) when it is not a DL eAxC
+  Ant_ID = ctx->eaxc_index[ORU_EAXC_DL][eaxc & ctx->eaxc_key_mask];
   if (Ant_ID >= MAX_ANTENNAS) {
     // Wire-controlled field - drop rather than let a malformed/out-of-range packet crash the process.
     ctx->stats.invalid_eaxc_id++;
@@ -875,7 +923,7 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                 void *pkt,
                                 struct xran_cp_radioapp_section3_header *hdr,
                                 uint16_t eaxc,
-                                uint8_t ant_id,
+                                int aarx,
                                 oru_pcap_cplane_snap_t *snap)
 {
   if (hdr->cmnhdr.numOfSections == 0) {
@@ -893,10 +941,9 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
     return;
   }
   const uint8_t *end = sect + rte_pktmbuf_data_len((struct rte_mbuf *)pkt);
-  int aarx = ant_id - ctx->prach_eaxc_offset;
-  if (aarx < 0 || aarx >= MAX_ANTENNAS) {
-    RATELIMIT(PRACH_ERR_LOG_RATELIMIT,
-              { LOG_W(HW, "PRACH CP: Invalid aarx %d (ant_id %d, eaxc_offset %d)\n", aarx, ant_id, ctx->prach_eaxc_offset); });
+  if (aarx < 0) {
+    ctx->stats.invalid_eaxc_id++;
+    RATELIMIT(PRACH_ERR_LOG_RATELIMIT, { LOG_W(HW, "PRACH CP: eAxC 0x%04x is not a PRACH stream\n", eaxc); });
     return;
   }
 
@@ -1062,7 +1109,7 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
                                     void *pkt,
                                     struct xran_cp_radioapp_section1_header *hdr,
                                     uint16_t eaxc,
-                                    uint8_t ant_id,
+                                    int ant_id,
                                     oru_pcap_cplane_snap_t *snap)
 {
   uint8_t *sect = (void *)rte_pktmbuf_adj(pkt, sizeof(struct xran_cp_radioapp_section1_header));
@@ -1081,7 +1128,7 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
     RATELIMIT(CPLANE_ERR_LOG_RATELIMIT, { LOG_W(HW, "%s CP: numOfSections is 0\n", is_dl ? "DL" : "UL"); });
     return;
   }
-  if (is_dl && ant_id >= MAX_ANTENNAS) {
+  if (ant_id < 0) {
     // Wire-controlled field - drop rather than let a malformed/out-of-range packet crash the process.
     ctx->stats.invalid_eaxc_id++;
     return;
@@ -1153,8 +1200,6 @@ void handle_cplane_packet(void *context, void *pkt)
     return;
   }
   const uint16_t eaxc = rte_be_to_cpu_16(ecpri_hdr->ecpri_xtc_id);
-  uint8_t ant_id;
-  xran_decompose_cid(ecpri_hdr->ecpri_xtc_id, &ctx->eaxcid_config, NULL, NULL, NULL, &ant_id);
   ctx->stats.total_cplane++;
   struct xran_cp_radioapp_common_header *apphdr = (void *)rte_pktmbuf_adj(pkt, sizeof(struct xran_ecpri_hdr));
   if (apphdr == NULL) {
@@ -1171,13 +1216,18 @@ void handle_cplane_packet(void *context, void *pkt)
 
   switch (apphdr->sectionType) {
     case XRAN_CP_SECTIONTYPE_1:
-      handle_section1_message(ctx, pkt, (struct xran_cp_radioapp_section1_header *)apphdr, eaxc, ant_id, &snap);
+      handle_section1_message(ctx,
+                              pkt,
+                              (struct xran_cp_radioapp_section1_header *)apphdr,
+                              eaxc,
+                              eaxc_index(ctx, apphdr->field.dataDirection == XRAN_DIR_DL ? ORU_EAXC_DL : ORU_EAXC_UL, eaxc),
+                              &snap);
       rte_pktmbuf_free(pkt);
       return;
     case XRAN_CP_SECTIONTYPE_3: {
       ctx->stats.cplane_received_prach++;
       struct xran_cp_radioapp_section3_header *hdr = (struct xran_cp_radioapp_section3_header *)apphdr;
-      handle_prach_cplane_packet(ctx, pkt, hdr, eaxc, ant_id, &snap);
+      handle_prach_cplane_packet(ctx, pkt, hdr, eaxc, eaxc_index(ctx, ORU_EAXC_PRACH, eaxc), &snap);
       rte_pktmbuf_free(pkt);
       return;
     }
@@ -1604,7 +1654,7 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
 
     struct xran_ecpri_hdr *ecpri_header = (struct xran_ecpri_hdr *)buf;
     uint16_t ecpri_payload_size = (uint16_t)(header_length - 4 + data_len);
-    fill_ecpri_header(ecpri_header, ECPRI_IQ_DATA, ecpri_payload_size, job->eaxc, ctx->ul_seq_id[aarx]++);
+    fill_ecpri_header(ecpri_header, ECPRI_IQ_DATA, ecpri_payload_size, job->eaxc, ctx->ul_seq_id[job->eaxc]++);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
     fill_radio_app_header(radio_app_header, 0, XRAN_DIR_UL, frame, slot_in_frame, symbol, mu);
@@ -1733,11 +1783,7 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
     struct xran_ecpri_hdr *ecpri_header = (struct xran_ecpri_hdr *)buf;
     uint16_t ecpri_payload_size = (uint16_t)(header_length - 4 + data_len);
 
-    fill_ecpri_header(ecpri_header,
-                      ECPRI_IQ_DATA,
-                      ecpri_payload_size,
-                      job->eaxc,
-                      ctx->ul_seq_id[(aarx + ctx->prach_eaxc_offset) & (NUM_RU_PORT_IDS - 1)]++);
+    fill_ecpri_header(ecpri_header, ECPRI_IQ_DATA, ecpri_payload_size, job->eaxc, ctx->ul_seq_id[job->eaxc]++);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
     fill_radio_app_header(radio_app_header, filter_id, XRAN_DIR_UL, frame & 0xff, slot_in_frame, symbol, ctx->numerology);
