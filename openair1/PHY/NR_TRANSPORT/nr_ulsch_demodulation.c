@@ -226,8 +226,11 @@ static void inner_rx(PHY_VARS_gNB *gNB,
     fuse_env = e ? atoi(e) : 0;
   }
   const bool fuse_1layer = fuse_env && (nb_layer == 1) && (rel15_ul->transform_precoding != transformPrecoder_enabled);
+  // 2-layer near-ML (pusch_mimo_receiver = lbest | ml) fuses MRC + rho + joint ML-LLR the same way;
+  // the 2-layer MMSE receiver is not fused.
+  const bool fuse_2layer_ml = fuse_env && (nb_layer == 2) && (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE);
 
-  if (!fuse_1layer) {
+  if (!fuse_1layer && !fuse_2layer_ml) {
     memset(rho, 0, sizeof(rho));
     for (int i = 0; i < nb_layer; i++)
       memset(&pusch_vars->rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
@@ -262,7 +265,21 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   }
   /* PTRS processing and start_meas(ulsch_llr) now happen earlier, per upstream's ptrs refactor */
   if (nb_layer == 2) {
-    if (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE) {
+    if (fuse_2layer_ml) {
+      nr_inner_rx_2layer_ml(pusch_vars->ul_valid_re_per_slot[symbol],
+                            buffer_length,
+                            nb_rx_ant,
+                            rxFext,
+                            chFext,
+                            cpe,
+                            rel15_ul->qam_mod_order,
+                            gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST,
+                            output_shift,
+                            llr[0],
+                            llr[1],
+                            NULL,
+                            NULL);
+    } else if (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE) {
       nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
                         (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
                         rxF_ch_maga[0],

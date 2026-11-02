@@ -236,11 +236,13 @@ void nr_channel_compensation(uint32_t buffer_length,
 #define NRLB_W 256
 #include "nr_lbest_simd_width.h"
 #include "nr_inner_rx_1layer_simd.c.inc"
+#include "nr_inner_rx_2layer_ml_simd.c.inc"
 #undef NRLB_W
 #endif
 #define NRLB_W 128
 #include "nr_lbest_simd_width.h"
 #include "nr_inner_rx_1layer_simd.c.inc"
+#include "nr_inner_rx_2layer_ml_simd.c.inc"
 #undef NRLB_W
 
 #ifndef NR_COMP_W128_ONLY
@@ -278,5 +280,36 @@ void nr_inner_rx_1layer(uint32_t length,
     nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, output_shift, llr, scramble);
   else
     nr_inner_rx_1layer_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, output_shift, llr, scramble);
+#endif
+}
+
+/* Fused 2-layer near-ML inner RX: MRC compensation + Gram off-diagonal (rho) build + joint ML-LLR
+ * (nr_compute_ML_llr), TILED so the two compensated streams, the two per-layer magnitudes and the
+ * two off-diagonal rho vectors live only in L1 scratch. Bit-exact with
+ * {nr_channel_compensation(nb_layers==2) + nr_compute_ML_llr} (CPE included). nr_compute_ML_llr
+ * takes one magnitude per layer (n1-scaled) and derives the other QAM thresholds internally, so
+ * only mag_a is built. Requires the 2-layer LLR kernels to be RE-sub-range-composable (RE-exact
+ * stores). */
+void nr_inner_rx_2layer_ml(uint32_t length,
+                           uint32_t buffer_length,
+                           int nb_rx_ant,
+                           c16_t rxFext[nb_rx_ant][buffer_length],
+                           c16_t chFext[2][nb_rx_ant][buffer_length],
+                           c16_t cpe,
+                           int mod_order,
+                           int lbest,
+                           int output_shift,
+                           int16_t *llr0,
+                           int16_t *llr1,
+                           int16_t *llr_cw,
+                           const int16_t *scramble)
+{
+#ifdef NR_COMP_W128_ONLY
+  nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift, llr0, llr1, llr_cw, scramble);
+#else
+  if (nr_comp_simd_width_mode() == 1)
+    nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift, llr0, llr1, llr_cw, scramble);
+  else
+    nr_inner_rx_2layer_ml_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift, llr0, llr1, llr_cw, scramble);
 #endif
 }
