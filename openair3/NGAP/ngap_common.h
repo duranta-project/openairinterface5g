@@ -20,6 +20,9 @@
 #include "ngap_utils.h"
 #include "ngap_msg_includes.h"
 #include "ngap_messages_types.h"
+#include "NGAP_NR-CGI.h"
+#include "NGAP_QosFlowLevelQosParameters.h"
+#include "NGAP_S-NSSAI.h"
 
 /* Checking version of ASN1C compiler */
 #if (ASN1C_ENVIRONMENT_VERSION < ASN1C_MINIMUM_VERSION)

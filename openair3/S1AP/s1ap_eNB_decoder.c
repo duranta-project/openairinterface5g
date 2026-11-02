@@ -19,7 +19,7 @@ static int s1ap_eNB_decode_initiating_message(S1AP_S1AP_PDU_t *pdu) {
   asn_encode_to_new_buffer_result_t res = { NULL, {0, NULL, NULL} };
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.initiatingMessage.procedureCode) {
+  switch(pdu->choice.initiatingMessage->procedureCode) {
     case S1AP_ProcedureCode_id_downlinkNASTransport:
       res = asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_S1AP_S1AP_PDU, pdu);
       free(res.buffer);
@@ -67,7 +67,7 @@ static int s1ap_eNB_decode_initiating_message(S1AP_S1AP_PDU_t *pdu) {
 
     default:
       S1AP_ERROR("Unknown procedure ID (%d) for initiating message\n",
-                 (int)pdu->choice.initiatingMessage.procedureCode);
+                 (int)pdu->choice.initiatingMessage->procedureCode);
       return -1;
   }
 
@@ -78,7 +78,7 @@ static int s1ap_eNB_decode_successful_outcome(S1AP_S1AP_PDU_t *pdu) {
   asn_encode_to_new_buffer_result_t res = { NULL, {0, NULL, NULL} };
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.successfulOutcome.procedureCode) {
+  switch(pdu->choice.successfulOutcome->procedureCode) {
     case S1AP_ProcedureCode_id_S1Setup:
       res = asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_S1AP_S1AP_PDU, pdu);
       free(res.buffer);
@@ -97,7 +97,7 @@ static int s1ap_eNB_decode_successful_outcome(S1AP_S1AP_PDU_t *pdu) {
 
     default:
       S1AP_ERROR("Unknown procedure ID (%d) for successfull outcome message\n",
-                 (int)pdu->choice.successfulOutcome.procedureCode);
+                 (int)pdu->choice.successfulOutcome->procedureCode);
       return -1;
   }
 
@@ -108,7 +108,7 @@ static int s1ap_eNB_decode_unsuccessful_outcome(S1AP_S1AP_PDU_t *pdu) {
   asn_encode_to_new_buffer_result_t res = { NULL, {0, NULL, NULL} };
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.unsuccessfulOutcome.procedureCode) {
+  switch(pdu->choice.unsuccessfulOutcome->procedureCode) {
     case S1AP_ProcedureCode_id_S1Setup:
       res = asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_S1AP_S1AP_PDU, pdu);
       free(res.buffer);
@@ -120,7 +120,7 @@ static int s1ap_eNB_decode_unsuccessful_outcome(S1AP_S1AP_PDU_t *pdu) {
 
     default:
       S1AP_ERROR("Unknown procedure ID (%d) for unsuccessfull outcome message\n",
-                 (int)pdu->choice.unsuccessfulOutcome.procedureCode);
+                 (int)pdu->choice.unsuccessfulOutcome->procedureCode);
       return -1;
   }
 

@@ -24,8 +24,8 @@
 #define E1AP_LIB_FIND_IE(IE_TYPE, ie, container, IE_ID, mandatory)                                           \
   do {                                                                                                       \
     ie = NULL;                                                                                               \
-    for (int i = 0; i < (container)->protocolIEs.list.count; ++i) {                                          \
-      IE_TYPE *current_ie = (container)->protocolIEs.list.array[i];                                          \
+    for (int i = 0; i < (container)->protocolIEs->list.count; ++i) {                                          \
+      IE_TYPE *current_ie = (container)->protocolIEs->list.array[i];                                          \
       if (current_ie->id == (IE_ID)) {                                                                       \
         ie = current_ie;                                                                                     \
         break;                                                                                               \

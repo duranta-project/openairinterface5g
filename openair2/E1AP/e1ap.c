@@ -17,6 +17,8 @@
 #include "lib/e1ap_bearer_context_management.h"
 #include "lib/e1ap_interface_management.h"
 
+#include "E1AP_ProtocolIE-Container.h"
+
 #ifdef E2_AGENT
 #include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
 #endif
@@ -193,12 +195,12 @@ int e1apCUUP_handle_SETUP_FAILURE(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst,
   LOG_D(E1AP, "CU-UP: Decoding E1AP Setup Failure...\n");
   E1AP_GNB_CU_UP_E1SetupFailureIEs_t *ie;
   DevAssert(pdu != NULL);
-  E1AP_GNB_CU_UP_E1SetupFailure_t *in = &pdu->choice.unsuccessfulOutcome->value.choice.GNB_CU_UP_E1SetupFailure;
+  E1AP_GNB_CU_UP_E1SetupFailure_t *in = pdu->choice.unsuccessfulOutcome->value.choice.GNB_CU_UP_E1SetupFailure;
   /* Transaction ID */
   F1AP_FIND_PROTOCOLIE_BY_ID(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_TransactionID, true);
   long transaction_id;
   long old_transaction_id = inst->cuup.setupReq.transac_id;
-  transaction_id = ie->value.choice.TransactionID;
+  transaction_id = *ie->value.choice.TransactionID;
   if (old_transaction_id != transaction_id)
     LOG_E(E1AP, "Transaction IDs do not match %ld != %ld\n", old_transaction_id, transaction_id);
   E1AP_free_transaction_identifier(transaction_id);
@@ -220,17 +222,19 @@ static void fill_CONFIGURATION_UPDATE(E1AP_E1AP_PDU_t *pdu)
   msg->procedureCode = E1AP_ProcedureCode_id_gNB_CU_UP_ConfigurationUpdate;
   msg->criticality   = E1AP_Criticality_reject;
   msg->value.present = E1AP_InitiatingMessage__value_PR_GNB_CU_UP_ConfigurationUpdate;
-  E1AP_GNB_CU_UP_ConfigurationUpdate_t *out = &pdu->choice.initiatingMessage->value.choice.GNB_CU_UP_ConfigurationUpdate;
+  E1AP_GNB_CU_UP_ConfigurationUpdate_t *out = (pdu->choice.initiatingMessage->value.choice.GNB_CU_UP_ConfigurationUpdate = calloc_or_fail(1, sizeof(*pdu->choice.initiatingMessage->value.choice.GNB_CU_UP_ConfigurationUpdate)));
   /* mandatory */
   /* c1. Transaction ID (integer value) */
-  asn1cSequenceAdd(out->protocolIEs.list, E1AP_GNB_CU_UP_ConfigurationUpdateIEs_t, ieC1);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSequenceAdd(out->protocolIEs->list, E1AP_GNB_CU_UP_ConfigurationUpdateIEs_t, ieC1);
   ieC1->id                         = E1AP_ProtocolIE_ID_id_TransactionID;
   ieC1->criticality                = E1AP_Criticality_reject;
   ieC1->value.present              = E1AP_GNB_CU_UP_ConfigurationUpdateIEs__value_PR_TransactionID;
-  ieC1->value.choice.TransactionID = 0;//get this from stored transaction IDs in CU
+  asn1cCallocOne(ieC1->value.choice.TransactionID, 0);
   /* mandatory */
   /* c2. Supported PLMNs */
-  asn1cSequenceAdd(out->protocolIEs.list, E1AP_GNB_CU_UP_ConfigurationUpdateIEs_t, ieC2);
+  asn1cSequenceAdd(out->protocolIEs->list, E1AP_GNB_CU_UP_ConfigurationUpdateIEs_t, ieC2);
   ieC2->id = E1AP_ProtocolIE_ID_id_SupportedPLMNs;
   ieC2->criticality = E1AP_Criticality_reject;
   ieC2->value.present = E1AP_GNB_CU_UP_ConfigurationUpdateIEs__value_PR_SupportedPLMNs_List;
@@ -238,14 +242,16 @@ static void fill_CONFIGURATION_UPDATE(E1AP_E1AP_PDU_t *pdu)
   int numSupportedPLMNs = 1;
 
   for (int i = 0; i < numSupportedPLMNs; i++) {
-    asn1cSequenceAdd(ieC2->value.choice.SupportedPLMNs_List.list, E1AP_SupportedPLMNs_Item_t, supportedPLMN);
+    if (!ieC2->value.choice.SupportedPLMNs_List)
+      ieC2->value.choice.SupportedPLMNs_List = calloc_or_fail(1, sizeof(*ieC2->value.choice.SupportedPLMNs_List));
+    asn1cSequenceAdd(ieC2->value.choice.SupportedPLMNs_List->list, E1AP_SupportedPLMNs_Item_t, supportedPLMN);
     /* 5.1 PLMN Identity */
     OCTET_STRING_fromBuf(&supportedPLMN->pLMN_Identity, "OAI", strlen("OAI"));
   }
 
   /* mandatory */
   /* c3. TNLA to remove list */
-  asn1cSequenceAdd(out->protocolIEs.list, E1AP_GNB_CU_UP_ConfigurationUpdateIEs_t, ieC3);
+  asn1cSequenceAdd(out->protocolIEs->list, E1AP_GNB_CU_UP_ConfigurationUpdateIEs_t, ieC3);
   ieC3->id = E1AP_ProtocolIE_ID_id_GNB_CU_UP_TNLA_To_Remove_List;
   ieC3->criticality = E1AP_Criticality_reject;
   ieC3->value.present = E1AP_GNB_CU_UP_ConfigurationUpdateIEs__value_PR_GNB_CU_UP_TNLA_To_Remove_List;
@@ -253,9 +259,13 @@ static void fill_CONFIGURATION_UPDATE(E1AP_E1AP_PDU_t *pdu)
   int numTNLAtoRemoveList = 1;
 
   for (int i = 0; i < numTNLAtoRemoveList; i++) {
-    asn1cSequenceAdd(ieC2->value.choice.GNB_CU_UP_TNLA_To_Remove_List.list, E1AP_GNB_CU_UP_TNLA_To_Remove_Item_t, TNLAtoRemove);
-    TNLAtoRemove->tNLAssociationTransportLayerAddress.present = E1AP_CP_TNL_Information_PR_endpoint_IP_Address;
-    TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(1234, &TNLAtoRemove->tNLAssociationTransportLayerAddress.choice.endpoint_IP_Address); // TODO: correct me
+    if (!ieC2->value.choice.GNB_CU_UP_TNLA_To_Remove_List)
+      ieC2->value.choice.GNB_CU_UP_TNLA_To_Remove_List = calloc_or_fail(1, sizeof(*ieC2->value.choice.GNB_CU_UP_TNLA_To_Remove_List));
+    asn1cSequenceAdd(ieC2->value.choice.GNB_CU_UP_TNLA_To_Remove_List->list, E1AP_GNB_CU_UP_TNLA_To_Remove_Item_t, TNLAtoRemove);
+    if (!TNLAtoRemove->tNLAssociationTransportLayerAddress)
+      TNLAtoRemove->tNLAssociationTransportLayerAddress = calloc_or_fail(1, sizeof(*TNLAtoRemove->tNLAssociationTransportLayerAddress));
+    TNLAtoRemove->tNLAssociationTransportLayerAddress->present = E1AP_CP_TNL_Information_PR_endpoint_IP_Address;
+    TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(1234, &TNLAtoRemove->tNLAssociationTransportLayerAddress->choice.endpoint_IP_Address); // TODO: correct me
   }
 }
 

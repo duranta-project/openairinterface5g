@@ -364,13 +364,15 @@ TEST(nr_asn1, sib4_basic_encode_decode)
   ncell->physCellId = 200;
   ncell->q_OffsetCell = NR_Q_OffsetRange_dB0;
   ASN_SEQUENCE_ADD(&carrier->interFreqNeighCellList->list, ncell);
-  ASN_SEQUENCE_ADD(&sib4->interFreqCarrierFreqList.list, carrier);
+  if (!sib4->interFreqCarrierFreqList)
+    sib4->interFreqCarrierFreqList = (decltype(sib4->interFreqCarrierFreqList))calloc_or_fail(1, sizeof(*sib4->interFreqCarrierFreqList));
+  ASN_SEQUENCE_ADD(&sib4->interFreqCarrierFreqList->list, carrier);
 
   byte_array_t ba = {};
   NR_SIB4_t *decoded = encode_and_decode_sib4(sib4, &ba);
 
-  ASSERT_GT(decoded->interFreqCarrierFreqList.list.count, 0);
-  EXPECT_EQ(decoded->interFreqCarrierFreqList.list.array[0]->dl_CarrierFreq, carrier->dl_CarrierFreq);
+  ASSERT_GT(decoded->interFreqCarrierFreqList->list.count, 0);
+  EXPECT_EQ(decoded->interFreqCarrierFreqList->list.array[0]->dl_CarrierFreq, carrier->dl_CarrierFreq);
 
   ASN_STRUCT_FREE(asn_DEF_NR_SIB4, sib4);
   ASN_STRUCT_FREE(asn_DEF_NR_SIB4, decoded);
@@ -380,10 +382,12 @@ TEST(nr_asn1, sib4_basic_encode_decode)
 TEST(nr_asn1, inter_freq_carrier_freq_info_ranges)
 {
   NR_SIB4_t *sib4 = (NR_SIB4_t *)calloc_or_fail(1, sizeof(*sib4));
-  ASN_SEQUENCE_ADD(&sib4->interFreqCarrierFreqList.list,
+  if (!sib4->interFreqCarrierFreqList)
+    sib4->interFreqCarrierFreqList = (decltype(sib4->interFreqCarrierFreqList))calloc_or_fail(1, sizeof(*sib4->interFreqCarrierFreqList));
+  ASN_SEQUENCE_ADD(&sib4->interFreqCarrierFreqList->list,
                    (NR_InterFreqCarrierFreqInfo_t *)calloc_or_fail(1, sizeof(NR_InterFreqCarrierFreqInfo_t)));
 
-  NR_InterFreqCarrierFreqInfo_t *carrier = sib4->interFreqCarrierFreqList.list.array[0];
+  NR_InterFreqCarrierFreqInfo_t *carrier = sib4->interFreqCarrierFreqList->list.array[0];
   carrier->dl_CarrierFreq = 640000;
   carrier->ssbSubcarrierSpacing = NR_SubcarrierSpacing_kHz30;
   carrier->deriveSSB_IndexFromCell = 1;

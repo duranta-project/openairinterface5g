@@ -91,7 +91,7 @@ void pre_scd_nb_rbs_required(    module_id_t     module_idP,
   rnti_t                       rnti;
   mac_rlc_status_resp_t        rlc_status;
   uint16_t                     step_size=2;
-  N_RB_DL = to_prb(RC.mac[module_idP]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  N_RB_DL = to_prb(RC.mac[module_idP]->common_channels[CC_id].mib->message->dl_Bandwidth);
 
   if(N_RB_DL==50) step_size=3;
 
@@ -554,7 +554,7 @@ static void dlsch_scheduler_pre_processor_reset_fairRR(
   for (CC_id = 0; CC_id < RC.nb_mac_CC[module_idP]; CC_id++) {
     // initialize harq_pid and round
     cc = &RC.mac[module_idP]->common_channels[CC_id];
-    N_RBG[CC_id] = to_rbg(cc->mib->message.dl_Bandwidth);
+    N_RBG[CC_id] = to_rbg(cc->mib->message->dl_Bandwidth);
     min_rb_unit[CC_id] = get_min_rb_unit(module_idP, CC_id);
 
     for (UE_id = 0; UE_id < MAX_MOBILES_PER_ENB; ++UE_id) {
@@ -640,7 +640,7 @@ static void dlsch_scheduler_pre_processor_reset_fairRR(
       }
     }
 
-    N_RB_DL = to_prb(RC.mac[module_idP]->common_channels[CC_id].mib->message.dl_Bandwidth);
+    N_RB_DL = to_prb(RC.mac[module_idP]->common_channels[CC_id].mib->message->dl_Bandwidth);
 
     switch (N_RB_DL) {
       case 6:
@@ -767,7 +767,7 @@ static void assign_rbs_required_fairRR(
               nb_rbs_required[CC_id][UE_id],
               eNB_UE_stats->dlsch_mcs1,
               TBS);
-        N_RB_DL = to_prb(RC.mac[Mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+        N_RB_DL = to_prb(RC.mac[Mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
 
         /* calculating required number of RBs for each UE */
         while (TBS < UE_info->UE_template[pCCid][UE_id].dl_buffer_total) {
@@ -811,7 +811,7 @@ void dlsch_scheduler_pre_processor_allocate_fairRR(
   UE_info_t *UE_info = &RC.mac[Mod_id]->UE_info;
   UE_sched_ctrl_t *ue_sched_ctl = &UE_info->UE_sched_ctrl[UE_id];
   int N_RB_DL =
-      to_prb(RC.mac[Mod_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+      to_prb(RC.mac[Mod_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
   const int min_rb_unit = get_min_rb_unit(Mod_id, CC_id);
 
   for (i = 0; i < N_RBG; i++) {
@@ -933,7 +933,7 @@ void dlsch_scheduler_pre_processor_fairRR (module_id_t   Mod_id,
     average_rbs_per_user[CC_id] = 0;
     cc = &RC.mac[Mod_id]->common_channels[CC_id];
     // Get total available RBS count and total UE count
-    N_RB_DL = to_prb(cc->mib->message.dl_Bandwidth);
+    N_RB_DL = to_prb(cc->mib->message->dl_Bandwidth);
     temp_total_rbs_count = 0;
 
     for(uint8_t rbg_i = 0; rbg_i < N_RBG[CC_id]; rbg_i++ ) {
@@ -1164,7 +1164,7 @@ schedule_ue_spec_fairRR(module_id_t module_idP,
 
   //    aggregation = 2;
   for (CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
-    N_RB_DL[CC_id] = to_prb(cc[CC_id].mib->message.dl_Bandwidth);
+    N_RB_DL[CC_id] = to_prb(cc[CC_id].mib->message->dl_Bandwidth);
     min_rb_unit[CC_id] = get_min_rb_unit(module_idP, CC_id);
     // get number of PRBs less those used by common channels
     total_nb_available_rb[CC_id] = N_RB_DL[CC_id];
@@ -1173,7 +1173,7 @@ schedule_ue_spec_fairRR(module_id_t module_idP,
       if (cc[CC_id].vrb_map[i] != 0)
         total_nb_available_rb[CC_id]--;
 
-    N_RBG[CC_id] = to_rbg(cc[CC_id].mib->message.dl_Bandwidth);
+    N_RBG[CC_id] = to_rbg(cc[CC_id].mib->message->dl_Bandwidth);
     // store the global enb stats:
     eNB->eNB_stats[CC_id].num_dlactive_UEs = UE_info->num_UEs;
     eNB->eNB_stats[CC_id].available_prbs =
@@ -2097,8 +2097,8 @@ fill_DLSCH_dci_fairRR(
       continue;
 
     cc              = &eNB->common_channels[CC_id];
-    N_RBG           = to_rbg(cc->mib->message.dl_Bandwidth);
-    N_RB_DL         = to_prb(cc->mib->message.dl_Bandwidth);
+    N_RBG           = to_rbg(cc->mib->message->dl_Bandwidth);
+    N_RB_DL         = to_prb(cc->mib->message->dl_Bandwidth);
 
     // UE specific DCIs
     for (j = 0; j < dlsch_ue_select[CC_id].ue_num; j++) {
@@ -2888,15 +2888,15 @@ schedule_ulsch_fairRR(module_id_t module_idP, frame_t frameP,
 
     //PRACH
     if (is_prach_subframe0(cc->tdd_Config!=NULL ? cc->tdd_Config->subframeAssignment : 0,cc->tdd_Config!=NULL ? 1 : 0,
-                           cc->radioResourceConfigCommon->prach_Config.prach_ConfigInfo.prach_ConfigIndex,
+                           cc->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_ConfigIndex,
                            sched_frame,sched_subframe)==1) {
       ulsch_ue_select[CC_id].list[ulsch_ue_select[CC_id].ue_num].ue_priority = SCH_UL_PRACH;
       ulsch_ue_select[CC_id].list[ulsch_ue_select[CC_id].ue_num].start_rb = 
            get_prach_prb_offset(cc->tdd_Config!=NULL ? 1 : 0, 
                                 cc->tdd_Config!=NULL ? cc->tdd_Config->subframeAssignment : 0,
                                 to_prb(cc->ul_Bandwidth),
-                                cc->radioResourceConfigCommon->prach_Config.prach_ConfigInfo.prach_ConfigIndex,
-                                cc->radioResourceConfigCommon->prach_Config.prach_ConfigInfo.prach_FreqOffset,
+                                cc->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_ConfigIndex,
+                                cc->radioResourceConfigCommon->prach_Config->prach_ConfigInfo->prach_FreqOffset,
                                 0,
                                 sched_frame);
       ulsch_ue_select[CC_id].list[ulsch_ue_select[CC_id].ue_num].nb_rb = 6;
@@ -2961,7 +2961,7 @@ void schedule_ulsch_rnti_fairRR(module_id_t   module_idP,
     ULSCH_first_end = 0;
     cc  = &eNB->common_channels[CC_id];
     // This is the actual CC_id in the list
-    N_RB_UL      = to_prb(cc->mib->message.dl_Bandwidth);
+    N_RB_UL      = to_prb(cc->mib->message->dl_Bandwidth);
 
     //leave out first RB for PUCCH
     if (cc->tdd_Config == NULL) {

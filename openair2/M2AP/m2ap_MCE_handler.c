@@ -73,11 +73,11 @@ int m2ap_MCE_handle_message(instance_t instance,
   }
 
   /* Checking procedure Code and direction of message */
-  if (pdu.choice.initiatingMessage.procedureCode > sizeof(m2ap_MCE_messages_callback) / (3 * sizeof(
+  if (pdu.choice.initiatingMessage->procedureCode > sizeof(m2ap_MCE_messages_callback) / (3 * sizeof(
         m2ap_MCE_message_decoded_callback))
       || (pdu.present > M2AP_M2AP_PDU_PR_unsuccessfulOutcome)) {
     LOG_E(M2AP, "[SCTP %d] Either procedureCode %ld or direction %d exceed expected\n",
-               assoc_id, pdu.choice.initiatingMessage.procedureCode, pdu.present);
+               assoc_id, pdu.choice.initiatingMessage->procedureCode, pdu.present);
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_M2AP_M2AP_PDU, &pdu);
     return -1;
   }
@@ -85,9 +85,9 @@ int m2ap_MCE_handle_message(instance_t instance,
   /* No handler present.
    * This can mean not implemented or no procedure for eNB (wrong direction).
    */
-  if (m2ap_MCE_messages_callback[pdu.choice.initiatingMessage.procedureCode][pdu.present - 1] == NULL) {
+  if (m2ap_MCE_messages_callback[pdu.choice.initiatingMessage->procedureCode][pdu.present - 1] == NULL) {
     LOG_E(M2AP, "[SCTP %d] No handler for procedureCode %ld in %s\n",
-                assoc_id, pdu.choice.initiatingMessage.procedureCode,
+                assoc_id, pdu.choice.initiatingMessage->procedureCode,
                m2ap_direction2String(pdu.present - 1));
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_M2AP_M2AP_PDU, &pdu);
     return -1;
@@ -95,7 +95,7 @@ int m2ap_MCE_handle_message(instance_t instance,
   
   /* Calling the right handler */
   LOG_I(M2AP, "Calling handler with instance %ld\n",instance);
-  ret = (*m2ap_MCE_messages_callback[pdu.choice.initiatingMessage.procedureCode][pdu.present - 1])
+  ret = (*m2ap_MCE_messages_callback[pdu.choice.initiatingMessage->procedureCode][pdu.present - 1])
         (instance, assoc_id, stream, &pdu);
   ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_M2AP_M2AP_PDU, &pdu);
   return ret;

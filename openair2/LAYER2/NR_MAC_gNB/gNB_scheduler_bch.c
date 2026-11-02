@@ -44,11 +44,11 @@ static void schedule_ssb(frame_t frame,
   AssertFatal(scc->downlinkConfigCommon->frequencyInfoDL,"scc->downlinkConfigCommon->frequencyInfoDL is null\n");
   AssertFatal(scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB,
               "scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB is null\n");
-  AssertFatal(scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.count == 1,
+  AssertFatal(scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList->list.count == 1,
               "Frequency Band list does not have 1 element (%d)\n",
-              scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.count);
+              scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList->list.count);
   AssertFatal(scc->ssbSubcarrierSpacing,"ssbSubcarrierSpacing is null\n");
-  AssertFatal(scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0], "band is null\n");
+  AssertFatal(scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList->list.array[0], "band is null\n");
 
   dl_config_pdu->ssb_pdu.ssb_pdu_rel15.SsbSubcarrierOffset = scoffset; //kSSB
   dl_config_pdu->ssb_pdu.ssb_pdu_rel15.ssbOffsetPointA = offset_pointa;
@@ -122,7 +122,7 @@ void schedule_nr_mib(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP, nfapi_
 
   // This was on a loop for MAX_NUM_CCs, make sure to call this function for all cells
   NR_COMMON_channels_t *cc = &cell->common_channels;
-  const NR_MIB_t *mib = cc->mib->message.choice.mib;
+  const NR_MIB_t *mib = cc->mib->message->choice.mib;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   const int slots_per_frame = cell->frame_structure.numb_slots_frame;
   dl_req = &DL_req->dl_tti_request_body;
@@ -158,7 +158,7 @@ void schedule_nr_mib(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP, nfapi_
       rel_slot = slotP;
 
     NR_SubcarrierSpacing_t scs = *scc->ssbSubcarrierSpacing;
-    const long band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
+    const long band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList->list.array[0];
     const int bw = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
     const uint16_t offset_pointa = cell->ssb_OffsetPointA;
     uint8_t ssbSubcarrierOffset = cell->ssb_SubcarrierOffset;
@@ -513,7 +513,7 @@ struct NR_SchedulingInfo2_r17 *find_sib19_sched_info(const struct NR_SI_Scheduli
 {
   for (int i = 0; i < si_schedulinginfo2_r17->schedulingInfoList2_r17.list.count; i++) {
     const struct NR_SIB_Mapping_v1700 *sib_MappingInfo_r17 =
-        &si_schedulinginfo2_r17->schedulingInfoList2_r17.list.array[i]->sib_MappingInfo_r17;
+        si_schedulinginfo2_r17->schedulingInfoList2_r17.list.array[i]->sib_MappingInfo_r17;
     for (int j = 0; j < sib_MappingInfo_r17->list.count; j++) {
       if (sib_MappingInfo_r17->list.array[j]->sibType_r17.choice.type1_r17
           == NR_SIB_TypeInfo_v1700__sibType_r17__type1_r17_sibType19) {
@@ -668,7 +668,7 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
                            nfapi_nr_tx_data_request_t *TX_req)
 {
   NR_COMMON_channels_t *cc = &cell->common_channels;
-  NR_SIB1_t *sib1 = cc->sib1->message.choice.c1->choice.systemInformationBlockType1;
+  NR_SIB1_t *sib1 = cc->sib1->message->choice.c1->choice.systemInformationBlockType1;
   NR_SI_SchedulingInfo_t *schedInfo = sib1->si_SchedulingInfo;
   if (!schedInfo)
     return;

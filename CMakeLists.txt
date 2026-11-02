@@ -86,28 +86,38 @@ find_program(ASN1C_EXEC_PATH asn1c HINTS /opt/asn1c/bin)
 set(ASN1C_EXEC ${ASN1C_EXEC_PATH} CACHE FILEPATH "path to asn1c executable")
 option(AUTO_DOWNLOAD_ASN1C "Automatically download asn1c if not found" OFF)
 if (ASN1C_EXEC)
+  # v1.5.3 + 69 commits is d0bea1c5e, the first with the fix for the struct names of pointer members
+  check_asn1c_version(${ASN1C_EXEC} ASN1C_EXEC 1.5.3 69)
   check_option(${ASN1C_EXEC} -gen-APER ASN1C_EXEC)
   check_option(${ASN1C_EXEC} -no-gen-UPER ASN1C_EXEC)
   check_option(${ASN1C_EXEC} -no-gen-JER ASN1C_EXEC)
   check_option(${ASN1C_EXEC} -no-gen-BER ASN1C_EXEC)
   check_option(${ASN1C_EXEC} -no-gen-OER ASN1C_EXEC)
+  # newer asn1c generates CBOR codecs by default, which OAI neither uses nor lists
+  execute_process(COMMAND ${ASN1C_EXEC} -no-gen-CBOR
+                  OUTPUT_VARIABLE ASN1C_CBOR_CHECK ERROR_VARIABLE ASN1C_CBOR_CHECK)
+  if(NOT ASN1C_CBOR_CHECK MATCHES "Invalid argument")
+    set(ASN1C_NO_CBOR -no-gen-CBOR)
+  endif()
   add_custom_target(asn1c DEPENDS ${ASN1C_EXEC})
 else ()
   if (NOT AUTO_DOWNLOAD_ASN1C)
     message(FATAL_ERROR "asn1c not found. Install it globally or activate AUTO_DOWNLOAD_ASN1C")
   endif()
   message(STATUS "Downloading and compile asn1c local in this build tree")
+  # the version fetched below supports it; asn1c does not exist yet at this point to be probed
+  set(ASN1C_NO_CBOR -no-gen-CBOR)
   include(ExternalProject)
   ExternalProject_Add(
     asn1c_gen
     GIT_REPOSITORY https://github.com/mouse07410/asn1c
-    GIT_TAG 940dd5fa9f3917913fd487b13dfddfacd0ded06e
+    GIT_TAG d0bea1c5ebc09a56d2ca2f106460f2918236692c
     GIT_REMOTE_UPDATE_STRATEGY CHECKOUT
     BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/bin/asn1c
     BUILD_IN_SOURCE True
     CONFIGURE_COMMAND autoreconf -i
     BUILD_COMMAND ./configure --prefix ${CMAKE_BINARY_DIR}
-    COMMAND make -j8 CFLAGS=-fno-strict-aliasing -Wmisleading-indentation
+    COMMAND make -j8 -Wmisleading-indentation
     STEP_TARGETS build
   )
   set(ASN1C_EXEC ${CMAKE_BINARY_DIR}/bin/asn1c)

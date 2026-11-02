@@ -504,9 +504,9 @@ schedule_ue_spec(module_id_t module_idP,
   eNB_MAC_INST *eNB = RC.mac[module_idP];
   COMMON_channels_t *cc = eNB->common_channels;
   UE_info_t *UE_info = &eNB->UE_info;
-  const int dl_Bandwidth = cc[CC_id].mib->message.dl_Bandwidth;
+  const int dl_Bandwidth = cc[CC_id].mib->message->dl_Bandwidth;
   const int N_RB_DL = to_prb(dl_Bandwidth);
-  const int N_RBG = to_rbg(eNB->common_channels[CC_id].mib->message.dl_Bandwidth);
+  const int N_RBG = to_rbg(eNB->common_channels[CC_id].mib->message->dl_Bandwidth);
   int total_nb_available_rb = N_RB_DL;
   nfapi_dl_config_request_body_t *dl_req = &eNB->DL_req[CC_id].dl_config_request_body;
 
@@ -1221,14 +1221,14 @@ schedule_ue_spec_br(module_id_t module_idP,
     return;
   }
 
-  if (cc[CC_id].mib->message.schedulingInfoSIB1_BR_r13 == 0) {
+  if (cc[CC_id].mib->message->schedulingInfoSIB1_BR_r13 == 0) {
     return;
   }
 
   if (cc[CC_id].radioResourceConfigCommon_BR) {
     ext4_prach = cc[CC_id].radioResourceConfigCommon_BR->ext4->prach_ConfigCommon_v1310;
     ext4_pucch = cc[CC_id].radioResourceConfigCommon_BR->ext4->pucch_ConfigCommon_v1310;
-    prach_ParametersListCE_r13 = &ext4_prach->prach_ParametersListCE_r13;
+    prach_ParametersListCE_r13 = ext4_prach->prach_ParametersListCE_r13;
     pucch_N1PUCCH_AN_InfoList_r13 = ext4_pucch->n1PUCCH_AN_InfoList_r13;
     AssertFatal (prach_ParametersListCE_r13 != NULL, "prach_ParametersListCE_r13 is null\n");
     AssertFatal (pucch_N1PUCCH_AN_InfoList_r13 != NULL, "pucch_N1PUCCH_AN_InfoList_r13 is null\n");
@@ -1760,7 +1760,7 @@ schedule_ue_spec_br(module_id_t module_idP,
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.rnti = rnti;
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.resource_allocation_type = 2;   // format 1A/1B/1D
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.virtual_resource_block_assignment_flag = 0;     // localized
-      dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.resource_block_coding = getRIV (to_prb (cc[CC_id].mib->message.dl_Bandwidth), first_rb, 6);  // check that this isn't getRIV(6,0,6)
+      dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.resource_block_coding = getRIV (to_prb (cc[CC_id].mib->message->dl_Bandwidth), first_rb, 6);  // check that this isn't getRIV(6,0,6)
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.modulation = 2; //QPSK
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.redundancy_version = 0;
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transport_blocks = 1;   // first block
@@ -1773,7 +1773,7 @@ schedule_ue_spec_br(module_id_t module_idP,
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa = 4; // 0 dB
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index = 0;
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap = 0;
-      dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize (cc[CC_id].mib->message.dl_Bandwidth); // ignored
+      dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb = get_subbandsize (cc[CC_id].mib->message->dl_Bandwidth); // ignored
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode = (cc[CC_id].p_eNB == 1) ? 1 : 2;
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband = 1;
       dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector = 1;
@@ -2026,7 +2026,7 @@ schedule_PCH(module_id_t module_idP,
   for (CC_id = 0; CC_id < RC.nb_mac_CC[module_idP]; CC_id++) {
     cc              = &eNB->common_channels[CC_id];
     vrb_map         = (void *) &cc->vrb_map;
-    n_rb_dl         = to_prb(cc->mib->message.dl_Bandwidth);
+    n_rb_dl         = to_prb(cc->mib->message->dl_Bandwidth);
     dl_req          = &eNB->DL_req[CC_id].dl_config_request_body;
 
     for (uint16_t i = 0; i < MAX_MOBILES_PER_ENB; i++) {
@@ -2310,7 +2310,7 @@ schedule_PCH(module_id_t module_idP,
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.pa                                     = 4; // 0 dB
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.delta_power_offset_index               = 0;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.ngap                                   = 0;
-          dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message.dl_Bandwidth); // ignored
+          dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.nprb                                   = get_subbandsize(cc->mib->message->dl_Bandwidth); // ignored
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.transmission_mode                      = (cc->p_eNB==1 ) ? 1 : 2;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_prb_per_subband                 = 1;
           dl_config_pdu->dlsch_pdu.dlsch_pdu_rel8.num_bf_vector                          = 1;

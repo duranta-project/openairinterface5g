@@ -38,6 +38,9 @@
 
 #include "assertions.h"
 #include "conversions.h"
+#include "S1AP_ENB-ID.h"
+#include "S1AP_BPLMNs.h"
+#include "S1AP_ProtocolIE-Container.h"
 
 static int s1ap_eNB_generate_s1_setup_request(
   s1ap_eNB_instance_t *instance_p, s1ap_eNB_mme_data_t *s1ap_mme_data_p);
@@ -650,10 +653,12 @@ static int s1ap_eNB_generate_s1_setup_request(
   /* Prepare the S1AP message to encode */
   memset(&pdu, 0, sizeof(pdu));
   pdu.present = S1AP_S1AP_PDU_PR_initiatingMessage;
-  pdu.choice.initiatingMessage.procedureCode = S1AP_ProcedureCode_id_S1Setup;
-  pdu.choice.initiatingMessage.criticality = S1AP_Criticality_reject;
-  pdu.choice.initiatingMessage.value.present = S1AP_InitiatingMessage__value_PR_S1SetupRequest;
-  out = &pdu.choice.initiatingMessage.value.choice.S1SetupRequest;
+  if (!pdu.choice.initiatingMessage)
+    pdu.choice.initiatingMessage = calloc_or_fail(1, sizeof(*pdu.choice.initiatingMessage));
+  pdu.choice.initiatingMessage->procedureCode = S1AP_ProcedureCode_id_S1Setup;
+  pdu.choice.initiatingMessage->criticality = S1AP_Criticality_reject;
+  pdu.choice.initiatingMessage->value.present = S1AP_InitiatingMessage__value_PR_S1SetupRequest;
+  out = &pdu.choice.initiatingMessage->value.choice.S1SetupRequest;
   /* mandatory */
   ie = (S1AP_S1SetupRequestIEs_t *)calloc(1, sizeof(S1AP_S1SetupRequestIEs_t));
   ie->id = S1AP_ProtocolIE_ID_id_Global_ENB_ID;
@@ -663,14 +668,18 @@ static int s1ap_eNB_generate_s1_setup_request(
                     instance_p->mnc[s1ap_mme_data_p->broadcast_plmn_index[0]],
                     instance_p->mnc_digit_length[s1ap_mme_data_p->broadcast_plmn_index[0]],
                     &ie->value.choice.Global_ENB_ID.pLMNidentity);
-  ie->value.choice.Global_ENB_ID.eNB_ID.present = S1AP_ENB_ID_PR_macroENB_ID;
+  if (!ie->value.choice.Global_ENB_ID.eNB_ID)
+    ie->value.choice.Global_ENB_ID.eNB_ID = calloc_or_fail(1, sizeof(*ie->value.choice.Global_ENB_ID.eNB_ID));
+  ie->value.choice.Global_ENB_ID.eNB_ID->present = S1AP_ENB_ID_PR_macroENB_ID;
   MACRO_ENB_ID_TO_BIT_STRING(instance_p->eNB_id,
-                             &ie->value.choice.Global_ENB_ID.eNB_ID.choice.macroENB_ID);
+                             &ie->value.choice.Global_ENB_ID.eNB_ID->choice.macroENB_ID);
   S1AP_INFO("%u -> %02x%02x%02x\n", instance_p->eNB_id,
-            ie->value.choice.Global_ENB_ID.eNB_ID.choice.macroENB_ID.buf[0],
-            ie->value.choice.Global_ENB_ID.eNB_ID.choice.macroENB_ID.buf[1],
-            ie->value.choice.Global_ENB_ID.eNB_ID.choice.macroENB_ID.buf[2]);
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+            ie->value.choice.Global_ENB_ID.eNB_ID->choice.macroENB_ID.buf[0],
+            ie->value.choice.Global_ENB_ID.eNB_ID->choice.macroENB_ID.buf[1],
+            ie->value.choice.Global_ENB_ID.eNB_ID->choice.macroENB_ID.buf[2]);
+  if (!out->protocolIEs)
+    out->protocolIEs = calloc_or_fail(1, sizeof(*out->protocolIEs));
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
   /* optional */
   if (instance_p->eNB_name) {
@@ -680,7 +689,7 @@ static int s1ap_eNB_generate_s1_setup_request(
     ie->value.present = S1AP_S1SetupRequestIEs__value_PR_ENBname;
     OCTET_STRING_fromBuf(&ie->value.choice.ENBname, instance_p->eNB_name,
                          strlen(instance_p->eNB_name));
-    asn1cSeqAdd(&out->protocolIEs.list, ie);
+    asn1cSeqAdd(&out->protocolIEs->list, ie);
   }
 
   /* mandatory */
@@ -698,19 +707,21 @@ static int s1ap_eNB_generate_s1_setup_request(
                         instance_p->mnc[s1ap_mme_data_p->broadcast_plmn_index[i]],
                         instance_p->mnc_digit_length[s1ap_mme_data_p->broadcast_plmn_index[i]],
                         plmn);
-        asn1cSeqAdd(&ta->broadcastPLMNs.list, plmn);
+        if (!ta->broadcastPLMNs)
+          ta->broadcastPLMNs = calloc_or_fail(1, sizeof(*ta->broadcastPLMNs));
+        asn1cSeqAdd(&ta->broadcastPLMNs->list, plmn);
       }
     }
     asn1cSeqAdd(&ie->value.choice.SupportedTAs.list, ta);
   }
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
   /* mandatory */
   ie = (S1AP_S1SetupRequestIEs_t *)calloc(1, sizeof(S1AP_S1SetupRequestIEs_t));
   ie->id = S1AP_ProtocolIE_ID_id_DefaultPagingDRX;
   ie->criticality = S1AP_Criticality_ignore;
   ie->value.present = S1AP_S1SetupRequestIEs__value_PR_PagingDRX;
   ie->value.choice.PagingDRX = instance_p->default_drx;
-  asn1cSeqAdd(&out->protocolIEs.list, ie);
+  asn1cSeqAdd(&out->protocolIEs->list, ie);
 
 
   if (s1ap_eNB_encode_pdu(&pdu, &buffer, &len) < 0) {

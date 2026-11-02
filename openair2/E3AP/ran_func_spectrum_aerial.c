@@ -163,9 +163,9 @@ void nr_fill_sensing_pusch(nr_cell_sched_t *cell, frame_t frame, slot_t slot, co
 
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   NR_BWP_UplinkCommon_t *initialUL = scc->uplinkConfigCommon->initialUplinkBWP;
-  int bwp_size = NRRIV2BW(initialUL->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
-  int bwp_start = NRRIV2PRBOFFSET(initialUL->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
-  int scs = initialUL->genericParameters.subcarrierSpacing;
+  int bwp_size = NRRIV2BW(initialUL->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
+  int bwp_start = NRRIV2PRBOFFSET(initialUL->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
+  int scs = initialUL->genericParameters->subcarrierSpacing;
   int phys_cell_id = *scc->physCellId;
 
   int slots_frame = cell->frame_structure.numb_slots_frame;

@@ -59,15 +59,19 @@ int rrc_eNB_generate_RRCConnectionReconfiguration_endc(protocol_ctxt_t *ctxt,
 
   memset(&dl_dcch_msg,0,sizeof(LTE_DL_DCCH_Message_t));
 
-  dl_dcch_msg.message.present           = LTE_DL_DCCH_MessageType_PR_c1;
-  dl_dcch_msg.message.choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionReconfiguration;
+  if (!dl_dcch_msg.message)
+    dl_dcch_msg.message = calloc_or_fail(1, sizeof(*dl_dcch_msg.message));
+  dl_dcch_msg.message->present           = LTE_DL_DCCH_MessageType_PR_c1;
+  dl_dcch_msg.message->choice.c1.present = LTE_DL_DCCH_MessageType__c1_PR_rrcConnectionReconfiguration;
 
-  r = &dl_dcch_msg.message.choice.c1.choice.rrcConnectionReconfiguration;
+  r = &dl_dcch_msg.message->choice.c1.choice.rrcConnectionReconfiguration;
 
   r->rrc_TransactionIdentifier = trans_id;
   r->criticalExtensions.present = LTE_RRCConnectionReconfiguration__criticalExtensions_PR_c1;
   r->criticalExtensions.choice.c1.present = LTE_RRCConnectionReconfiguration__criticalExtensions__c1_PR_rrcConnectionReconfiguration_r8;
-  r->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.radioResourceConfigDedicated = &rrcd;
+  if (!r->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8)
+    r->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8 = calloc_or_fail(1, sizeof(*r->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8));
+  r->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->radioResourceConfigDedicated = &rrcd;
 
 #if 0
   rrcd.drb_ToAddModList = &drb_list;
@@ -130,7 +134,7 @@ int rrc_eNB_generate_RRCConnectionReconfiguration_endc(protocol_ctxt_t *ctxt,
   memset(&cr_1510, 0, sizeof(cr_1510));
   memset(&nr, 0, sizeof(nr));
 
-  r->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8.nonCriticalExtension = &cr_890;
+  r->criticalExtensions.choice.c1.choice.rrcConnectionReconfiguration_r8->nonCriticalExtension = &cr_890;
   cr_890.nonCriticalExtension = &cr_920;
   cr_920.nonCriticalExtension = &cr_1020;
   cr_1020.nonCriticalExtension = &cr_1130;

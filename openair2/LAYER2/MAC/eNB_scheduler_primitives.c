@@ -148,7 +148,7 @@ get_phich_resource_times6(COMMON_channels_t *cc)
   int phichmap[4] = { 1, 3, 6, 12 };
   AssertFatal(cc != NULL, "cc is null\n");
   AssertFatal(cc->mib != NULL, "cc->mib is null\n");
-  int phich_Resource = (int) cc->mib->message.phich_Config.phich_Resource;
+  int phich_Resource = (int) cc->mib->message->phich_Config->phich_Resource;
   AssertFatal(phich_Resource >= 0 && phich_Resource < 4, "phich_Resource %d not in 0..3\n",
               phich_Resource);
   return (phichmap[phich_Resource]);
@@ -927,7 +927,7 @@ get_csi_params(COMMON_channels_t *cc,
 
   // get H
   if (cqi_ReportPeriodic->choice.setup.cqi_FormatIndicatorPeriodic.present == LTE_CQI_ReportPeriodic__setup__cqi_FormatIndicatorPeriodic_PR_subbandCQI) {
-    *H = 1 + (Jtab[cc->mib->message.dl_Bandwidth] * cqi_ReportPeriodic->choice.setup.cqi_FormatIndicatorPeriodic.choice.subbandCQI.k);
+    *H = 1 + (Jtab[cc->mib->message->dl_Bandwidth] * cqi_ReportPeriodic->choice.setup.cqi_FormatIndicatorPeriodic.choice.subbandCQI.k);
   } else {
     *H = 1;
   }
@@ -944,9 +944,9 @@ get_dl_cqi_pmi_size_pusch(COMMON_channels_t *cc,
 //------------------------------------------------------------------------------
 {
   int Ntab[6] = { 0, 4, 7, 9, 10, 13 };
-  int N = Ntab[cc->mib->message.dl_Bandwidth];
+  int N = Ntab[cc->mib->message->dl_Bandwidth];
   int Ltab_uesel[6] = { 0, 6, 9, 13, 15, 18 };
-  int L = Ltab_uesel[cc->mib->message.dl_Bandwidth];
+  int L = Ltab_uesel[cc->mib->message->dl_Bandwidth];
   AssertFatal(cqi_ReportModeAperiodic != NULL, "cqi_ReportPeriodic is null!\n");
 
   switch (*cqi_ReportModeAperiodic) {
@@ -1113,9 +1113,9 @@ get_rel8_dl_cqi_pmi_size(UE_sched_ctrl_t *sched_ctl,
                 ri,
                 no_pmi);
   } else if (cqi_ReportPeriodic->choice.setup.cqi_FormatIndicatorPeriodic.present == LTE_CQI_ReportPeriodic__setup__cqi_FormatIndicatorPeriodic_PR_subbandCQI) {
-    if (no_pmi == 1 || ri == 1) return (4 + Ltab[cc->mib->message.dl_Bandwidth]);
+    if (no_pmi == 1 || ri == 1) return (4 + Ltab[cc->mib->message->dl_Bandwidth]);
 
-    return (7 + Ltab[cc->mib->message.dl_Bandwidth]);
+    return (7 + Ltab[cc->mib->message->dl_Bandwidth]);
   }
 
   AssertFatal(1 == 0, "Shouldn't get here : cqi_ReportPeriodic->present %d\n",
@@ -1495,13 +1495,13 @@ fill_nfapi_harq_information(module_id_t                      module_idP,
 
         harq_information->harq_information_rel10_tdd.tl.tag                    = NFAPI_UL_CONFIG_REQUEST_HARQ_INFORMATION_REL10_TDD_TAG;
         harq_information->harq_information_rel10_tdd.n_pucch_1_0
-          = getNp(cc->mib->message.dl_Bandwidth, cce_idxP, 0) + cc->radioResourceConfigCommon->pucch_ConfigCommon.n1PUCCH_AN + cce_idxP;
+          = getNp(cc->mib->message->dl_Bandwidth, cce_idxP, 0) + cc->radioResourceConfigCommon->pucch_ConfigCommon->n1PUCCH_AN + cce_idxP;
         harq_information->harq_information_rel10_tdd.number_of_pucch_resources = 1;
       } else {
         harq_information->harq_information_rel9_fdd.tl.tag                     = NFAPI_UL_CONFIG_REQUEST_HARQ_INFORMATION_REL9_FDD_TAG;
         harq_information->harq_information_rel9_fdd.number_of_pucch_resources  = 1;
         harq_information->harq_information_rel9_fdd.harq_size                  = 1; // 1-bit ACK/NAK
-        harq_information->harq_information_rel9_fdd.n_pucch_1_0                = cc->radioResourceConfigCommon->pucch_ConfigCommon.n1PUCCH_AN + cce_idxP;
+        harq_information->harq_information_rel9_fdd.n_pucch_1_0                = cc->radioResourceConfigCommon->pucch_ConfigCommon->n1PUCCH_AN + cce_idxP;
       }
 
       break;
@@ -1519,14 +1519,14 @@ fill_nfapi_harq_information(module_id_t                      module_idP,
 
         harq_information->harq_information_rel10_tdd.tl.tag                     = NFAPI_UL_CONFIG_REQUEST_HARQ_INFORMATION_REL10_TDD_TAG;
         harq_information->harq_information_rel10_tdd.harq_size                  = 2;
-        harq_information->harq_information_rel10_tdd.n_pucch_1_0                = cc->radioResourceConfigCommon->pucch_ConfigCommon.n1PUCCH_AN + cce_idxP;
+        harq_information->harq_information_rel10_tdd.n_pucch_1_0                = cc->radioResourceConfigCommon->pucch_ConfigCommon->n1PUCCH_AN + cce_idxP;
         harq_information->harq_information_rel10_tdd.number_of_pucch_resources  = 1;
       } else {
         harq_information->harq_information_rel9_fdd.tl.tag                      = NFAPI_UL_CONFIG_REQUEST_HARQ_INFORMATION_REL9_FDD_TAG;
         harq_information->harq_information_rel9_fdd.number_of_pucch_resources   = 1;
         harq_information->harq_information_rel9_fdd.ack_nack_mode               = 0;  // 1a/b
         harq_information->harq_information_rel9_fdd.harq_size                   = 2;
-        harq_information->harq_information_rel9_fdd.n_pucch_1_0                 = cc->radioResourceConfigCommon->pucch_ConfigCommon.n1PUCCH_AN + cce_idxP;
+        harq_information->harq_information_rel9_fdd.n_pucch_1_0                 = cc->radioResourceConfigCommon->pucch_ConfigCommon->n1PUCCH_AN + cce_idxP;
       }
 
       break;
@@ -1894,7 +1894,7 @@ narrowband_to_first_rb(COMMON_channels_t *cc,
                        int nb_index)
 //------------------------------------------------------------------------------
 {
-  switch (cc->mib->message.dl_Bandwidth) {
+  switch (cc->mib->message->dl_Bandwidth) {
     case 0:     // 6 PRBs, N_NB=1, i_0=0
       return 0;
 
@@ -1924,7 +1924,7 @@ narrowband_to_first_rb(COMMON_channels_t *cc,
 
     default:
       AssertFatal(1 == 0, "Impossible dl_Bandwidth %d\n",
-                  (int) cc->mib->message.dl_Bandwidth);
+                  (int) cc->mib->message->dl_Bandwidth);
       break;
   }
 
@@ -2545,7 +2545,7 @@ get_bw_index(module_id_t module_id,
 //------------------------------------------------------------------------------
 {
   int bw_index = 0;
-  int N_RB_DL = to_prb(RC.mac[module_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  int N_RB_DL = to_prb(RC.mac[module_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
 
   switch (N_RB_DL) {
     case 6:     // 1.4 MHz
@@ -2583,7 +2583,7 @@ get_min_rb_unit(module_id_t module_id,
 //------------------------------------------------------------------------------
 {
   int min_rb_unit = 0;
-  int N_RB_DL = to_prb(RC.mac[module_id]->common_channels[CC_id].mib->message.dl_Bandwidth);
+  int N_RB_DL = to_prb(RC.mac[module_id]->common_channels[CC_id].mib->message->dl_Bandwidth);
 
   switch (N_RB_DL) {
     case 6:       // 1.4MHz
@@ -2913,7 +2913,7 @@ getnquad(COMMON_channels_t *cc,
   uint16_t Nreg = 0;
   AssertFatal(cc != NULL, "cc is null\n");
   AssertFatal(cc->mib != NULL, "cc->mib is null\n");
-  int N_RB_DL = to_prb(cc->mib->message.dl_Bandwidth);
+  int N_RB_DL = to_prb(cc->mib->message->dl_Bandwidth);
   int phich_resource = get_phich_resource_times6(cc);
   uint8_t Ngroup_PHICH = (phich_resource * N_RB_DL) / 48;
 
@@ -3345,10 +3345,10 @@ try_again:
               (ul_req->ul_config_pdu_list[ack_int].uci_harq_pdu.ue_information.ue_information_rel8.rnti == dl_config_pdu[i].dci_dl_pdu.dci_dl_pdu_rel8.rnti)) {
             if (cc->tdd_Config==NULL)
               ul_req->ul_config_pdu_list[ack_int].uci_harq_pdu.harq_information.harq_information_rel9_fdd.n_pucch_1_0 =
-                cc->radioResourceConfigCommon->pucch_ConfigCommon.n1PUCCH_AN + fCCE;
+                cc->radioResourceConfigCommon->pucch_ConfigCommon->n1PUCCH_AN + fCCE;
             else
               ul_req->ul_config_pdu_list[ack_int].uci_harq_pdu.harq_information.harq_information_rel10_tdd.n_pucch_1_0 =
-                cc->radioResourceConfigCommon->pucch_ConfigCommon.n1PUCCH_AN + fCCE + getNp(cc->mib->message.dl_Bandwidth,fCCE,0) ;
+                cc->radioResourceConfigCommon->pucch_ConfigCommon->n1PUCCH_AN + fCCE + getNp(cc->mib->message->dl_Bandwidth,fCCE,0) ;
           }
         }
       }
@@ -4521,8 +4521,8 @@ extract_pucch_csi(module_id_t mod_idP,
                  &Npd,
                  &N_OFFSET_CQI,
                  &H);
-  K = (H - 1) / Jtab[cc->mib->message.dl_Bandwidth];
-  L = Ltab[cc->mib->message.dl_Bandwidth];
+  K = (H - 1) / Jtab[cc->mib->message->dl_Bandwidth];
+  L = Ltab[cc->mib->message->dl_Bandwidth];
   Lmask = L - 1;
   feedback_cnt = (((frameP * 10) + subframeP) / Npd) % H;
 
@@ -4625,11 +4625,11 @@ extract_pusch_csi(module_id_t mod_idP,
     = UE_info->UE_template[CC_idP][UE_id].physicalConfigDedicated->cqi_ReportConfig->cqi_ReportModeAperiodic;
   AssertFatal(cqi_ReportModeAperiodic  != NULL, "cqi_ReportModeAperiodic is null for UE %d\n",
               UE_id);
-  int N = Ntab[cc->mib->message.dl_Bandwidth];
+  int N = Ntab[cc->mib->message->dl_Bandwidth];
   int tmode = get_tmode(mod_idP, CC_idP, UE_id);
   int ri = sched_ctl->aperiodic_ri_received[CC_idP];
   int r, diffcqi0 = 0, diffcqi1 = 0, pmi_uesel = 0;
-  int bw = cc->mib->message.dl_Bandwidth;
+  int bw = cc->mib->message->dl_Bandwidth;
   int m;
 
   switch (*cqi_ReportModeAperiodic) {

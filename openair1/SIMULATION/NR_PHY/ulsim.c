@@ -1122,8 +1122,8 @@ int main(int argc, char *argv[])
         nfapi_nr_pusch_pdu_t *pusch_pdu = &pdu_element0->pusch_pdu;
         memset(pusch_pdu, 0, sizeof(nfapi_nr_pusch_pdu_t));
 
-        int abwp_size = NRRIV2BW(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
-        int abwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
+        int abwp_size = NRRIV2BW(ubwp->bwp_Common->genericParameters->locationAndBandwidth, 275);
+        int abwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters->locationAndBandwidth, 275);
         int ibwp_size = ibwps;
         int ibwp_start = ibwp_rboffset;
         if (msg3_flag == 1) {
@@ -1206,8 +1206,8 @@ int main(int argc, char *argv[])
           nfapi_nr_srs_pdu_t *srs_pdu = &pdu_element1->srs_pdu;
           memset(srs_pdu, 0, sizeof(nfapi_nr_srs_pdu_t));
           srs_pdu->rnti = n_rnti;
-          srs_pdu->bwp_size = NRRIV2BW(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
-          srs_pdu->bwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
+          srs_pdu->bwp_size = NRRIV2BW(ubwp->bwp_Common->genericParameters->locationAndBandwidth, 275);
+          srs_pdu->bwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters->locationAndBandwidth, 275);
           srs_pdu->subcarrier_spacing = gNB->frame_parms.subcarrier_spacing;
           srs_pdu->num_ant_ports = n_tx == 4 ? 2 : n_tx == 2 ? 1 : 0;
           srs_pdu->sequence_id = 40;
@@ -1307,8 +1307,8 @@ int main(int argc, char *argv[])
           fapi_nr_ul_config_srs_pdu *srs_config_pdu = &ul_config1->srs_config_pdu;
           memset(srs_config_pdu, 0, sizeof(fapi_nr_ul_config_srs_pdu));
           srs_config_pdu->rnti = n_rnti;
-          srs_config_pdu->bwp_size = NRRIV2BW(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
-          srs_config_pdu->bwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters.locationAndBandwidth, 275);
+          srs_config_pdu->bwp_size = NRRIV2BW(ubwp->bwp_Common->genericParameters->locationAndBandwidth, 275);
+          srs_config_pdu->bwp_start = NRRIV2PRBOFFSET(ubwp->bwp_Common->genericParameters->locationAndBandwidth, 275);
           srs_config_pdu->subcarrier_spacing = gNB->frame_parms.subcarrier_spacing;
           srs_config_pdu->num_ant_ports = n_tx == 4 ? 2 : n_tx == 2 ? 1 : 0;
           srs_config_pdu->config_index = rrc_get_max_nr_csrs(srs_config_pdu->bwp_size, srs_config_pdu->bandwidth_index);

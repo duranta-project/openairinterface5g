@@ -65,7 +65,7 @@ void schedule_SRS(module_id_t module_idP,
   struct LTE_SoundingRS_UL_ConfigDedicated *soundingRS_UL_ConfigDedicated = NULL;
 
   for (CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
-    soundingRS_UL_ConfigCommon = &(cc[CC_id].radioResourceConfigCommon->soundingRS_UL_ConfigCommon);
+    soundingRS_UL_ConfigCommon = (cc[CC_id].radioResourceConfigCommon->soundingRS_UL_ConfigCommon);
 
     /* Check if SRS is enabled in this frame/subframe */
     if (soundingRS_UL_ConfigCommon) {
@@ -414,10 +414,10 @@ check_ul_failure(module_id_t module_idP, int CC_id, int UE_id,
       dl_config_pdu->dci_dl_pdu.dci_dl_pdu_rel8.rnti                  = rnti;
       dl_config_pdu->dci_dl_pdu.dci_dl_pdu_rel8.rnti_type             = 1;  // CRNTI : see Table 4-10 from SCF082 - nFAPI specifications
       dl_config_pdu->dci_dl_pdu.dci_dl_pdu_rel8.transmission_power    = 6000; // equal to RS power
-      AssertFatal((cc[CC_id].mib->message.dl_Bandwidth >= 0) && (cc[CC_id].mib->message.dl_Bandwidth < 6),
+      AssertFatal((cc[CC_id].mib->message->dl_Bandwidth >= 0) && (cc[CC_id].mib->message->dl_Bandwidth < 6),
                   "illegal dl_Bandwidth %d\n",
-                  (int) cc[CC_id].mib->message.dl_Bandwidth);
-      dl_config_pdu->dci_dl_pdu.dci_dl_pdu_rel8.resource_block_coding = pdcch_order_table[cc[CC_id].mib->message.dl_Bandwidth];
+                  (int) cc[CC_id].mib->message->dl_Bandwidth);
+      dl_config_pdu->dci_dl_pdu.dci_dl_pdu_rel8.resource_block_coding = pdcch_order_table[cc[CC_id].mib->message->dl_Bandwidth];
       DL_req[CC_id].dl_config_request_body.number_dci++;
       DL_req[CC_id].dl_config_request_body.number_pdu++;
       DL_req[CC_id].dl_config_request_body.tl.tag                      = NFAPI_DL_CONFIG_REQUEST_BODY_TAG;
@@ -568,7 +568,7 @@ eNB_dlsch_ulsch_scheduler(module_id_t module_idP,
      */
     if (subframeP == 0) {
       int i;
-      int bw = cc[CC_id].mib->message.dl_Bandwidth;
+      int bw = cc[CC_id].mib->message->dl_Bandwidth;
       /* start and count defined for RBs: 6, 15, 25, 50, 75, 100 */
       int start[6] = { 0, 4, 9, 22, 34, 47 };
       int count[6] = { 6, 7, 7,  6,  7,  6 };

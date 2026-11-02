@@ -566,7 +566,7 @@ rrc_eNB_send_S1AP_UPLINK_NAS(
 //------------------------------------------------------------------------------
 {
   {
-    LTE_ULInformationTransfer_t *ulInformationTransfer = &ul_dcch_msg->message.choice.c1.choice.ulInformationTransfer;
+    LTE_ULInformationTransfer_t *ulInformationTransfer = &ul_dcch_msg->message->choice.c1.choice.ulInformationTransfer;
 
     if ((ulInformationTransfer->criticalExtensions.present == LTE_ULInformationTransfer__criticalExtensions_PR_c1)
         && (ulInformationTransfer->criticalExtensions.choice.c1.present
@@ -601,7 +601,9 @@ void rrc_eNB_send_S1AP_UE_CAPABILITIES_IND(
 )
 //------------------------------------------------------------------------------
 {
-  LTE_UECapabilityInformation_t *ueCapabilityInformation = &ul_dcch_msg->message.choice.c1.choice.ueCapabilityInformation;
+  if (!ul_dcch_msg->message)
+    ul_dcch_msg->message = calloc_or_fail(1, sizeof(*ul_dcch_msg->message));
+  LTE_UECapabilityInformation_t *ueCapabilityInformation = &ul_dcch_msg->message->choice.c1.choice.ueCapabilityInformation;
   /* 4096 is arbitrary, should be big enough */
   unsigned char buf[4096];
   unsigned char *buf2;
@@ -725,11 +727,11 @@ rrc_eNB_send_S1AP_NAS_FIRST_REQ(
                   S1AP_NAS_FIRST_REQ (message_p).ue_identity.gummei.mcc,
                   ue_context_pP->ue_context.rnti);
           }
-          if(r_mme->plmn_Identity->mnc.list.count == 3)
+          if(r_mme->plmn_Identity->mnc->list.count == 3)
           {
-            S1AP_NAS_FIRST_REQ (message_p).ue_identity.gummei.mnc = (*r_mme->plmn_Identity->mnc.list.array[0] & 0xf) * 100 +
-                                                                    (*r_mme->plmn_Identity->mnc.list.array[1] & 0xf) * 10 +
-                                                                    (*r_mme->plmn_Identity->mnc.list.array[2] & 0xf);
+            S1AP_NAS_FIRST_REQ (message_p).ue_identity.gummei.mnc = (*r_mme->plmn_Identity->mnc->list.array[0] & 0xf) * 100 +
+                                                                    (*r_mme->plmn_Identity->mnc->list.array[1] & 0xf) * 10 +
+                                                                    (*r_mme->plmn_Identity->mnc->list.array[2] & 0xf);
             S1AP_NAS_FIRST_REQ (message_p).ue_identity.gummei.mnc_len = 3;
             LOG_I(S1AP, "[eNB %d] Build S1AP_NAS_FIRST_REQ adding in s_TMSI: GUMMEI MNC %u %udigit ue %x\n",
                   ctxt_pP->module_id,
@@ -737,10 +739,10 @@ rrc_eNB_send_S1AP_NAS_FIRST_REQ(
                   S1AP_NAS_FIRST_REQ (message_p).ue_identity.gummei.mnc_len,
                   ue_context_pP->ue_context.rnti);
           }
-          else if(r_mme->plmn_Identity->mnc.list.count == 2)
+          else if(r_mme->plmn_Identity->mnc->list.count == 2)
           {
-            S1AP_NAS_FIRST_REQ (message_p).ue_identity.gummei.mnc = (*r_mme->plmn_Identity->mnc.list.array[0] & 0xf) * 10 +
-                                                                    (*r_mme->plmn_Identity->mnc.list.array[1] & 0xf);
+            S1AP_NAS_FIRST_REQ (message_p).ue_identity.gummei.mnc = (*r_mme->plmn_Identity->mnc->list.array[0] & 0xf) * 10 +
+                                                                    (*r_mme->plmn_Identity->mnc->list.array[1] & 0xf);
             S1AP_NAS_FIRST_REQ (message_p).ue_identity.gummei.mnc_len = 2;
             LOG_I(S1AP, "[eNB %d] Build S1AP_NAS_FIRST_REQ adding in s_TMSI: GUMMEI MNC %u %udigit ue %x\n",
                   ctxt_pP->module_id,

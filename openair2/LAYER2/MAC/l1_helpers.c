@@ -22,12 +22,12 @@ int8_t get_Po_NOMINAL_PUSCH(module_id_t module_idP, uint8_t CC_id)
 		module_idP, CC_id);
 
     rach_ConfigCommon =
-	&UE_mac_inst[module_idP].radioResourceConfigCommon->
+	UE_mac_inst[module_idP].radioResourceConfigCommon->
 	rach_ConfigCommon;
 
     return (-120 +
 	    (rach_ConfigCommon->
-	     powerRampingParameters.preambleInitialReceivedTargetPower <<
+	     powerRampingParameters->preambleInitialReceivedTargetPower <<
 	     1) + get_DELTA_PREAMBLE(module_idP, CC_id));
 }
 
@@ -38,7 +38,7 @@ int8_t get_DELTA_PREAMBLE(module_id_t module_idP, int CC_id)
 		"Transmission on secondary CCs is not supported yet\n");
     uint8_t prachConfigIndex =
 	UE_mac_inst[module_idP].radioResourceConfigCommon->
-	prach_Config.prach_ConfigInfo.prach_ConfigIndex;
+	prach_Config->prach_ConfigInfo->prach_ConfigIndex;
     uint8_t preambleformat;
 
     if (UE_mac_inst[module_idP].tdd_Config) {	// TDD

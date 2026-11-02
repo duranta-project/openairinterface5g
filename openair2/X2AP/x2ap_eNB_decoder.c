@@ -17,7 +17,7 @@ static int x2ap_eNB_decode_initiating_message(X2AP_X2AP_PDU_t *pdu)
 {
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.initiatingMessage.procedureCode) {
+  switch(pdu->choice.initiatingMessage->procedureCode) {
 
     case X2AP_ProcedureCode_id_x2Setup:
       //asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_X2AP_X2AP_PDU, pdu);
@@ -59,9 +59,9 @@ static int x2ap_eNB_decode_initiating_message(X2AP_X2AP_PDU_t *pdu)
 
     default:
       X2AP_ERROR("Unknown procedure ID (%d) for initiating message\n",
-                  (int)pdu->choice.initiatingMessage.procedureCode);
+                  (int)pdu->choice.initiatingMessage->procedureCode);
       AssertFatal( 0, "Unknown procedure ID (%d) for initiating message\n",
-                   (int)pdu->choice.initiatingMessage.procedureCode);
+                   (int)pdu->choice.initiatingMessage->procedureCode);
       return -1;
   }
 
@@ -72,7 +72,7 @@ static int x2ap_eNB_decode_successful_outcome(X2AP_X2AP_PDU_t *pdu)
 {
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.successfulOutcome.procedureCode) {
+  switch(pdu->choice.successfulOutcome->procedureCode) {
     case X2AP_ProcedureCode_id_x2Setup:
       //asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_X2AP_X2AP_PDU, pdu);
       X2AP_INFO("x2ap_eNB_decode_successfuloutcome_message!\n");
@@ -97,7 +97,7 @@ static int x2ap_eNB_decode_successful_outcome(X2AP_X2AP_PDU_t *pdu)
 
     default:
       X2AP_ERROR("Unknown procedure ID (%d) for successfull outcome message\n",
-                  (int)pdu->choice.successfulOutcome.procedureCode);
+                  (int)pdu->choice.successfulOutcome->procedureCode);
       return -1;
   }
 
@@ -108,7 +108,7 @@ static int x2ap_eNB_decode_unsuccessful_outcome(X2AP_X2AP_PDU_t *pdu)
 {
   DevAssert(pdu != NULL);
 
-  switch(pdu->choice.unsuccessfulOutcome.procedureCode) {
+  switch(pdu->choice.unsuccessfulOutcome->procedureCode) {
     case X2AP_ProcedureCode_id_x2Setup:
       //asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_X2AP_X2AP_PDU, pdu);
       X2AP_INFO("x2ap_eNB_decode_unsuccessfuloutcome_message!\n");
@@ -116,7 +116,7 @@ static int x2ap_eNB_decode_unsuccessful_outcome(X2AP_X2AP_PDU_t *pdu)
 
     default:
        X2AP_ERROR("Unknown procedure ID (%d) for unsuccessfull outcome message\n",
-                  (int)pdu->choice.unsuccessfulOutcome.procedureCode);
+                  (int)pdu->choice.unsuccessfulOutcome->procedureCode);
       return -1;
   }
 

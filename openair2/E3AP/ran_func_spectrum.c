@@ -451,7 +451,7 @@ static void nr_sensing_add_prach_occupancy(const nr_cell_sched_t *cell,
   if (iul->rach_ConfigCommon == NULL || iul->rach_ConfigCommon->choice.setup == NULL)
     return;
   const NR_RACH_ConfigCommon_t *rcc = iul->rach_ConfigCommon->choice.setup;
-  const NR_RACH_ConfigGeneric_t *rcg = &rcc->rach_ConfigGeneric;
+  const NR_RACH_ConfigGeneric_t *rcg = rcc->rach_ConfigGeneric;
   const nfapi_nr_config_request_scf_t *cfg = &cell->config;
   const uint8_t config_index = rcg->prach_ConfigurationIndex;
   const uint8_t fdm = cfg->prach_config.num_prach_fd_occasions.value;
@@ -464,7 +464,7 @@ static void nr_sensing_add_prach_occupancy(const nr_cell_sched_t *cell,
   if (!get_nr_prach_sched_from_info(cc->prach_info, config_index, frame, slot, mu, fr, &RA_sfn_index, cc->frame_type))
     return; /* not a PRACH occasion on this slot — leave PRBs free */
 
-  const int bwp_start = NRRIV2PRBOFFSET(iul->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+  const int bwp_start = NRRIV2PRBOFFSET(iul->genericParameters->locationAndBandwidth, MAX_BWP_SIZE);
   const int n_ra_rb = get_N_RA_RB(cfg->prach_config.prach_sub_c_spacing.value, ul_mu);
   const int rb0 = bwp_start + rcg->msg1_FrequencyStart;
   const int w = n_ra_rb * (fdm > 0 ? fdm : 1);
