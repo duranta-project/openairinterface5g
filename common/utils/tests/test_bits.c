@@ -14,11 +14,6 @@ static int g_failures = 0;
 #define BITS_PER_WORD 32
 #define TOTAL_BITS (ARRSIZE * BITS_PER_WORD)
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  abort();
-}
-
 static inline void set_bit_in_array(uint32_t *arr, int bit_pos)
 {
   arr[bit_pos / BITS_PER_WORD] |= 1u << (bit_pos % BITS_PER_WORD);

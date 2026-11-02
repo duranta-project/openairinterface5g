@@ -21,7 +21,6 @@ extern configmodule_interface_t *uniqCfg;
 #define config_get_if() uniqCfg // Existing code implicit uniq configuration context
 #endif
 /* utility functions to ease usage of config module structures */
-#define CONFIG_GETSOURCE ((config_get_if() == NULL) ? NULL : config_get_if()->cfgmode)
 #define CONFIG_ISFLAGSET(P) ( (config_get_if()==NULL) ? 0    : !!(config_get_if()->rtflags & P))
 #define CONFIG_SETRTFLAG(P)   if (config_get_if()) { config_get_if()->rtflags |= P; }
 #define CONFIG_CLEARRTFLAG(P) if (config_get_if()) { config_get_if()->rtflags &= (~P); }
@@ -56,8 +55,6 @@ int config_check_uintrange(const configmodule_interface_t *cfg, const paramdef_t
 int config_check_strval(configmodule_interface_t *cfg, paramdef_t *param);
 int config_checkstr_assign_integer(configmodule_interface_t *cfg, paramdef_t *param);
 const paramdef_t *config_get_paramdef_from_name(const paramdef_t *pd, int num, const char *name);
-
-#define CONFIG_GETCONFFILE (config_get_if()->cfgP[0])
 
 #ifdef __cplusplus
 }

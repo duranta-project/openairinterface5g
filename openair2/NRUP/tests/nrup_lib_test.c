@@ -23,13 +23,6 @@ configmodule_interface_t *uniqCfg = NULL;
 #define rand_pdcp_sn() (taus() & NRUP_NR_PDCP_SN_MAX)
 #define rand_in_range(min, max) ((min) + taus() % ((max) - (min) + 1))
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  printf("detected error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 static void nrup_dl_user_encdec_test(const nrup_dl_user_data_t *orig)
 {
   uint8_t buf[32];

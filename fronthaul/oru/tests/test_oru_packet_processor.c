@@ -20,12 +20,6 @@
 #include "log.h"
 #include "common/config/config_userapi.h"
 
-// OAI Linkage Satisfiers
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assertflag)
-{
-  fprintf(stderr, "Error at %s:%s:%d - %s\n", file, function, line, s ? s : "None");
-  exit(1);
-}
 configmodule_interface_t *uniqCfg = NULL;
 
 /* Global config for tests, matches processor init */

@@ -419,9 +419,7 @@ int proccmd_show(char *buf, int debug, telnet_printfunc_t prnt)
             ((config_get_if()->rtflags & CONFIG_DEBUGPTR) ? "Y" : "N") ); 
        prnt("    Print config debug msg, command line processing (flag %u): %s\n",CONFIG_DEBUGCMDLINE,
             ((config_get_if()->rtflags & CONFIG_DEBUGCMDLINE) ? "Y" : "N") );        
-       prnt("    Don't exit if param check fails (flag %u): %s\n",CONFIG_NOABORTONCHKF,
-            ((config_get_if()->rtflags & CONFIG_NOABORTONCHKF) ? "Y" : "N") );      
-       prnt("Config source: %s,  parameters:\n",CONFIG_GETSOURCE );
+       prnt("Config source: %s,  parameters:\n", config_get_if()->cfgmode );
        for (int i=0; i < config_get_if()->num_cfgP; i++) {
             prnt("    %02i %s\n",i ,config_get_if()->cfgP[i]);
        }
@@ -491,7 +489,8 @@ int proccmd_exit(char *buf, int debug, telnet_printfunc_t prnt)
 {
    if (debug > 0)
        prnt("process module received %s\n",buf);
-   exit_fun("telnet server received exit command\n");
+   printf("telnet server received exit command\n");
+   exit(0);
    return 0;
 }
 

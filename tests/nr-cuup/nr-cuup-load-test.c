@@ -32,12 +32,6 @@ void e1_bearer_release_cmd(const e1ap_bearer_release_cmd_t *cmd) { abort(); } /*
 void e1_reset(void) { abort(); } /* CU-UP */
 instance_t *N3GTPUInst = NULL; /* CU-UP */
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  LOG_E(GNB_APP, "error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 /* @brief Dummy function to pass a fptr to ITTI for staring RRC queue, without
  * actually handling any messages. Functions called by main() will send/receive
  * ITTI messages to E1, as if it was RRC. */
@@ -548,7 +542,8 @@ static bool print_progress(const int dir, const struct thr_data *obs)
 int main(int argc, char *argv[])
 {
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
   logInit();
   itti_init(TASK_MAX, tasks_info);

@@ -32,12 +32,6 @@ uint8_t mnc_len = 2;
 char *gnb_ipv4_address_for_NGU = NULL;
 int NB_UE_INST = 1;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  LOG_E(GNB_APP, "error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 nfapi_mode_t nfapi_mod = -1;
 void nfapi_setmode(nfapi_mode_t nfapi_mode)
 {
@@ -422,7 +416,8 @@ int main(int argc, char **argv)
 
   // load the config file
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
   config_get(uniqCfg, nas_sim_params, sizeofArray(nas_sim_params), NULL);
 

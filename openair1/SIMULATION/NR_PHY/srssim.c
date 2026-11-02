@@ -102,7 +102,8 @@ int main(int argc, char *argv[])
   uint16_t Nid_cell = 0;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
-    exit_fun("[NR_SRSSIM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
 
   randominit();

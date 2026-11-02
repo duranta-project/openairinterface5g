@@ -5,6 +5,7 @@
 #include "nr_modulation.h"
 #include "openair1/PHY/TOOLS/tools_defs.h"
 #include "PHY/NR_REFSIG/nr_mod_table.h"
+#include "common/utils/LOG/log.h"
 #include "executables/softmodem-common.h"
 #include <simde/x86/avx512.h>
 // Lacking declaration in older implementations of simde external package, so let's keep it for now to be backwards compatible

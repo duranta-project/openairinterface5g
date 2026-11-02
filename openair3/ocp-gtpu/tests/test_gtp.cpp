@@ -16,15 +16,6 @@
 extern "C" {
 #include "gtpu_extensions.h"
 
-configmodule_interface_t *uniqCfg;
-
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  LOG_E(GNB_APP, "error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP)
 {
   UNUSED(rntiP);
@@ -584,7 +575,8 @@ TEST(gtp, error_indication_encode)
 int main(int argc, char **argv)
 {
   //if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == NULL) {
-  //  exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+  //  fprintf(stderr, "configuration module init failed\n");
+  //  return -1;
   //}
   // TODO logInit() without config?
   logInit();

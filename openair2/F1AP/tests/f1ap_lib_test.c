@@ -20,13 +20,6 @@
 #include "f1ap_positioning.h"
 #include "f1ap_paging.h"
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  printf("detected error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 static F1AP_F1AP_PDU_t *f1ap_encode_decode(const F1AP_F1AP_PDU_t *enc_pdu)
 {
   //xer_fprint(stdout, &asn_DEF_F1AP_F1AP_PDU, enc_pdu);

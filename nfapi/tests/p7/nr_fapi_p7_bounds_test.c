@@ -20,13 +20,6 @@
 
 configmodule_interface_t *uniqCfg = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  (void)assert;
-  printf("exit at %s:%d:%s: %s\n", file, line, function, s ? s : "");
-  abort();
-}
-
 /* small append helpers over a flat byte buffer */
 typedef struct {
   uint8_t buf[256];

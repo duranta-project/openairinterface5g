@@ -250,9 +250,7 @@ sctp_handle_new_association_req_multi(
                 SCTP_ERROR("Failed to convert ipv6 address %*s to network type\n",
                            (int)strlen(remote->ipv6_address),
                            remote->ipv6_address);
-                //close(sd);
-                //return;
-                exit_fun("sctp_handle_new_association_req_multi fatal: inet_pton error");
+                AssertFatal(false, "sctp_handle_new_association_req_multi fatal: inet_pton error");
             }
 
             SCTP_DEBUG("Converted ipv6 address %*s to network type\n",
@@ -271,9 +269,7 @@ sctp_handle_new_association_req_multi(
                 SCTP_ERROR("Failed to convert ipv4 address %*s to network type\n",
                            (int)strlen(remote->ipv4_address),
                            remote->ipv4_address);
-                //close(sd);
-                //return;
-                exit_fun("sctp_handle_new_association_req_multi fatal: inet_pton error");
+                AssertFatal(false, "sctp_handle_new_association_req_multi fatal: inet_pton error");
             }
 
             SCTP_DEBUG("Converted ipv4 address %*s to network type\n",
@@ -310,11 +306,7 @@ sctp_handle_new_association_req_multi(
     }
 
     ns = sctp_peeloff(sd, assoc_id);
-    if (ns == -1) {
-      perror("sctp_peeloff");
-      printf("sctp_peeloff: sd=%d assoc_id=%d\n", sd, assoc_id);
-      exit_fun("sctp_handle_new_association_req_multi fatal: sctp_peeloff error");
-    }
+    AssertFatal(ns != -1, "sctp_peeloff() failed for sd=%d assoc_id=%d: errno %d %s\n", sd, assoc_id, errno, strerror(errno));
 
     sctp_cnx = calloc(1, sizeof(*sctp_cnx));
 

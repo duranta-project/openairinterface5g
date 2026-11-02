@@ -14,14 +14,6 @@
 extern "C" {
 #include "actor.h"
 configmodule_interface_t *uniqCfg;
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (assert) {
-    abort();
-  } else {
-    exit(EXIT_SUCCESS);
-  }
-}
 }
 
 int num_processed = 0;
