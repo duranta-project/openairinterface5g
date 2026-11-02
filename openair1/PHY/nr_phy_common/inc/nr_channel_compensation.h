@@ -6,6 +6,7 @@
 #define __NR_CHANNEL_COMPENSATION__H__
 
 #include "platform_types.h"
+#include <stdbool.h>
 
 /**
  * @brief Common channel compensation function shared by DL (PDSCH) and UL (PUSCH) paths.
@@ -117,5 +118,39 @@ void nr_inner_rx_2layer_ml(uint32_t length,
                            int16_t *llr1,
                            int16_t *llr_cw,
                            const int16_t *scramble);
+
+/**
+ * @brief Shared post-extraction inner RX dispatch (UE PDSCH + gNB PUSCH common detector set).
+ *
+ * Handles the single-layer and the 2-layer near-ML detectors, fused (MRC inline from rxFext/chFext)
+ * or not (compensation already done: rxComp/mag_a-c per layer, rho01/rho10 for 2 layers). Writes
+ * the layer-demapped (+ descrambled, if scramble != NULL) codeword to llr_cw, or — when
+ * llr_cw == NULL — leaves per-layer LLRs in layer_scratch[] for the caller to demap.
+ *
+ * @param ml2    use the 2-layer near-ML detector (nr_compute_ML_llr) for nb_layer == 2
+ * @param lbest  its reduced-search selector (64/256QAM: 1 = L-best, 0 = full ML)
+ * @return true if handled; false for caller-specific paths (2-layer MMSE, 3-layer, >2 layers).
+ */
+bool nr_inner_rx(uint32_t length,
+                 uint32_t buffer_length,
+                 int nb_rx_ant,
+                 int nb_layer,
+                 int mod_order,
+                 c16_t rxFext[nb_rx_ant][buffer_length],
+                 c16_t chFext[nb_layer][nb_rx_ant][buffer_length],
+                 c16_t cpe,
+                 c16_t *rxComp[nb_layer],
+                 c16_t *mag_a[nb_layer],
+                 c16_t *mag_b[nb_layer],
+                 c16_t *mag_c[nb_layer],
+                 c16_t *rho01,
+                 c16_t *rho10,
+                 int output_shift,
+                 bool fuse,
+                 bool ml2,
+                 int lbest,
+                 int16_t *layer_scratch[nb_layer],
+                 const int16_t *scramble,
+                 int16_t *llr_cw);
 
 #endif /* __NR_CHANNEL_COMPENSATION__H__ */
