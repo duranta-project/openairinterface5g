@@ -3,6 +3,8 @@
  */
 
 #include "nr_channel_compensation.h"
+#include "nr_compute_llr.h"
+#include <stdlib.h>
 #include "PHY/sse_intrin.h"
 #include "PHY/impl_defs_top.h"
 #include <simde/x86/avx2.h>
@@ -221,5 +223,60 @@ void nr_channel_compensation(uint32_t buffer_length,
       }
     }
   }
+#endif
+}
+
+// ---- width-parameterized fused inner-RX kernels (AVX2 / SSE->NEON) ----
+// Same source instantiated per width from the .c.inc files; the public entries below dispatch.
+// aarch64 runs only w128 (SIMDe maps 256-bit to 2x128 NEON, slower than native 128).
+#if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
+#define NR_COMP_W128_ONLY
+#endif
+#ifndef NR_COMP_W128_ONLY
+#define NRLB_W 256
+#include "nr_lbest_simd_width.h"
+#include "nr_inner_rx_1layer_simd.c.inc"
+#undef NRLB_W
+#endif
+#define NRLB_W 128
+#include "nr_lbest_simd_width.h"
+#include "nr_inner_rx_1layer_simd.c.inc"
+#undef NRLB_W
+
+#ifndef NR_COMP_W128_ONLY
+// x86 width selection (cached): 1 = w128 (SSE->NEON regression path, OAI_COMP_W128), 0 = w256 (default).
+static int nr_comp_simd_width_mode(void)
+{
+  static int m = -1;
+  if (m < 0)
+    m = getenv("OAI_COMP_W128") ? 1 : 0;
+  return m;
+}
+#endif
+
+/* Fused single-layer inner RX: MRC channel compensation + per-RE LLR, TILED so the compensated
+ * symbols and channel magnitudes live only in L1 scratch and are never materialized as
+ * full-symbol arrays (no rxComp/mag DRAM round-trip). Bit-exact with the unfused
+ * {nr_channel_compensation(nb_layers==1) + per-layer LLR} path: identical per-RE math (including
+ * the CPE rotation), identical Rx-antenna accumulation order. Single-layer only (no rho, no MMSE
+ * inversion). */
+void nr_inner_rx_1layer(uint32_t length,
+                        uint32_t buffer_length,
+                        int nb_rx_ant,
+                        c16_t rxFext[nb_rx_ant][buffer_length],
+                        c16_t chFext[nb_rx_ant][buffer_length],
+                        c16_t cpe,
+                        int mod_order,
+                        int output_shift,
+                        int16_t *llr,
+                        const int16_t *scramble)
+{
+#ifdef NR_COMP_W128_ONLY
+  nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, output_shift, llr, scramble);
+#else
+  if (nr_comp_simd_width_mode() == 1)
+    nr_inner_rx_1layer_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, output_shift, llr, scramble);
+  else
+    nr_inner_rx_1layer_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, output_shift, llr, scramble);
 #endif
 }

@@ -215,25 +215,39 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   c16_t rxF_ch_magb[nb_layer][buffer_length] __attribute__((aligned(64)));
   c16_t rxF_ch_magc[nb_layer][buffer_length] __attribute__((aligned(64)));
 
-  memset(rho, 0, sizeof(rho));
-  for (int i = 0; i < nb_layer; i++)
-    memset(&pusch_vars->rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
+  // Fused single-layer inner RX (OAI_FUSE): skip the standalone MRC compensation; nr_inner_rx_1layer
+  // in the LLR stage below does MRC+LLR tiled in L1 (no rxComp/mag round-trip, PTRS CPE applied
+  // inline). Same shared kernel as the UE. CP-OFDM only: transform precoding's freq-eq/idft sits
+  // between compensation and LLR. The fused path never writes rxdataF_comp, so the scope's PUSCH IQ
+  // view (and ulsim's rxsigF0_comp dump) is stale under OAI_FUSE.
+  static int fuse_env = -1;
+  if (fuse_env < 0) {
+    const char *e = getenv("OAI_FUSE");
+    fuse_env = e ? atoi(e) : 0;
+  }
+  const bool fuse_1layer = fuse_env && (nb_layer == 1) && (rel15_ul->transform_precoding != transformPrecoder_enabled);
 
-  nr_channel_compensation(buffer_length,
-                          buffer_length,
-                          nb_rx_ant,
-                          nb_layer,
-                          rxFext,
-                          chFext,
-                          rxF_ch_maga,
-                          rxF_ch_magb,
-                          rxF_ch_magc,
-                          pusch_vars->rxdataF_comp,
-                          (nb_layer > 1) ? rho : NULL,
-                          cpe,
-                          rel15_ul->qam_mod_order,
-                          symbol,
-                          output_shift);
+  if (!fuse_1layer) {
+    memset(rho, 0, sizeof(rho));
+    for (int i = 0; i < nb_layer; i++)
+      memset(&pusch_vars->rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
+
+    nr_channel_compensation(buffer_length,
+                            buffer_length,
+                            nb_rx_ant,
+                            nb_layer,
+                            rxFext,
+                            chFext,
+                            rxF_ch_maga,
+                            rxF_ch_magb,
+                            rxF_ch_magc,
+                            pusch_vars->rxdataF_comp,
+                            (nb_layer > 1) ? rho : NULL,
+                            cpe,
+                            rel15_ul->qam_mod_order,
+                            symbol,
+                            output_shift);
+  }
 
   if (nb_layer == 1 && rel15_ul->transform_precoding == transformPrecoder_enabled && rel15_ul->qam_mod_order <= 6) {
     if (rel15_ul->qam_mod_order > 2)
@@ -284,7 +298,18 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                           llr);
     }
   }
-  if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
+  if (fuse_1layer)
+    nr_inner_rx_1layer(pusch_vars->ul_valid_re_per_slot[symbol],
+                       buffer_length,
+                       nb_rx_ant,
+                       rxFext,
+                       chFext[0],
+                       cpe,
+                       rel15_ul->qam_mod_order,
+                       output_shift,
+                       llr[0],
+                       NULL);
+  else if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
     for (int aatx = 0; aatx < nb_layer; aatx++)
            nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
                      rxF_ch_maga[aatx],

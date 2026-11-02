@@ -910,22 +910,34 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   //----------------------------------------------------------
   //--------------------- channel compensation ---------------
   //----------------------------------------------------------
+  // Fused single-layer inner RX (OAI_FUSE): skip the standalone MRC compensation here;
+  // nr_inner_rx_1layer in the LLR block below does MRC+LLR tiled in L1 (no rxComp/mag round-trip,
+  // PTRS CPE applied inline). Not while the scope taps the compensated symbol: the fused path never
+  // materializes rxdataF_comp (so under OAI_FUSE the dlsim rxF_comp debug dump is stale too).
+  static int fuse_env = -1;
+  if (fuse_env < 0) {
+    const char *e = getenv("OAI_FUSE");
+    fuse_env = e ? atoi(e) : 0;
+  }
+  const bool fuse_1layer = fuse_env && (nl == 1) && !scope_req->copy_rxdataF_comp_to_scope;
+
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
-  nr_channel_compensation(rx_size_symbol,
-                          pdsch_buf_size_max,
-                          nbRx,
-                          nl,
-                          rxdataF_ext,
-                          chFext,
-                          dl_ch_mag,
-                          dl_ch_magb,
-                          dl_ch_magr,
-                          p_rxComp,
-                          need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl : NULL,
-                          ptrs_phase,
-                          dlsch->cw_info.qamModOrder,
-                          0, // symbol already baked into p_rxComp
-                          *log2_maxh);
+  if (!fuse_1layer)
+    nr_channel_compensation(rx_size_symbol,
+                            pdsch_buf_size_max,
+                            nbRx,
+                            nl,
+                            rxdataF_ext,
+                            chFext,
+                            dl_ch_mag,
+                            dl_ch_magb,
+                            dl_ch_magr,
+                            p_rxComp,
+                            need_rho ? (c16_t(*)[nl][pdsch_buf_size_max])rho_dl : NULL,
+                            ptrs_phase,
+                            dlsch->cw_info.qamModOrder,
+                            0, // symbol already baked into p_rxComp
+                            *log2_maxh);
   stop_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
   if (meas_enabled) {
     LOG_D(PHY,
@@ -1048,16 +1060,19 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     /* Single layer: write LLRs directly into the output buffer — no temp buffer or
      * demapping step needed. */
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    nr_dlsch_llr(dlsch,
-                 nb_re_pdsch,
-                 pdsch_buf_size_max,
-                 dl_ch_mag[0],
-                 dl_ch_magb[0],
-                 dl_ch_magr[0],
-                 nbRx,
-                 rxdataF_comp,
-                 llr_per_symbol,
-                 (int16_t(*)[llr_per_symbol])llr);
+    if (fuse_1layer)
+      nr_inner_rx_1layer(nb_re_pdsch, rx_size_symbol, nbRx, rxdataF_ext, chFext[0], ptrs_phase, qamModOrder, *log2_maxh, llr, NULL);
+    else
+      nr_dlsch_llr(dlsch,
+                   nb_re_pdsch,
+                   pdsch_buf_size_max,
+                   dl_ch_mag[0],
+                   dl_ch_magb[0],
+                   dl_ch_magr[0],
+                   nbRx,
+                   rxdataF_comp,
+                   llr_per_symbol,
+                   (int16_t(*)[llr_per_symbol])llr);
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
   } else {
     /* Multi-layer: LLR into per-layer temp buffers, then demapped into output. */

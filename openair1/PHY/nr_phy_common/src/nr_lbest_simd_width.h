@@ -16,10 +16,14 @@
 #undef NRLB_VI
 #undef NRLB_VF
 #undef NRLB_N
+#undef NRLB_N_RE
 #undef NRLB_MM
 #undef NRLB_MMF
+#undef NRLB_OAI
 #undef NRLB_NAME
 #undef NRLB_SETZERO
+#undef NRLB_LOADU
+#undef NRLB_STOREU
 #undef NRLB_CASTPS_SI
 #undef NRLB_CASTSI_PS
 #undef NRLB_OR
@@ -42,8 +46,12 @@
 #define NRLB_N 16
 #define NRLB_MM(op) NRLB_CC(simde_mm256_, op)
 #define NRLB_MMF(op) NRLB_CC(simde_mm256_, op)
+#define NRLB_OAI(op) NRLB_CC(oai_mm256_, op)
+#define NRLB_N_RE 8
 #define NRLB_NAME(base) NRLB_CC(base, _w256)
 #define NRLB_SETZERO() simde_mm256_setzero_si256()
+#define NRLB_LOADU(p) simde_mm256_loadu_si256((const simde__m256i *)(p))
+#define NRLB_STOREU(p, v) simde_mm256_storeu_si256((simde__m256i *)(p), (v))
 #define NRLB_CASTPS_SI(x) simde_mm256_castps_si256(x)
 #define NRLB_CASTSI_PS(x) simde_mm256_castsi256_ps(x)
 #define NRLB_OR(a, b) simde_mm256_or_si256(a, b)
@@ -60,8 +68,12 @@
 #define NRLB_N 8
 #define NRLB_MM(op) NRLB_CC(simde_mm_, op)
 #define NRLB_MMF(op) NRLB_CC(simde_mm_, op)
+#define NRLB_OAI(op) NRLB_CC(oai_mm_, op)
+#define NRLB_N_RE 4
 #define NRLB_NAME(base) NRLB_CC(base, _w128)
 #define NRLB_SETZERO() simde_mm_setzero_si128()
+#define NRLB_LOADU(p) simde_mm_loadu_si128((const simde__m128i *)(p))
+#define NRLB_STOREU(p, v) simde_mm_storeu_si128((simde__m128i *)(p), (v))
 #define NRLB_CASTPS_SI(x) simde_mm_castps_si128(x)
 #define NRLB_CASTSI_PS(x) simde_mm_castsi128_ps(x)
 #define NRLB_OR(a, b) simde_mm_or_si128(a, b)
@@ -78,8 +90,12 @@
 #define NRLB_N 32
 #define NRLB_MM(op) NRLB_CC(simde_mm512_, op)
 #define NRLB_MMF(op) NRLB_CC(simde_mm512_, op)
+#define NRLB_OAI(op) NRLB_CC(oai_mm512_, op)
+#define NRLB_N_RE 16
 #define NRLB_NAME(base) NRLB_CC(base, _w512)
 #define NRLB_SETZERO() simde_mm512_setzero_si512()
+#define NRLB_LOADU(p) simde_mm512_loadu_si512((const void *)(p))
+#define NRLB_STOREU(p, v) simde_mm512_storeu_si512((void *)(p), (v))
 #define NRLB_CASTPS_SI(x) simde_mm512_castps_si512(x)
 #define NRLB_CASTSI_PS(x) simde_mm512_castsi512_ps(x)
 #define NRLB_OR(a, b) simde_mm512_or_si512(a, b)
