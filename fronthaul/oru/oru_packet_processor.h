@@ -24,6 +24,17 @@ extern "C" {
 #define DL_IQ_ARENA_PRBS(num_prb) (MAX_DL_STREAMS_PER_SYMBOL * (num_prb))
 #define NUM_RU_PORT_IDS 16 // The eAxC layout allocates four bits to the RU port.
 #define MAX_ANTENNAS NUM_RU_PORT_IDS // eAxCs (RU ports) per direction: 16 DL layers for cuBB mMIMO
+#define ORU_MAX_EAXC_PER_KIND 16 // eAxC IDs of one flow kind: DL streams, UL streams or PRACH streams
+
+// Flow kinds of the eAxC lists, each with its own eAxC ID space: DL Section Type 1, UL Section Type 1, Section Type 3
+typedef enum { ORU_EAXC_DL, ORU_EAXC_UL, ORU_EAXC_PRACH, ORU_EAXC_NUM_KINDS } oru_eaxc_kind_t;
+
+// eAxC IDs as the O-DU assigns them, e.g. cuBB's eAxC_id_pdsch, eAxC_id_pusch and eAxC_id_prach. ID i of a kind is
+// stream (or antenna) i of that kind.
+typedef struct {
+  int num[ORU_EAXC_NUM_KINDS];
+  uint16_t id[ORU_EAXC_NUM_KINDS][ORU_MAX_EAXC_PER_KIND];
+} oru_eaxc_lists_t;
 
 typedef struct {
   uint64_t hist[HIST_SIZE];
@@ -147,6 +158,8 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
 void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int slot_in_frame, int symbol);
 void cleanup_packet_processor(void *context);
 void set_num_bf_weights(void *context, int num_bf_weights);
+// Replaces the default eAxC layout (RU port, PRACH from prach_eaxc_offset) with the eAxC IDs of lists
+void set_eaxc_lists(void *context, const oru_eaxc_lists_t *lists);
 void handle_absolute_symbol_tick(void *context, uint64_t absolute_symbol);
 void handle_uplane_packet(void *context, void *pkt);
 void handle_cplane_packet(void *context, void *pkt);

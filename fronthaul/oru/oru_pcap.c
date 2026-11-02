@@ -65,15 +65,9 @@ static _Atomic bool oru_pcap_enabled = false;
 static bool oru_pcap_init_done = false;
 static pthread_t oru_pcap_thread;
 static _Atomic bool oru_pcap_pusch_seen = false;
-static int oru_pcap_prach_eaxc_offset = 0;
-static struct xran_eaxcid_config oru_pcap_eaxcid_config = {.mask_cuPortId = 0xF000,
-                                                           .mask_bandSectorId = 0x0F00,
-                                                           .mask_ccId = 0x00F0,
-                                                           .mask_ruPortId = 0x000F,
-                                                           .bit_cuPortId = 12,
-                                                           .bit_bandSectorId = 8,
-                                                           .bit_ccId = 4,
-                                                           .bit_ruPortId = 0};
+// PRACH eAxC IDs, after the mask: RU ports from prach_eaxc_offset up, or the eAxC IDs of oru_pcap_set_prach_eaxcs()
+static uint16_t oru_pcap_eaxc_key_mask = 0x000F;
+static uint8_t oru_pcap_prach_eaxc[(1 << 16) / 8];
 
 static bool oru_pcap_inactive(void)
 {
@@ -135,7 +129,8 @@ void oru_pcap_init_from_env(int prach_eaxc_offset, uint16_t mtu)
   if (oru_pcap_init_done)
     return;
   oru_pcap_init_done = true;
-  oru_pcap_prach_eaxc_offset = prach_eaxc_offset;
+  for (int i = prach_eaxc_offset; i < 16; i++)
+    oru_pcap_prach_eaxc[i / 8] |= 1 << (i % 8);
 
   const char *path = getenv("ORU_PCAP_PATH");
   if (path == NULL || path[0] == '\0')
@@ -296,9 +291,16 @@ bool oru_pcap_mbuf_is_prach(struct rte_mbuf *mbuf)
   if (len < sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr))
     return false;
   const struct xran_ecpri_hdr *ecpri = (const struct xran_ecpri_hdr *)(frame + sizeof(struct rte_ether_hdr));
-  uint8_t ant_id = 0;
-  xran_decompose_cid(ecpri->ecpri_xtc_id, &oru_pcap_eaxcid_config, NULL, NULL, NULL, &ant_id);
-  return ant_id >= (uint8_t)oru_pcap_prach_eaxc_offset;
+  const uint16_t key = rte_be_to_cpu_16(ecpri->ecpri_xtc_id) & oru_pcap_eaxc_key_mask;
+  return oru_pcap_prach_eaxc[key / 8] & (1 << (key % 8));
+}
+
+void oru_pcap_set_prach_eaxcs(const uint16_t *ids, int num)
+{
+  memset(oru_pcap_prach_eaxc, 0, sizeof(oru_pcap_prach_eaxc));
+  oru_pcap_eaxc_key_mask = 0xFFFF;
+  for (int i = 0; i < num; i++)
+    oru_pcap_prach_eaxc[ids[i] / 8] |= 1 << (ids[i] % 8);
 }
 
 static bool oru_pcap_pusch_gate_open(void)

@@ -35,6 +35,8 @@ typedef struct {
 } oru_pcap_cplane_snap_t;
 
 void oru_pcap_init_from_env(int prach_eaxc_offset, uint16_t mtu);
+// PRACH eAxC IDs of the eAxC lists, in place of prach_eaxc_offset
+void oru_pcap_set_prach_eaxcs(const uint16_t *ids, int num);
 bool oru_pcap_mbuf_is_prach(struct rte_mbuf *mbuf);
 void oru_pcap_write_uplane(struct rte_mbuf *mbuf, bool is_prach);
 /* Dump a full RX Ethernet frame when CHAN=all|rx|dl (DU->RU C/U-plane).

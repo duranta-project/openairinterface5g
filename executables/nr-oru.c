@@ -107,6 +107,9 @@
 #define CONFIG_STRING_PRACH_KBAR "prach_kbar"
 #define CONFIG_STRING_COMP_TYPE         "comp_type"
 #define CONFIG_STRING_CLOCK_TIMEBASE    "clock_timebase"
+#define CONFIG_STRING_EAXC_DL "eaxc_dl"
+#define CONFIG_STRING_EAXC_UL "eaxc_ul"
+#define CONFIG_STRING_EAXC_PRACH "eaxc_prach"
 
 #define HLP_DPDK_DEVICES "DPDK devices to use for the O-RU."
 #define HLP_RX_CORE "The CPU core to be used to deploy dpdk RX worker for O-RU."
@@ -122,6 +125,9 @@
 #define HLP_PRACH_EAXC_OFFSET "PRACH eAxC offset."
 #define HLP_PRACH_KBAR "PRACH kbar offset."
 #define HLP_COMP_TYPE         "DL U-plane compression method: none, bfp, blkscale, or ulaw."
+#define HLP_EAXC_DL "DL eAxC IDs, e.g. cuBB eAxC_id_pdsch; ID i is DL stream (or TX antenna) i. Empty: RU port layout."
+#define HLP_EAXC_UL "UL eAxC IDs, e.g. cuBB eAxC_id_pusch; ID i is UL stream (or RX antenna) i. Empty: RU port layout."
+#define HLP_EAXC_PRACH "PRACH eAxC IDs, e.g. cuBB eAxC_id_prach; ID i is PRACH stream i. Empty: prach_eaxc_offset."
 #define HLP_CLOCK_TIMEBASE \
   "Timescale of CLOCK_REALTIME for FH GPS mapping: utc (default, GPS = unix - epoch + 18) or tai (GPS = unix - epoch - 19)."
 
@@ -153,7 +159,10 @@
   {CONFIG_STRING_PRACH_EAXC_OFFSET,          HLP_PRACH_EAXC_OFFSET, 0,                      .u8ptr=NULL,      .defuintval=0,                TYPE_UINT8,        0}, \
   {CONFIG_STRING_PRACH_KBAR,                 HLP_PRACH_KBAR,        0,                      .uptr=NULL,       .defuintval=4,                TYPE_UINT,         0}, \
   {CONFIG_STRING_COMP_TYPE,                  HLP_COMP_TYPE,         0,                      .strptr=NULL,     .defstrval="none",           TYPE_STRING,       0, COMP_TYPE_CHECK}, \
-  {CONFIG_STRING_CLOCK_TIMEBASE,             HLP_CLOCK_TIMEBASE,    0,                      .strptr=NULL,     .defstrval="utc",            TYPE_STRING,       0, CLOCK_TIMEBASE_CHECK}  \
+  {CONFIG_STRING_CLOCK_TIMEBASE,             HLP_CLOCK_TIMEBASE,    0,                      .strptr=NULL,     .defstrval="utc",            TYPE_STRING,       0, CLOCK_TIMEBASE_CHECK}, \
+  {CONFIG_STRING_EAXC_DL,                    HLP_EAXC_DL,           0,                      .iptr=NULL,       .defintarrayval=NULL,         TYPE_INTARRAY,     0}, \
+  {CONFIG_STRING_EAXC_UL,                    HLP_EAXC_UL,           0,                      .iptr=NULL,       .defintarrayval=NULL,         TYPE_INTARRAY,     0}, \
+  {CONFIG_STRING_EAXC_PRACH,                 HLP_EAXC_PRACH,        0,                      .iptr=NULL,       .defintarrayval=NULL,         TYPE_INTARRAY,     0}  \
 }
 // clang-format on
 
@@ -547,6 +556,29 @@ int get_oru_options(ORU_t *oru)
   fh_cfg->numerology = oru->numerology;
   fh_cfg->prach_eaxc_offset = *gpd(fh_param, nump, CONFIG_STRING_PRACH_EAXC_OFFSET)->u8ptr;
   fh_cfg->prach_kbar = *gpd(fh_param, nump, CONFIG_STRING_PRACH_KBAR)->uptr;
+  // eAxC lists: the eAxC IDs the O-DU assigns (CUS 5.1.3.2.7). Without them, the RU port is the stream index.
+  const char *eaxc_names[ORU_EAXC_NUM_KINDS] = {CONFIG_STRING_EAXC_DL, CONFIG_STRING_EAXC_UL, CONFIG_STRING_EAXC_PRACH};
+  int num_eaxc = 0;
+  for (int k = 0; k < ORU_EAXC_NUM_KINDS; k++) {
+    const paramdef_t *list = gpd(fh_param, nump, eaxc_names[k]);
+    AssertFatal(list->numelt <= ORU_MAX_EAXC_PER_KIND,
+                "%s has %d eAxC IDs, at most %d supported\n",
+                eaxc_names[k],
+                list->numelt,
+                ORU_MAX_EAXC_PER_KIND);
+    fh_cfg->eaxc_lists.num[k] = list->numelt;
+    for (int i = 0; i < list->numelt; i++) {
+      AssertFatal(list->iptr[i] >= 0 && list->iptr[i] <= UINT16_MAX, "%s: eAxC ID %d out of range\n", eaxc_names[k], list->iptr[i]);
+      fh_cfg->eaxc_lists.id[k][i] = list->iptr[i];
+    }
+    num_eaxc += list->numelt;
+  }
+  AssertFatal(num_eaxc == 0 || fh_cfg->prach_eaxc_offset == 0,
+              "Set %s or the eAxC lists (%s, %s, %s), not both\n",
+              CONFIG_STRING_PRACH_EAXC_OFFSET,
+              CONFIG_STRING_EAXC_DL,
+              CONFIG_STRING_EAXC_UL,
+              CONFIG_STRING_EAXC_PRACH);
 
   AssertFatal(gpd(fh_param, nump, CONFIG_STRING_T2A_UP)->numelt == 2, "Two parameters required for %s\n", CONFIG_STRING_T2A_UP);
   fh_cfg->T2a_up_min_uS = gpd(fh_param, nump, CONFIG_STRING_T2A_UP)->iptr[0];
