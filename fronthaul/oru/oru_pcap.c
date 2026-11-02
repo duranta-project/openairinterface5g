@@ -65,9 +65,6 @@ static _Atomic bool oru_pcap_enabled = false;
 static bool oru_pcap_init_done = false;
 static pthread_t oru_pcap_thread;
 static _Atomic bool oru_pcap_pusch_seen = false;
-// PRACH eAxC IDs, after the mask: RU ports from prach_eaxc_offset up, or the eAxC IDs of oru_pcap_set_prach_eaxcs()
-static uint16_t oru_pcap_eaxc_key_mask = 0x000F;
-static uint8_t oru_pcap_prach_eaxc[(1 << 16) / 8];
 
 static bool oru_pcap_inactive(void)
 {
@@ -124,13 +121,11 @@ static void *oru_pcap_writer(void *arg)
   return NULL;
 }
 
-void oru_pcap_init_from_env(int prach_eaxc_offset, uint16_t mtu)
+void oru_pcap_init_from_env(uint16_t mtu)
 {
   if (oru_pcap_init_done)
     return;
   oru_pcap_init_done = true;
-  for (int i = prach_eaxc_offset; i < 16; i++)
-    oru_pcap_prach_eaxc[i / 8] |= 1 << (i % 8);
 
   const char *path = getenv("ORU_PCAP_PATH");
   if (path == NULL || path[0] == '\0')
@@ -288,19 +283,12 @@ bool oru_pcap_mbuf_is_prach(struct rte_mbuf *mbuf)
     return false;
   const uint8_t *frame = rte_pktmbuf_mtod(mbuf, const uint8_t *);
   uint32_t len = rte_pktmbuf_pkt_len(mbuf);
-  if (len < sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr))
+  if (len < sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr))
     return false;
-  const struct xran_ecpri_hdr *ecpri = (const struct xran_ecpri_hdr *)(frame + sizeof(struct rte_ether_hdr));
-  const uint16_t key = rte_be_to_cpu_16(ecpri->ecpri_xtc_id) & oru_pcap_eaxc_key_mask;
-  return oru_pcap_prach_eaxc[key / 8] & (1 << (key % 8));
-}
-
-void oru_pcap_set_prach_eaxcs(const uint16_t *ids, int num)
-{
-  memset(oru_pcap_prach_eaxc, 0, sizeof(oru_pcap_prach_eaxc));
-  oru_pcap_eaxc_key_mask = 0xFFFF;
-  for (int i = 0; i < num; i++)
-    oru_pcap_prach_eaxc[ids[i] / 8] |= 1 << (ids[i] % 8);
+  // PRACH U-Plane uses the non-zero filterIndex of its Section Type 3 (CUS 7.5.2.3, 8.3.3.3); PUSCH and SRS use 0
+  const struct radio_app_common_hdr *app =
+      (const struct radio_app_common_hdr *)(frame + sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr));
+  return app->data_feature.filter_id != 0;
 }
 
 static bool oru_pcap_pusch_gate_open(void)

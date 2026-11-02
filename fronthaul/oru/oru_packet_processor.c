@@ -36,9 +36,8 @@
 #define MAX_CONCURRENT_DL_JOBS (DL_JOB_RING_SIZE - 1)
 #define NUM_CONCURRENT_DL_SYMBOL_WINDOWS MAX_CONCURRENT_DL_JOBS
 #define NUM_CONCURRENT_UL_SYMBOL_WINDOWS 128
-_Static_assert(ORU_MAX_EAXC_PER_KIND == MAX_ANTENNAS, "an eAxC list index is a stream or antenna index");
-#define ORU_EAXC_NONE 0xFF // eAxC ID not in the flows of a kind
 #define NUM_EAXC_IDS (1 << 16)
+_Static_assert(ORU_MAX_SRS_EAXC < ORU_EAXC_NONE, "an SRS antenna index fits oru_eaxc_map_t.index");
 #define NR_NUMBER_OF_SUBFRAMES_PER_FRAME 10
 #define MAX_TDD_PATTERN_LENGTH_MS 10
 #define MAX_SLOTS_PER_MS 4
@@ -134,10 +133,7 @@ typedef struct {
   uint32_t T2a_min_up_dl_sym_diff;
   uint32_t T2a_max_up_dl_sym_diff;
   struct xran_eaxcid_config eaxcid_config;
-  // Stream index of each eAxC ID for each flow kind, or ORU_EAXC_NONE. The ID is masked with eaxc_key_mask first: the
-  // default layout uses the RU port only, eAxC lists use all 16 bits.
-  uint16_t eaxc_key_mask;
-  uint8_t eaxc_index[ORU_EAXC_NUM_KINDS][NUM_EAXC_IDS];
+  oru_eaxc_map_t eaxc_map;
   int prach_kbar;
   int numerology;
   int num_prb;
@@ -244,7 +240,7 @@ void *init_packet_processor(int numerology,
                             send_func_t send_func,
                             void *io_controller,
                             size_t mtu,
-                            int prach_eaxc_offset,
+                            const oru_eaxc_lists_t *eaxc_lists,
                             fh_comp_method_t dl_comp_method,
                             int prach_kbar)
 {
@@ -256,19 +252,7 @@ void *init_packet_processor(int numerology,
   ctx->num_prb = num_prb;
   ctx->numerology = numerology;
   ctx->mtu = mtu;
-  // Default layout: the RU port is the stream index, and PRACH stream i is on RU port prach_eaxc_offset + i
-  AssertFatal(prach_eaxc_offset >= 0 && prach_eaxc_offset < NUM_RU_PORT_IDS,
-              "prach_eaxc_offset %d out of range [0..%d]\n",
-              prach_eaxc_offset,
-              NUM_RU_PORT_IDS - 1);
-  memset(ctx->eaxc_index, ORU_EAXC_NONE, sizeof(ctx->eaxc_index));
-  ctx->eaxc_key_mask = 0x000F;
-  for (int i = 0; i < NUM_RU_PORT_IDS; i++) {
-    ctx->eaxc_index[ORU_EAXC_DL][i] = i;
-    ctx->eaxc_index[ORU_EAXC_UL][i] = i;
-    if (i >= prach_eaxc_offset)
-      ctx->eaxc_index[ORU_EAXC_PRACH][i] = i - prach_eaxc_offset;
-  }
+  oru_eaxc_map_init(&ctx->eaxc_map, eaxc_lists);
   AssertFatal(prach_kbar >= 0 && prach_kbar + FH_PRACH_NUM_SUBCARRIERS * 2 <= FH_PRACH_NUM_PRBS * FH_VALS_PER_PRB,
               "PRACH kbar %d out of range\n",
               prach_kbar);
@@ -332,31 +316,47 @@ void set_num_bf_weights(void *context, int num_bf_weights)
   ctx->num_bf_weights = num_bf_weights;
 }
 
-// The O-DU assigns the eAxC IDs and the O-RU needs no bit layout for them (CUS 5.1.3.2.7). Call before C-Plane traffic.
-void set_eaxc_lists(void *context, const oru_eaxc_lists_t *lists)
+oru_eaxc_lists_t oru_eaxc_ru_port_lists(int prach_eaxc_offset)
 {
-  oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
-  memset(ctx->eaxc_index, ORU_EAXC_NONE, sizeof(ctx->eaxc_index));
-  ctx->eaxc_key_mask = 0xFFFF;
+  AssertFatal(prach_eaxc_offset >= 0 && prach_eaxc_offset < NUM_RU_PORT_IDS,
+              "prach_eaxc_offset %d out of range [0..%d]\n",
+              prach_eaxc_offset,
+              NUM_RU_PORT_IDS - 1);
+  oru_eaxc_lists_t lists = {.key_mask = NUM_RU_PORT_IDS - 1,
+                            .num = {NUM_RU_PORT_IDS, NUM_RU_PORT_IDS, NUM_RU_PORT_IDS - prach_eaxc_offset, 0}};
+  for (int i = 0; i < NUM_RU_PORT_IDS; i++) {
+    lists.id[ORU_EAXC_DL][i] = i;
+    lists.id[ORU_EAXC_UL][i] = i;
+  }
+  for (int i = 0; i < lists.num[ORU_EAXC_PRACH]; i++)
+    lists.id[ORU_EAXC_PRACH][i] = prach_eaxc_offset + i;
+  return lists;
+}
+
+void oru_eaxc_map_init(oru_eaxc_map_t *map, const oru_eaxc_lists_t *lists)
+{
+  memset(map->index, ORU_EAXC_NONE, sizeof(map->index));
+  map->key_mask = lists->key_mask;
   for (int k = 0; k < ORU_EAXC_NUM_KINDS; k++) {
-    AssertFatal(lists->num[k] >= 0 && lists->num[k] <= ORU_MAX_EAXC_PER_KIND,
-                "eAxC list %d has %d IDs, at most %d supported\n",
-                k,
-                lists->num[k],
-                ORU_MAX_EAXC_PER_KIND);
     for (int i = 0; i < lists->num[k]; i++) {
-      uint16_t id = lists->id[k][i];
-      AssertFatal(ctx->eaxc_index[k][id] == ORU_EAXC_NONE, "eAxC ID %u is twice in eAxC list %d\n", id, k);
-      ctx->eaxc_index[k][id] = i;
+      const uint16_t key = lists->id[k][i] & map->key_mask;
+      AssertFatal(map->index[k][key] == ORU_EAXC_NONE, "eAxC ID 0x%04x is twice in eAxC list %d\n", key, k);
+      map->index[k][key] = i;
     }
+  }
+  // SRS and PUSCH are both UL Section Type 1: only the eAxC ID tells them apart
+  for (int i = 0; i < lists->num[ORU_EAXC_SRS]; i++) {
+    const uint16_t key = lists->id[ORU_EAXC_SRS][i] & map->key_mask;
+    AssertFatal(map->index[ORU_EAXC_UL][key] == ORU_EAXC_NONE, "eAxC ID 0x%04x is in the UL and the SRS eAxC lists\n", key);
   }
 }
 
-// Stream index of eAxC ID eaxc among the flows of kind, or -1
-static int eaxc_index(const oru_packet_processor_context_t *ctx, oru_eaxc_kind_t kind, uint16_t eaxc)
+oru_flow_t oru_eaxc_classify(const oru_eaxc_map_t *map, bool prach, bool dl, uint16_t eaxc)
 {
-  uint8_t i = ctx->eaxc_index[kind][eaxc & ctx->eaxc_key_mask];
-  return i == ORU_EAXC_NONE ? -1 : i;
+  oru_eaxc_kind_t kind = prach ? ORU_EAXC_PRACH : dl ? ORU_EAXC_DL : ORU_EAXC_UL;
+  if (kind == ORU_EAXC_UL && oru_eaxc_index(map, ORU_EAXC_SRS, eaxc) >= 0)
+    kind = ORU_EAXC_SRS;
+  return (oru_flow_t){.eaxc = eaxc, .kind = kind, .index = oru_eaxc_index(map, kind, eaxc)};
 }
 
 void cleanup_packet_processor(void *context)
@@ -539,14 +539,15 @@ void handle_uplane_packet(void *context, void *pkt)
     rte_pktmbuf_free(pkt);
     return;
   }
-  // The DL stream of the eAxC replaces its RU port: ORU_EAXC_NONE (>= MAX_ANTENNAS) when it is not a DL eAxC
-  Ant_ID = ctx->eaxc_index[ORU_EAXC_DL][eaxc & ctx->eaxc_key_mask];
-  if (Ant_ID >= MAX_ANTENNAS) {
+  // The DL stream of the eAxC replaces its RU port
+  const int dl_stream = oru_eaxc_index(&ctx->eaxc_map, ORU_EAXC_DL, eaxc);
+  if (dl_stream < 0) {
     // Wire-controlled field - drop rather than let a malformed/out-of-range packet crash the process.
     ctx->stats.invalid_eaxc_id++;
     rte_pktmbuf_free(pkt);
     return;
   }
+  Ant_ID = dl_stream;
   uint16_t effective_num_prbu = num_prbu == 0 ? ctx->num_prb : num_prbu;
   uint8_t effective_iq_width = iqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : iqWidth;
   // start_prbu/num_prbu are wire-controlled. combine_dl_streams() writes num_prb PRBs at start_prb
@@ -750,13 +751,12 @@ static unsigned handle_dl_cplane_section(oru_packet_processor_context_t *ctx,
   return 0;
 }
 
-// Queues one UL section of eAxC ant_id as a UL job starting at target_absolute_symbol; the message has already passed
-// the timing and TDD checks. Returns the SECTION_ERR_* flags of the section.
+// Queues one UL section of flow (UL or SRS) as a UL job starting at target_absolute_symbol; the message has already
+// passed the timing and TDD checks. Returns the SECTION_ERR_* flags of the section.
 static unsigned handle_ul_cplane_section(oru_packet_processor_context_t *ctx,
                                          const struct xran_cp_radioapp_section1_header *hdr,
                                          struct xran_cp_radioapp_section1 *section,
-                                         uint16_t eaxc,
-                                         int ant_id,
+                                         oru_flow_t flow,
                                          uint64_t target_absolute_symbol,
                                          oru_pcap_cplane_snap_t *snap)
 {
@@ -775,8 +775,9 @@ static unsigned handle_ul_cplane_section(oru_packet_processor_context_t *ctx,
     ul_job->slot_in_frame = (absolute_gps_symbol % (10 * (1 << ctx->numerology) * 14)) / 14;
     ul_job->symbol = absolute_gps_symbol % 14;
     ul_job->num_symbols = num_symbols;
-    ul_job->antenna_id = ant_id;
-    ul_job->eaxc = eaxc;
+    ul_job->antenna_id = flow.index;
+    ul_job->eaxc = flow.eaxc;
+    ul_job->srs = flow.kind == ORU_EAXC_SRS;
     ul_job->beam_id = section->hdr.u.s1.beamId;
     ul_job->num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     ul_job->start_prb = section->hdr.u1.common.startPrbc;
@@ -864,19 +865,18 @@ static prach_job_t *find_prach_job(oru_packet_processor_context_t *ctx, int slot
   return found;
 }
 
-// Registers one Type 3 section of a PRACH C-Plane message for stream aarx, starting at start_symbol. Returns the
+// Registers one Type 3 section of a PRACH C-Plane message for PRACH flow, starting at start_symbol. Returns the
 // SECTION_ERR_* flags of the section.
 static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
                                   const struct xran_cp_radioapp_section3_header *hdr,
                                   const struct xran_cp_radioapp_section3 *section,
-                                  uint16_t eaxc,
+                                  oru_flow_t flow,
                                   int slot_in_frame,
-                                  int aarx,
                                   uint64_t start_symbol,
                                   oru_pcap_cplane_snap_t *snap)
 {
   unsigned errors = 0;
-  prach_job_t *job = add_prach_job(ctx, slot_in_frame, aarx, start_symbol, section->hdr.u1.common.sectionId, &errors);
+  prach_job_t *job = add_prach_job(ctx, slot_in_frame, flow.index, start_symbol, section->hdr.u1.common.sectionId, &errors);
   if (job == NULL)
     return errors;
   job->active = true;
@@ -889,9 +889,9 @@ static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
   job->beam_id = section->hdr.u.s3.beamId;
   job->comp_method = (fh_comp_method_t)hdr->udComp.udCompMeth;
   job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
-  job->eaxc = eaxc;
+  job->eaxc = flow.eaxc;
   RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
-    LOG_A(HW, "PRACH JOB added slot_in_frame %d, aarx %d, target_absolute_symbol %lu\n", slot_in_frame, aarx, start_symbol);
+    LOG_A(HW, "PRACH JOB added slot_in_frame %d, aarx %d, target_absolute_symbol %lu\n", slot_in_frame, flow.index, start_symbol);
   });
   oru_pcap_cplane_commit_prach(snap);
   return 0;
@@ -915,8 +915,7 @@ static const uint8_t *skip_section_extensions(oru_packet_processor_context_t *ct
 void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                 void *pkt,
                                 struct xran_cp_radioapp_section3_header *hdr,
-                                uint16_t eaxc,
-                                int aarx,
+                                oru_flow_t flow,
                                 oru_pcap_cplane_snap_t *snap)
 {
   if (hdr->cmnhdr.numOfSections == 0) {
@@ -934,9 +933,9 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
     return;
   }
   const uint8_t *end = sect + rte_pktmbuf_data_len((struct rte_mbuf *)pkt);
-  if (aarx < 0) {
+  if (flow.index < 0) {
     ctx->stats.invalid_eaxc_id++;
-    RATELIMIT(PRACH_ERR_LOG_RATELIMIT, { LOG_W(HW, "PRACH CP: eAxC 0x%04x is not a PRACH stream\n", eaxc); });
+    RATELIMIT(PRACH_ERR_LOG_RATELIMIT, { LOG_W(HW, "PRACH CP: eAxC 0x%04x is not a PRACH stream\n", flow.eaxc); });
     return;
   }
 
@@ -969,7 +968,7 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
       ctx->stats.cplane_section_repeated++;
     } else {
       set_bit(cited, section_id);
-      errors |= add_prach_section(ctx, hdr, section, eaxc, slot_in_frame, aarx, target_absolute_symbol, snap);
+      errors |= add_prach_section(ctx, hdr, section, flow, slot_in_frame, target_absolute_symbol, snap);
     }
     // A malformed chain hides where the next section starts
     if (next == NULL)
@@ -1118,8 +1117,7 @@ static void count_section1_errors(oru_packet_processor_context_t *ctx, unsigned 
 static void handle_section1_message(oru_packet_processor_context_t *ctx,
                                     void *pkt,
                                     struct xran_cp_radioapp_section1_header *hdr,
-                                    uint16_t eaxc,
-                                    int ant_id,
+                                    oru_flow_t flow,
                                     oru_pcap_cplane_snap_t *snap)
 {
   uint8_t *sect = (void *)rte_pktmbuf_adj(pkt, sizeof(struct xran_cp_radioapp_section1_header));
@@ -1133,12 +1131,14 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
     ctx->stats.cplane_received_dl++;
   else
     ctx->stats.cplane_received_ul++;
+  if (flow.kind == ORU_EAXC_SRS)
+    ctx->stats.cplane_received_srs++;
   if (hdr->cmnhdr.numOfSections == 0) {
     ctx->stats.cplane_err_hdr++;
     RATELIMIT(CPLANE_ERR_LOG_RATELIMIT, { LOG_W(HW, "%s CP: numOfSections is 0\n", is_dl ? "DL" : "UL"); });
     return;
   }
-  if (ant_id < 0) {
+  if (flow.index < 0) {
     // Wire-controlled field - drop rather than let a malformed/out-of-range packet crash the process.
     ctx->stats.invalid_eaxc_id++;
     return;
@@ -1185,9 +1185,9 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
     } else {
       set_bit(cited, section_id);
       if (is_dl)
-        errors |= handle_dl_cplane_section(ctx, section, ant_id, diff);
+        errors |= handle_dl_cplane_section(ctx, section, flow.index, diff);
       else
-        errors |= handle_ul_cplane_section(ctx, hdr, section, eaxc, ant_id, target_absolute_symbol, snap);
+        errors |= handle_ul_cplane_section(ctx, hdr, section, flow, target_absolute_symbol, snap);
     }
     // A malformed chain hides where the next section starts
     if (next == NULL)
@@ -1225,19 +1225,17 @@ void handle_cplane_packet(void *context, void *pkt)
   }
 
   switch (apphdr->sectionType) {
-    case XRAN_CP_SECTIONTYPE_1:
-      handle_section1_message(ctx,
-                              pkt,
-                              (struct xran_cp_radioapp_section1_header *)apphdr,
-                              eaxc,
-                              eaxc_index(ctx, apphdr->field.dataDirection == XRAN_DIR_DL ? ORU_EAXC_DL : ORU_EAXC_UL, eaxc),
-                              &snap);
+    case XRAN_CP_SECTIONTYPE_1: {
+      const bool is_dl = apphdr->field.dataDirection == XRAN_DIR_DL;
+      const oru_flow_t flow = oru_eaxc_classify(&ctx->eaxc_map, false, is_dl, eaxc);
+      handle_section1_message(ctx, pkt, (struct xran_cp_radioapp_section1_header *)apphdr, flow, &snap);
       rte_pktmbuf_free(pkt);
       return;
+    }
     case XRAN_CP_SECTIONTYPE_3: {
       ctx->stats.cplane_received_prach++;
       struct xran_cp_radioapp_section3_header *hdr = (struct xran_cp_radioapp_section3_header *)apphdr;
-      handle_prach_cplane_packet(ctx, pkt, hdr, eaxc, eaxc_index(ctx, ORU_EAXC_PRACH, eaxc), &snap);
+      handle_prach_cplane_packet(ctx, pkt, hdr, oru_eaxc_classify(&ctx->eaxc_map, true, false, eaxc), &snap);
       rte_pktmbuf_free(pkt);
       return;
     }
@@ -1294,10 +1292,11 @@ void print_packet_processor_stats(void *context)
 
   LOG_I(HW, "ORU Packet Processor Stats:\n");
   LOG_I(HW,
-        "  Total C-Plane Packets received: %lu (DL: %lu, UL: %lu, PRACH: %lu, Other: %lu)\n",
+        "  Total C-Plane Packets received: %lu (DL: %lu, UL: %lu of which SRS: %lu, PRACH: %lu, Other: %lu)\n",
         ctx->stats.total_cplane,
         ctx->stats.cplane_received_dl,
         ctx->stats.cplane_received_ul,
+        ctx->stats.cplane_received_srs,
         ctx->stats.cplane_received_prach,
         ctx->stats.cplane_received_other);
   LOG_I(HW, "  Total U-Plane Packets received: %lu\n", ctx->stats.total_uplane_received);
@@ -1599,12 +1598,6 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
   int64_t delay = (int64_t)ctx->current_absolute_symbol - (int64_t)ota_absolute_symbol;
   atomic_fetch_add_explicit(&ctx->thread_safe_stats.ul_uplane_ota_delay_sum, delay, memory_order_relaxed);
   atomic_fetch_add_explicit(&ctx->thread_safe_stats.ul_uplane_ota_delay_count, 1, memory_order_relaxed);
-
-  int aarx = job->antenna_id;
-  if (aarx < 0 || aarx >= MAX_ANTENNAS) {
-    LOG_W(HW, "ORU: Invalid antenna index %d\n", aarx);
-    return;
-  }
 
   const bool use_comp = (job->response_payload.comp_method != 0);
 

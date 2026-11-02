@@ -19,6 +19,14 @@
 #include "log.h"
 #include "common/config/config_userapi.h"
 
+// The RU port eAxC layout, as nr-oru builds it without eAxC lists. init_packet_processor() copies it.
+static const oru_eaxc_lists_t *ru_ports(int prach_eaxc_offset)
+{
+  static oru_eaxc_lists_t lists;
+  lists = oru_eaxc_ru_port_lists(prach_eaxc_offset);
+  return &lists;
+}
+
 #define PCAP_NUM_ANT 4 // antennas of the reference capture
 
 configmodule_interface_t *uniqCfg = NULL;
@@ -566,7 +574,7 @@ int main(int argc, char *argv[])
                                     test_send_mbuf,
                                     NULL,
                                     mtu,
-                                    prach_eaxc_offset,
+                                    ru_ports(prach_eaxc_offset),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
