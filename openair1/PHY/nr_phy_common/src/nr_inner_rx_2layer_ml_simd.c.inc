@@ -111,23 +111,17 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
       // (interleave l0,l1 per RE) and optional descramble (+-1 mullo) into the store. Bit-exact
       // with {nr_compute_ML_llr to per-layer + nr_layer_demapping + codeword unscrambling}.
       nr_compute_ML_llr(rxC0_t, rxC1_t, mag0_t, mag1_t, tl0, tl1, rho01_t, rho10_t, tre, mod_order, lbest);
-      int16_t *cw = llr_cw + (size_t)base * 2 * mod_order;              // 2 layers/RE
-      const int16_t *s = scramble ? scramble + (size_t)base * 2 * mod_order : NULL;
-      for (uint32_t i = 0; i < tre; i++) {
-        const int16_t *s0 = tl0 + (size_t)i * mod_order, *s1 = tl1 + (size_t)i * mod_order;
-        int16_t *d0 = cw + (size_t)(i * 2 + 0) * mod_order, *d1 = cw + (size_t)(i * 2 + 1) * mod_order;
-        if (s) {
-          const int16_t *q0 = s + (size_t)(i * 2 + 0) * mod_order, *q1 = s + (size_t)(i * 2 + 1) * mod_order;
-          for (int b = 0; b < mod_order; b++) {
-            d0[b] = (int16_t)(s0[b] * q0[b]);
-            d1[b] = (int16_t)(s1[b] * q1[b]);
-          }
-        } else {
-          for (int b = 0; b < mod_order; b++) {
-            d0[b] = s0[b];
-            d1[b] = s1[b];
-          }
-        }
+      int16_t *cw = llr_cw + (size_t)base * 2 * mod_order; // 2 layers/RE
+      int16_t *lay[2] = {tl0, tl1};
+      nr_layer_demapping(2, mod_order, tre, lay, cw);
+      if (scramble) {
+        const int16_t *s = scramble + (size_t)base * 2 * mod_order;
+        const uint32_t n = tre * 2 * mod_order;
+        uint32_t k = 0;
+        for (; k + NRLB_N <= n; k += NRLB_N)
+          NRLB_STOREU(&cw[k], NRLB_MM(mullo_epi16)(NRLB_LOADU(&cw[k]), NRLB_LOADU(&s[k])));
+        for (; k < n; k++)
+          cw[k] = (int16_t)(cw[k] * s[k]);
       }
     } else {
       nr_compute_ML_llr(rxC0_t, rxC1_t, mag0_t, mag1_t,

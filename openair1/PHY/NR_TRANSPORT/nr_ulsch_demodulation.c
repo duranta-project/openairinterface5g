@@ -150,7 +150,11 @@ static int get_nb_re_pusch(NR_DL_FRAME_PARMS *frame_parms,
   return re_pusch;
 }
 
-static void inner_rx(PHY_VARS_gNB *gNB,
+// Returns true iff it wrote the final layer-demapped + descrambled codeword LLRs straight into
+// llr_cw at the store (fused paths only); the caller then skips its demap + unscramble/demux pass.
+// llr_cw is this symbol's slice of the UE's ulsch_llrs (or NULL to keep the per-layer path via
+// llr[]); scramble is the matching descrambling-sequence slice.
+static bool inner_rx(PHY_VARS_gNB *gNB,
                      int slot,
                      NR_DL_FRAME_PARMS *frame_parms,
                      NR_gNB_PUSCH *pusch_vars,
@@ -164,7 +168,9 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                      uint16_t ptrs_symb_pos,
                      c16_t cpe,
                      c16_t *rxFext_slot,
-                     c16_t *chFext_slot)
+                     c16_t *chFext_slot,
+                     int16_t *llr_cw,
+                     const int16_t *scramble)
 {
   int nb_layer = rel15_ul->nrOfLayers;
   int nb_rx_ant = rel15_ul->param_v4.numSpatialStreamIndices;
@@ -277,8 +283,9 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                             output_shift,
                             llr[0],
                             llr[1],
-                            NULL,
-                            NULL);
+                            llr_cw,
+                            llr_cw ? scramble : NULL);
+      return llr_cw != NULL;
     } else if (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE) {
       nr_compute_ML_llr((c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
                         (c16_t *)&pusch_vars->rxdataF_comp[1][symbol * buffer_length],
@@ -315,7 +322,8 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                           llr);
     }
   }
-  if (fuse_1layer)
+  if (fuse_1layer) {
+    // Single layer: per-layer LLR order is the codeword order, so llr_cw only adds descrambling.
     nr_inner_rx_1layer(pusch_vars->ul_valid_re_per_slot[symbol],
                        buffer_length,
                        nb_rx_ant,
@@ -324,9 +332,10 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                        cpe,
                        rel15_ul->qam_mod_order,
                        output_shift,
-                       llr[0],
-                       NULL);
-  else if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
+                       llr_cw ? llr_cw : llr[0],
+                       llr_cw ? scramble : NULL);
+    return llr_cw != NULL;
+  } else if (nb_layer != 2) // 2-layer 256QAM MMSE is now handled inside nr_compute_MMSE_llr above
     for (int aatx = 0; aatx < nb_layer; aatx++)
            nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
                      rxF_ch_maga[aatx],
@@ -336,6 +345,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                      pusch_vars->ul_valid_re_per_slot[symbol],
                      symbol,
                      rel15_ul->qam_mod_order);
+  return false;
 }
 
 typedef struct {
@@ -681,7 +691,19 @@ static void nr_pusch_symbol_processing(void *arg)
     for (int l = 0; l < rel15_ul->nrOfLayers; l++)
       llrss[l] = llrs[l];
 
-    inner_rx(gNB,
+    // Fold layer demap + descramble into the fused kernels' store when the symbol needs no UCI
+    // demultiplexing and carries a single UE: then this symbol's LLRs go straight into the UE's
+    // ulsch_llrs at the same offset/sequence the unscramble pass below would use. inner_rx returns
+    // whether it did (only its fused paths do); otherwise the per-layer path + post-pass run.
+    const nr_uci_mapping_t *map0 = &rdata->map_uci[0];
+    int16_t *llr_cw = NULL;
+    const int16_t *scramble = NULL;
+    if (rdata->group_size == 1 && map0->d_ack[symbol] == 0 && map0->d_csi1[symbol] == 0 && map0->d_csi2[symbol] == 0) {
+      llr_cw = &rdata->pusch_vars_group[0]->ulsch_llrs[map0->ulsch_offset[symbol]];
+      scramble = rdata->scrambling_sequences[0] + pusch_vars->llr_offset[symbol] * rdata->rel15_ul_group[0]->nrOfLayers;
+    }
+
+    const bool cw_written = inner_rx(gNB,
              slot,
              frame_parms,
              pusch_vars,
@@ -695,7 +717,11 @@ static void nr_pusch_symbol_processing(void *arg)
              rdata->ptrs_symb_pos,
              rdata->ptrs_cpe[symbol],
              rdata->rxFext_slot_mem,
-             rdata->pusch_ch_est_dmrs_interpl_slot_mem);
+             rdata->pusch_ch_est_dmrs_interpl_slot_mem,
+             llr_cw,
+             scramble);
+    if (cw_written)
+      continue; // layer demap + descramble already folded into the store
 
     int nb_re_pusch = pusch_vars->ul_valid_re_per_slot[symbol];
     for (int u = 0; u < rdata->group_size; u++) {
