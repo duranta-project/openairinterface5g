@@ -210,6 +210,10 @@ typedef struct {
   bool active;
   int num_prach_slots;
   fapi_nr_ul_config_prach_pdu prach_pdu;
+  /// time domain power (per sample, int16 units) of the preamble at amplitude AMP, and the format, PRACH subcarrier
+  /// spacing and sequence length it was measured for (see prach_energy_key())
+  int energy_at_amp;
+  int energy_key;
 } NR_UE_PRACH;
 
 typedef struct {
