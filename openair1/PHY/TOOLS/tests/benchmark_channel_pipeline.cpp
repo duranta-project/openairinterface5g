@@ -67,7 +67,7 @@ static void BM_channel_convolution_gpu(benchmark::State &state)
     generate_random_signal_float(channel[i], channel_length);
   }
 
-  void *gpu_context = cuda_channel_pipeline_init(MAX_SAMPLE_LENGTH, 64);
+  void *gpu_context = cuda_channel_pipeline_init(MAX_SAMPLE_LENGTH, nb_tx, nb_rx, channel_length);
 
   for (int aatx = 0; aatx < nb_tx; aatx++) {
     generate_random_signal(input[aatx], num_input_samples);

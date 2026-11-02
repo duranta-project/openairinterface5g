@@ -721,6 +721,22 @@ static int vrtsim_connect(openair0_device_t *device)
     } else {
       load_channel_model(vrtsim_state, vrtsim_state->peer_rx_ant);
     }
+#ifdef CHANNEL_SIM_CUDA
+    // RX / TX antenna config known per UE config -> init with optimized config rather than worst case config (64TX64RX)
+    int max_rx_ant = vrtsim_state->peer_rx_ant;
+    int max_channel_length = vrtsim_state->channel_desc[0] ? vrtsim_state->channel_desc[0]->channel_length : 1;
+    if (vrtsim_state->role == ROLE_SERVER && vrtsim_state->num_ues > 1) {
+      for (int u = 0; u < vrtsim_state->num_ues; u++) {
+        if (vrtsim_state->ue_conf[u].rx_ant > max_rx_ant)
+          max_rx_ant = vrtsim_state->ue_conf[u].rx_ant;
+        if (vrtsim_state->channel_desc[u] && vrtsim_state->channel_desc[u]->channel_length > max_channel_length)
+          max_channel_length = vrtsim_state->channel_desc[u]->channel_length;
+      }
+    }
+    size_t samples_in_one_ms = device->openair0_cfg->sample_rate / 1000;
+    vrtsim_state->channel_pipeline_context =
+        cuda_channel_pipeline_init(samples_in_one_ms, device->openair0_cfg[0].tx_num_channels, max_rx_ant, max_channel_length);
+#endif
   }
   vrtsim_state->tx_timing.tx_histogram.min_samples = 100;
   // Set the histogram range to 3000uS. Anything above that is not interesting
@@ -1162,10 +1178,7 @@ __attribute__((__visibility__("default"))) int device_init(openair0_device_t *de
     int noise_power_dBFS = get_noise_power_dBFS();
     int16_t noise_power = noise_power_dBFS == INVALID_DBFS_VALUE ? 0 : (int16_t)(32767.0 / powf(10.0, .05 * -noise_power_dBFS));
     LOG_A(HW, "VRTSIM: Noise power %d sample value\n", noise_power);
-#ifdef CHANNEL_SIM_CUDA
-    size_t samples_in_one_ms = openair0_cfg->sample_rate / 1000;
-    vrtsim_state->channel_pipeline_context = cuda_channel_pipeline_init(samples_in_one_ms, openair0_cfg->tx_num_channels);
-#else
+#ifndef CHANNEL_SIM_CUDA
     channel_pipeline_init(noise_power);
     initNamedTpool(vrtsim_state->thread_pool_cores, &vrtsim_state->tpool, false, "vrtsim_chanmod");
 #endif

@@ -18,6 +18,10 @@
 #include "lib/e1ap_bearer_context_management.h"
 #include "lib/e1ap_interface_management.h"
 
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
+
 #define E1AP_NUM_MSG_HANDLERS 14
 typedef int (*e1ap_message_processing_t)(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst, const E1AP_E1AP_PDU_t *message_p);
 
@@ -77,6 +81,17 @@ static int e1ap_handle_message(instance_t instance, sctp_assoc_t assoc_id, const
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E1AP_E1AP_PDU, &pdu);
     return -1;
   }
+
+#ifdef E2_AGENT
+  if (procedureCode == E1AP_ProcedureCode_id_gNB_CU_UP_E1Setup) {
+    // If CU-CP, capture Setup Request
+    if (pdu.present == E1AP_E1AP_PDU_PR_initiatingMessage)
+      e2ap_store_setup_req(E2AP_SETUP_MSG_E1AP, data, data_length);
+    // If CU-UP, capture Setup Response
+    else if (pdu.present == E1AP_E1AP_PDU_PR_successfulOutcome)
+      e2ap_store_setup_resp(E2AP_SETUP_MSG_E1AP, data, data_length);
+  }
+#endif
 
   if (e1ap_message_processing[procedureCode][pdu.present - 1] == NULL) {
     // No handler present. This can mean not implemented or no procedure for eNB

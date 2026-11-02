@@ -908,6 +908,19 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
   return harq;
 }
 
+/* Count the SRs a UE sent since its last UL grant. */
+static void nr_mac_sr_received(NR_UE_info_t *UE, nr_cell_sched_t *cell)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  /* saturate: a UE starved past 255 SRs would wrap back to lowest priority */
+  if (sched_ctrl->sr_cnt < UINT8_MAX)
+    sched_ctrl->sr_cnt++;
+  /* warn once, on the SR that reaches the limit: the UE then falls back to RA */
+  int trans_max = cell->radio_config.timer_config.sr_TransMax;
+  if (trans_max > 0 && sched_ctrl->sr_cnt == trans_max)
+    LOG_W(NR_MAC, "UE %04x: %d SR received, reached configured sr_TransMax %d before UL grant\n", UE->rnti, sched_ctrl->sr_cnt, trans_max);
+}
+
 void handle_nr_uci_pucch_0_1(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_01)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[mod_id];
@@ -986,7 +999,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, int cell_id, frame_t frame, slo
   if (uci_01->pduBitmap & 0x1) {
     if (uci_01->sr.sr_indication && uci_01->sr.sr_confidence_level == 0 && uci_01->ul_cqi >= 148) {
       // SR detected with SNR >= 10dB
-      sched_ctrl->SR |= true;
+      nr_mac_sr_received(UE, cell);
       LOG_D(NR_MAC, "SR UE %04x ul_cqi %d\n", uci_01->rnti, uci_01->ul_cqi);
     }
 
@@ -1026,7 +1039,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, s
 
   if (uci_234->pduBitmap & 0x1) {
     if (uci_234->sr.sr_payload && uci_234->sr.sr_payload[0])
-      sched_ctrl->SR = true;
+      nr_mac_sr_received(UE, cell);
     free(uci_234->sr.sr_payload);
   }
 

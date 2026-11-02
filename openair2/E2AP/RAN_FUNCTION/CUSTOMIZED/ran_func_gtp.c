@@ -44,6 +44,9 @@ bool read_gtp_sm(void * data)
 
   for (size_t i = 0; i < num_ues; i++) {
     rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(RC.nrrrc[0], ue_id_list[i]);
+    // UE disconnected between nr_pdcp_get_num_ues() and this lookup
+    if (ue_context_p == NULL)
+      continue;
 
     gtp->msg.ngut[i].rnti = ue_id_list[i];
     FOR_EACH_SEQ_ARR(rrc_pdu_session_param_t*, session, &ue_context_p->ue_context.pduSessions) {

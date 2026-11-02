@@ -16,6 +16,10 @@
 #include "F1AP_F1AP-PDU.h"
 #include "F1AP_InitiatingMessage.h"
 
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
+
 /* Handlers matrix. Only f1 related procedure present here */
 static const f1ap_message_processing_t f1ap_messages_processing[][3] = {
 
@@ -122,6 +126,17 @@ int f1ap_handle_message(instance_t instance,
     LOG_E(F1AP, "Failed to decode PDU\n");
     return -1;
   }
+
+#ifdef E2_AGENT
+  if (pdu->choice.initiatingMessage->procedureCode == F1AP_ProcedureCode_id_F1Setup) {
+    // If CU, capture Setup Request
+    if (pdu->present == F1AP_F1AP_PDU_PR_initiatingMessage)
+      e2ap_store_setup_req(E2AP_SETUP_MSG_F1AP, data, data_length);
+    // If DU, capture Setup Response
+    else if (pdu->present == F1AP_F1AP_PDU_PR_successfulOutcome)
+      e2ap_store_setup_resp(E2AP_SETUP_MSG_F1AP, data, data_length);
+  }
+#endif
 
   /* Checking procedure Code and direction of message */
   if (pdu->choice.initiatingMessage->procedureCode >= sizeof(f1ap_messages_processing) / (3 * sizeof(f1ap_message_processing_t))

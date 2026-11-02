@@ -647,6 +647,7 @@ void nr_rrc_trigger_n2_ho(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, const nr_neighbou
     return;
   }
   ue->ho_context->source->cell = source_cell;
+  ue->ho_context->source->target_nci = neighbour_config->nrcell_id;
   ue->ho_context->source->ho_status_transfer = rrc_gNB_send_NGAP_ul_ran_status_transfer;
   ue->ho_context->source->ho_cancel = nr_rrc_n2_ho_cancel;
 

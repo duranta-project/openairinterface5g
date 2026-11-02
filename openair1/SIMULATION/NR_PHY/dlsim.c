@@ -765,7 +765,6 @@ int main(int argc, char **argv)
 
   AssertFatal((gNB->if_inst = NR_IF_Module_init(0)) != NULL, "Cannot register interface");
   gNB->if_inst->NR_PHY_config_req = nr_phy_config_request;
-  gNB->num_pdsch_symbols_per_thread = num_pdsch_symbols_per_thread;
 
   NR_ServingCellConfigCommon_t *scc = calloc(1,sizeof(*scc));;
   prepare_scc(scc);
@@ -849,9 +848,11 @@ int main(int argc, char **argv)
   rnti_t rnti = 0x1234;
   int uid = 0;
   int ssb_index = 0;
-  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, UE_Capability_nr, 0, 1, &conf, cell, uid, ssb_index);
-  secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
-  NR_BWP_Downlink_t *bwp = secondaryCellGroup->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList->list.array[0];
+  const NR_feature_set_ids_t uecap_fs_ids = {.dl_feature_set_percc_id = 1,
+                                             .ul_feature_set_percc_id = 1};
+  NR_CellGroupConfig_t *scg = get_default_secondaryCellGroup(scc, UE_Capability_nr, &uecap_fs_ids, 0, 1, &conf, cell, uid, ssb_index);
+  scg->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc, frame);
+  NR_BWP_Downlink_t *bwp = scg->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList->list.array[0];
 
   if (alloc_type == PDSCH_TYPE0) {
     bwp->bwp_Dedicated->pdsch_Config->choice.setup->resourceAllocation = NR_PDSCH_Config__resourceAllocation_resourceAllocationType0;
@@ -877,13 +878,14 @@ int main(int argc, char **argv)
   }
 
   // UE dedicated configuration
-  nr_mac_add_test_ue(RC.nrmac[0], cell, rnti, secondaryCellGroup);
+  nr_mac_add_test_ue(gNB_mac, cell, rnti, scg);
   // reset preprocessor to the one of DLSIM after it has been set during
   // nr_mac_config_scc()
   gNB_mac->pre_processor_dl = nr_dlsim_preprocessor;
   phy_init_nr_gNB(gNB);
+  gNB->num_pdsch_symbols_per_thread = num_pdsch_symbols_per_thread;
   N_RB_DL = gNB->frame_parms.N_RB_DL;
-  NR_UE_info_t *UE_info = RC.nrmac[0]->UE_info.connected_ue_list[0];
+  NR_UE_info_t *UE_info = gNB_mac->UE_info.connected_ue_list[0];
 
   configure_UE_BWP(cell, scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
 
@@ -997,7 +999,7 @@ int main(int argc, char **argv)
   AssertFatal(input_fd==NULL,"Not ready for input signal file\n");
 
   // clone CellGroup to have a separate copy at UE
-  NR_CellGroupConfig_t *UE_CellGroup = clone_CellGroupConfig(secondaryCellGroup);
+  NR_CellGroupConfig_t *UE_CellGroup = clone_CellGroupConfig(scg);
 
   //Configure UE
   NR_BCCH_BCH_Message_t *mib = get_new_MIB_NR(scc);
@@ -1070,6 +1072,7 @@ int main(int argc, char **argv)
 
     reset_meas(&gNB->phy_proc_tx);
     reset_meas(&gNB->dlsch_scrambling_stats);
+    reset_meas(&gNB->dlsch_crc_stats);
     reset_meas(&gNB->dlsch_modulation_stats);
     reset_meas(&gNB->dlsch_pdsch_generation_stats);
     reset_meas(&gNB->dlsch_precoding_stats);
@@ -1077,7 +1080,6 @@ int main(int argc, char **argv)
     reset_meas(&gNB->dlsch_resource_mapping_stats);
     reset_meas(&gNB->dlsch_encoding_stats);
     reset_meas(&gNB->dci_generation_stats);
-    reset_meas(&gNB->phase_comp_stats);
 
     uint32_t errors_scrambling[16] = {0};
     int n_errors[16] = {0};
@@ -1453,14 +1455,23 @@ int main(int argc, char **argv)
       printStatIndent3(&gNB->dlsch_ldpc_encode_stats,"LDPC encoding time");
       printStatIndent2(&gNB->dlsch_modulation_stats,"DLSCH modulation time");
       printStatIndent2(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
+      printStatIndent3(&gNB->dlsch_crc_stats,"DLSCH Outer CRC time");
       printStatIndent2(&gNB->dlsch_pdsch_generation_stats,"DLSCH PDSCH Generation time");
-      printStatIndent3(&gNB->dlsch_layer_mapping_stats,"DLSCH Layer Mapping time");
-      gNB->dlsch_resource_mapping_stats.trials = gNB->dlsch_layer_mapping_stats.trials;
-      printStatIndent3(&gNB->dlsch_resource_mapping_stats,"DLSCH Resource Mapping time");
-      gNB->dlsch_precoding_stats.trials = gNB->dlsch_layer_mapping_stats.trials;
-      printStatIndent3(&gNB->dlsch_precoding_stats,"DLSCH Precoding time");
-      if (gNB->phase_comp)
-        printStatIndent2(&gNB->phase_comp_stats, "Phase Compensation");
+      printStatIndent3(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
+      if (gNB->dlsch_layer_mapping_stats.trials > 0) {
+        printStatIndent3(&gNB->dlsch_modulation_stats, "DLSCH modulation time");
+        printStatIndent3(&gNB->dlsch_layer_mapping_stats, "DLSCH Layer Mapping time");
+      } else {
+        printStatIndent3(&gNB->dlsch_modulation_stats, "DLSCH mod/lm time");
+      }
+      if (num_pdsch_symbols_per_thread == 0) {
+        gNB->dlsch_resource_mapping_stats.trials = gNB->dlsch_modulation_stats.trials;
+        if (gNB->dlsch_precoding_stats.trials > 0)
+          printStatIndent3(&gNB->dlsch_resource_mapping_stats, "DLSCH Resource Mapping time");
+        gNB->dlsch_precoding_stats.trials = gNB->dlsch_modulation_stats.trials;
+        if (gNB->dlsch_precoding_stats.trials > 0)
+          printStatIndent3(&gNB->dlsch_precoding_stats, "DLSCH Precoding time");
+      }
 
       if (use_cuda) {
         printStatIndent(&pipeline_stats, "GPU Channel Pipeline");

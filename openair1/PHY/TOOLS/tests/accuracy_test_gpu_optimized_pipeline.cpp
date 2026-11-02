@@ -118,7 +118,10 @@ class GpuAccuracyTest : public ::testing::TestWithParam<std::tuple<int, int, int
  protected:
   void SetUp() override
   {
-    gpu_ctx = cuda_channel_pipeline_init(MAX_SAMPLE_LENGTH, 64);
+    const int nb_rx = std::get<0>(GetParam());
+    const int nb_tx = std::get<1>(GetParam());
+    const int channel_length = std::get<3>(GetParam());
+    gpu_ctx = cuda_channel_pipeline_init(MAX_SAMPLE_LENGTH, nb_tx, nb_rx, channel_length);
   }
 
   void TearDown() override

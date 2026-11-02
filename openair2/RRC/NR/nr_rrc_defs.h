@@ -386,6 +386,13 @@ typedef struct {
   nr_neighbour_cell_sib4_freq_t freq_cfg;
 } nr_inter_freq_cfg_t;
 
+typedef struct {
+  // Number of F1 and N2 handovers successfully completed to this neighbour cell
+  uint16_t ho_success_count;
+  // Shall be incremented with each neighbour information change
+  uint16_t version;
+} nr_neighbour_cell_stats_t;
+
 /** @brief Neighbor cell configuration structure
  * Single source of truth for neighbor cell information, used across multiple protocols/scopes:
  * - Handover (NGAP/XnAP): for target gNB (ID, plmn, tac, nrcell_id, physicalCellId)
@@ -416,6 +423,7 @@ typedef struct {
   nr_neighbour_cell_sib3_t sib3;
   // SIB4 (inter-frequency neighbor cell-specific parameters)
   nr_neighbour_cell_sib4_t sib4;
+  nr_neighbour_cell_stats_t stats;
 } nr_neighbour_cell_t;
 
 typedef struct neighbour_cell_configuration_s {

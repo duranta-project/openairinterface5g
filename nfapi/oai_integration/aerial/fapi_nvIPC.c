@@ -115,10 +115,7 @@ static int ipc_handle_rx_msg(nv_ipc_msg_t *msg)
         NFAPI_TRACE(NFAPI_TRACE_INFO, "%s: Handling RX Indication\n", __FUNCTION__);
         if (vnf_p7_config->_public.nr_rx_data_indication) {
           (vnf_p7_config->_public.nr_rx_data_indication)(&ind);
-          for (int i = 0; i < ind.number_of_pdus; ++i) {
-            free(ind.pdu_list[i].pdu);
-          }
-          free(ind.pdu_list);
+          free_rx_data_indication(&ind);
         }
         break;
       }
@@ -133,6 +130,7 @@ static int ipc_handle_rx_msg(nv_ipc_msg_t *msg)
         if (vnf_p7_config->_public.nr_srs_indication) {
           (vnf_p7_config->_public.nr_srs_indication)(&ind);
         }
+        free_srs_indication(&ind);
         break;
       }
 
@@ -254,7 +252,7 @@ bool aerial_nr_send_p5_message(vnf_nr_t *vnf, uint16_t p5_idx, nfapi_nr_p4_p5_me
       return false;
     }
     // Set the length
-    send_msg.msg_len = packedMessageLengthFAPI + 8; // adding 8 to account for the size of the FAPI header
+    send_msg.msg_len = packedMessageLengthFAPI;
 
     if (has_separate_dbt_payload) {
       AssertFatal(send_msg.data_buf != NULL, "CONFIG.request DBT path: data buffer is NULL\n");

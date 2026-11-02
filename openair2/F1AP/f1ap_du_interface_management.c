@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include <stdlib.h>
 #include "f1ap_common.h"
 #include "f1ap_encoder.h"
 #include "f1ap_itti_messaging.h"
@@ -16,6 +17,10 @@
 #include "F1AP_Reset.h"
 #include "F1AP_ProtocolIE-Field.h"
 #include "F1AP_InitiatingMessage.h"
+
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
+#endif
 
 int DU_handle_RESET(instance_t instance, sctp_assoc_t assoc_id, uint32_t stream, F1AP_F1AP_PDU_t *pdu)
 {
@@ -132,6 +137,9 @@ int DU_send_F1_SETUP_REQUEST(sctp_assoc_t assoc_id, const f1ap_setup_req_t *setu
   }
   /* free PDU */
   ASN_STRUCT_FREE(asn_DEF_F1AP_F1AP_PDU, pdu);
+#ifdef E2_AGENT
+  e2ap_store_setup_req(E2AP_SETUP_MSG_F1AP, buffer, len);
+#endif
   /* Send to ITTI */
   f1ap_itti_send_sctp_data_req(assoc_id, buffer, len);
   return 0;
