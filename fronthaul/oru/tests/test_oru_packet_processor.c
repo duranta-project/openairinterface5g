@@ -1936,16 +1936,19 @@ void test_eaxc_ru_port_lists(void)
   printf("RU port eAxC layout passed!\n");
 }
 
-// eAxC lists as cuBB mMIMO assigns them: PDSCH and PUSCH on 0..15, PRACH on 16..31, compared on all 16 bits
+// eAxC lists as cuBB mMIMO assigns them: PDSCH and PUSCH on 0..15, PRACH on 16..31, SRS on 32..95 (one per RX
+// antenna), compared on all 16 bits
 void test_eaxc_lists(void)
 {
   printf("Testing eAxC lists...\n");
-  oru_eaxc_lists_t lists = {.key_mask = 0xFFFF, .num = {16, 16, 16}};
+  oru_eaxc_lists_t lists = {.key_mask = 0xFFFF, .num = {16, 16, 16, ORU_MAX_SRS_EAXC}};
   for (int i = 0; i < 16; i++) {
     lists.id[ORU_EAXC_DL][i] = i;
     lists.id[ORU_EAXC_UL][i] = i;
     lists.id[ORU_EAXC_PRACH][i] = 16 + i;
   }
+  for (int i = 0; i < ORU_MAX_SRS_EAXC; i++)
+    lists.id[ORU_EAXC_SRS][i] = 32 + i;
   void *ctx = init_packet_processor(1,
                                     100,
                                     200,
@@ -1990,19 +1993,28 @@ void test_eaxc_lists(void)
   write_prach_iq(ctx, txdataF, 2, (target_sym / (10 * 2 * 14)) % 1024, slot_in_frame, target_sym % 14);
   assert(g_packets_sent == 2 && g_last_eaxc == 17);
 
-  // Not in the list of their flow: UL on a PRACH eAxC, PRACH on a UL eAxC, DL with other DU_Port_ID bits
+  // SRS on eAxC 95 is RX antenna 63, beyond the 16 UL streams, and its U-Plane goes out on eAxC 95
+  send_cplane_on_eaxc(ctx, 95, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
+  assert(poll_ul_job(ctx, &job) == 0);
+  assert(job.srs && job.antenna_id == 63 && job.eaxc == 95);
+  write_ul_iq(ctx, iq[0], target_sym % 14, &job);
+  assert(g_packets_sent == 3 && g_last_eaxc == 95);
+
+  // Not in the list of their flow: UL on a PRACH eAxC, PRACH on a UL eAxC, DL with other DU_Port_ID bits, DL on an SRS
+  // eAxC
   send_cplane_on_eaxc(ctx, 16, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
   assert(poll_ul_job(ctx, &job) != 0);
   send_cplane_on_eaxc(ctx, 1, XRAN_CP_SECTIONTYPE_3, XRAN_DIR_UL, target_sym);
   const uint64_t dl_sym = 1050; // first DL symbol of the next pattern
   handle_absolute_symbol_tick(ctx, dl_sym - 7);
   send_cplane_on_eaxc(ctx, 0x100F, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_DL, dl_sym);
+  send_cplane_on_eaxc(ctx, 32, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_DL, dl_sym);
   get_packet_processor_stats(ctx, &stats);
-  assert(stats.invalid_eaxc_id == 3);
+  assert(stats.invalid_eaxc_id == 4 && stats.cplane_received_srs == 1);
   // A DL eAxC of the list is taken
   send_cplane_on_eaxc(ctx, 15, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_DL, dl_sym);
   get_packet_processor_stats(ctx, &stats);
-  assert(stats.invalid_eaxc_id == 3 && stats.dl_tdd_mismatch == 0 && stats.cplane_err_late == 0 && stats.cplane_err_early == 0);
+  assert(stats.invalid_eaxc_id == 4 && stats.dl_tdd_mismatch == 0 && stats.cplane_err_late == 0 && stats.cplane_err_early == 0);
 
   cleanup_packet_processor(ctx);
   printf("eAxC lists passed!\n");
