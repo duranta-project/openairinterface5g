@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.10)
 # (e3_sm_worker.h) and the POSIX-shm region lifecycle (e3_shm_region.h).
 add_library(e3_sm_worker STATIC e3_sm_worker.c e3_shm_region.c)
 target_include_directories(e3_sm_worker PUBLIC ${CLIBE3_INCLUDE_DIRS})
+target_compile_definitions(e3_sm_worker PRIVATE ${CLIBE3_COMPILE_DEFS})
 target_link_directories(e3_sm_worker PRIVATE ${CLIBE3_LIBRARY_DIRS})
 target_link_libraries(e3_sm_worker pthread LOG)
 

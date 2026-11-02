@@ -314,7 +314,6 @@ void e3_ran_buffers_push_rxdataF(const PHY_VARS_gNB *gNB, int frame_rx, int slot
   const uint32_t n_rx_ant = frame_parms->nb_antennas_rx;
   const uint32_t n_prbs = frame_parms->N_RB_UL;
   const uint32_t fft_size = frame_parms->ofdm_symbol_size;
-  const uint32_t k0 = frame_parms->first_carrier_offset;
 
   uint32_t ants = n_rx_ant;
   if (ants > (uint32_t)E3_RB_N_ANTS) {
@@ -339,18 +338,16 @@ void e3_ran_buffers_push_rxdataF(const PHY_VARS_gNB *gNB, int frame_rx, int slot
    * Without it we would always read bucket 0. */
   const uint32_t slot_offset = (uint32_t)(slot_rx % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * fft_size;
 
-  /* Write [ant][sym][prb][sc][I,Q] FP16. */
+  /* Write [ant][sym][prb][sc][I,Q] FP16. nr_fep() fftshifts every symbol of rxdataF in place, so subcarrier i of the
+   * carrier (lowest frequency first) sits at index i of the symbol and the carrier is one contiguous span. */
   const uint32_t total_sc = n_prbs * E3_RB_N_SC_PER_PRB;
-  const uint32_t span1_sc = (k0 + total_sc <= fft_size) ? total_sc : fft_size - k0;
-  const uint32_t span2_sc = total_sc - span1_sc;
   for (uint32_t antenna = 0; antenna < ants; ++antenna) {
     const c16_t *ant_data = common_vars->rxdataF[antenna] + slot_offset;
     for (uint32_t symbol = 0; symbol < (uint32_t)E3_RB_N_SYMBOLS; ++symbol) {
       const c16_t *sym_data = ant_data + (size_t)symbol * fft_size;
       uint16_t *out_iq =
           (uint16_t *)(row_base + (((size_t)antenna * E3_RB_N_SYMBOLS + symbol) * E3_RB_N_SC_PER_SLOT) * E3_RB_BYTES_PER_SAMPLE);
-      convert_span_fp16(out_iq, (const int16_t *)(sym_data + k0), 2u * span1_sc, beta);
-      convert_span_fp16(out_iq + 2u * span1_sc, (const int16_t *)sym_data, 2u * span2_sc, beta);
+      convert_span_fp16(out_iq, (const int16_t *)sym_data, 2u * total_sc, beta);
       /* Zero-pad remaining PRB columns if PHY has fewer than the layout. */
       memset(out_iq + 2u * total_sc, 0, ((size_t)E3_RB_N_SC_PER_SLOT - total_sc) * E3_RB_BYTES_PER_SAMPLE);
     }
