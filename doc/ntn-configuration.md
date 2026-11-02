@@ -213,7 +213,7 @@ sudo ./ran_build/build/nr-uesoftmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF
 python3 geo_ntn_channel_emulator.py --channel-delay-us=119680 --samp-rate=7.68e6
 ```
 
-2. OCUDU gNB
+2. OCUDU gNB (tag: release_2026_10)
    - [gnb_zmq.yml](https://gitlab.com/ocudu/ocudu_docs/-/blob/main/docs/tutorials/ntn/assets/gnb_zmq.yml)
        <details>
        <summary>modify the following value </summary>
@@ -235,16 +235,16 @@ python3 geo_ntn_channel_emulator.py --channel-delay-us=119680 --samp-rate=7.68e6
        ```bash
        # Set Preamble Format 
        prach:
-         prach_config_index: 27
+         prach_config_index: 16
        ```
     
        </details>
 
 ```bash
-sudo ./apps/gnb/gnb -c gnb_zmq.yml -c geo_ntn.yml
+sudo ./apps/gnb/gnb -c gnb_zmq.yml -c geo_ntn.yml cell_cfg ntn --epoch_timestamp $(date -u +"%Y-%m-%dT%H:%M:%S.%3N")
 ```
 
-3. OAI nrUE
+3. OAI nrUE (v3.0.0 or later)
 - We calculated the value for `position0` in `ue.conf` based on the geodetic position used
 when testing this same OCUDU gNB against an [Amarisoft UE](https://gitlab.com/ocudu/ocudu_docs/-/blob/main/docs/tutorials/ntn/assets/ue-nr-ntn-geo.cfg?ref_type=heads#L38),
 converted to ECEF via the standard WGS84 geodetic-to-ECEF formula:
