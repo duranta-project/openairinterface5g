@@ -274,21 +274,31 @@ int16_t get_pucch_tx_power_ue(NR_UE_MAC_INST_t *mac,
     P_O_NOMINAL_PUCCH = *current_UL_BWP->pucch_ConfigCommon->p0_nominal;
   }
 
-  struct NR_PUCCH_PowerControl *power_config = pucch_Config ? pucch_Config->pucch_PowerControl : NULL;
-
-  if (!power_config)
-    return (PUCCH_POWER_DEFAULT);
+  // PUCCH-PowerControl absent (the OAI gNB does not send it): its fields take their default values (TS 38.331), the
+  // power is still computed (TS 38.213 7.2.1) instead of a fixed 0 dBm
+  static const struct NR_PUCCH_PowerControl no_power_config = {0};
+  const struct NR_PUCCH_PowerControl *power_config =
+      pucch_Config && pucch_Config->pucch_PowerControl ? pucch_Config->pucch_PowerControl : &no_power_config;
 
   int16_t P_O_UE_PUCCH = 0;
-
-  if (pucch_Config->spatialRelationInfoToAddModList != NULL) {  /* FFS TODO NR */
-    LOG_D(MAC,"PUCCH Spatial relation infos are not yet implemented\n");
-    return (PUCCH_POWER_DEFAULT);
-  }
-
   int G_b_f_c = 0;
-  if (power_config->p0_Set != NULL) {
-    P_O_UE_PUCCH = power_config->p0_Set->list.array[0]->p0_PUCCH_Value; /* get from index 0 if no spatial relation set */
+  if (power_config->p0_Set != NULL && power_config->p0_Set->list.count > 0) {
+    /* P0 of the spatial relation (TS 38.213 7.2.1): without MAC CE activation, the first relation; without relation,
+       the first P0 of the set. The path loss stays the measured SSB one: the relations point to an SSB (the OAI gNB:
+       SSB 0), CSI-RS path loss references are not supported */
+    long p0_id = power_config->p0_Set->list.array[0]->p0_PUCCH_Id;
+    const struct NR_PUCCH_Config__spatialRelationInfoToAddModList *rel =
+        pucch_Config ? pucch_Config->spatialRelationInfoToAddModList : NULL;
+    if (rel && rel->list.count > 0) {
+      p0_id = rel->list.array[0]->p0_PUCCH_Id;
+      if (rel->list.array[0]->referenceSignal.present != NR_PUCCH_SpatialRelationInfo__referenceSignal_PR_ssb_Index
+          || rel->list.array[0]->referenceSignal.choice.ssb_Index != mac->mib_ssb)
+        LOG_D(MAC, "PUCCH spatial relation not on the measured SSB %d: path loss of that SSB used\n", mac->mib_ssb);
+    }
+    P_O_UE_PUCCH = power_config->p0_Set->list.array[0]->p0_PUCCH_Value;
+    for (int i = 0; i < power_config->p0_Set->list.count; i++)
+      if (power_config->p0_Set->list.array[i]->p0_PUCCH_Id == p0_id)
+        P_O_UE_PUCCH = power_config->p0_Set->list.array[i]->p0_PUCCH_Value;
   }
 
   int P_O_PUCCH = P_O_NOMINAL_PUCCH + P_O_UE_PUCCH;
@@ -362,9 +372,10 @@ int16_t get_pucch_tx_power_ue(NR_UE_MAC_INST_t *mac,
 
   int16_t pucch_power_without_g_pucch = P_O_PUCCH + M_pucch_component + pathloss + delta_F_PUCCH + DELTA_TF;
 
-  if (power_config->p0_Set == NULL) {
-    if (mac->pucch_power_control_initialized == false) {
-      // Initialize power control state
+  // closed loop state g (TS 38.213 7.2.1): g(0) = rampup + delta without P0-Set, 0 with it, then the TPC commands
+  // accumulate in both cases
+  if (mac->pucch_power_control_initialized == false) {
+    if (power_config->p0_Set == NULL) {
       // Assuming only sending on PCell
       NR_PRACH_RESOURCES_t *prach_res = &mac->ra.prach_resources;
       float DELTA_P_rampup_requested = (prach_res->preamble_power_ramping_cnt - 1) * prach_res->preamble_power_ramping_step;
@@ -372,19 +383,19 @@ int16_t get_pucch_tx_power_ue(NR_UE_MAC_INST_t *mac,
       // TS 38.213 7.2.1: min(max(0, P_CMAX - (P_O_PUCCH + PL + delta_F_PUCCH + delta_TF + delta_PUCCH)), requested)
       DELTA_P_rampup = min(DELTA_P_rampup_requested, max(0, DELTA_P_rampup));
       mac->G_b_f_c = DELTA_P_rampup + sum_delta_pucch;
-      mac->pucch_power_control_initialized = true;
+    } else {
+      mac->G_b_f_c = sum_delta_pucch;
     }
-    else {
-      // PUCCH closed loop power control state
-      G_b_f_c = mac->G_b_f_c;
-      if (!((pucch_power_without_g_pucch + G_b_f_c >= P_CMAX && sum_delta_pucch > 0) ||
-        (pucch_power_without_g_pucch + G_b_f_c <= P_CMIN && sum_delta_pucch < 0))) {
-        G_b_f_c += sum_delta_pucch;
-      }
-      mac->G_b_f_c = G_b_f_c;
+    mac->pucch_power_control_initialized = true;
+    G_b_f_c = mac->G_b_f_c;
+  } else {
+    G_b_f_c = mac->G_b_f_c;
+    if (!((pucch_power_without_g_pucch + G_b_f_c >= P_CMAX && sum_delta_pucch > 0)
+          || (pucch_power_without_g_pucch + G_b_f_c <= P_CMIN && sum_delta_pucch < 0))) {
+      G_b_f_c += sum_delta_pucch;
     }
+    mac->G_b_f_c = G_b_f_c;
   }
-
 
   int pucch_power = min(P_CMAX, pucch_power_without_g_pucch + G_b_f_c);
 
