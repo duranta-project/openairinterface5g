@@ -104,12 +104,20 @@ reports from `nr_rlc_get_available_tx_space` both use the remaining RLC TX
 buffer space: `max(0, tx_maxsize - tx_size)`. RLC `recv_sdu` rejects an SDU
 if adding it would exceed `tx_maxsize`.
 
-- **Mono** precheck (`nr_up_mono_dl_congestion_precheck`): if last sync is
-  older than `NR_UP_MONO_BUDGET_STALE_MS` (20 ms), ALLOW without trusting
-  occupancy.
-- **F1** precheck (`nr_up_f1u_dl_congestion_precheck`): on DROP, rate-limited
-  empty DL USER DATA with Report Polling (`nr_up_f1u_request_status_poll`)
-  so DDDS can refresh.
+- **Mono** precheck (`nr_up_mono_dl_congestion_precheck`):
+  - ALLOW when:
+    - last sync older than `NR_UP_MONO_BUDGET_STALE_MS`
+    - `available_tx_bytes` is less than 80% of last reported `tx_space`
+  - soft ALLOW:
+    - when `available_tx_bytes` is > 80% of last reported `tx_space`:
+      - allow packet
+      - set `available_tx_bytes` to 0
+      - enqueue NULL status for (`nr_rlc_get_available_tx_space`) to trigger
+        a a budget refresh
+  - DROP:
+    - over 100% (`pdu_len` > available)
+- **F1** precheck (`nr_up_f1u_dl_congestion_precheck`): On DROP, rate-limited
+  empty DL USER DATA with Report Polling (`nr_up_f1u_request_status_poll`) so DDDS can refresh.
 - On F1 deliver, CU sets Report Polling when the cache is missing or sync age
   is at least `NR_UP_BUDGET_POLL_MS` (20 ms) and the last poll TX is at least
   that old (`nr_up_f1u_try_report_polling`). Report Delivered stays off
@@ -163,18 +171,29 @@ sequenceDiagram
   PDCP->>CUNR: nr_up_dl_congestion_precheck()
 
   alt Mono precheck (nr_up_mono_dl_congestion_precheck)
-    Note over CUNR: stale > 20 ms -> ALLOW<br/>else nr_up_drb_budget_precheck()
+    opt stale budget (> 20 ms)
+      CUNR->>PDCP: ALLOW
+    end
+    opt 0-80#37; available_tx_bytes
+      CUNR->>PDCP: ALLOW
+    end
+    opt 80-100#37; available_tx_bytes
+      CUNR->>CUNR: available_tx_bytes=0
+      CUNR->>CUNR: nr_up_enqueue_rlc_data_req(NULL)
+      CUNR->>PDCP: ALLOW
+    end
+    opt pdu_len > available_tx_bytes
+      CUNR->>PDCP: DROP
+    end
   else F1 precheck (nr_up_f1u_dl_congestion_precheck)
     Note over CUNR: nr_up_drb_budget_precheck()
   end
-  CUNR-->>PDCP: ALLOW / DROP
 
   alt DROP
     Note over PDCP: discard (no process_sdu, no SN)
     alt Mono DROP
-      Note over CUNR: discard
+      Note over CUNR: hard full only, no status enqueue
     else F1 DROP
-      Note over CUNR: no timer for stale budget
       CUNR->>CUNR: nr_up_f1u_request_status_poll()<br/>(nr_up_f1u_try_report_polling)
       CUNR->>CUGTP: empty G-PDU Report Polling=1
       CUGTP->>DUGTP: F1-U empty G-PDU Report Polling=1<br/>sdu_buffer_size==0
@@ -196,10 +215,14 @@ sequenceDiagram
       Note over CUNR: consume after enqueue
       CUNR->>CUNR: nr_up_drb_budget_consume()
       Note over CUNR,RLC: async RLC worker
-      CUNR->>RLC: nr_rlc_data_req()
+      alt soft NULL status from precheck
+        CUNR->>RLC: nr_rlc_get_available_tx_space()
+      else SDU
+        CUNR->>RLC: nr_rlc_data_req()
+      end
       RLC-->>CUNR: remaining TX space
-      Note over CUNR: budget sync from RLC TX space
-      CUNR->>CUNR: nr_up_dl_budget_sync()<br/>nr_up_mono_budget_sync()<br/>nr_up_drb_budget_sync()
+      Note over CUNR: budget sync from RLC TX space<br/>(sets available_tx_bytes and max_tx_bytes)
+      CUNR->>CUNR: nr_up_dl_budget_sync()
     else F1 split (nr_up_f1u_deliver_drb)
       Note over CUNR: Rate-limit Report Polling on this G-PDU:<br/>true if sync age and last poll TX<br/>both >= NR_UP_BUDGET_POLL_MS (20 ms)
       CUNR->>CUNR: report_polling =<br/>nr_up_f1u_try_report_polling()
