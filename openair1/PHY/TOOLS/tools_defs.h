@@ -20,7 +20,6 @@
 
 #include "common/utils/assertions.h"
 #include "common/utils/utils.h"
-#include "common/utils/LOG/log.h"
 
 #if defined(__x86_64__) || defined(__i386__)
 // Pull in only the specific AVX512 intrinsics used by rotate_cpx_vector_avx512() below, rather
@@ -88,7 +87,6 @@ extern "C" {
   else {                                                                                                                   \
     if ((resizeAllowed)                                                                                                    \
         && ((diM1) != (ArraY)->dim1 || (diM2) != (ArraY)->dim2 || (diM3) != (ArraY)->dim3 || (diM4) != (ArraY)->dim4)) {   \
-      LOG_I(PHY, "resizing %s to %d/%d/%d/%d\n", #ArraY, (diM1), (diM2), (diM3), (diM4));                                  \
       free(ArraY);                                                                                                         \
       ArraY = allocateFourDimArray(sizeof(elementType), diM1, diM2, diM3, diM4);                                           \
     } else                                                                                                                 \
@@ -773,7 +771,7 @@ static inline dft_size_idx_t get_dft(int size)
   switch (size) {
     FOREACH_DFTSZ(FIND_ENUM)
     default:
-      LOG_E(UTIL, "function get_dft : unsupported DFT size %d\n", size);
+      fprintf(stderr, "function get_dft : unsupported DFT size %d\n", size);
       break;
   }
   return DFT_SIZE_IDXTABLESIZE;

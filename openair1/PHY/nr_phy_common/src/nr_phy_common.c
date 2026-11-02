@@ -6,6 +6,7 @@
 #include <complex.h>
 #include "common/utils/bits.h"
 #include "PHY/impl_defs_top.h"
+#include "common/utils/LOG/log.h"
 #include "PHY/TOOLS/tools_defs.h"
 #ifdef __aarch64__
 #define USE_128BIT
