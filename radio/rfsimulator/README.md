@@ -82,6 +82,10 @@ The RF simulator is using the configuration module, and its parameters are defin
 |`--rfsimulator.[0].ploss`             | coupling loss in dB (positive = attenuation, negative = net gain) of the model created by `rfsimu setmodel` | 0 |
 |`--rfsimulator.[0].prop_delay`        | simulated receive-path (gNB: UL, UE: DL) propagation delay in ms               | 0                      |
 |`--rfsimulator.[0].wait_timeout`      | wait timeout when no UE is connected                                           | 1                      |
+|`--rfsimulator.[0].tx_cal_dBm`        | RF chain: power in dBm at the antenna of a full-scale TX sample; when given, reported to the PHY as a calibrated TX power | 30 (not reported) |
+|`--rfsimulator.[0].pathloss`          | RF chain: path loss in dB to the other side; set on the UE, it applies to DL and UL | 0                  |
+|`--rfsimulator.[0].rx_gain`           | RF chain: RX gain in dB, reported to the PHY (measurements in dBm)             | 0                      |
+|`--rfsimulator.[0].noise_figure`      | RF chain: receiver noise figure in dB, adds the thermal noise kTB + NF; negative: no thermal noise | -1     |
 
 Please refer to this document [`SIMULATION/TOOLS/DOC/channel_simulation.md`](../../openair1/SIMULATION/TOOLS/DOC/channel_simulation.md) for information about using the RFSimulator options to run the simulator with a channel model.
 
@@ -251,6 +255,30 @@ restarting the simulator.
 
 Shrinking the table below the number of beams actually in use will crash on the next lookup against an
 out-of-range beam id; there is no runtime validation against what the gNB is currently sweeping.
+
+### RF chain emulation
+
+The RF chain options give the simulated radios a power scale, so that the PHY measurements in dBm (RSRP, RSSI, noise)
+and the UL power control are meaningful. The PHY convention is `P_dBm = dBFS + 30 - rx_gain`. A full-scale sample is
+`tx_cal_dBm` at the transmitting antenna; the receiver gets it `pathloss` dB lower and reports `rx_gain`, so the
+samples are scaled by `tx_cal_dBm - 30 - pathloss + rx_gain` dB. The sender folds `tx_cal_dBm - 30 - pathloss` into the
+per-antenna gain it sends with its samples (the same field as the beam gains) and the receiver adds
+`rx_gain - pathloss`: a path loss configured on the UE side applies in both directions, and per UE process. With the
+defaults (30 dBm, 0 dB, 0 dB) nothing changes.
+
+An RE of amplitude `A` (frequency domain) is `tx_cal_dBm + 20 log10(A / 32768) - 10 log10(ofdm_symbol_size)` dBm. For
+the gNB to send its SSB at `ss-PBCH-BlockPower`, with `AMP` = 512 and a 2048-point FFT (106 PRBs at 30 kHz):
+`tx_cal_dBm = ss-PBCH-BlockPower + 69`, e.g. 45 dBm for -25 dBm. For a UE whose full band at `AMP` is PCMAX 23 dBm:
+`tx_cal_dBm` = 62 dBm. Example, 1 UE at 80 dB with a 5 dB noise figure on both sides:
+
+```
+gNB: --rfsimulator.[0].tx_cal_dBm 45 --rfsimulator.[0].rx_gain 80 --rfsimulator.[0].noise_figure 5
+UE:  --rfsimulator.[0].tx_cal_dBm 62 --rfsimulator.[0].pathloss 80 --rfsimulator.[0].rx_gain 80 --rfsimulator.[0].noise_figure 5
+```
+
+The UE then reports an RSRP of about -105 dBm and computes an 80 dB path loss. At run time, the telnet command
+`rfsimu rfchain [pathloss <dB>] [rx_gain <dB>] [tx_cal <dBm>] [noise_figure <dB>]` changes these values and prints them
+(path loss steps for power control tests, mobility).
 
 ## Programming guide
 

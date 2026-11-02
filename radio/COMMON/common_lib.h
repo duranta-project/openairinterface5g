@@ -227,6 +227,11 @@ typedef struct openair0_config {
   double rx_gain_offset[OPENAIR0_MAX_ANTENNAS];
   //! gain for TX in dB
   double tx_gain[OPENAIR0_MAX_ANTENNAS];
+  //! \brief the device knows its TX power: a full-scale TX sample gives tx_power_full_scale_dBm at the antenna; set by
+  //! the device (rfsimulator RF chain emulation), the PHY then applies the UL powers of the MAC
+  bool tx_power_calibrated;
+  //! \brief power in dBm at the antenna of a full-scale TX sample, valid when tx_power_calibrated
+  double tx_power_full_scale_dBm;
   //! RX bandwidth in Hz
   double rx_bw;
   //! TX bandwidth in Hz
