@@ -1178,6 +1178,12 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
                                     .num_cdm_no_data = cdm_grps_no_data};
 
     map_symbols(params, slot, dmrs_seq, data, tx_precoding[nl]);
+    // PUSCH transmit power of the MAC (TS 38.213 7.1), split evenly over the layers: data, DMRS and PTRS together
+    nr_ue_ul_scale_symbols(tx_precoding[nl],
+                           frame_parms->ofdm_symbol_size,
+                           start_symbol,
+                           number_of_symbols,
+                           nr_ue_ul_amplitude(UE, pusch_pdu->tx_power - (int)lround(10 * log10(Nl)), nb_rb * NR_NB_SC_PER_RB));
 
   } // for (nl=0; nl < Nl; nl++)
 
@@ -1291,5 +1297,40 @@ void nr_tx_rotation_and_ofdm_mod(const uint8_t slot,
     } else { // normal cyclic prefix
       nr_normal_prefix_mod(txdataF[ap], txdata[ap], frame_parms->symbols_per_slot, frame_parms, slot, was_symbol_used);
     }
+  }
+}
+
+int nr_ue_ul_amplitude(const PHY_VARS_NR_UE *ue, int power_dBm, int nb_re)
+{
+  const openair0_config_t *cfg = &openair0_cfg_g[ue->rf_map.card];
+  const NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  if (!cfg->tx_power_calibrated || nb_re <= 0)
+    return AMP;
+  const double re_dBm = power_dBm - 10 * log10(nb_re);
+  double amp = 32768.0 * pow(10.0, (re_dBm - cfg->tx_power_full_scale_dBm + 10 * log10(fp->ofdm_symbol_size)) / 20.0);
+  const double amp_max = AMP * sqrt((double)fp->N_RB_UL * NR_NB_SC_PER_RB / nb_re);
+  if (amp > amp_max) {
+    LOG_D(PHY,
+          "UL power %d dBm over %d REs: digital amplitude %.0f limited to %.0f (radio full scale %.1f dBm)\n",
+          power_dBm,
+          nb_re,
+          amp,
+          amp_max,
+          cfg->tx_power_full_scale_dBm);
+    amp = amp_max;
+  }
+  return amp < 1 ? 1 : (int)lround(amp);
+}
+
+void nr_ue_ul_scale_symbols(c16_t *grid, int symbol_size, int start_symbol, int nb_symbols, int amp)
+{
+  if (amp == AMP)
+    return;
+  const int32_t g = (int32_t)(((int64_t)amp << 15) / AMP); // Q15, may exceed 1.0
+  c16_t *x = grid + start_symbol * symbol_size;
+  for (int i = 0; i < nb_symbols * symbol_size; i++) {
+    const int32_t r = (int32_t)(((int64_t)x[i].r * g) >> 15), im = (int32_t)(((int64_t)x[i].i * g) >> 15);
+    x[i].r = r > 32767 ? 32767 : r < -32768 ? -32768 : r;
+    x[i].i = im > 32767 ? 32767 : im < -32768 ? -32768 : im;
   }
 }
