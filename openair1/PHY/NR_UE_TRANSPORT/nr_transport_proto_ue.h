@@ -341,5 +341,13 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
                    int *ssb_index,
                    int *ret_symbol_offset,
                    fapiPbch_t *result);
+/* UL transmit power (TS 38.213 section 7): digital amplitude of the REs of a channel sent at power_dBm spread over
+ * nb_re REs per symbol, when the radio knows its TX power (openair0_config_t tx_power_calibrated: a full-scale sample is
+ * tx_power_full_scale_dBm at the antenna). Same convention as the RX measurements: one RE of amplitude A is
+ * tx_power_full_scale_dBm + 20 log10(A / 32768) - 10 log10(ofdm_symbol_size) dBm. Without calibration: AMP, as
+ * before. Limited so that the channel never carries more than a full band at AMP (time domain headroom). */
+int nr_ue_ul_amplitude(const PHY_VARS_NR_UE *ue, int power_dBm, int nb_re);
+/* Scale the REs of symbols [start_symbol, start_symbol + nb_symbols) of a slot grid by amp / AMP, saturating. */
+void nr_ue_ul_scale_symbols(c16_t *grid, int symbol_size, int start_symbol, int nb_symbols, int amp);
 /**@}*/
 #endif
