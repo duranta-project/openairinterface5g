@@ -804,6 +804,7 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
   c16_t dl_ls_est[symb_sz] __attribute__((aligned(32)));
   memset(dl_ls_est, 0, sizeof(dl_ls_est));
   int idx = 0;
+  int64_t ls_l1 = 0; // L1 sum for nr_est_delay_l1()
   int pos = freq_alloc->first_rb;
   int last_processed_rb = freq_alloc->first_rb;
   int block_start, block_end;
@@ -830,13 +831,14 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
           dl_ls_est[idx] = ch;
           idx++;
         }
+        ls_l1 += 4 * (abs(ch.r) + abs(ch.i));
       }
     }
     last_processed_rb = block_end + 1;
   }
   c16_t ch_estimates_time[symb_sz] __attribute__((aligned(32)));
   delay_t delay = {0};
-  nr_est_delay(symb_sz, dl_ls_est, ch_estimates_time, &delay);
+  nr_est_delay_l1(symb_sz, dl_ls_est, ls_l1, ch_estimates_time, &delay);
   int delay_idx = get_delay_idx(delay.est_delay, MAX_DELAY_COMP);
   const c16_t *dl_delay_table = frame_parms->delay_table[delay_idx];
   c16_t *dl_ch = dl_ch0;
@@ -962,6 +964,7 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
   c16_t dl_ls_est[symb_sz] __attribute__((aligned(32)));
   memset(dl_ls_est, 0, sizeof(dl_ls_est));
   int idx = 0;
+  int64_t ls_l1 = 0; // L1 sum for nr_est_delay_l1()
   int pos = freq_alloc->first_rb;
   int last_processed_rb = freq_alloc->first_rb;
   int block_start, block_end;
@@ -988,6 +991,7 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
           dl_ls_est[idx] = ch;
           idx++;
         }
+        ls_l1 += 6 * (abs(ch.r) + abs(ch.i));
       }
     }
     last_processed_rb = block_end + 1;
@@ -995,7 +999,7 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
 
   c16_t ch_estimates_time[symb_sz] __attribute__((aligned(32)));
   delay_t delay = {0};
-  nr_est_delay(symb_sz, dl_ls_est, ch_estimates_time, &delay);
+  nr_est_delay_l1(symb_sz, dl_ls_est, ls_l1, ch_estimates_time, &delay);
   int delay_idx = get_delay_idx(delay.est_delay, MAX_DELAY_COMP);
   const c16_t *dl_delay_table = frame_parms->delay_table[delay_idx];
   // kept the same as before but unclear why  would it be nb_rb_pdsch / 2 and not / 3
