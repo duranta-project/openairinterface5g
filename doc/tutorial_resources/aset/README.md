@@ -1,6 +1,6 @@
-# GH200 / ASET: O-RU + gNB + NR UE
+# GH200 or DGX Spark / ASET: O-RU + gNB + NR UE
 
-Run O-RU, gNB (FHI 7.2), and NR UE (vrtsim) on one GH200 host, with OAI CN5G for registration.
+Run O-RU, gNB (FHI 7.2), and NR UE (vrtsim) on one GH200 or DGX Spark host, with OAI CN5G for registration.
 
 ## Architecture
 
@@ -40,6 +40,7 @@ baseline **SCF 222.10.02**:
 - Compose makes `gnb-aerial` join the `nv-cubb` IPC namespace with
   `ipc: container:nv-cubb`. Aerial loads
   `conf/l2_adapter_config_P5G_GH.yaml`, whose `msg_type` is `scf_5g_fapi`.
+  The DGX Spark overlay loads `conf/l2_adapter_config_P5G_DGX.yaml` instead.
 
 See [`../../Aerial_FAPI_Split_Tutorial.md`](../../Aerial_FAPI_Split_Tutorial.md)
 and [`../../nfapi.md`](../../nfapi.md) for the FAPI message flow and OAI split
@@ -50,9 +51,12 @@ details.
 | Path | Role |
 |------|------|
 | `setup_ru_ifs-gh200.sh` | 5 SR-IOV VFs on `aerial00` (OAI DU + O-RU + Aerial DU) |
+| `setup_ru_ifs-dgx-spark.sh` | 5 SR-IOV VFs on one physical ConnectX-7 port |
 | `docker-compose.yml` | OAI RAN stack: O-RU + gNB + UE + remote CIR taps (+ build stages) |
 | `docker-compose.aerial.yml` | Aerial cuPHY L1 overlay (`include:` base) |
-| `conf/` | gNB / O-RU / UE / Aerial L1 configs. gNB cell block is shared in `gnb.sa.band77.gh200.common.conf`; L1 wrappers `@include` it. Compose binds the wrapper to `/opt/oai-gnb/etc/gnb.conf` and the common file beside it (stock entrypoint path). |
+| `docker-compose.dgx-spark.yml` | Spark CPU/config overlay for the OAI RAN stack |
+| `docker-compose.aerial.dgx-spark.yml` | Spark CPU/config overlay for Aerial cuPHY |
+| `conf/` | gNB / O-RU / UE / Aerial L1 configs. gNB cell block is shared in `gnb.sa.band78.gh200.common.conf`; L1 wrappers `@include` it. Compose binds the wrapper to `/opt/oai-gnb/etc/gnb.conf` and the common file beside it (stock entrypoint path). |
 | `taps/static/` | Static taps image (`publish_taps.py --source static`) |
 | `taps/common/` | Shared `publish_taps.py`, FlatBuffers schema, `set-gain` |
 | [`../oai-cn5g/`](../oai-cn5g/) | 5GC (AMF at `192.168.70.132`) |
@@ -133,7 +137,9 @@ The gNB uses `192.168.70.129` on the same bridge: `N2` terminates at
 `oai-amf`, and `N3` terminates at `oai-upf`. SBI services use HTTP/2 on port
 `8080`.
 
-## 3. Host NICs (GH200)
+## 3. Host NICs
+
+### GH200
 
 All fronthaul VFs live on **one PF** (`aerial00` / `0000:01:00.0`) so the eSwitch can forward DU↔RU by dest MAC (legacy VEB loops VF↔VF internally, no external switch).
 
@@ -156,7 +162,38 @@ popd
 
 Same-PF VF↔VF forwarding by peer MAC; U/C split by VLAN 3/4. Hugepages: compose mounts host `/dev/hugepages` into O-RU/gNB.
 
-## 4. Start RAN
+### DGX Spark
+
+The Spark has one dual-port ConnectX-7 and 20 heterogeneous CPU cores. Each
+physical port appears on two PCIe roots, so `aerial00`–`aerial03` are two
+interfaces:
+
+| Physical port | PCIe functions |
+|---------------|----------------|
+| 0 | `aerial00` (`0000:01:00.0`), `aerial02` (`0002:01:00.0`) |
+| 1 | `aerial01` (`0000:01:00.1`), `aerial03` (`0002:01:00.1`) |
+
+Use one function of the selected port for all fronthaul VFs. The default is
+`aerial00`; `aerial02` is the same port and must be left unused. Because port 1
+occupies function `.1`, the five VFs are `0000:01:00.2`–`.3` for the OAI DU, `.4`–`.5` for the O-RU, and `.6` for Aerial.
+The Spark overlays also keep CPU IDs in `0-19` and build Aerial for GB10
+`sm_121`.
+
+```bash
+pushd doc/tutorial_resources/aset
+sudo ./setup_ru_ifs-dgx-spark.sh
+
+# OAI built-in L1
+docker compose -f docker-compose.dgx-spark.yml up --build
+
+# NVIDIA Aerial cuPHY L1
+docker compose -f docker-compose.aerial.dgx-spark.yml up --build
+popd
+```
+
+## 4. Start RAN (GH200)
+
+These commands pin `taps` to CPU 64. On DGX Spark, use the compose files in section 3 instead.
 
 ```bash
 pushd doc/tutorial_resources/aset

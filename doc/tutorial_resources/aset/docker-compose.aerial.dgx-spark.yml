@@ -1,0 +1,67 @@
+# DGX Spark overlay for the NVIDIA Aerial cuPHY stack.
+include:
+  - path: docker-compose.aerial.yml
+
+services:
+  nv-cubb:
+    # WNC worker cores are 5-10 and 15-16. Core 2 is housekeeping so the
+    # startup script and healthcheck are not stranded on a realtime L1 core.
+    cpuset: "2,5-10,15-16"
+    volumes:
+      - ./conf/cuphycontroller_P5G_ASET.dgx-spark.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/cuphycontroller_P5G_ASET.yaml:ro
+      - ./conf/l2_adapter_config_P5G_DGX.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/l2_adapter_config_P5G_DGX.yaml:ro
+    build:
+      args:
+        AERIAL_BASE_IMAGE: ${AERIAL_BASE_IMAGE:-nvcr.io/nvidia/aerial/aerial-cuda-accelerated-ran:26-2}
+        AERIAL_BUILD_FLAGS: ${AERIAL_BUILD_FLAGS:---cuda-archs 121}
+
+  nr-oru:
+    # 4 UL worker + sample clock, 11-14 fronthaul. Channel model stays on housekeeping 0-1.
+    cpuset: "0-1,4,11-14"
+    environment:
+      # GH200 compose turns on ORU_UL_PCAP_*; Spark leaves fronthaul pcap off.
+      ORU_UL_PCAP_PATH: ""
+      ORU_UL_PCAP_MAX: ""
+      ORU_UL_PCAP_CHAN: ""
+      DISPLAY: ${DISPLAY:-""}
+      USE_ADDITIONAL_OPTIONS: >-
+        ${DISPLAY:+-d}
+        --device.name vrtsim
+        --vrtsim.role server
+        --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
+        --vrtsim.num_ues 1
+        --vrtsim.ue_config.[0].antennas 2x2
+        --vrtsim.chanmod 1
+        --vrtsim.thread-pool 0,1
+        --vrtsim.timing-thread-core 4
+        --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_server.ipc
+        --log_config.global_log_options level,nocolor,utc_time
+    volumes:
+      - ./conf/ru.band78.dgx-spark.aerial.conf:/opt/nr-oru/etc/nr-oru.conf:ro
+
+  gnb:
+    cpuset: "0-3"
+
+  nr-ue:
+    # ue.sa.gh200.conf pins thread-pool 33-44 and actor-affinity 49-55.
+    # These flags override that for the 20-core Spark.
+    cpuset: "17-19"
+    environment:
+      DISPLAY: ${DISPLAY:-""}
+      USE_ADDITIONAL_OPTIONS: >-
+        -r 106 --numerology 1 --band 78 -C 3619200000 --ssb 516
+        --num-dl-actors 1 --num-ul-actors 1 --disable-blind-search
+        --thread-pool 17 --actor-affinity 17,18,19
+        --device.name vrtsim
+        --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
+        --ue-nb-ant-tx 2 --ue-nb-ant-rx 2
+        --uecap_file /opt/oai-nr-ue/etc/uecap.xml
+        --vrtsim.chanmod 1
+        --vrtsim.thread-pool 18,19
+        --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_client.ipc
+        --log_config.global_log_options level,nocolor,utc_time
+    volumes:
+      - ./conf/ue.sa.gh200.conf:/opt/oai-nr-ue/etc/nr-ue.conf:ro
+
+  taps:
+    cpuset: "3"

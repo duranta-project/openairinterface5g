@@ -1,0 +1,52 @@
+# DGX Spark overlay for the built-in OAI L1 stack.
+include:
+  - path: docker-compose.yml
+
+services:
+  nr-oru:
+    cpuset: "0-19"
+    environment:
+      DISPLAY: ${DISPLAY:-""}
+      USE_ADDITIONAL_OPTIONS: >-
+        ${DISPLAY:+-d}
+        --device.name vrtsim
+        --vrtsim.role server
+        --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
+        --vrtsim.num_ues 1
+        --vrtsim.ue_config.[0].antennas 2x2
+        --vrtsim.chanmod 1
+        --vrtsim.thread-pool 10,11,12
+        --vrtsim.timing-thread-core 13
+        --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_server.ipc
+        --log_config.global_log_options level,nocolor,utc_time
+    volumes:
+      - ./conf/ru.band78.dgx-spark.conf:/opt/nr-oru/etc/nr-oru.conf:ro
+
+  gnb:
+    cpuset: "0-19"
+    volumes:
+      - ./conf/gnb.sa.band78.dgx-spark.conf:/opt/oai-gnb/etc/gnb.conf:ro
+
+  nr-ue:
+    # ue.sa.gh200.conf pins thread-pool 33-44 and actor-affinity 49-55.
+    # These flags override that for the 20-core Spark.
+    cpuset: "0-19"
+    environment:
+      DISPLAY: ${DISPLAY:-""}
+      USE_ADDITIONAL_OPTIONS: >-
+        -r 106 --numerology 1 --band 78 -C 3619200000 --ssb 516
+        --num-dl-actors 1 --num-ul-actors 1 --disable-blind-search
+        --thread-pool 17 --actor-affinity 17,18,19
+        --device.name vrtsim
+        --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
+        --ue-nb-ant-tx 2 --ue-nb-ant-rx 2
+        --uecap_file /opt/oai-nr-ue/etc/uecap.xml
+        --vrtsim.chanmod 1
+        --vrtsim.thread-pool 6,7,8
+        --vrtsim.taps-socket ipc:///tmp/vrtsim_taps_client.ipc
+        --log_config.global_log_options level,nocolor,utc_time
+    volumes:
+      - ./conf/ue.sa.gh200.conf:/opt/oai-nr-ue/etc/nr-ue.conf:ro
+
+  taps:
+    cpuset: "10"
