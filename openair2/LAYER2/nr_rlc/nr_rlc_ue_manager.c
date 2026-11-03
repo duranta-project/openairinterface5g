@@ -67,7 +67,17 @@ void nr_rlc_manager_unlock(nr_rlc_ue_manager_t *_m)
   }
 }
 
-/* must be called with lock acquired */
+/* must be called with lock acquired; NULL if the UE has no RLC context */
+nr_rlc_ue_t *nr_rlc_manager_find_ue(nr_rlc_ue_manager_t *_m, int ue_id)
+{
+  nr_rlc_ue_manager_internal_t *m = _m;
+  for (int i = 0; i < m->ue_count; i++)
+    if (m->ue_list[i]->ue_id == ue_id)
+      return m->ue_list[i];
+  return NULL;
+}
+
+/* must be called with lock acquired; creates the context if needed */
 nr_rlc_ue_t *nr_rlc_manager_get_ue(nr_rlc_ue_manager_t *_m, int ue_id)
 {
   nr_rlc_ue_manager_internal_t *m = _m;
