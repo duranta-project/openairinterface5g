@@ -526,7 +526,7 @@ void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
   const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
   ue->pdsch_num_actors = num_actors;
   ue->pdsch_scratch = calloc_or_fail(num_actors, sizeof(*ue->pdsch_scratch));
-  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms, ue->do_ml);
+  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms, ue->pdsch_mimo_rx != NR_PDSCH_RX_MMSE);
 }
 
 void init_phy_nr_measurements(PHY_VARS_NR_UE *ue)

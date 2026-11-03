@@ -160,9 +160,13 @@ static void set_UE_options(int CC_id, PHY_VARS_NR_UE *UE, int ru_id)
   UE->initial_fo           = nrUE_params.initial_fo;
   UE->cont_fo_comp         = nrUE_params.cont_fo_comp;
   UE->disable_blind_search = nrUE_params.disable_blind_search;
+  const int pdsch_mimo_rx = nr_pdsch_mimo_rx_from_str(nrUE_params.pdsch_mimo_receiver);
+  AssertFatal(pdsch_mimo_rx >= 0, "--pdsch-mimo-receiver %s: must be mmse, ml or lbest\n", nrUE_params.pdsch_mimo_receiver);
+  UE->pdsch_mimo_rx = pdsch_mimo_rx;
 
   LOG_I(PHY,"Set UE_fo_compensation %d, UE_scan_carrier %d, UE_no_timing_correction %d \n, chest-freq %d, chest-time %d\n",
         UE->UE_fo_compensation, UE->UE_scan_carrier, UE->no_timing_correction, UE->chest_freq, UE->chest_time);
+  LOG_I(PHY, "Multi-layer PDSCH receiver: %s\n", nrUE_params.pdsch_mimo_receiver);
 }
 
 static void set_fp_options(int cell_id, int ru_id)
