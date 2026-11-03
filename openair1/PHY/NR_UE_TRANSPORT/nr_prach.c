@@ -25,9 +25,30 @@
 // - idft for short sequence assumes we are transmitting starting in symbol 0 of a PRACH slot
 // - Assumes that PRACH SCS is same as PUSCH SCS @ 30 kHz, take values for formats 0-2 and adjust for others below
 // - Preamble index different from 0 is not detected by gNB
-int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, int16_t tx_amp, c16_t **txData)
+static const int prach_copies[11] = {1, 2, 4, 4, 2, 4, 6, 2, 12, 1, 4};
+
+static void place_prach(c16_t *out, const c16_t *body, int dftlen, int ncp, int format)
+{
+  // C2 can have a prefix longer than one IDFT body at a half-subframe boundary.
+  int offset = (dftlen - ncp % dftlen) % dftlen;
+  while (ncp > 0) {
+    const int length = min(ncp, dftlen - offset);
+    memcpy(out, body + offset, length * sizeof(*body));
+    out += length;
+    ncp -= length;
+    offset = 0;
+  }
+  for (int i = 0; i < prach_copies[format]; i++) {
+    memcpy(out, body, dftlen * sizeof(*body));
+    out += dftlen;
+  }
+}
+
+int32_t nr_ue_prepare_prach_waveform(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, int16_t tx_amp)
 {
   NR_DL_FRAME_PARMS *fp=&ue->frame_parms;
+  NR_UE_PRACH *prach_var = ue->prach_vars[gNB_id];
+  prach_var->tx_waveform_length = 0;
   fapi_nr_config_request_t *nrUE_config = &ue->nrUE_config;
   fapi_nr_ul_config_prach_pdu *prach_pdu = &ue->prach_vars[gNB_id]->prach_pdu;
 
@@ -278,9 +299,9 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
       AssertFatal(1 == 0, "sample rate %f MHz not supported for numerology %d\n", fp->samples_per_subframe / 1000.0, mu);
   }
 
-#ifdef NR_PRACH_DEBUG
-  LOG_I(PHY, "PRACH [UE %d] Ncp %d, dftlen %d \n", ue->Mod_id, Ncp, dftlen);
-#endif
+  const uint64_t sample_count = Ncp + (uint64_t)dftlen * prach_copies[prach_fmt_id];
+  if (prach_start < 0 || sample_count > sizeofArray(prach_var->tx_waveform))
+    return -1;
 
   /********************************************************
    *
@@ -329,15 +350,9 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
     idft(idft_size, (int16_t *)prachF, (int16_t *)prach, 1);
   }
 
-  c16_t *out = txData[0] + prach_start;
-  memcpy(out, prach + dftlen - Ncp, Ncp * sizeof(*prach));
-  out += Ncp;
-  const int copies[11] = {1, 2, 4, 4, 2, 4, 6, 2, 12, 1, 4};
-  DevAssert(prach_fmt_id < sizeofArray(copies));
-  for (int i = 0; i < copies[prach_fmt_id]; i++) {
-    memcpy(out, prach, dftlen * sizeof(*prach));
-    out += dftlen;
-  }
+  place_prach(prach_var->tx_waveform, prach, dftlen, Ncp, prach_fmt_id);
+  prach_var->waveform_start = prach_start;
+  prach_var->tx_waveform_length = sample_count;
 
 #ifdef NR_PRACH_DEBUG
   LOG_I(PHY,
@@ -345,8 +360,18 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
         ue->Mod_id,
         fp->N_RB_UL,
         prach_start,
-        out - (txData[0] + prach_start));
+        prach_var->tx_waveform_length);
 #endif
 
   return signal_energy((int *)prach, 256);
+}
+
+// Standalone PHY simulations retain their contiguous waveform output.
+int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, int16_t tx_amp, c16_t **txData)
+{
+  const int32_t power = nr_ue_prepare_prach_waveform(ue, gNB_id, frame, slot, tx_amp);
+  const NR_UE_PRACH *prach = ue->prach_vars[gNB_id];
+  if (power >= 0)
+    memcpy(txData[0] + prach->waveform_start, prach->tx_waveform, prach->tx_waveform_length * sizeof(c16_t));
+  return power;
 }

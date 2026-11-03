@@ -109,26 +109,22 @@ static void configure_ta_command(PHY_VARS_NR_UE *ue, fapi_nr_ta_command_pdu *ta_
   const int ul_tx_timing_adjustment = 1 + (int)ceil(slots_per_subframe * (N_t_1 + N_t_2 + N_TA_max + 0.5) / t_subframe);
 
   if (ta_command_pdu->is_rar) {
-    ue->ta_slot = ta_command_pdu->ta_slot;
-    ue->ta_frame = ta_command_pdu->ta_frame;
-    ue->ta_command = ta_command_pdu->ta_command;
+    ue->rar_ta_command = *ta_command_pdu;
   } else {
     const int target_slot = ta_command_pdu->ta_slot + ul_tx_timing_adjustment;
     ue->ta_slot = target_slot % slots_per_frame;
     ue->ta_frame = (ta_command_pdu->ta_frame + target_slot / slots_per_frame) % 1024;
     ue->ta_command = ta_command_pdu->ta_command;
   }
-  ue->ta_command_is_rar = ta_command_pdu->is_rar;
-
   LOG_D(PHY,
         "[UE %d] TA command received in %d.%d: %s command %d, apply in %d.%d (application-delay %d slots)\n",
         ue->Mod_id,
         ta_command_pdu->ta_frame,
         ta_command_pdu->ta_slot,
         ta_command_pdu->is_rar ? "RAR" : "relative MAC CE",
-        ue->ta_command,
-        ue->ta_frame,
-        ue->ta_slot,
+        ta_command_pdu->ta_command,
+        ta_command_pdu->is_rar ? ue->rar_ta_command.ta_frame : ue->ta_frame,
+        ta_command_pdu->is_rar ? ue->rar_ta_command.ta_slot : ue->ta_slot,
         ta_command_pdu->is_rar ? 0 : ul_tx_timing_adjustment);
 }
 
@@ -352,7 +348,7 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
       case FAPI_NR_UL_CONFIG_TYPE_PRACH: {
         phy->prach_vars[0]->prach_pdu = pdu->prach_config_pdu;
         phy->prach_vars[0]->active = true;
-        phy->timing_advance = 0;
+        phy->prach_vars[0]->tx_request_pending = true;
         pdu->pdu_type = FAPI_NR_UL_CONFIG_TYPE_DONE; // not handle it any more
       } break;
 

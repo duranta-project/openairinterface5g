@@ -172,14 +172,30 @@ int get_tx_amp_prach(int power_dBm, int power_max_dBm, int N_RB_UL){
   return (amp_x_100);
 }
 
-// UL time alignment procedures:
-// - If the current tx frame and slot match the TA configuration
-//   then timing advance is processed and set to be applied in the next UL transmission
-// - Application of timing adjustment according to TS 38.213 p4.2
-// - handle RAR TA application as per ch 4.2 TS 38.213
-void ue_ta_procedures(PHY_VARS_NR_UE *ue, int slot_tx, int frame_tx)
+// Consume a due command and return absolute RAR TA or a relative sample adjustment; return zero when none is due.
+// RX captures relative adjustments for the ordered TX prefix, which applies both command types.
+int nr_ue_ta_command_samples(PHY_VARS_NR_UE *ue, int slot_tx, int frame_tx, bool is_rar)
 {
-  if (frame_tx == ue->ta_frame && slot_tx == ue->ta_slot) {
+  const int ta_frame = is_rar ? ue->rar_ta_command.ta_frame : ue->ta_frame;
+  const int ta_slot = is_rar ? ue->rar_ta_command.ta_slot : ue->ta_slot;
+  if (ta_frame < 0 || ta_slot < 0)
+    return 0;
+
+  bool due = frame_tx == ta_frame && slot_tx == ta_slot;
+  if (!is_rar) {
+    const int slots_per_frame = ue->frame_parms.slots_per_frame;
+    const int slots_per_cycle = MAX_FRAME_NUMBER * slots_per_frame;
+    const int slots_ahead = ((ta_frame - frame_tx) * slots_per_frame + ta_slot - slot_tx + slots_per_cycle) % slots_per_cycle;
+    // Relative targets are less than half an SFN cycle ahead. Consume late commands once
+    // at the next available boundary; retain future targets and reject the ambiguous half-cycle.
+    due = slots_ahead == 0 || slots_ahead > slots_per_cycle / 2;
+    if (slots_ahead == slots_per_cycle / 2) {
+      ue->ta_frame = -1;
+      ue->ta_slot = -1;
+      return 0;
+    }
+  }
+  if (due) {
     uint16_t ofdm_symbol_size = ue->frame_parms.ofdm_symbol_size;
 
     // convert time factor "16 * 64 * T_c / (2^mu)" in N_TA calculation in TS38.213 section 4.2 to samples by multiplying with
@@ -191,42 +207,31 @@ void ue_ta_procedures(PHY_VARS_NR_UE *ue, int slot_tx, int frame_tx)
     // = 16 * ofdm_symbol_size / 2048
     uint16_t bw_scaling = 16 * ofdm_symbol_size / 2048;
 
-    const int timing_advance_before = ue->timing_advance;
-    const bool ta_command_is_rar = ue->ta_command_is_rar;
-    const int ta_units = ta_command_is_rar ? ue->ta_command : ue->ta_command - 31;
+    const int command = is_rar ? ue->rar_ta_command.ta_command : ue->ta_command;
+    const int ta_units = is_rar ? command : command - 31;
     const int ta_samples = ta_units * bw_scaling;
 
-    if (ta_command_is_rar && timing_advance_before != 0)
-      LOG_W(PHY,
-            "[UE %d] %d.%d applying RAR TA command %d to non-zero timing advance %d samples; "
-            "timing advance should have been reset before PRACH\n",
-            ue->Mod_id,
-            frame_tx,
-            slot_tx,
-            ue->ta_command,
-            timing_advance_before);
-
-    ue->timing_advance += ta_samples;
-
     LOG_D(PHY,
-          "[UE %d] %d.%d applied %s command %d: TA-units %d, samples-per-unit %u, command-samples %d, "
-          "timing-advance %d -> %d samples (N_TA_offset %d)\n",
+          "[UE %d] %d.%d consumed %s command %d: TA-units %d, samples-per-unit %u, command-samples %d\n",
           ue->Mod_id,
           frame_tx,
           slot_tx,
-          ta_command_is_rar ? "RAR" : "relative MAC CE",
-          ue->ta_command,
+          is_rar ? "RAR" : "relative MAC CE",
+          command,
           ta_units,
           bw_scaling,
-          ta_samples,
-          timing_advance_before,
-          ue->timing_advance,
-          ue->N_TA_offset);
+          ta_samples);
 
-    ue->ta_frame = -1;
-    ue->ta_slot = -1;
-    ue->ta_command_is_rar = false;
+    if (is_rar) {
+      ue->rar_ta_command.ta_frame = -1;
+      ue->rar_ta_command.ta_slot = -1;
+    } else {
+      ue->ta_frame = -1;
+      ue->ta_slot = -1;
+    }
+    return ta_samples;
   }
+  return 0;
 }
 
 static void configure_srs_info(const fapi_nr_ul_config_srs_pdu *srs_config_pdu, nr_srs_info_t *nr_srs_info)
@@ -354,7 +359,7 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
 
   // Don't do OFDM Mod if txdata contains prach
   const NR_UE_PRACH *prach_var = ue->prach_vars[proc->gNB_id];
-  if (!prach_var->active) {
+  if (phy_data->prach_handled || !prach_var->active) {
     start_meas_nr_ue_phy(ue, OFDM_MOD_STATS);
     nr_tx_rotation_and_ofdm_mod(proc->nr_slot_tx,
                                 &ue->frame_parms,
@@ -367,7 +372,8 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
     stop_meas_nr_ue_phy(ue, OFDM_MOD_STATS);
   }
 
-  nr_ue_prach_procedures(ue, proc, txp);
+  if (!phy_data->prach_handled)
+    nr_ue_prach_procedures(ue, proc, txp);
 
   LOG_D(PHY, "****** end TX-Chain for AbsSubframe %d.%d ******\n", proc->frame_tx, proc->nr_slot_tx);
 
@@ -1351,6 +1357,77 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
 
   LOG_D(PHY," ****** end RX-Chain  for AbsSubframe %d.%d ******  \n", frame_rx%1024, nr_slot_rx);
   UEscopeCopy(ue, commonRxdataF, rxdataF, sizeof(int32_t), ue->frame_parms.nb_antennas_rx, rxdataF_sz, 0);
+}
+
+static bool erase_prach_tx(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, const char *reason)
+{
+  NR_UE_PRACH *prach = ue->prach_vars[proc->gNB_id];
+  prach->active = false;
+  prach->tx_request_pending = false;
+  prach->tx_waveform_active = false;
+  prach->tx_waveform_length = 0;
+  LOG_W(PHY, "[UE %d] %d.%d Erasing PRACH attempt: %s\n", ue->Mod_id, proc->frame_tx, proc->nr_slot_tx, reason);
+  return false;
+}
+
+bool nr_ue_prach_tx(PHY_VARS_NR_UE *ue,
+                    const UE_nr_rxtx_proc_t *proc,
+                    const nr_phy_data_tx_t *phy_data,
+                    c16_t **txp,
+                    int sample_count,
+                    int guard_samples)
+{
+  NR_UE_PRACH *prach = ue->prach_vars[proc->gNB_id];
+  const NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  const int slot_samples = get_samples_per_slot(proc->nr_slot_tx, fp);
+  if (sample_count <= 0 || sample_count > (int64_t)NR_UE_TX_SLOT_BUFFER_FACTOR * slot_samples || guard_samples < 0
+      || guard_samples > sample_count || (proc->tx_slot_type != NR_UPLINK_SLOT && proc->tx_slot_type != NR_MIXED_SLOT))
+    return erase_prach_tx(ue, proc, "invalid slot interval");
+  if (phy_data->ulsch.status == NR_ACTIVE || phy_data->srs_vars.active || phy_data->pucch_vars.active[0]
+      || phy_data->pucch_vars.active[1])
+    return erase_prach_tx(ue, proc, "overlapping uplink channel");
+
+  if (prach->tx_request_pending) {
+    if (prach->tx_waveform_active || prach->prach_pdu.prach_slot != proc->nr_slot_tx)
+      return erase_prach_tx(ue, proc, "overlapping or stale request");
+    ue->tx_power_dBm[proc->nr_slot_tx] = prach->prach_pdu.prach_tx_power;
+    start_meas_nr_ue_phy(ue, PRACH_GEN_STATS);
+    const int32_t power = nr_ue_prepare_prach_waveform(ue, proc->gNB_id, proc->frame_tx, proc->nr_slot_tx, AMP);
+    stop_meas_nr_ue_phy(ue, PRACH_GEN_STATS);
+    if (power < 0)
+      return erase_prach_tx(ue, proc, "unsupported waveform span");
+
+    openair0_timestamp_t origin;
+    if (__builtin_add_overflow(proc->timestamp_tx, (int64_t)proc->tx_mac_stream_adjustment, &origin)
+        || __builtin_add_overflow(origin, (int64_t)prach->waveform_start, &origin) || origin < 0 || origin < proc->timestamp_tx)
+      return erase_prach_tx(ue, proc, "unrepresentable waveform origin");
+    prach->tx_waveform_timestamp = origin;
+    prach->tx_request_pending = false;
+    prach->tx_waveform_active = true;
+  }
+  if (!prach->tx_waveform_active)
+    return erase_prach_tx(ue, proc, "missing waveform");
+
+  openair0_timestamp_t end, job_end;
+  if (__builtin_add_overflow(prach->tx_waveform_timestamp, (int64_t)prach->tx_waveform_length, &end)
+      || __builtin_add_overflow(proc->timestamp_tx, (int64_t)sample_count, &job_end) || proc->timestamp_tx >= end)
+    return erase_prach_tx(ue, proc, "unrepresentable waveform interval");
+  const openair0_timestamp_t first = max(proc->timestamp_tx, prach->tx_waveform_timestamp);
+  const openair0_timestamp_t last = min(job_end, end);
+  if (first < last && first - proc->timestamp_tx < guard_samples)
+    return erase_prach_tx(ue, proc, "overlapping downlink symbols");
+
+  // Publish this job's complete interval before releasing the following TX prefix.
+  // Reorder retains permanent slot copies, never the reusable waveform staging buffer.
+  for (int ant = 0; ant < fp->nb_antennas_tx; ant++)
+    memset(txp[ant], 0, (size_t)sample_count * sizeof(c16_t));
+  if (first < last)
+    memcpy(txp[0] + (first - proc->timestamp_tx),
+           prach->tx_waveform + (first - prach->tx_waveform_timestamp),
+           (last - first) * sizeof(c16_t));
+  prach->tx_waveform_active = job_end < end;
+  prach->active = prach->tx_waveform_active;
+  return true;
 }
 
 // TODO: Actuate the MAC-requested PRACH power after defining a calibrated dBm-to-waveform/radio mapping.

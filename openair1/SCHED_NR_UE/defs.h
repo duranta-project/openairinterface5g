@@ -64,6 +64,12 @@
 @param phy_data
 */
 void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp);
+bool nr_ue_prach_tx(PHY_VARS_NR_UE *ue,
+                    const UE_nr_rxtx_proc_t *proc,
+                    const nr_phy_data_tx_t *phy_data,
+                    c16_t **txp,
+                    int sample_count,
+                    int guard_samples);
 
 int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
 void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
@@ -77,7 +83,8 @@ void processSlotTX(void *arg);
   @param slot_tx
   @param frame_tx
 */
-void ue_ta_procedures(PHY_VARS_NR_UE *ue, int slot_tx, int frame_tx);
+/// Consume a due command and return absolute RAR TA or a relative sample adjustment, or zero when none is due.
+int nr_ue_ta_command_samples(PHY_VARS_NR_UE *ue, int slot_tx, int frame_tx, bool is_rar);
 
 void set_tx_harq_id(NR_UE_ULSCH_t *ulsch, int harq_pid, int slot_tx);
 int get_tx_harq_id(NR_UE_ULSCH_t *ulsch, int slot_tx);
