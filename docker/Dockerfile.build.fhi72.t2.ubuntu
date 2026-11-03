@@ -29,9 +29,6 @@ RUN apt-get update && \
         libnuma-dev && \
     rm -rf /var/lib/apt/lists/*
 
-RUN rm -Rf /oai-ran
-WORKDIR /oai-ran
-
 RUN git clone https://github.com/CESNET/libyang.git && \
     cd libyang && \
     git checkout v2.1.111 && \
@@ -63,6 +60,9 @@ RUN git clone https://github.com/CESNET/libnetconf2.git && \
       -DYANG_MODULE_DIR=/usr/local/share/yang/modules/libnetconf2 .. && \
      make && \
      make install
+
+RUN rm -Rf /oai-ran
+WORKDIR /oai-ran
 
 ## Copy T2 patch
 COPY ./$T2_PATCH /opt/.
