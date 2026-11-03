@@ -32,6 +32,16 @@
 #define print_ints(s,x) printf("%s = %d %d %d %d\n",s,(x)[0],(x)[1],(x)[2],(x)[3])
 #define print_shorts(s,x) printf("%s = [%d+j*%d, %d+j*%d, %d+j*%d, %d+j*%d]\n",s,(x)[0],(x)[1],(x)[2],(x)[3],(x)[4],(x)[5],(x)[6],(x)[7])
 
+// 2-layer MMSE block floating point (nr_rx_pdsch): REs per block (a multiple of 12, so that blocks stay
+// 32-byte aligned and nr_dlsch_mmse rounds nothing up but the last one) and largest extra shift
+#define MMSE_BLK 24
+#define MMSE_MAX_DELTA 6
+
+static inline int16_t sat16(int32_t x)
+{
+  return x > INT16_MAX ? INT16_MAX : x < INT16_MIN ? INT16_MIN : x;
+}
+
 static bool overlap_csi_symbol(fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu, int symbol)
 {
   int num_l0 [18] = {1, 1, 1, 1, 2, 1, 2, 2, 1, 2, 2, 2, 2, 2, 4, 2, 2, 4};
@@ -962,7 +972,58 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // MRC is performed inline by nr_channel_compensation; apply MMSE for multi-layer
   start_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
   const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
-  if ((nl > 2) || (nl == 2 && !do_ml)) {
+  // 2 layers: block floating point. The MMSE output and its LLR thresholds scale with det(H^H H), about
+  // |h|^4, so one shift for the whole allocation leaves REs in channel notches with a few LSBs (no 256QAM).
+  // Each block of MMSE_BLK REs gets its own shift, log2_maxh - delta[b] with delta[b] >= 0 from the
+  // block's channel power, and its LLRs are shifted back down by delta[b] (reliability ~ |h|^2, as for MRC).
+  const int n_blk = (nb_re_pdsch + MMSE_BLK - 1) / MMSE_BLK;
+  int8_t mmse_delta[n_blk];
+  const bool blk_mmse = nl == 2 && !do_ml;
+  if (blk_mmse) {
+    for (int b = 0; b < n_blk; b++) {
+      const int k = b * MMSE_BLK;
+      const int len = min(MMSE_BLK, (int)nb_re_pdsch - k);
+      uint32_t e = 0;
+      for (int l = 0; l < nl; l++)
+        for (int aarx = 0; aarx < nbRx; aarx++)
+          e = max(e, signal_energy_nodc(&chFext[l][aarx][k], len));
+      const int s_b = (log2_approx(max(e, 1)) >> 1) + log2_approx(nbRx >> 1);
+      const int delta = min(max(*log2_maxh - max(s_b, 2), 0), MMSE_MAX_DELTA);
+      mmse_delta[b] = delta;
+      if (delta && ptrs_phase.r == INT16_MAX && ptrs_phase.i == 0) {
+        // H^H y again at the block's shift (no common phase error to apply), so that it keeps its bits
+        const int len4 = (len + 3) & ~3;
+        __attribute__((aligned(32))) c16_t tmp[MMSE_BLK];
+        for (int l = 0; l < nl; l++) {
+          mult_cpx_conj_vector(&chFext[l][0][k], &rxdataF_ext[0][k], &rxdataF_comp[l][k], len4, *log2_maxh - delta);
+          for (int aarx = 1; aarx < nbRx; aarx++) {
+            mult_cpx_conj_vector(&chFext[l][aarx][k], &rxdataF_ext[aarx][k], tmp, len4, *log2_maxh - delta);
+            simde__m128i *c = (simde__m128i *)&rxdataF_comp[l][k];
+            const simde__m128i *t = (const simde__m128i *)tmp;
+            for (int i = 0; i < len4 >> 2; i++)
+              c[i] = simde_mm_adds_epi16(c[i], t[i]);
+          }
+        }
+      } else if (delta) { // with a common phase error, H^H y moved to the block's scale
+        for (int l = 0; l < nl; l++)
+          for (int i = k; i < k + len; i++)
+            rxdataF_comp[l][i] = (c16_t){sat16(rxdataF_comp[l][i].r * (1 << delta)), sat16(rxdataF_comp[l][i].i * (1 << delta))};
+      }
+      nr_dlsch_mmse(pdsch_buf_size_max,
+                    rx_size_symbol,
+                    nbRx,
+                    nl,
+                    (c16_t(*)[pdsch_buf_size_max]) & rxdataF_comp[0][k],
+                    (c16_t(*)[pdsch_buf_size_max]) & dl_ch_mag[0][k],
+                    (c16_t(*)[pdsch_buf_size_max]) & dl_ch_magb[0][k],
+                    (c16_t(*)[pdsch_buf_size_max]) & dl_ch_magr[0][k],
+                    (c16_t(*)[rx_size_symbol]) & dl_ch_estimates_ext[0][k],
+                    qamModOrder,
+                    *log2_maxh - delta,
+                    len,
+                    nvar);
+    }
+  } else if (nl > 2) {
     nr_dlsch_mmse(pdsch_buf_size_max,
                   rx_size_symbol,
                   nbRx,
@@ -1063,6 +1124,12 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                  rxdataF_comp,
                  llr_per_symbol,
                  sym_llr);
+    if (blk_mmse)
+      for (int b = 0; b < n_blk; b++)
+        if (mmse_delta[b])
+          for (int l = 0; l < nl; l++)
+            for (int i = b * MMSE_BLK * qamModOrder; i < min((b + 1) * MMSE_BLK, (int)nb_re_pdsch) * qamModOrder; i++)
+              sym_llr[l][i] >>= mmse_delta[b];
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
 
     int16_t *p_symllr[nl];

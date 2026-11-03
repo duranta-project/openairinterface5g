@@ -68,6 +68,7 @@ extern uint16_t ue_id_g;
   {"if_freq_off" ,                 CONFIG_HLP_IF_FREQ_OFF,     0,               .iptr=&(nrUE_params.if_freq_off),            .defuintval=0,     TYPE_INT,      0}, \
   {"chest-freq",                   CONFIG_HLP_CHESTFREQ,       0,               .iptr=&(nrUE_params.chest_freq),             .defintval=0,      TYPE_INT,      0}, \
   {"chest-time",                   CONFIG_HLP_CHESTTIME,       0,               .iptr=&(nrUE_params.chest_time),             .defintval=0,      TYPE_INT,      0}, \
+  {"chest-prg",                    CONFIG_HLP_CHESTPRG,        0,               .iptr=&(nrUE_params.chest_prg),              .defintval=0,      TYPE_INT,      0}, \
   {"ue-timing-correction-disable", CONFIG_HLP_DISABLETIMECORR, PARAMFLAG_BOOL,  .iptr=&(nrUE_params.no_timing_correction),   .defintval=0,      TYPE_INT,      0}, \
   {"SLC",                          CONFIG_HLP_SLF,             0,               .u64ptr=&(sidelink_frequency[0][0]),         .defint64val=2600000000,TYPE_UINT64,0}, \
   {"num-ues",                      NULL,                       0,               .iptr=&(NB_UE_INST),                         .defuintval=1,     TYPE_INT,      0}, \
@@ -99,6 +100,7 @@ typedef struct {
   int if_freq_off;
   int chest_freq;
   int chest_time;
+  int chest_prg;
   int no_timing_correction;
   int nb_antennas_rx;
   int nb_antennas_tx;

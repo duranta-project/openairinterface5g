@@ -54,6 +54,7 @@
 #define CONFIG_HLP_PRB_SA         "Set the number of PRBs for SA\n"
 #define CONFIG_HLP_SSC            "Set the start subcarrier \n"
 #define CONFIG_HLP_DISABLETIMECORR "disable UE timing correction\n"
+#define CONFIG_HLP_CHESTPRG      "UE PDSCH channel estimation with --chest-freq 2: the precoding may change every this many common RBs, nothing is smoothed or interpolated across those boundaries (0: only across gaps in the allocation)\n"
 #define CONFIG_HLP_ULMCS_PHYTEST  "Set the uplink MCS for PHYTEST mode\n"
 #define CONFIG_HLP_ULMCST_PHYTEST "Set the uplink MCS table index for PHYTEST mode\n"
 #define CONFIG_HLP_DLBW_PHYTEST  "Set the number of PRBs used for DLSCH in PHYTEST mode\n"
