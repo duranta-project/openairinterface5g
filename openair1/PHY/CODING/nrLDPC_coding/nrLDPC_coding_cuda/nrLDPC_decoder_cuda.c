@@ -658,7 +658,6 @@ static inline uint32_t nrLDPC_decoder_core_dynamic(int8_t* p_llr,
  * check/bit-node rounds, as the full-length path) is used up. See LDPCdecoder_cuda_ctx().
  * ------------------------------------------------------------------------------------------------------------------- */
 #include <pthread.h>
-#define LDPC_CUDA_MAXE (4 * 14 * 273 * 12 * 8)
 _Static_assert(LDPC_ET_REC_SLOT >= LDPC_CUDA_MAX_CTX, "the recorder slot must not be a context slot");
 _Static_assert(LDPC_CUDA_KDIM_SLOTS > LDPC_ET_REC_SLOT, "no launch-dimension slot for the recorder");
 _Static_assert(LDPC_CUDA_MAX_CTX <= 8, "a context uses one of the 8 decoderStreams created by LDPCinit_cuda()");
