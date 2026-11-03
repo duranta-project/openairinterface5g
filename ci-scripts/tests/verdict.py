@@ -110,6 +110,7 @@ class TestVerdict(unittest.TestCase):
 	def test_shipped_manifest_is_valid(self):
 		path = os.path.join(os.path.dirname(cls_verdict.__file__), 'known_failures.yaml')
 		known = cls_verdict.load_manifest(path)
+		self.assertTrue(known)
 		for k in known:
 			self.assertTrue(os.path.isfile(os.path.join('xml_files', k.xml)), k.xml)
 

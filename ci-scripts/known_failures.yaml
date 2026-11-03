@@ -15,4 +15,154 @@
 #   expires:    YYYY-MM-DD (required)
 #   reason:     optional, shown in the report
 
-known_failures: []
+known_failures:
+- xml: container_5g_rfsim_ntn_geo.xml
+  desc: Verify Reestablishment
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: GEO UE does not reestablish after the forced RLF; failed on 92 PRs, 213 builds (10-12..11-03)
+- xml: container_5g_f1_rfsim.xml
+  desc: Iperf (DL/3Mbps/UDP)(20 sec)
+  occurrence: 3
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: DL UDP throughput too low after F1 handover; failed on 69 PRs, 135 builds (10-15..11-02)
+- xml: container_5g_rfsim_u0_25prb.xml
+  desc: Undeploy all OAI 5G stack
+  checks:
+  - oai-vnf:RetxCheck
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: RetxCheck 0,0,0,0 fails on a few DL retransmissions (worst first-round rate 0.1%); failed on 63 PRs, 121 builds (10-12..11-02)
+- xml: container_5g_rfsim_multiue.xml
+  desc: Undeploy all OAI 5G stack
+  checks:
+  - oai-gnb:RetxCheck
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: DL first-round retransmissions 3-7% with multiple UEs, limit 1%; failed on 72 PRs, 119 builds (10-12..11-03)
+- xml: container_5g_rfsim_24prb.xml
+  desc: Check UE RRC IDLE before Mobile-Originated (MO) ping
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: UE not in RRC IDLE before the MO ping; failed on 35 PRs, 44 builds (10-16..11-02)
+- xml: container_5g_rfsim_tdd_dora.xml
+  desc: Ping NR-UE from gNB
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: packet loss too high; failed on 19 PRs, 19 builds (10-14..11-02)
+- xml: container_5g_flexric_rfsim.xml
+  desc: Iperf (DL/TCP)(20 sec)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: iperf3 cannot connect to the server; failed on 25 PRs, 33 builds (10-13..11-02)
+- xml: container_5g_flexric_rfsim.xml
+  desc: Undeploy RAN and FlexRIC
+  checks:
+  - nearRT-RIC:LastLineContains
+  - xapp-kpm-moni:LastLineContains
+  - xapp-kpm-rc:LastLineContains
+  - xapp-gtp-mac-rlc-pdcp-moni:LastLineContains
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: nearRT-RIC and xApps are killed (SIGKILL) instead of exiting; failed on 23 PRs, 27 builds (10-13..11-02)
+- xml: container_4g_l2sim_tdd.xml
+  desc: Iperf UDP Uplink
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: UL UDP throughput too low; failed on 11 PRs, 49 builds (10-13..11-02)
+- xml: container_4g_l2sim_tdd.xml
+  desc: Undeploy all OAI 4G stack
+  checks:
+  - oai_enb:EndsWithBye
+  - oai_ue1:LogfileTooBig
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: eNB terminated by SIGTERM, UE log above 10 MB; failed on 12 PRs, 53 builds (10-13..11-02)
+- xml: container_sa_aerial_quectel_ul_heavy.xml
+  desc: iperf (UL/UDP/300M)(30 sec)(single-ue profile)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: UL UDP throughput too low; failed on 59 PRs, 124 builds (10-13..11-02)
+- xml: container_sa_aerial_quectel.xml
+  desc: Optional iperf (DL/UDP/1000M)(30 sec)(single-ue profile)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: DL UDP throughput too low; failed on 35 PRs, 56 builds (10-15..11-02)
+- xml: container_sa_n310_nrue.xml
+  desc: iperf (DL/90Mbps/UDP)(30 sec)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: DL UDP throughput too low; failed on 47 PRs, 73 builds (10-15..11-02)
+- xml: container_sa_n310_2X2_100MHz_quectel.xml
+  desc: iperf (UL/130Mbps/UDP)(30 sec)(single-ue profile)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: UL UDP throughput too low; failed on 36 PRs, 59 builds (10-20..11-02)
+- xml: container_sa_fhi72_benetel_4x4_40MHz_9b_mplane_amariue.xml
+  desc: 'Ping: 100 pings in 10 sec'
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: packet loss too high; failed on 29 PRs, 38 builds (10-13..11-02)
+- xml: container_sa_fhi72_vvdn_up2.xml
+  desc: iperf (DL/600Mbps/UDP)(30 sec)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: DL UDP throughput too low; failed on 24 PRs, 39 builds (10-15..11-02)
+- xml: container_sa_sc_b200_quectel.xml
+  desc: 'Ping: 20pings in 20sec'
+  occurrence: 1
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: packet loss too high; failed on 23 PRs, 27 builds (10-13..11-02)
+- xml: container_sa_sc_b200_quectel.xml
+  desc: Undeploy gNB
+  checks:
+  - gnb_mono_tdd:RetxCheck
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: first-round retransmissions above 10%; failed on 19 PRs, 25 builds (10-13..11-02)
+- xml: container_sa_e1_b200_quectel.xml
+  desc: iperf (DL/TCP)(20 sec)(single-ue profile)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: DL TCP throughput too low; failed on 15 PRs, 18 builds (10-15..11-02)
+- xml: container_sa_e1_b200_quectel.xml
+  desc: Undeploy CUCP/CU-UP/DU
+  checks:
+  - gnb_du_tdd:RetxCheck
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: first-round retransmissions above 10%; failed on 11 PRs, 11 builds (10-15..11-02)
+- xml: container_sa_b200_nrue_cuda_jetson.xml
+  desc: iperf (UL/30Mbps/UDP)(30 sec)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: UL UDP throughput too low or iperf client fails; failed on 19 PRs, 19 builds (10-16..11-02)
+- xml: container_sa_b200_nrue_jetson.xml
+  desc: iperf (UL/30Mbps/UDP)(30 sec)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: UL UDP throughput too low or iperf client fails; failed on 17 PRs, 22 builds (10-16..11-02)
+- xml: container_sa_fhi72_microamp_2x2_100MHz_up4.xml
+  desc: 'Ping: 100 pings in 10 sec'
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: no ping reply; failed on 17 PRs, 20 builds (10-15..11-02)
+- xml: container_nsa_b200_quectel.xml
+  desc: Undeploy gNB
+  checks:
+  - gnb_mono_tdd:LogfileTooBig
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: gNB log above 10 MB; failed on 15 PRs, 18 builds (10-13..11-03)
+- xml: container_nsa_b200_quectel.xml
+  desc: iperf (DL/70Mbps/UDP)(60 sec)(single-ue profile)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: DL UDP throughput too low or iperf client fails; failed on 14 PRs, 15 builds (10-13..11-03)
+- xml: container_lte_b200_fdd_10Mhz_tm1_cdrx.xml
+  desc: iperf (10MHz - UL/20Mbps/UDP)(30 sec)(balanced profile)
+  issue: https://github.com/duranta-project/openairinterface5g/issues/72
+  expires: '2026-11-17'
+  reason: UL UDP throughput too low; failed on 10 PRs, 37 builds (10-14..11-02)
