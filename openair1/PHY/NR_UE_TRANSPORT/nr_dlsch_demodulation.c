@@ -754,20 +754,16 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   const uint32_t rx_size_symbol = ceil_mod(freq_alloc->num_rbs * NR_NB_SC_PER_RB, 16);
   __attribute__((aligned(64))) c16_t dl_ch_estimates_ext[matrixSz][rx_size_symbol];
 
-  // Use ML-based LLR for 2-layer MIMO with QPSK/16QAM/64QAM (nl==2, qamModOrder<=6).
-  // Controlled by ue->do_ml (set via -E flag in dlsim, or ue->do_ml in the UE struct).
-  // When false (default), MMSE equalization is used for all configurations.
-  bool do_ml = ue->do_ml;
-  // ANALYSIS gate (OAI_LBEST): route 2-layer 256QAM (Qm=8) to the float L-best ML kernel
-  // (nr_compute_ML_llr case 8) instead of the MMSE+single-layer fallback. Off by default.
-  static int lbest_gate = -1;
-  if (lbest_gate < 0) { const char *e = getenv("OAI_LBEST"); lbest_gate = e ? atoi(e) : 0; }
-  const bool ml256 = do_ml && lbest_gate;
+  // ml: joint ML LLR for 2-layer QPSK/16QAM/64QAM. lbest additionally covers 2-layer 256QAM
+  // (otherwise MMSE + single-layer LLR) and 3 layers. MMSE (default) for everything else.
+  const bool do_ml = ue->pdsch_mimo_rx != NR_PDSCH_RX_MMSE;
+  const bool lbest_gate = ue->pdsch_mimo_rx == NR_PDSCH_RX_LBEST;
+  const bool ml256 = lbest_gate;
   // 3-layer detector selection mirrors the 2-layer path: MMSE is the default (fast linear,
   // works for all modulations), and the hybrid ML detector (Schur-deflate one nuisance, keep
-  // the other discrete, 2-layer conditional-slice LLR) is opt-in via the do_ml/OAI_LBEST gate.
+  // the other discrete, 2-layer conditional-slice LLR) is opt-in via the lbest receiver.
   // The hybrid covers QPSK/16/64/256QAM. (4-layer: MMSE only for now; hybrid is a later effort.)
-  const bool ml3 = do_ml && lbest_gate && nl == 3;
+  const bool ml3 = lbest_gate && nl == 3;
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
@@ -1054,7 +1050,7 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
 
   start_meas_nr_ue_phy(ue, DLSCH_LLR_LAYER_DEMAP_STATS);
   if (nl == 2 && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256))) {
-    // 2-layer QPSK/16QAM/64QAM (and 256QAM under the OAI_LBEST analysis gate):
+    // 2-layer QPSK/16QAM/64QAM (and 256QAM with the lbest receiver):
     // joint ML-LLR using inter-layer Tx correlation
     // rho_dl is laid out as [nl*nl][rx_size_symbol]:
     // index 1 = rho[0][1], index nl (=2) = rho[1][0]

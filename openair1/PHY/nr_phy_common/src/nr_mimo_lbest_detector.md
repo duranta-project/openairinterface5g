@@ -123,9 +123,8 @@ which kernels are fixed-point/SIMD (production: 2-layer 64QAM and 256QAM) vs sca
 
 ## 6. Measured gains (channel dependence)
 
-**Methodology (important).** ML is enabled by the dlsim `-E` flag (`ue->do_ml`); `OAI_LBEST`
-only selects the *kernel variant*. Both are required — without `-E` the receiver silently runs
-MMSE. Compare at a **well-scaled tx amplitude** (`-Q30`, ~2× the low `-Q36` default): the MMSE
+**Methodology (important).** The DL receiver is selected with `nr_dlsim -E mmse|ml|lbest`
+(`nr-uesoftmodem --pdsch-mimo-receiver`); without it the UE runs MMSE. Compare at a **well-scaled tx amplitude** (`-Q30`, ~2× the low `-Q36` default): the MMSE
 path is fixed-point (int16) while the ML kernels are float, so at low amplitude MMSE is
 quantization-limited and the comparison is unfair.
 
@@ -166,11 +165,11 @@ hard saturation there would be systematically wrong — this is what the **grade
 
 ## 7. Implementation / gating
 
-All gated behind `OAI_LBEST` (default off → production full-search/MMSE, unchanged). Wired into
+Selected per direction: UE `--pdsch-mimo-receiver` / `nr_dlsim -E` (default `mmse`), gNB
+`pusch_mimo_receiver` / `nr_ulsim -D` (default `lbest`). Wired into
 **both** RX directions — UE RX (downlink PDSCH: `nr_dlsch_demodulation.c`, `phy_procedures_nr_ue.c`)
 and gNB RX (uplink PUSCH: `nr_ulsch_demodulation.c`) — via the shared kernels in `nr_compute_llr.c`.
 
-- `OAI_LBEST=1` — master switch.
 - `OAI_LBEST_PAT` — 64QAM 2-layer candidate pattern (0=3×3 [ML default], 1=6-cand, 2=5-plus).
 - `OAI_LBEST_PAT256` — 256QAM 2-layer candidate set (0=5×5/25, **1=3×3/9 [ML default]**, 2=5-plus, 3=full 16×16 ML).
 - `OAI_LBEST3` (1=hybrid, 2=full-ML ref) and `OAI_LBEST_L3` — 3-layer.
