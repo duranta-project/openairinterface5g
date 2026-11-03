@@ -91,7 +91,7 @@ class TestVerdict(unittest.TestCase):
 		r = c.classify('a.xml', '000001', 'Undeploy_Object', 'Undeploy', False,
 		               failed_checks=['oai-gnb:RetxCheck', 'oai-gnb:EndsWithBye'])
 		self.assertEqual(r.verdict, Verdict.NEW_FAIL)
-		self.assertIn('not all covered', r.note)
+		self.assertIn('covers only oai-gnb:RetxCheck', r.note)
 
 	def test_checks_without_recorded_checks_is_new(self):
 		c = cls_verdict.Classifier([kf(desc='Undeploy', checks=['oai-gnb:RetxCheck'])], TODAY)
@@ -113,6 +113,20 @@ class TestVerdict(unittest.TestCase):
 		self.assertTrue(known)
 		for k in known:
 			self.assertTrue(os.path.isfile(os.path.join('xml_files', k.xml)), k.xml)
+
+	def test_markdown(self):
+		c = cls_verdict.Classifier([kf()], TODAY)
+		c.classify('a.xml', '000001', 'Ping', 'Ping', False)
+		c.classify('a.xml', '000002', 'Iperf', 'Iperf', False)
+		c.classify('b.xml', '000001', 'Ping', 'Ping', True)
+		with tempfile.TemporaryDirectory() as d:
+			p = os.path.join(d, 'v.md')
+			c.write_markdown(p)
+			lines = open(p, encoding='utf-8').read().splitlines()
+		self.assertEqual(lines[0], '\U0001F534 new failures')
+		self.assertTrue(lines[1].startswith('   * \U0001F534 `a.xml`: new failure: Iperf (step 2)'))
+		self.assertIn('\U0001F7E1 known failure: Ping (step 1) [issue](https://x/1)', lines[1])
+		self.assertEqual(lines[2], '   * \U0001F7E2 1 testcase file(s) passed')
 
 	def test_json(self):
 		c = cls_verdict.Classifier([kf()], TODAY)

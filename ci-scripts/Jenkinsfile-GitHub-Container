@@ -9,6 +9,8 @@ import groovy.transform.Field
 @Field def gitLocalBranch = ''
 @Field def downstreamResults = [:]
 @Field def downstreamUrls = [:]
+// stages that passed only because their failures are listed in known_failures.yaml
+@Field def knownFailureStages = ''
 
 // Location of the executor node
 def nodeExecutor = params.nodeExecutor
@@ -933,9 +935,14 @@ pipeline {
     success {
       script {
         if (env.GITHUB_PR_NUMBER) {
-          if (mrValidationWarning) {
+          if (mrValidationWarning || knownFailureStages) {
             def message = "**CI Build:** [#${env.BUILD_NUMBER}](${BUILD_URL}) | **Passed**"
-            message +=  "\n\n**Validation:** " + mrValidationWarning
+            if (knownFailureStages) {
+              message += " with known failures in the following stages:" + knownFailureStages
+            }
+            if (mrValidationWarning) {
+              message +=  "\n\n**Validation:** " + mrValidationWarning
+            }
             githubPRComment comment: githubPRMessage(message)
           }
           githubNotify account: params.gitAccount,
@@ -956,6 +963,9 @@ pipeline {
           def message = "**CI Build:** [#${env.BUILD_NUMBER}](${BUILD_URL}) | **Failed** on the following stages:"
           if (failingStages) {
             message += failingStages
+            if (knownFailureStages) {
+              message += "\n\nPassed with known failures:" + knownFailureStages
+            }
           } else {
             message += "\nThe pipeline may have failed due to CI, validation, or scripting error. See the build for more details."
           }
@@ -1043,7 +1053,7 @@ def finalizeDownstreamJob(jobName) {
     def artifactUrl = BUILD_URL
     if (!fileExists(fileName)) {
       copyArtifacts(projectName: jobName,
-        filter: 'test_results*.html',
+        filter: 'test_results*.html,test_verdict*.md',
         selector: lastCompleted(),
         optional: true)
       if (!fileExists(fileName)) {
@@ -1063,7 +1073,20 @@ def finalizeDownstreamJob(jobName) {
                    targetUrl: "${artifactUrl}",
                    context: jobName
     }
-    artifactUrl = "\n * [${jobName}](${artifactUrl})"
-    return artifactUrl
+    def stageLine = "\n * [${jobName}](${artifactUrl})"
+    def verdictName = "test_verdict-${jobName}.md"
+    if (fileExists(verdictName)) {
+      archiveArtifacts artifacts: verdictName
+      // first line: overall verdict, then one nested item per testcase XML
+      def lines = readFile(file: verdictName, encoding: 'UTF-8').trim().split('\n')
+      stageLine += " ${lines[0]}"
+      for (int i = 1; i < lines.length; i++) {
+        stageLine += "\n${lines[i]}"
+      }
+      if (downstreamResults.getOrDefault(jobName, 'FAILURE') == 'SUCCESS' && lines[0].contains('known failures')) {
+        knownFailureStages += stageLine
+      }
+    }
+    return stageLine
   }
 }

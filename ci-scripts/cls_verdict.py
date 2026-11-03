@@ -138,10 +138,10 @@ class Classifier:
 			               note=f'known failure entry expired on {match.expires.isoformat()}')
 		elif may_fail:
 			r = StepResult(xml, idx, cls, desc, occurrence, Verdict.KNOWN_FAIL, failed_checks=failed_checks,
-			               note='<may_fail> in XML')
+			               note='may_fail in XML')
 		elif listed:
 			r = StepResult(xml, idx, cls, desc, occurrence, Verdict.NEW_FAIL, failed_checks=failed_checks, issue=listed[0].issue,
-			               note=f'failed checks {", ".join(failed_checks) or "(none)"} not all covered by known failure')
+			               note=f'known failure covers only {", ".join(listed[0].checks)}')
 		else:
 			r = StepResult(xml, idx, cls, desc, occurrence, Verdict.NEW_FAIL, failed_checks=failed_checks)
 		self.results.append(r)
@@ -153,6 +153,12 @@ class Classifier:
 			if xml is None or r.xml == os.path.basename(xml):
 				c[r.verdict.value] += 1
 		return c
+
+	def _worst(self, results):
+		for v in (Verdict.NEW_FAIL, Verdict.INFRA, Verdict.KNOWN_FAIL):
+			if any(r.verdict == v for r in results):
+				return v
+		return Verdict.PASS
 
 	def overall(self):
 		c = self.counts()
@@ -171,3 +177,63 @@ class Classifier:
 				'counts': self.counts(),
 				'steps': [r.to_dict() for r in self.results if r.verdict != Verdict.PASS or r.note],
 			}, f, indent=2)
+
+	def write_markdown(self, path):
+		# One header line with the overall verdict, then one line per testcase
+		# XML that did not pass cleanly; meant to be nested under a list item
+		# in a PR comment, where emoji stand in for the colours of the HTML report.
+		by_xml = {}
+		for r in self.results:
+			by_xml.setdefault(r.xml, []).append(r)
+		lines = [f'{EMOJI[self.overall()]} {SUMMARY[self.overall()]}']
+		passed = 0
+		order = (Verdict.NEW_FAIL, Verdict.INFRA, Verdict.KNOWN_FAIL)
+		rows = sorted(by_xml.items(), key=lambda kv: order.index(self._worst(kv[1])) if self._worst(kv[1]) in order else len(order))
+		for xml, results in rows:
+			worst = self._worst(results)
+			if worst == Verdict.PASS:
+				passed += 1
+				continue
+			parts = []
+			for v in order:
+				steps = '; '.join(_step_text(r) for r in results if r.verdict == v)
+				if steps:
+					parts.append(f'{EMOJI[v] + " " if v != worst else ""}{LABEL[v]}: {steps}')
+			lines.append(f'   * {EMOJI[worst]} `{xml}`: ' + ' \u00B7 '.join(parts))
+		if passed:
+			lines.append(f'   * {EMOJI[Verdict.PASS]} {passed} testcase file(s) passed')
+		with open(path, 'w', encoding='utf-8') as f:
+			f.write('\n'.join(lines) + '\n')
+
+EMOJI = {
+	Verdict.PASS: '\U0001F7E2',        # green circle
+	Verdict.KNOWN_FAIL: '\U0001F7E1',  # yellow circle
+	Verdict.NEW_FAIL: '\U0001F534',    # red circle
+	Verdict.INFRA: '\U0001F7E3',       # purple circle
+	Verdict.SKIP: '\u26AA',            # white circle
+}
+LABEL = {
+	Verdict.NEW_FAIL: 'new failure',
+	Verdict.INFRA: 'CI infrastructure',
+	Verdict.KNOWN_FAIL: 'known failure',
+}
+SUMMARY = {
+	Verdict.PASS: 'passed',
+	Verdict.KNOWN_FAIL: 'passed with known failures',
+	Verdict.NEW_FAIL: 'new failures',
+	Verdict.INFRA: 'failed on CI infrastructure',
+}
+
+def _step_text(r):
+	text = f'{r.desc} (step {int(r.idx)})'
+	if r.failed_checks:
+		text += ' ' + ', '.join(f'`{c}`' for c in r.failed_checks)
+	if r.verdict == Verdict.KNOWN_FAIL and r.issue:
+		text += f' [issue]({r.issue})'
+	elif r.verdict == Verdict.KNOWN_FAIL and r.note:
+		text += f' ({r.note})'
+	elif r.verdict == Verdict.INFRA and r.note:
+		text += f' ({r.note})'
+	elif r.verdict == Verdict.NEW_FAIL and r.note:
+		text += f' ({r.note})'
+	return text
