@@ -80,7 +80,8 @@ void *nrmac_stats_thread(void *arg) {
     }
     NR_SCHED_UNLOCK(&gNB->sched_lock);
     size_t len = p - output;
-    if (fwrite(output, len, 1, file) != 1 || fflush(file) != 0) {
+    // nothing to write before the first cell is configured: fwrite() of 0 bytes returns 0, not an error
+    if (len > 0 && (fwrite(output, len, 1, file) != 1 || fflush(file) != 0)) {
       LOG_E(NR_MAC, "error while writing nrMAC_stats.log: %d, %s\n", errno, strerror(errno));
       break;
     }
