@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+#
+# Known CI failures. A failing testCase step matching an entry is reported as
+# KNOWN-FAIL and does not fail its scenario; once `expires` has passed it is
+# reported as NEW-FAIL again. A matching step that passes is flagged so the
+# entry can be removed.
+#
+#   xml:        testcase XML basename
+#   desc:       <desc> of the testCase step
+#   occurrence: optional, 1-based index among steps with the same desc in the XML
+#   checks:     optional, "service:Check" log analyses (e.g. oai-gnb:RetxCheck,
+#               oai-gnb:EndsWithBye, oai-gnb:LogfileTooBig); the entry then
+#               covers the step only if no other check failed
+#   issue:      tracking issue URL (required)
+#   expires:    YYYY-MM-DD (required)
+#   reason:     optional, shown in the report
+
+known_failures: []
