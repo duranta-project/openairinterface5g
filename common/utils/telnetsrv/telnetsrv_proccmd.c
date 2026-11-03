@@ -517,7 +517,6 @@ int s = sscanf(buf,"%ms %i-%i\n",&logsubcmd, &idx1,&idx2);
        prnt( "proccmd_log received %s\n   s=%i sub command %s\n",buf,s,((logsubcmd==NULL)?"":logsubcmd));
    const mapping *const log_level_names = log_level_names_ptr();
    const mapping *const log_options = log_option_names_ptr();
-   const mapping *log_maskmap = log_maskmap_ptr();
    if (s == 1 && logsubcmd != NULL) {
       if (strcasestr(logsubcmd,"online") != NULL) {
           if (strcasestr(buf,"noonline") != NULL) {
@@ -538,8 +537,8 @@ int s = sscanf(buf,"%ms %i-%i\n",&logsubcmd, &idx1,&idx2);
           prnt("%s ", log_options[i].name);
         prnt("\n\n");
         prnt("Available debug and dump options: \n   ");
-        for (int i = 0; log_maskmap[i].name != NULL; i++)
-          prnt("%s ", log_maskmap[i].name);
+        for (int i = 0; flag_name[i][0] != '\0'; i++)
+          prnt("%s ", flag_name[i]);
         prnt("\n\n");
         proccmd_show("loglvl", debug, prnt);
         proccmd_show("logopt", debug, prnt);
