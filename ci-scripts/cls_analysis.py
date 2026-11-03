@@ -182,6 +182,7 @@ def AnalyzeServices(HTML, service_desc, to_analyze):
 		if serv not in service_desc:
 			success = False
 			logging.error(f"requested service {serv} not in list of services")
+			HTML.failedChecks.append(f"{serv}:ServiceNotDetected")
 			HTML.CreateHtmlTestRowQueue("N/A", 'KO', ["service not detected"])
 			continue
 		# pre-initialize with return code
@@ -199,6 +200,7 @@ def AnalyzeServices(HTML, service_desc, to_analyze):
 		if b > 10 * 1024 * 1024:
 			success = False
 			logs.append(f"logfile too big (>10MB)")
+			HTML.failedChecks.append(f"{serv}:LogfileTooBig")
 			logging.error(logs)
 			HTML.CreateHtmlTestRowQueue(filename, 'KO', ["\n".join(logs)])
 			continue
@@ -207,6 +209,7 @@ def AnalyzeServices(HTML, service_desc, to_analyze):
 			if func is None:
 				service_success = False
 				logging.error(f"request analysis function for desc {desc} not found")
+				HTML.failedChecks.append(f"{serv}:{desc}")
 				HTML.CreateHtmlTestRowQueue(serv, 'KO', [f"no analysis function for {desc}"])
 				continue
 			result, l = func.run(logfile, opt)
@@ -214,6 +217,7 @@ def AnalyzeServices(HTML, service_desc, to_analyze):
 			service_success = service_success and result
 			if not result:
 				logs.append(f"=> {func.__name__} check (options '{opt}') FAILED")
+				HTML.failedChecks.append(f"{serv}:{func.__name__}")
 				logs.append(l)
 		logs = '\n'.join(logs)
 		if not service_success:

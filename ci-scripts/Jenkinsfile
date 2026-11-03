@@ -174,6 +174,11 @@ pipeline {
 	      """
               archiveArtifacts artifacts: "${reportName}"
             }
+            if (fileExists("test_verdict.json")) {
+              def verdictName = "test_verdict-${env.JOB_NAME}.json"
+              sh "mv test_verdict.json ${verdictName}"
+              archiveArtifacts artifacts: "${verdictName}"
+            }
           }
         }
       }
