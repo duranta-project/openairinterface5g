@@ -41,7 +41,12 @@ __device__ __forceinline__ uint16_t packs_2x16_to_2x8(uint32_t a)
   return (o0) | (o1 << 8);
 }
 
-__global__ void rm(int Ncb_4,
+// Both kernels run over the N positions of each segment's circular buffer, not just Ncb: with limited
+// buffer rate matching (Ncb < N) the positions [Ncb, N) carry no soft bits and get zero LLRs. llr_buffer
+// is shared by every TB, and Ncb shrinks as C grows, so leaving them untouched would feed the decoder
+// whatever an earlier TB with a larger Ncb wrote there.
+__global__ void rm(int N_4,
+                   int Ncb_4,
                    int ind0_4,
                    int E1,
                    int E2,
@@ -79,8 +84,11 @@ __global__ void rm(int Ncb_4,
     return;
   }
 
-  if (ind_4 >= Ncb_4)
+  if (ind_4 >= Ncb_4) {
+    if (ind_4 < N_4)
+      llr_bufferr[2 * Z_4 + ind_4] = 0;
     return;
+  }
   if (clear == 1) {
     dr[2 * ind_4] = 0;
     dr[(2 * ind_4) + 1] = 0;
@@ -190,7 +198,8 @@ __global__ void rm(int Ncb_4,
 #endif
 }
 
-__global__ void rm2(int Ncb_2,
+__global__ void rm2(int N_2,
+                    int Ncb_2,
                     int ind0_2,
                     int E1,
                     int E2,
@@ -211,8 +220,11 @@ __global__ void rm2(int Ncb_2,
   uint32_t *dr = d + (r * seglen_2);
   uint16_t *llr_bufferr = llr_buffer + (r * seglen_2);
 
-  if (ind_2 >= Ncb_2)
+  if (ind_2 >= Ncb_2) {
+    if (ind_2 < N_2)
+      llr_bufferr[2 * Z_2 + ind_2] = 0;
     return;
+  }
 #ifdef RM_DEBUG
   if (r == 0)
     printf("Looking for ind %d...%d, Ncb %d\n", ind_2 * 2, 1 + ind_2 * 2, Ncb_2 * 2);
@@ -364,8 +376,9 @@ extern "C" int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
          clear);
 #endif
   if ((E1 & 3) == 0 && (E2 & 3) == 0) {
-    dim3 nblocks(((Ncb >> 2) + nthreads - 1) / nthreads, C);
-    rm<<<nblocks, nthreads, 0, s[sidx]>>>(Ncb / 4,
+    dim3 nblocks(((N >> 2) + nthreads - 1) / nthreads, C);
+    rm<<<nblocks, nthreads, 0, s[sidx]>>>(N / 4,
+                                          Ncb / 4,
                                           ind / 4,
                                           E1,
                                           E2,
@@ -380,8 +393,9 @@ extern "C" int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
                                           (uint32_t *)soft_input,
                                           (uint32_t *)llr_buffer);
   } else {
-    dim3 nblocks2(((Ncb >> 1) + nthreads - 1) / nthreads, C);
-    rm2<<<nblocks2, nthreads, 0, s[sidx]>>>(Ncb / 2,
+    dim3 nblocks2(((N >> 1) + nthreads - 1) / nthreads, C);
+    rm2<<<nblocks2, nthreads, 0, s[sidx]>>>(N / 2,
+                                            Ncb / 2,
                                             ind / 2,
                                             E1,
                                             E2,

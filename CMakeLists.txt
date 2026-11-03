@@ -1936,6 +1936,21 @@ target_link_libraries(smallblocktest PRIVATE
 )
 
 
+# TB-level LDPC through the slot coding interface: CPU-encoded TBs of alternating size decoded by the
+# library under test (ldpc_tb_test -v <version>)
+add_executable(ldpc_tb_test
+  ${OPENAIR1_DIR}/PHY/CODING/TESTBENCH/ldpc_tb_test.c
+  ${PHY_NRLDPC_CODINGIF}
+)
+target_link_libraries(ldpc_tb_test PRIVATE
+  -Wl,--start-group UTIL utils PHY_NR_COMMON CONFIG_LIB -Wl,--end-group
+  minimal_lib m pthread dl ${T_LIB}
+  # resolved in the LDPC libraries, not referenced by the test itself (see ldpctest)
+  -Wl,--whole-archive crc_byte thread-pool -Wl,--no-whole-archive
+  -Wl,--undefined=cpu_meas_enabled
+)
+add_dependencies(ldpc_tb_test ldpc)
+
 add_executable(ldpctest
   ${OPENAIR1_DIR}/PHY/CODING/TESTBENCH/ldpctest.c
   ${OPENAIR1_DIR}/PHY/CODING/nrLDPC_load.c
