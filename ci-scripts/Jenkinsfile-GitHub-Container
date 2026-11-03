@@ -9,6 +9,7 @@ import groovy.transform.Field
 @Field def gitLocalBranch = ''
 @Field def downstreamResults = [:]
 @Field def downstreamUrls = [:]
+@Field def downstreamBuilds = [:]
 // stages that passed only because their failures are listed in known_failures.yaml
 @Field def knownFailureStages = ''
 
@@ -1010,6 +1011,7 @@ def triggerDownstreamJob (jobName) {
       string(name: 'branch', value: String.valueOf(branch))
     ], propagate: false
   downstreamUrls[jobName] = localStatus.getAbsoluteUrl()
+  downstreamBuilds[jobName] = localStatus.getNumber()
   def localResult = localStatus.getResult()
   echo "${jobName} Downstream Job status is ${localResult}"
   downstreamResults[jobName] = localStatus.resultIsBetterOrEqualTo('SUCCESS') ? 'SUCCESS' : 'FAILURE'
@@ -1030,6 +1032,7 @@ def triggerCN5GDownstreamJob (jobName) {
     parameters: [
       string(name: 'FULL_RAN_TAG', value: String.valueOf(fullRanTag))
     ], propagate: false
+  downstreamBuilds[jobName] = localStatus.getNumber()
   def localResult = localStatus.getResult()
   echo "${jobName} Downstream Job status is ${localResult}"
   downstreamResults[jobName] = localStatus.resultIsBetterOrEqualTo('SUCCESS') ? 'SUCCESS' : 'FAILURE'
@@ -1042,28 +1045,31 @@ def triggerCN5GDownstreamJob (jobName) {
 
 def finalizeDownstreamJob(jobName) {
   lock ('Parent-Lock') {
-    // In case of any non-success, we are retrieving the HTML report of the last completed
-    // downstream job. The only drop-back is that we may retrieve the HTML report of a previous build
+    // Retrieve the reports of the downstream build triggered by this pipeline; the workspace
+    // is reused across builds, so remove what a previous build may have left behind
     def fileName
     if (jobName == 'OAI-CN5G-COTS-UE-Test') {
       fileName = "test_results_oai_cn5g_cots_ue.html"
     } else {
       fileName = "test_results-${jobName}.html"
     }
+    def verdictName = "test_verdict-${jobName}.md"
     def artifactUrl = BUILD_URL
-    if (!fileExists(fileName)) {
+    sh "rm -f ${fileName} ${verdictName}"
+    def buildNumber = downstreamBuilds[jobName]
+    if (buildNumber) {
       copyArtifacts(projectName: jobName,
         filter: 'test_results*.html,test_verdict*.md',
-        selector: lastCompleted(),
+        selector: specific(buildNumber: "${buildNumber}"),
         optional: true)
-      if (!fileExists(fileName)) {
-        sh "echo \"could not copy results from ${jobName}, please check pipeline ${BUILD_URL}\" > ${fileName}"
-      }
-      archiveArtifacts artifacts: fileName
-      // BUILD_URL is like  http://server:port/jenkins/job/foo/15/
-      // no need to add a prefixed '/'
-      artifactUrl += 'artifact/' + fileName
     }
+    if (!fileExists(fileName)) {
+      sh "echo \"could not copy results from ${jobName}, please check pipeline ${BUILD_URL}\" > ${fileName}"
+    }
+    archiveArtifacts artifacts: fileName
+    // BUILD_URL is like  http://server:port/jenkins/job/foo/15/
+    // no need to add a prefixed '/'
+    artifactUrl += 'artifact/' + fileName
     if (env.GITHUB_PR_NUMBER) {
       githubNotify account: params.gitAccount,
                    repo: params.gitRepo,
@@ -1074,7 +1080,6 @@ def finalizeDownstreamJob(jobName) {
                    context: jobName
     }
     def stageLine = "\n * [${jobName}](${artifactUrl})"
-    def verdictName = "test_verdict-${jobName}.md"
     if (fileExists(verdictName)) {
       archiveArtifacts artifacts: verdictName
       // first line: overall verdict, then one nested item per testcase XML
