@@ -147,6 +147,10 @@ e2_agent = {
 }
 ```
 
+`near_ric_port` is optional and defaults to 36421, the E2AP port FlexRIC listens
+on. Set it when the nearRT-RIC uses a different one, e.g. `near_ric_port = 36422;`
+for the O-RAN SC nearRT-RIC (see [section 5](#5-o-ran-sc-nearrt-ric-interoperability)).
+
 * start the E2 nodes
 
   As per `O-RAN.WG3.E2SM-v02.00` specifications, `UE ID` (section 6.2.2.6) representation in OAI is:
@@ -176,8 +180,8 @@ e2_agent = {
     ```bash
     cd <path-to>/build
     sudo ./nr-softmodem -O <path-to>/targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-du.sa.band78.106prb.rfsim.pci0.conf --rfsim
-    ./nr-softmodem -O <path-to>/ci-scripts/conf_files/gnb-cucp.sa.f1.conf --gNBs.[0].plmn_list.[0].mcc 001 --gNBs.[0].plmn_list.[0].mnc 01 --gNBs.[0].local_s_address "127.0.0.3" --gNBs.[0].amf_ip_address.[0].ipv4 "192.168.70.132" --gNBs.[0].E1_INTERFACE.[0].ipv4_cucp "127.0.0.3" --gNBs.[0].NETWORK_INTERFACES.GNB_IPV4_ADDRESS_FOR_NG_AMF "192.168.70.129" --e2_agent.near_ric_ip_addr "127.0.0.1" --e2_agent.sm_dir "/usr/local/lib/flexric/"
-    sudo ./nr-cuup -O <path-to>/ci-scripts/conf_files/gnb-cuup.sa.f1.conf --gNBs.[0].plmn_list.[0].mcc 001 --gNBs.[0].plmn_list.[0].mnc 01 --gNBs.[0].local_s_address "127.0.0.6" --gNBs.[0].E1_INTERFACE.[0].ipv4_cucp "127.0.0.3" --gNBs.[0].E1_INTERFACE.[0].ipv4_cuup "127.0.0.6" --gNBs.[0].NETWORK_INTERFACES.GNB_IPV4_ADDRESS_FOR_NG_AMF "192.168.70.129" --gNBs.[0].NETWORK_INTERFACES.GNB_IPV4_ADDRESS_FOR_NGU "192.168.70.129" --e2_agent.near_ric_ip_addr "127.0.0.1" --e2_agent.sm_dir "/usr/local/lib/flexric/"  --rfsim 
+    ./nr-softmodem -O <path-to>/ci-scripts/conf_files/gnb-cucp.sa.f1.conf --gNBs.[0].plmn_list.[0].mcc 001 --gNBs.[0].plmn_list.[0].mnc 01 --gNBs.[0].local_s_address "127.0.0.3" --gNBs.[0].amf_ip_address.[0].ipv4 "192.168.70.132" --gNBs.[0].E1_INTERFACE.[0].ipv4_cucp "127.0.0.3" --gNBs.[0].NETWORK_INTERFACES.GNB_IPV4_ADDRESS_FOR_NG_AMF "192.168.70.129" --e2_agent.near_ric_ip_addr "127.0.0.1" --e2_agent.near_ric_port 36421 --e2_agent.sm_dir "/usr/local/lib/flexric/"
+    sudo ./nr-cuup -O <path-to>/ci-scripts/conf_files/gnb-cuup.sa.f1.conf --gNBs.[0].plmn_list.[0].mcc 001 --gNBs.[0].plmn_list.[0].mnc 01 --gNBs.[0].local_s_address "127.0.0.6" --gNBs.[0].E1_INTERFACE.[0].ipv4_cucp "127.0.0.3" --gNBs.[0].E1_INTERFACE.[0].ipv4_cuup "127.0.0.6" --gNBs.[0].NETWORK_INTERFACES.GNB_IPV4_ADDRESS_FOR_NG_AMF "192.168.70.129" --gNBs.[0].NETWORK_INTERFACES.GNB_IPV4_ADDRESS_FOR_NGU "192.168.70.129" --e2_agent.near_ric_ip_addr "127.0.0.1" --e2_agent.near_ric_port 36421 --e2_agent.sm_dir "/usr/local/lib/flexric/"  --rfsim 
 
     ```
 
@@ -247,7 +251,7 @@ Please note:
 
 # 5. O-RAN SC nearRT-RIC interoperability
 
-The E2AP port for OSC nearRT-RIC is 36422, but the default value in E2 agent is 36421. Before proceeding with integration, please set the `e2ap_server_port` to 36422, and recompile the OAI.
+The E2AP port for OSC nearRT-RIC is 36422, but the default value in E2 agent is 36421. Before proceeding with integration, set `near_ric_port = 36422;` in the `e2_agent` section (or pass `--e2_agent.near_ric_port 36422` on the command line). No recompilation is needed.
 
 ## 5.1 H release
 We showcased the QoE use case during the O-RAN F2F meeting Phoenix, October 2023:
