@@ -174,10 +174,12 @@ pipeline {
 	      """
               archiveArtifacts artifacts: "${reportName}"
             }
-            if (fileExists("test_verdict.json")) {
-              def verdictName = "test_verdict-${env.JOB_NAME}.json"
-              sh "mv test_verdict.json ${verdictName}"
-              archiveArtifacts artifacts: "${verdictName}"
+            for (ext in ['json', 'md']) {
+              if (fileExists("test_verdict.${ext}")) {
+                def verdictName = "test_verdict-${env.JOB_NAME}.${ext}"
+                sh "mv test_verdict.${ext} ${verdictName}"
+                archiveArtifacts artifacts: "${verdictName}"
+              }
             }
           }
         }

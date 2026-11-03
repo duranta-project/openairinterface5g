@@ -356,6 +356,7 @@ if __name__ == "__main__":
 
 	HTML.CreateHtmlFooter(final_status)
 	classifier.write_json('test_verdict.json')
+	classifier.write_markdown('test_verdict.md')
 	logging.info(f"verdict: {classifier.overall().value} {classifier.counts()}")
 	ret = 0 if final_status else 1
 	sys.exit(ret)
