@@ -378,6 +378,10 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
   int dmrslength = 1;
   NR_PUSCH_Config_t *pusch_Config = current_UL_BWP->pusch_Config;
 
+  // MsgA and RAR use HARQ process 0; DCI selects its process below.
+  NR_UE_UL_HARQ_INFO_t harq = mac->ul_harq_info[0];
+  bool update_ul_harq = true;
+
   AssertFatal(!((mac->ra.ra_state < nrRA_SUCCEEDED && mac->ra.ra_type == RA_2_STEP) && rar_grant),
               "logic error: Is not possible to have both msgA_pusch_resource and rar_grant\n");
 
@@ -696,15 +700,16 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
 
     /* NDI */
     const int pid = dci->harq_pid.val;
-    NR_UE_UL_HARQ_INFO_t *harq = &mac->ul_harq_info[pid];
+    harq = mac->ul_harq_info[pid];
+    update_ul_harq = dci_format == NR_UL_DCI_FORMAT_0_0 || dci->ulsch_indicator;
     pusch_config_pdu->pusch_data.new_data_indicator = false;
-    if (dci->ndi != harq->last_ndi) {
+    if (dci->ndi != harq.last_ndi) {
       pusch_config_pdu->pusch_data.new_data_indicator = true;
       // if new data reset harq structure
-      memset(harq, 0, sizeof(*harq));
+      memset(&harq, 0, sizeof(harq));
     } else
-      harq->round++;
-    harq->last_ndi = dci->ndi;
+      harq.round++;
+    harq.last_ndi = dci->ndi;
     /* RV */
     pusch_config_pdu->pusch_data.rv_index = dci->rv;
     /* HARQ_PROCESS_NUMBER */
@@ -806,11 +811,11 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
                                                           N_PRB_oh,
                                                           0, // TBR to verify tb scaling
                                                           pusch_config_pdu->nrOfLayers) >> 3;
-    mac->ul_harq_info[pid].TBS = pusch_config_pdu->pusch_data.tb_size;
-    mac->ul_harq_info[pid].R = R;
+    harq.TBS = pusch_config_pdu->pusch_data.tb_size;
+    harq.R = R;
   } else {
-    pusch_config_pdu->target_code_rate = mac->ul_harq_info[pid].R;
-    pusch_config_pdu->pusch_data.tb_size = mac->ul_harq_info[pid].TBS;
+    pusch_config_pdu->target_code_rate = harq.R;
+    pusch_config_pdu->pusch_data.tb_size = harq.TBS;
   }
 
   /* TPC_PUSCH */
@@ -848,15 +853,19 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
 
   pusch_config_pdu->ldpcBaseGraph = get_BG(pusch_config_pdu->pusch_data.tb_size << 3, pusch_config_pdu->target_code_rate);
 
-  // The MAC entity shall restart retxBSR-Timer upon reception of a grant for transmission of new data on any UL-SCH
-  if (pusch_config_pdu->pusch_data.new_data_indicator && dci && dci->ulsch_indicator)
-    nr_timer_start(&mac->scheduling_info.retxBSR_Timer);
-
   if (pusch_config_pdu->pusch_data.tb_size == 0) {
     LOG_E(MAC, "Invalid TBS = 0. Probably caused by missed detection of DCI\n");
     mac->stats.bad_dci++;
     return -1;
   }
+
+  // Rejected grants and UCI-only DCI must not consume UL-SCH HARQ history.
+  if (update_ul_harq)
+    mac->ul_harq_info[pid] = harq;
+
+  // The MAC entity shall restart retxBSR-Timer upon reception of a grant for transmission of new data on any UL-SCH
+  if (pusch_config_pdu->pusch_data.new_data_indicator && dci && dci->ulsch_indicator)
+    nr_timer_start(&mac->scheduling_info.retxBSR_Timer);
 
   // 38.321 5.4.6
   //  if it is the first UL resource allocated for a new transmission since the last MAC reset:
