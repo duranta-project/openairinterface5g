@@ -93,6 +93,20 @@ add_physim_test(physim.5g.nr_pbchsim.273rb.test2 "PBCH and synchronization, 273 
 add_physim_test(physim.5g.nr_pbchsim.otherSCS.test1 "PBCH-only, 15Khz, 5Mhz" nr_pbchsim -s-10 -S-8 -n30 -m0 -R25)
 add_physim_test(physim.5g.nr_pbchsim.otherSCS.test2 "PBCH-only, 120Khz, 50Mhz" nr_pbchsim -s-10 -S-8 -n30 -m3 -R32)
 
+# a burst of several SS/PBCH blocks: -M 3 puts two of them in the same slot, -M 15 four of
+# them over two slots, which at 15 kHz are also two subframes
+add_physim_test(physim.5g.nr_pbchsim.multissb.test1 "PBCH-only, 2 blocks in one slot, 106 PRB" nr_pbchsim -s-11 -S-8 -n30 -R106 -M3)
+add_physim_test(physim.5g.nr_pbchsim.multissb.test2 "PBCH and synchronization, 2 blocks in one slot, 106 PRB" nr_pbchsim -s-11 -S-8 -n30 -I -R106 -M3)
+add_physim_test(physim.5g.nr_pbchsim.multissb.test3 "PBCH-only, 4 blocks over two slots, 106 PRB" nr_pbchsim -s-11 -S-8 -n30 -R106 -M15)
+add_physim_test(physim.5g.nr_pbchsim.multissb.test4 "PBCH and synchronization, 4 blocks over two slots, 106 PRB" nr_pbchsim -s-11 -S-8 -n30 -I -R106 -M15)
+add_physim_test(physim.5g.nr_pbchsim.multissb.test5 "PBCH-only, 4 blocks over two subframes, 15Khz, 5Mhz" nr_pbchsim -s-10 -S-8 -n30 -m0 -R25 -M15)
+add_physim_test(physim.5g.nr_pbchsim.multissb.test6 "PBCH and synchronization, 4 blocks over two subframes, 15Khz, 5Mhz" nr_pbchsim -s-10 -S-8 -n30 -I -m0 -R25 -M15)
+# -M 2 leaves the first block of the burst out, so the only one the UE can find is the second,
+# which at 15 kHz sits on the symbol that starts the second half subframe and carries the
+# longer cyclic prefix
+add_physim_test(physim.5g.nr_pbchsim.multissb.test7 "PBCH-only, second block of the burst only, 15Khz, 5Mhz" nr_pbchsim -s-10 -S-8 -n30 -m0 -R25 -M2)
+add_physim_test(physim.5g.nr_pbchsim.multissb.test8 "PBCH and synchronization, second block of the burst only, 15Khz, 5Mhz" nr_pbchsim -s-10 -S-8 -n30 -I -m0 -R25 -M2)
+
 ####################################################################################
 ######                           nr_dlsim unit test                           ######
 ####################################################################################
