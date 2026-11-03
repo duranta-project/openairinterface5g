@@ -40,7 +40,8 @@ static bool supported_bw_comparison(int bw_mhz, const NR_SupportedBandwidth_t *s
 // the UE supports the numerology. The bandwidth only ranks the ids: supportedBandwidth is a maximum,
 // and the spec does not tie the maximum of a CA entry to single-carrier operation. Among the ids
 // covering the cell bandwidth the one with most layers wins; if none covers it, the first
-// id matching the SCS is used.
+// id matching the SCS is used. fsd == NULL means no band combination was reported: every
+// per-CC entry is a candidate, instead of only the ids listed in one combination.
 static int select_dl_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetDownlink_t *fsd, int scs, int bw_mhz)
 {
   int best = 0;
@@ -48,8 +49,9 @@ static int select_dl_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetDow
   long best_layers = -1;
   if (!fs->featureSetsDownlinkPerCC)
     return 0;
-  for (int k = 0; k < fsd->featureSetListPerDownlinkCC.list.count; k++) {
-    long id = *fsd->featureSetListPerDownlinkCC.list.array[k];
+  int count = fsd ? fsd->featureSetListPerDownlinkCC.list.count : fs->featureSetsDownlinkPerCC->list.count;
+  for (int k = 0; k < count; k++) {
+    long id = fsd ? *fsd->featureSetListPerDownlinkCC.list.array[k] : k + 1;
     if (id < 1 || id > fs->featureSetsDownlinkPerCC->list.count)
       continue;
     const NR_FeatureSetDownlinkPerCC_t *cc = fs->featureSetsDownlinkPerCC->list.array[id - 1];
@@ -75,8 +77,9 @@ static int select_ul_percc_id(const NR_FeatureSets_t *fs, const NR_FeatureSetUpl
   long best_layers = -1;
   if (!fs->featureSetsUplinkPerCC)
     return 0;
-  for (int k = 0; k < fsu->featureSetListPerUplinkCC.list.count; k++) {
-    long id = *fsu->featureSetListPerUplinkCC.list.array[k];
+  int count = fsu ? fsu->featureSetListPerUplinkCC.list.count : fs->featureSetsUplinkPerCC->list.count;
+  for (int k = 0; k < count; k++) {
+    long id = fsu ? *fsu->featureSetListPerUplinkCC.list.array[k] : k + 1;
     if (id < 1 || id > fs->featureSetsUplinkPerCC->list.count)
       continue;
     const NR_FeatureSetUplinkPerCC_t *cc = fs->featureSetsUplinkPerCC->list.array[id - 1];
@@ -188,8 +191,16 @@ NR_feature_set_ids_t get_feature_set_ids(const NR_UE_NR_Capability_t *cap, int b
     return ids;
   }
   NR_BandCombinationList_t *bcl = cap->rf_Parameters.supportedBandCombinationList;
-  if (!bcl || !cap->featureSetCombinations || !cap->featureSets)
+  if (!cap->featureSets)
     return ids;
+  if (!bcl || !cap->featureSetCombinations) {
+    // both are OPTIONAL in TS 38.331: with no combination to resolve a per-CC list from,
+    // rank the full per-CC lists instead of leaving the UE without a feature set
+    LOG_W(NR_MAC, "UE reported no band combinations, selecting per-CC feature sets from the full lists\n");
+    ids.dl_feature_set_percc_id = select_dl_percc_id(cap->featureSets, NULL, scs, bw_mhz);
+    ids.ul_feature_set_percc_id = select_ul_percc_id(cap->featureSets, NULL, scs, bw_mhz);
+    return ids;
+  }
 
   for (int i = 0; i < bcl->list.count; i++) {
     const NR_BandCombination_t *bc = bcl->list.array[i];
