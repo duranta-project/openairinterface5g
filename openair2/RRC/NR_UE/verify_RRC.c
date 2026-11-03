@@ -1,10 +1,10 @@
 /*
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
- 
+
 #include "rrc_proto.h"
 #include "common/utils/bits.h"
- 
+
 static bool check_resourcesForInterference(const NR_CSI_MeasConfig_t *meas, NR_CSI_ResourceConfigId_t res_id, bool is_CSIIM)
 {
   NR_CSI_ResourceConfig_t *res = NULL;
@@ -55,8 +55,8 @@ static bool check_resourcesForChannelMeasurement(const NR_CSI_MeasConfig_t *meas
     } else {
       if (!res->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList
           && (quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP
-          && quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_NOTHING
-          && quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_none)) {
+              && quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_NOTHING
+              && quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_none)) {
         LOG_E(NR_RRC, "resourcesForChannelMeasurement is for CRI measurement but doen't point to an CRI-RS resource\n");
         return false;
       }
@@ -69,7 +69,7 @@ static bool check_csi_resourceMapping_consistency(NR_CSI_RS_ResourceMapping_t re
 {
   bool valid = true;
   struct NR_CSI_RS_ResourceMapping__density *density = &resourceMapping.density;
-  switch(resourceMapping.frequencyDomainAllocation.present) {
+  switch (resourceMapping.frequencyDomainAllocation.present) {
     case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_row1:
       if (resourceMapping.nrofPorts != NR_CSI_RS_ResourceMapping__nrofPorts_p1)
         valid = false;
@@ -98,9 +98,9 @@ static bool check_csi_resourceMapping_consistency(NR_CSI_RS_ResourceMapping_t re
         valid = false;
       break;
     case NR_CSI_RS_ResourceMapping__frequencyDomainAllocation_PR_other:
-      switch(resourceMapping.nrofPorts) {
+      switch (resourceMapping.nrofPorts) {
         case NR_CSI_RS_ResourceMapping__nrofPorts_p1:
-          valid = false;  // 1 port is row 1 or 2 not other
+          valid = false; // 1 port is row 1 or 2 not other
           break;
         case NR_CSI_RS_ResourceMapping__nrofPorts_p2:
           if (resourceMapping.cdm_Type != NR_CSI_RS_ResourceMapping__cdm_Type_fd_CDM2)
@@ -161,7 +161,7 @@ static bool check_csi_resourceMapping_consistency(NR_CSI_RS_ResourceMapping_t re
           if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_noCDM)
             valid = false;
           else if (resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_cdm4_FD2_TD2
-              || resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_fd_CDM2) {
+                   || resourceMapping.cdm_Type == NR_CSI_RS_ResourceMapping__cdm_Type_fd_CDM2) {
             // row 13, 14 and 16, 17 -> l0+1 and l1 (which should be larger than l0+1
             if (resourceMapping.firstOFDMSymbolInTimeDomain == 13)
               valid = false;
@@ -175,7 +175,7 @@ static bool check_csi_resourceMapping_consistency(NR_CSI_RS_ResourceMapping_t re
           }
           if (valid
               && (density->present != NR_CSI_RS_ResourceMapping__density_PR_dot5
-              && density->present != NR_CSI_RS_ResourceMapping__density_PR_one))
+                  && density->present != NR_CSI_RS_ResourceMapping__density_PR_one))
             valid = false;
           break;
         default:
@@ -292,6 +292,17 @@ bool check_cellgroup_config(const NR_CellGroupConfig_t *cgConfig)
   if (cgConfig->sCellToAddModList) {
     LOG_E(NR_RRC, "Secondary serving cell addition not implemented\n");
     return false;
+  }
+  /* TS 38.331 §6.3.2: PHR-Config.multiplePHR enables per-cell PHR reporting,
+   * which the UE does not support yet.  Reject here, before any MAC state is
+   * modified and before RRCSetupComplete / RRCReconfigurationComplete is sent. */
+  if (cgConfig->mac_CellGroupConfig) {
+    const NR_MAC_CellGroupConfig_t *mcg = cgConfig->mac_CellGroupConfig;
+    if (mcg->phr_Config && mcg->phr_Config->present == NR_SetupRelease_PHR_Config_PR_setup
+        && mcg->phr_Config->choice.setup->multiplePHR) {
+      LOG_E(NR_RRC, "multiplePHR not supported\n");
+      return false;
+    }
   }
   return true;
 }
