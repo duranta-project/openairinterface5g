@@ -48,6 +48,8 @@ class TestVerdict(unittest.TestCase):
 	def test_occurrence(self):
 		c = cls_verdict.Classifier([kf(occurrence=2)], TODAY)
 		self.assertEqual(c.classify('a.xml', '000001', 'Ping', 'Ping', False).verdict, Verdict.NEW_FAIL)
+		c = cls_verdict.Classifier([kf(occurrence=2)], TODAY)
+		c.classify('a.xml', '000001', 'Ping', 'Ping', True)
 		self.assertEqual(c.classify('a.xml', '000002', 'Ping', 'Ping', False).verdict, Verdict.KNOWN_FAIL)
 
 	def test_occurrence_counts_skipped(self):
@@ -72,13 +74,13 @@ class TestVerdict(unittest.TestCase):
 	def test_infra(self):
 		c = cls_verdict.Classifier([kf(desc='Pull')], TODAY)
 		self.assertEqual(c.classify('a.xml', '000001', 'Pull_Local_Registry', 'Pull', False).verdict, Verdict.INFRA)
-		self.assertEqual(c.classify('a.xml', '000002', 'Ping', 'Ping', False, exception=True).verdict, Verdict.INFRA)
+		self.assertEqual(c.classify('b.xml', '000001', 'Ping', 'Ping', False, exception=True).verdict, Verdict.INFRA)
 		self.assertEqual(c.overall(), Verdict.INFRA)
 
 	def test_new_fail_dominates_infra(self):
 		c = cls_verdict.Classifier([], TODAY)
 		c.classify('a.xml', '000001', 'Pull_Local_Registry', 'Pull', False)
-		c.classify('a.xml', '000002', 'Ping', 'Ping', False)
+		c.classify('b.xml', '000001', 'Ping', 'Ping', False)
 		self.assertEqual(c.overall(), Verdict.NEW_FAIL)
 
 	def test_checks_subset_is_known(self):
@@ -127,6 +129,34 @@ class TestVerdict(unittest.TestCase):
 		self.assertTrue(lines[1].startswith('   * \U0001F534 `a.xml`: new failure: Iperf (step 2)'))
 		self.assertIn('\U0001F7E1 known failure: Ping (step 1) [issue](https://x/1)', lines[1])
 		self.assertEqual(lines[2], '   * \U0001F7E2 1 testcase file(s) passed')
+
+	def test_only_first_failure_counts(self):
+		c = cls_verdict.Classifier([kf(desc='Undeploy')], TODAY)
+		c.classify('a.xml', '000001', 'Create_Workspace', 'Workspace', False)
+		r = c.classify('a.xml', '000002', 'Undeploy_Object', 'Undeploy', False)
+		self.assertEqual(r.verdict, Verdict.FOLLOW_ON)
+		self.assertIn('after INFRA in step 1', r.note)
+		r = c.classify('a.xml', '000003', 'Ping', 'Ping', False)
+		self.assertEqual(r.verdict, Verdict.FOLLOW_ON)
+		self.assertEqual(c.overall(), Verdict.INFRA)
+		# another XML has its own first failure
+		self.assertEqual(c.classify('b.xml', '000001', 'Ping', 'Ping', False).verdict, Verdict.NEW_FAIL)
+		self.assertEqual(c.overall(), Verdict.NEW_FAIL)
+
+	def test_known_failure_does_not_start_follow_on(self):
+		c = cls_verdict.Classifier([kf()], TODAY)
+		self.assertEqual(c.classify('a.xml', '000001', 'Ping', 'Ping', False).verdict, Verdict.KNOWN_FAIL)
+		self.assertEqual(c.classify('a.xml', '000002', 'Iperf', 'Iperf', False).verdict, Verdict.NEW_FAIL)
+
+	def test_markdown_follow_on(self):
+		c = cls_verdict.Classifier([], TODAY)
+		c.classify('a.xml', '000001', 'Ping', 'Ping', False)
+		c.classify('a.xml', '000002', 'Undeploy_Object', 'Undeploy', False, failed_checks=['oai-gnb:EndsWithBye'])
+		with tempfile.TemporaryDirectory() as d:
+			p = os.path.join(d, 'v.md')
+			c.write_markdown(p)
+			lines = open(p, encoding='utf-8').read().splitlines()
+		self.assertEqual(lines[1], '   * \U0001F534 `a.xml`: new failure: Ping (step 1) (+1 follow-on)')
 
 	def test_json(self):
 		c = cls_verdict.Classifier([kf()], TODAY)

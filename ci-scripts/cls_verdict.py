@@ -30,6 +30,9 @@ class Verdict(str, enum.Enum):
 	KNOWN_FAIL = 'KNOWN-FAIL'
 	NEW_FAIL = 'NEW-FAIL'
 	INFRA = 'INFRA'
+	# a step failing after the first NEW-FAIL or INFRA of its XML: most likely
+	# a consequence of it (e.g. undeploying what never got deployed)
+	FOLLOW_ON = 'FOLLOW-ON'
 	SKIP = 'SKIP'
 
 class KnownFailure:
@@ -112,6 +115,7 @@ class Classifier:
 		self.today = today or datetime.date.today()
 		self.results = []
 		self._seen = {}
+		self._first_failure = {}
 
 	def _occurrence(self, xml, desc):
 		key = (os.path.basename(xml), desc)
@@ -144,6 +148,12 @@ class Classifier:
 			               note=f'known failure covers only {", ".join(listed[0].checks)}')
 		else:
 			r = StepResult(xml, idx, cls, desc, occurrence, Verdict.NEW_FAIL, failed_checks=failed_checks)
+		first = self._first_failure.get(r.xml)
+		if first and r.verdict in (Verdict.NEW_FAIL, Verdict.INFRA, Verdict.KNOWN_FAIL):
+			r.note = f'after {first.verdict.value} in step {int(first.idx)}' + (f'; {r.note}' if r.note else '')
+			r.verdict = Verdict.FOLLOW_ON
+		elif r.verdict in (Verdict.NEW_FAIL, Verdict.INFRA):
+			self._first_failure[r.xml] = r
 		self.results.append(r)
 		return r
 
@@ -195,11 +205,13 @@ class Classifier:
 				passed += 1
 				continue
 			parts = []
+			follow_on = sum(1 for r in results if r.verdict == Verdict.FOLLOW_ON)
 			for v in order:
 				steps = '; '.join(_step_text(r) for r in results if r.verdict == v)
 				if steps:
 					parts.append(f'{EMOJI[v] + " " if v != worst else ""}{LABEL[v]}: {steps}')
-			lines.append(f'   * {EMOJI[worst]} `{xml}`: ' + ' \u00B7 '.join(parts))
+			lines.append(f'   * {EMOJI[worst]} `{xml}`: ' + ' \u00B7 '.join(parts)
+			             + (f' (+{follow_on} follow-on)' if follow_on else ''))
 		if passed:
 			lines.append(f'   * {EMOJI[Verdict.PASS]} {passed} testcase file(s) passed')
 		with open(path, 'w', encoding='utf-8') as f:
