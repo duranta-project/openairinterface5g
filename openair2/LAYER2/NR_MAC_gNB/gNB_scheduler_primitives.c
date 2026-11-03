@@ -3646,10 +3646,11 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
   }
 
   for (int i = 0; i < num_release; i++) {
-    // confirm the release to the CU, then remove the RLC and MAC contexts
+    // remove the RLC and MAC contexts first: RLC runs outside sched_lock and needs
+    // the F1 UE data that nr_mac_trigger_release_complete() removes to deliver an SDU
+    nr_mac_release_ue(mac, to_release[i].rnti);
     if (to_release[i].send_complete)
       nr_mac_trigger_release_complete(mac, to_release[i].rnti);
-    nr_mac_release_ue(mac, to_release[i].rnti);
   }
 }
 
