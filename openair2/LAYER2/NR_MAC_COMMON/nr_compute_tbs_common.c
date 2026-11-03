@@ -85,8 +85,20 @@ uint32_t nr_compute_tbs(uint16_t Qm,
   return nr_tbs;
 }
 
+// maximum modulation order of the PDSCH MCS table (index as nr_get_Qm_dl()), for TS 38.212 5.4.2.1
+uint8_t nr_get_max_Qm_dl(uint8_t table_idx)
+{
+  return table_idx == 3 ? 10 : table_idx == 1 ? 8 : 6;
+}
+
+// maximum modulation order of the PUSCH MCS table (index as nr_get_Qm_ul()), for TS 38.212 5.4.2.1
+uint8_t nr_get_max_Qm_ul(uint8_t table_idx)
+{
+  return table_idx == 1 ? 8 : 6;
+}
+
 //tbslbrm calculation according to 5.4.2.1 of 38.212
-uint32_t nr_compute_tbslbrm(uint16_t table, uint16_t nb_rb, uint8_t Nl)
+uint32_t nr_compute_tbslbrm(uint8_t max_Qm, uint16_t nb_rb, uint8_t Nl)
 {
   uint16_t nb_rb_lbrm = 0;
   for (int i = 0; i < 7; i++) {
@@ -96,7 +108,7 @@ uint32_t nr_compute_tbslbrm(uint16_t table, uint16_t nb_rb, uint8_t Nl)
     }
   }
 
-  int Qm = (table == 1) ? 8 : 6;
+  int Qm = max_Qm;
   uint32_t R = 948;
   uint32_t nb_re = 156 * nb_rb_lbrm;
 

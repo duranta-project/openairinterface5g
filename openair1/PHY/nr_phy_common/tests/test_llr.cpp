@@ -474,6 +474,42 @@ INSTANTIATE_TEST_SUITE_P(nr_compute_ML_llr, test_ml_llr, ::testing::Values(2, 4,
   return "qam" + std::to_string(1 << info.param);
 });
 
+// Noiseless 1024QAM (TS 38.211 5.1.7): with thresholds at 16, 8 and 4 constellation units, the sign of every
+// LLR is its transmitted bit (positive for 0), for every point of the constellation
+TEST(test_llr, noiseless_1024qam_hard_decisions)
+{
+  const int16_t unit = 512; // largest point at 31 * unit, within int16_t
+  const int nb_re = 1024;
+  AlignedVector512<c16_t> rf(nb_re), mag(nb_re), mag_b(nb_re), mag_c(nb_re);
+  for (int sym = 0; sym < nb_re; sym++) {
+    int level[2];
+    for (int j = 0; j < 2; j++) {
+      const int b0 = 1 - 2 * ((sym >> j) & 1);
+      const int b2 = 1 - 2 * ((sym >> (j + 2)) & 1);
+      const int b4 = 1 - 2 * ((sym >> (j + 4)) & 1);
+      const int b6 = 1 - 2 * ((sym >> (j + 6)) & 1);
+      const int b8 = 1 - 2 * ((sym >> (j + 8)) & 1);
+      level[j] = b0 * (16 - b2 * (8 - b4 * (4 - b6 * (2 - b8))));
+    }
+    rf[sym] = {int16_t(level[0] * unit), int16_t(level[1] * unit)};
+    mag[sym] = {int16_t(16 * unit), int16_t(16 * unit)};
+    mag_b[sym] = {int16_t(8 * unit), int16_t(8 * unit)};
+    mag_c[sym] = {int16_t(4 * unit), int16_t(4 * unit)};
+  }
+  // 4 REs per SIMD step: also cover the scalar tail
+  for (int n = nb_re - 3; n <= nb_re; n++) {
+    AlignedVector512<int16_t> llr(n * 10 + 1, INT16_MAX); // one guard value past the end
+    nr_1024qam_llr(rf.data(), mag.data(), mag_b.data(), mag_c.data(), llr.data(), n);
+    ASSERT_EQ(llr[n * 10], INT16_MAX) << "written past the end, " << n << " REs";
+    for (int sym = 0; sym < n; sym++)
+      for (int k = 0; k < 10; k++) {
+        const int16_t l = llr[sym * 10 + k];
+        ASSERT_NE(l, 0) << "symbol " << sym << " bit " << k;
+        ASSERT_EQ(l < 0, (sym >> k) & 1) << n << " REs, symbol " << sym << " bit " << k << " llr " << l;
+      }
+  }
+}
+
 int main(int argc, char **argv)
 {
   logInit();

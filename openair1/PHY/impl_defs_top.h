@@ -193,6 +193,13 @@
 ///Third Amplitude for QAM256 (\f$ 2^{15} \times 2/\sqrt{170}\f$)
 #define QAM256_n3 5026
 
+/// First Amplitude for QAM1024 (\f$ 2^{15} \times 16/\sqrt{682}\f$)
+#define QAM1024_n1 20076
+/// Second Amplitude for QAM1024 (\f$ 2^{15} \times 8/\sqrt{682}\f$)
+#define QAM1024_n2 10038
+/// Third Amplitude for QAM1024 (\f$ 2^{15} \times 4/\sqrt{682}\f$)
+#define QAM1024_n3 5019
+
 #ifdef BIT8_TX
 #define AMP_SHIFT 7
 #else

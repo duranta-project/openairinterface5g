@@ -1614,6 +1614,7 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   config.report_type = config_get_processedint(cfg, &gnb_p[GNB_CONFIG_REP_IDX]);
   config.force_256qam_off = *gnb_p[GNB_FORCE256QAMOFF_IDX].iptr;
   config.force_UL256qam_off = *gnb_p[GNB_FORCEUL256QAMOFF_IDX].iptr;
+  config.enable_1024qam = *gnb_p[GNB_ENABLE1024QAM_IDX].iptr;
   config.use_deltaMCS = *gnb_p[GNB_USE_DELTA_MCS_IDX].iptr != 0;
   config.maxMIMO_layers = *gnb_p[GNB_MAXMIMOLAYERS_IDX].iptr;
   config.disable_harq = *gnb_p[GNB_DISABLE_HARQ_IDX].iptr;
@@ -1622,12 +1623,14 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   if (config.disable_harq)
     LOG_W(GNB_APP, "\"disable_harq\" is a REL17 feature and is incompatible with REL15 and REL16 UEs!\n");
   LOG_I(GNB_APP,
-        "CSI-RS %d, SRS %s, report type %d (%s), 256 QAM %s, delta_MCS %s, maxMIMO_Layers %d, HARQ feedback %s, num DLHARQ:%d, num ULHARQ:%d\n",
+        "CSI-RS %d, SRS %s, report type %d (%s), 256 QAM %s, 1024 QAM %s, delta_MCS %s, maxMIMO_Layers %d, HARQ feedback %s, num "
+        "DLHARQ:%d, num ULHARQ:%d\n",
         config.do_CSIRS,
         srs_type_s,
         config.report_type,
         report_type_s,
         config.force_256qam_off ? "force off" : "may be on",
+        config.enable_1024qam ? "may be on" : "off",
         config.use_deltaMCS ? "on" : "off",
         config.maxMIMO_layers,
         config.disable_harq ? "disabled" : "enabled",

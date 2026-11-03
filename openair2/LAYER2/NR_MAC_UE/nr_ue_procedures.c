@@ -318,12 +318,17 @@ static uint8_t get_dlsch_mcs_table(nr_dci_format_t format,
                                    nr_rnti_type_t rnti_type,
                                    int ss_type,
                                    long *mcs_Table,
+                                   long *mcs_Table_r17,
                                    long *sps_mcs_Table,
                                    bool sps_transmission,
                                    long *mcs_C_RNTI)
 {
   // TODO procedures for SPS-Config (semi-persistent scheduling) not implemented
-  if (mcs_Table && *mcs_Table == NR_PDSCH_Config__mcs_Table_qam256 && format == NR_DL_DCI_FORMAT_1_1 && rnti_type == TYPE_C_RNTI_)
+  if (mcs_Table_r17 && *mcs_Table_r17 == NR_PDSCH_Config__ext3__mcs_Table_r17_qam1024 && format == NR_DL_DCI_FORMAT_1_1
+      && rnti_type == TYPE_C_RNTI_)
+    return 3; // Table 5.1.3.1-4: MCS index table 4 for PDSCH
+  else if (mcs_Table && *mcs_Table == NR_PDSCH_Config__mcs_Table_qam256 && format == NR_DL_DCI_FORMAT_1_1
+           && rnti_type == TYPE_C_RNTI_)
     return 1; // Table 5.1.3.1-2: MCS index table 2 for PDSCH
   else if (!mcs_C_RNTI
            && mcs_Table
@@ -834,7 +839,7 @@ static int nr_ue_process_dci_dl_10_p_rnti(NR_UE_MAC_INST_t *mac,
   }
 
   const int bw_tbslbrm = current_DL_BWP ? mac->sc_info.dl_bw_tbslbrm : dlsch_pdu->BWPSize;
-  dlsch_pdu->tbslbrm = nr_compute_tbslbrm(dlsch_pdu->mcs_table, bw_tbslbrm, 1);
+  dlsch_pdu->tbslbrm = nr_compute_tbslbrm(nr_get_max_Qm_dl(dlsch_pdu->mcs_table), bw_tbslbrm, 1);
   dlsch_pdu->n_codewords = 1;
   dlsch_pdu->harq_process_nbr = 0;
 
@@ -1075,6 +1080,7 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
                                              rnti_type,
                                              dci_ind->ss_type,
                                              pdsch_config ? pdsch_config->mcs_Table : NULL,
+                                             pdsch_config && pdsch_config->ext3 ? pdsch_config->ext3->mcs_Table_r17 : NULL,
                                              NULL, // SPS not implemented,
                                              false, // as above
                                              NULL); // MCS-C-RNTI not implemented
@@ -1117,7 +1123,7 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   dlsch_pdu->n_codewords = 1;
 
   int bw_tbslbrm = current_DL_BWP ? mac->sc_info.dl_bw_tbslbrm : dlsch_pdu->BWPSize;
-  dlsch_pdu->tbslbrm = nr_compute_tbslbrm(dlsch_pdu->mcs_table, bw_tbslbrm, 1);
+  dlsch_pdu->tbslbrm = nr_compute_tbslbrm(nr_get_max_Qm_dl(dlsch_pdu->mcs_table), bw_tbslbrm, 1);
 
   /* HARQ_PROCESS_NUMBER (only if CRC scrambled by C-RNTI or CS-RNTI or new-RNTI or TC-RNTI)*/
   dlsch_pdu->harq_process_nbr = dci->harq_pid.val;
@@ -1465,6 +1471,7 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
                                              rnti_type,
                                              dci_ind->ss_type,
                                              pdsch_Config ? pdsch_Config->mcs_Table : NULL,
+                                             pdsch_Config && pdsch_Config->ext3 ? pdsch_Config->ext3->mcs_Table_r17 : NULL,
                                              NULL, // SPS not implemented,
                                              false, // as above
                                              NULL); // MCS-C-RNTI not implemented
@@ -1591,7 +1598,7 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
     max_mimo_layers = mac->uecap_maxMIMO_PDSCH_layers;
   AssertFatal(max_mimo_layers > 0, "Invalid number of max MIMO layers for PDSCH\n");
   int nl_tbslbrm = max_mimo_layers < 4 ? max_mimo_layers : 4;
-  dlsch_pdu->tbslbrm = nr_compute_tbslbrm(dlsch_pdu->mcs_table, sc_info->dl_bw_tbslbrm, nl_tbslbrm);
+  dlsch_pdu->tbslbrm = nr_compute_tbslbrm(nr_get_max_Qm_dl(dlsch_pdu->mcs_table), sc_info->dl_bw_tbslbrm, nl_tbslbrm);
   /*PTRS configuration */
   dlsch_pdu->pduBitmap = 0;
   if (dl_dmrs_config->phaseTrackingRS != NULL) {
