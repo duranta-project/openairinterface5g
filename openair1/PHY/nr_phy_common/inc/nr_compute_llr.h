@@ -121,8 +121,8 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
 
 // Fixed-point (Q15-input) L-best 2-layer 256QAM kernel (ZF seed). Integer twin of
 // nr_qam256_llr_2layer_lbest; scale 16*sqrt(170), PAM-16 levels, 8 bits/RE.
-// pattern: 0=5x5/25cand[default], 1=3x3/9cand, 2=5-plus/5cand, other=full256.
-// Enabled via OAI_LBEST_Q15_256=1; pattern selected by OAI_LBEST_PAT256.
+// pattern: 0=5x5/25cand, 1=3x3/9cand, 2=5-plus/5cand, other=full256.
+// Scalar reference for the SIMD kernel (and its short-symbol tail).
 void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
                                     c16_t *stream1_in,
                                     c16_t *ch_mag,
@@ -155,8 +155,8 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                           int pattern);
 
 // int16/16-lane AVX2 L-best 2-layer 256QAM kernel (PAM-16, 8 bits/RE).
-// pattern: 0 = 5x5 (25 cand) [default], 1 = 3x3 (9 cand), 2 = 5-plus (5 cand).
-// Enabled via OAI_LBEST_Q15_256=1; pattern selected by OAI_LBEST_PAT256.
+// pattern: 0 = 5x5 (25 cand), 1 = 3x3 (9 cand, the lbest receiver), 2 = 5-plus (5 cand),
+// 3 = full 16x16 grid (the ml receiver).
 void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                            c16_t *stream1_in,
                                            c16_t *ch_mag,

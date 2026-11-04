@@ -224,8 +224,9 @@ source compiles to NEON (aarch64), AVX2, and AVX-512:
 - `nr_lbest_simd_width.h` — the width abstraction: for `NRLB_W ∈ {128, 256, 512}` it defines the
   vector types, the `NRLB_MM(op)` intrinsic prefix, the name mangling (`_w128/_w256/_w512`), and the
   cross-lane helpers (`widen`/`pack32`/`load` deinterleave / `store_llr` transpose).
-- `nr_lbest_qam{64,256}_simd.c.inc` — the kernel bodies, elementwise ops via `NRLB_MM(...)`,
-  cross-lane via the `nrlbw_*` helpers. `nr_compute_llr.c` includes each `.inc` once per width.
+- `nr_lbest_simd.c` — the 64QAM and 256QAM kernel bodies, elementwise ops via `NRLB_MM(...)`,
+  cross-lane via the `nrlbw_*` helpers. The build compiles it once per width (`-DNRLB_W=128/256/512`)
+  into separate objects (`nr_lbest_simd_w*`), declared in `nr_lbest_simd.h`.
 
 **Runtime selection** (`nr_lbest_simd_width_mode`, announced once on stderr): aarch64 runs **w128**
 natively (SIMDe→NEON, avoiding the inefficient 256→2×128 emulation); x86 runs **w256** by default,

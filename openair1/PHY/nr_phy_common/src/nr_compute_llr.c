@@ -4,9 +4,9 @@
 
 #include "nr_compute_llr.h"
 #include <stdlib.h>
-#include <stdio.h> // OAI_LBEST_DBG diagnostic (stderr); analysis-only
 #include "PHY/impl_defs_top.h"
 #include "PHY/TOOLS/tools_defs.h"
+#include "nr_lbest_simd.h"
 #ifdef __aarch64__
 #define USE_128BIT
 #endif
@@ -2663,7 +2663,7 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
 // Exact max-log search over all 256 constellation points, implemented by reusing the
 // verified L-best simd16 machinery on the full 16x16 grid (pattern 3, O(256) per RE via
 // the O(1) conditional slice). Replaces an earlier bespoke unrolled kernel that carried an
-// imaginary-axis / magnitude-threshold bug (OAI_LBEST_DBG256 showed ~46% sign disagreement
+// imaginary-axis / magnitude-threshold bug (~46% sign disagreement
 // vs the exact float reference nr_qam256_llr_2layer_lbest).
 void nr_qam256_llr_2layer(c16_t *stream0_in,
                           c16_t *stream1_in,
@@ -2798,7 +2798,7 @@ static inline void nr_lbest_axis_bits(int level, int *b0, int *b1, int *b2)
 // channels (2 RX) and makes the fallback as overconfident as the hard value it replaces. llr[b] = g*[(l1*-e)^2 - (l0*-e)^2] with
 // lX* the level nearest e whose axis bit b is X. Replaces the hard +-LLR_SAT for bits a reduced
 // candidate set does not span (b0/b1 for a 3x3 window): the hard value is overconfident and,
-// with 2 RX antennas, the ~1% wrong-sign bits it produces break LDPC (OAI_LBEST_DBG fitScale 3-7).
+// with 2 RX antennas, the ~1% wrong-sign bits it produces break LDPC (best-fit scale 3-7 against the float reference).
 static inline void nr_lbest_pam8_axis_llr(float e, float g, float *llr)
 {
   static const int levels[8] = {-7, -5, -3, -1, 1, 3, 5, 7};
@@ -2954,8 +2954,8 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
 // THE ALGORITHMIC CONTRACT for every per-arch SIMD port (AVX2 / AVX-512 / NEON /
 // RISC-V RVV). These double-precision kernels define the exact LLRs; an arch
 // kernel is "correct" iff it matches this reference AT HEAD, verified by the
-// OAI_LBEST_DBG / OAI_LBEST_DBG256 comparators (fitScale ~1.0, residFrac ~0,
-// low sign-disagreement). Port and optimize freely per arch — the DBG check is
+// test_llr_2layer fidelity test (best-fit scale ~1.0, residual ~0, low sign
+// disagreement). Port and optimize freely per arch — that check is
 // the contract, so no arch kernel needs to mirror another's optimizations.
 // NB (64QAM and 256QAM): the graded-MSB fallback is part of this contract — an unspanned
 // bit uses the graded per-axis seed LLR (nr_lbest_pam{8,16}_axis_llr), NOT the hard
@@ -3500,13 +3500,6 @@ void nr_qam_llr_3layer_ml(c16_t *zt, c16_t *zn1, c16_t *zn2,
 // Reference/oracle: identical LLRs (within fixed-point rounding) to
 // nr_qam64_llr_2layer_lbest at the same L; L==64 == full search.
 // ============================================================================
-#define NR_LBEST_Q_SQRT42_Q12        26545   // round(sqrt(42)        * 2^12)
-#define NR_LBEST_Q_SQRT42_OVER4_Q14  26545   // round(sqrt(42)/4      * 2^14) (same constant)
-#define NR_LBEST_Q_INVSQRT42_Q15      5057   // round(2^15 / sqrt(42))
-// integer metric is 8*sqrt(42) (~51.8x) larger than the float-ref metric; bring
-// the emitted LLR back onto the float-ref / SIMD scale.
-#define NR_LBEST_Q_LLR_NUM            2533    // round(2^17 / (8*sqrt(42)))
-#define NR_LBEST_Q_LLR_SHIFT            17
 
 // nearest 64QAM PAM-8 level magnitude for |a|, thresholds at 2/4/6 * step.
 static inline int nr_lbest_q_pam8_abs(int64_t a, int64_t step)
@@ -3663,12 +3656,6 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
 // Division-free ZF seed and division-free conditional PAM-16 slice mirror the
 // 64QAM Q15 design. L==256 skips the partial sort (full search, no order needed).
 // ============================================================================
-#define NR_LBEST_Q_SQRT170_Q12       53405  // round(sqrt(170) * 2^12)
-#define NR_LBEST_Q_SQRT170_OVER8_Q14 26690  // round(sqrt(170)/8 * 2^14): ch_mag -> Pp
-#define NR_LBEST_Q_INVSQRT170_Q15     2514  // round(2^15 / sqrt(170))
-// integer metric is 16*sqrt(170) (~208.6x) larger than float; bring LLR back to float scale.
-#define NR_LBEST_Q_LLR256_NUM          628  // round(2^17 / (16*sqrt(170)))
-#define NR_LBEST_Q_LLR256_SHIFT         17
 
 // PAM-16 level magnitude for |a|, thresholds at {2,4,...,14}*step (== ||h1||^2).
 static inline int nr_lbest_q_pam16_abs(int64_t a, int64_t step)
@@ -3806,7 +3793,6 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
 //          1 = 3x3 ( 9 cand, ±{0,2}   per axis — analogous to 64QAM default)
 //          2 = 5-plus (5 cand, center + ±2 each axis)
 //          other = 256 (full search)
-// Controlled at runtime by OAI_LBEST_PAT256; OAI_LBEST_L256 is for the float ref.
 void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
                                     c16_t *stream1_in,
                                     c16_t *ch_mag,
@@ -3821,169 +3807,42 @@ void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
   nr_qam256_llr_2layer_lbest_q15_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L);
 }
 
-// ============================================================================
-// int16/16-lane variant of the AVX2 L-best kernel. The dominant per-candidate
-// work (metric, conditional slice, max-log reduction) runs 16 REs/vector in
-// int16; only the ZF seed and z2*sqrt(42) (which overflow int16) use int32 half-
-// vectors, once per RE-vector. Metric is carried at scale (8*sqrt(42))/512 so all
-// terms fit int16. Single simde-256 source -> NEON on aarch64.
-// ============================================================================
-#define NR_LBEST_Q_INVSQRT42_Q16 10112   // round(1/sqrt(42) * 2^16)
-#define NR_LBEST_Q_PP1_OVER32_Q16 3318   // round(sqrt(42)/4/32 * 2^16) -> ||h||^2/32 via mulhi
-#define NR_LBEST_SIMD16_SENT  (-32768)   // empty-subset sentinel (int16)
+// ---- 2-layer 64/256QAM L-best SIMD kernels ----
+// nr_lbest_simd.c, compiled once per vector width (NRLB_W = 128, 256 and, with AVX-512, 512)
+// into separate objects; the public entries below pick the arch-native width.
 
-
-// int16 PAM-8 level (sign*mag, mag in {1,3,5,7}) sliced vs {2,4,6}*thunit.
-
-// load 16 complex int16 (c16_t) -> int16 real/imag vectors, lane l == RE l.
-
-// z * sqrt(42) / 32, packed to int16 (lane l == RE l).
-
-// ZF-seed nearest-level centers for 16 REs (int16 out). The 2x2 solve is done in
-// FLOAT, which is robust to the wide per-RE dynamic range of real channels (TDL
-// deep fades) where any fixed int pre-shift either loses precision or underflows.
-// Also emits dirImask/dirQmask: int16 mask, all-ones where the seed lies on the
-// +2 side of the nearest level (i.e. the toward-seed neighbour is center+2).
-
-// Per-candidate evaluation (slice + metric + max-log reduction), updating max0/max1.
-// Captures the per-RE-vector operands from the enclosing scope; the per-candidate
-// I-only/Q-only terms (bits, corr0/energy0 parts, slice operands) are passed in.
-// Store Qm LLR vectors (res[Qm], 16 REs across the lanes) to the interleaved decoder layout
-// stream0_out[(re+r)*Qm + p] via an 8x8 int16 transpose (padded from Qm), replacing the scalar
-// scatter (~24% of the 64QAM kernel). Qm in {6,8}; exactly Qm int16/RE are written (no overflow).
-
-// Metric only (slice + corr/energy/cross), result -> (MET_). No max-log reduction.
-
-// Per-candidate metric + streaming max-log reduction into max0/max1 (for non-grid patterns).
-
-// pattern: 0 = 3x3 (9 cand, full BLER), 1 = 6-cand (plus + toward-seed diagonal),
-//          2 = 5-plus (center + +-2 each axis).
-
-// ============================================================================
-// int16/16-lane AVX2 L-best kernel for 2-layer 256QAM (PAM-16, 8 bits/RE).
-// Mirrors nr_qam64_llr_2layer_lbest_q15_simd16 with:
-//   - sqrt(170) replacing sqrt(42), /8 replacing /4 in Pp
-//   - PAM-16 slicer (7 thresholds) replacing PAM-8 (3 thresholds)
-//   - 4 bits per axis (b0..b3) instead of 3
-//   - 5x5/3x3/5-plus candidate patterns instead of 3x3/6-cand/5-plus
-//   - LLR stride 8 per RE instead of 6
-// ============================================================================
-#define NR_LBEST_Q_SQRT170_OVER8_Q14_SIMD  26705  // round(sqrt(170)/8 * 2^14)
-#define NR_LBEST_Q_PP1_OVER16_Q16_256       6676  // round(sqrt(170)/8/16 * 2^16)
-
-// int16 PAM-16 level (sign*mag, mag in {1,3,...,15}) sliced vs {2,4,6,8,10,12,14}*thunit.
-
-// z * sqrt(170) / 32, packed to int16 (lane l == RE l).
-
-// Graded per-axis PAM-16 LLR (SIMD float, 8 lanes/half): out[b] = g*(min dist^2 with bit b=1 -
-// with b=0), g = 0.5*Peff/170 (Peff = det/P1), in the kernel's final LLR units. Closed form (no 16-level loop): the
-// nearest PAM-16 level with a given bit value = clamp(round-to-odd(est), subrange), so each bit's
-// min-distance is a couple of clamps. Only b0/b1/b2 are computed — b3 (the finest bit) is ALWAYS
-// spanned by any 3x3/5x5/5-plus window (verified), so its fallback is never used; out[3]=0.
-
-// ZF seed for 256QAM: identical to nr_lbest_simd_seed16 except clamp to [-15,15]
-// and Pp = cm * sqrt(170)/8. Also emits axisLLR[8] = graded per-axis PAM-16 LLRs (interleaved
-// {I0,Q0,I1,Q1,I2,Q2,I3,Q3}, int16) used as the fallback for bits the reduced search cannot span.
-
-// Per-candidate evaluation for 256QAM (8 bits/RE, PAM-16 slicer).
-// C13_256 = round(2^13/sqrt(170)), CE_256 = round(2^16/(8*8*sqrt(170)*2)),
-// CX_256  = round(2^16/(8*170)).
-// Metric only (256QAM), result -> (MET_). No max-log reduction.
-
-// Per-candidate metric + streaming max-log reduction into max0/max1 (for non-grid patterns).
-
-// pattern: 0 = 5x5 (25 cand), 1 = 3x3 (9 cand), 2 = 5-plus (5 cand).
-
-// ---- 2-layer 64QAM L-best kernel: width-parameterized (AVX2/NEON/AVX-512) ----
-// Generated once per width from nr_lbest_qam64_simd.c.inc; the public entry dispatches by arch.
-#define NRLB_W 256
-#include "nr_lbest_simd_width.h"
-#include "nr_lbest_qam64_simd.c.inc"
-#include "nr_lbest_qam256_simd.c.inc"
-#undef NRLB_W
-#define NRLB_W 128
-#include "nr_lbest_simd_width.h"
-#include "nr_lbest_qam64_simd.c.inc"
-#include "nr_lbest_qam256_simd.c.inc"
-#undef NRLB_W
-// AVX-512 (W=512) instantiation: only when 512 is a real compile target (else SIMDe would
-// emulate it as 2x256/4x128, which is slower than the native w256/w128). Compares yield
-// k-masks and blendv has no 512 form -> the header's NRLB_ wrappers lift both back to the
-// vector-mask model, so this is the same source (bit-exact) at 2x the lanes.
-#if defined(__AVX512BW__) && defined(__AVX512VL__) && defined(__AVX512F__)
-#include <simde/x86/avx512.h>
-#define NRLB_W 512
-#include "nr_lbest_simd_width.h"
-#include "nr_lbest_qam64_simd.c.inc"
-#include "nr_lbest_qam256_simd.c.inc"
-#undef NRLB_W
-#define NRLB_HAVE_W512 1
-#endif
-
-// Public entry (name unchanged for callers): pick the arch-native width.
-// x86 width selection (cached): 1 = w128 (NEON regression), 2 = w512 (AVX-512), 0 = w256 (default).
-// w256 is the safe default: on double-pumped-AVX-512 parts (Zen4/Zen5-mobile, e.g. Strix Halo) the
-// 512 path executes as 2x256 uops with no datapath-width gain, so it is a wash-to-slight-regression
-// there (esp. 256QAM, where the blendv k-mask emulation offsets the fewer-instructions saving).
-// w512 helps on true-512-datapath server CPUs (EPYC Genoa/Turin, Xeon SP) -> opt in with
-// OAI_LBEST_W512=1 (all widths are bit-exact; verified via OAI_LBEST_DBG/DBG256). OAI_LBEST_W128=1
-// selects the NEON-equivalent path for x86 regression testing.
-// Only used on the x86 dispatch path below (aarch64 always runs w128 directly), so gate the
-// definition with the same condition to avoid an unused-function warning (-Werror) on aarch64.
-#if !(defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__))
-static int nr_lbest_simd_width_mode(void)
+// Public entries: the arch-native width. aarch64 runs w128 (SIMDe -> NEON, avoiding the 256 -> 2x128
+// emulation); x86 runs w256. w512 (AVX-512 builds) is bit-exact and a win only on true-512-datapath
+// server CPUs (it is a wash on double-pumped parts), so it is built and tested but not selected.
+void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
+                                          c16_t *stream1_in,
+                                          c16_t *ch_mag,
+                                          c16_t *ch_mag_i,
+                                          int16_t *stream0_out,
+                                          c16_t *rho01,
+                                          uint32_t length,
+                                          int pattern)
 {
-  static int mode = -1;
-  if (mode < 0) {
-    const char *e;
-    if ((e = getenv("OAI_LBEST_W128")) && atoi(e)) mode = 1;
-#ifdef NRLB_HAVE_W512
-    else if ((e = getenv("OAI_LBEST_W512")) && atoi(e)) mode = 2;
-#endif
-    else mode = 0;
-    // announce once so a measurement run self-documents which kernel ran (and reveals a silent
-    // fallback to w256 when OAI_LBEST_W512=1 but AVX-512 was not a compile target).
-    fprintf(stderr, "### LBEST 2-layer width = %s\n",
-            mode == 1 ? "w128 (SSE->NEON)" : mode == 2 ? "w512 (AVX-512)" : "w256 (AVX2)");
-  }
-  return mode;
-}
-#endif
-
-void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag,
-                                          c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01,
-                                          uint32_t length, int pattern)
-{
-  // On aarch64 the 128-bit instantiation runs (SIMDe -> NEON, avoiding the inefficient 256->2x128
-  // cross-lane emulation). On x86 the 256-bit runs by default; OAI_LBEST_W512=1 opts into AVX-512
-  // (a win only on true-512-datapath server CPUs) and OAI_LBEST_W128=1 selects the NEON-equivalent
-  // path for x86 regression (all widths bit-exact -- see nr_lbest_simd_width_mode()).
 #if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
   nr_qam64_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
 #else
-  const int m = nr_lbest_simd_width_mode();
-  if (m == 1)      nr_qam64_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
-#ifdef NRLB_HAVE_W512
-  else if (m == 2) nr_qam64_llr_2layer_lbest_q15_simd_w512(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
-#endif
-  else             nr_qam64_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+  nr_qam64_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
 #endif
 }
 
-// 256QAM public entry (name unchanged for callers): pick the arch-native width.
-void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag,
-                                           c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01,
-                                           uint32_t length, int pattern)
+void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
+                                           c16_t *stream1_in,
+                                           c16_t *ch_mag,
+                                           c16_t *ch_mag_i,
+                                           int16_t *stream0_out,
+                                           c16_t *rho01,
+                                           uint32_t length,
+                                           int pattern)
 {
 #if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
   nr_qam256_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
 #else
-  const int m = nr_lbest_simd_width_mode();
-  if (m == 1)      nr_qam256_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
-#ifdef NRLB_HAVE_W512
-  else if (m == 2) nr_qam256_llr_2layer_lbest_q15_simd_w512(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
-#endif
-  else             nr_qam256_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+  nr_qam256_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
 #endif
 }
 
@@ -4014,57 +3873,13 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       // kernel (nr_qam64_llr_2layer_lbest_q15_simd16), which tracks full ML on 3GPP TDL at a fraction
       // of the cost (see nr_mimo_lbest_detector.md sec. 6a); otherwise the full ML search
       // (nr_qam64_llr_2layer).
-      // OAI_LBEST_PAT picks the candidate set (0=3x3 [default], 1=6-cand seed-aware, 2=5-plus).
-      {
-        static int pat = -1;
-        if (pat < 0) {
-          const char *ep = getenv("OAI_LBEST_PAT");
-          pat = ep ? atoi(ep) : 0;
-        }
-        if (lbest) {
-          nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat);
-          nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat);
-        } else {
-          nr_qam64_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
-          nr_qam64_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
-        }
-        // --- OAI_LBEST_DBG: verify the ACTIVE 64QAM kernel (layer 0) vs the FLOAT full-ML
-        // reference (nr_qam64_llr_2layer_lbest, L=64 == exact max-log search) on the SAME
-        // real inputs. Accumulates scale-invariant correctness (sign disagreement), magnitude,
-        // int16 saturation fraction, best-fit scale vs ref, and post-scale residual (distortion).
-        // Analysis-only (dlsim); single-threaded static counters. Set OAI_LBEST_DBG=1.
-        {
-          static int dbg = -1;
-          if (dbg < 0) { const char *e = getenv("OAI_LBEST_DBG"); dbg = e ? atoi(e) : 0; }
-          if (dbg) {
-            static long n = 0, sdis = 0, satN = 0, gtN = 0;
-            static double sAbsP = 0, sAbsR = 0, sPR = 0, sRR = 0, sPP = 0;
-            int16_t *ref = (int16_t *)malloc((size_t)nb_re * 6 * sizeof(int16_t));
-            nr_qam64_llr_2layer_lbest(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, ref, rho0, nb_re, 64, 0.0f);
-            for (uint32_t k = 0; k < nb_re * 6; k++) {
-              const int p = llr_layers0[k], r = ref[k];
-              const int ap = p < 0 ? -p : p, ar = r < 0 ? -r : r;
-              n++;
-              if ((long)p * r < 0) sdis++;
-              if (ap >= 30000) satN++;
-              if (ap >= 128) gtN++; // int8 clip point: LDPC narrows int16->int8 (packs, sat +-127)
-              sAbsP += ap; sAbsR += ar;
-              sPR += (double)p * r; sRR += (double)r * r; sPP += (double)p * p;
-            }
-            free(ref);
-            if (n >= 200000) {
-              const double a = sRR > 0 ? sPR / sRR : 0;                  // prod ~= a*ref
-              const double resid = sPP - 2 * a * sPR + a * a * sRR;      // sum (prod - a*ref)^2
-              fprintf(stderr,
-                      "### LBEST_DBG kernel=%s N=%ld signDisagree=%.3f%% meanAbs prod=%.0f ref=%.0f "
-                      "sat|.|>=30000=%.3f%% int8clip|.|>=128=%.3f%% fitScale=%.3f residFrac=%.3f\n",
-                      lbest ? "simd16" : "legacy_full", n, 100.0 * sdis / n,
-                      sAbsP / n, sAbsR / n, 100.0 * satN / n, 100.0 * gtN / n, a,
-                      sPP > 0 ? resid / sPP : 0);
-              n = sdis = satN = gtN = 0; sAbsP = sAbsR = sPR = sRR = sPP = 0;
-            }
-          }
-        }
+      if (lbest) {
+        // pattern 0: 3x3 candidate window
+        nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, 0);
+        nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, 0);
+      } else {
+        nr_qam64_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
+        nr_qam64_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
       }
       // 64QAM: the metric runs one bit hotter (nr_ml_llr_maxh_off(6, .) = -2 / -3) to keep int16 precision
       // in the search (cooler input costs ~1 dB ML / ~2 dB L-best at MCS 27); cool the LLRs back by
@@ -4075,60 +3890,11 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
     case 8:
       // 2-layer 256QAM. Default = reduced-search L-best with the 3x3/9-candidate pattern, which
       // matches the full 256-candidate max-log ML in coded BLER (verified on TDL-A, gNB + UE) at a
-      // ~28x candidate reduction. OAI_LBEST_PAT256 overrides the candidate set:
-      //   0 = 5x5/25, 1 = 3x3/9 [default], 2 = 5-plus/5 (degraded), 3 = full 16x16 ML.
+      // ~28x candidate reduction. ml runs the full 16x16 grid (pattern 3) = exact max-log ML.
       {
-        static int pat256_env = -1;
-        if (pat256_env < 0) {
-          const char *ep = getenv("OAI_LBEST_PAT256");
-          pat256_env = ep ? atoi(ep) : 1; // 3x3/9-candidate L-best is the default
-        }
-        const int pat256 = lbest ? pat256_env : 3; // pattern 3 = full 16x16 grid = exact max-log ML
+        const int pat256 = lbest ? 1 : 3;
         nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256);
         nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256);
-        // --- OAI_LBEST_DBG256: verify the ACTIVE 256QAM kernel (layer 0) vs the FLOAT full-ML
-        // reference (nr_qam256_llr_2layer_lbest, L=256 == exact max-log search) on the SAME
-        // real inputs. Accumulates scale-invariant correctness (sign disagreement), magnitude,
-        // int16 saturation fraction, best-fit scale vs ref, and post-scale residual (distortion).
-        // Analysis-only (dlsim); single-threaded static counters. Set OAI_LBEST_DBG256=1.
-        {
-          static int dbg256 = -1;
-          if (dbg256 < 0) { const char *e = getenv("OAI_LBEST_DBG256"); dbg256 = e ? atoi(e) : 0; }
-          if (dbg256) {
-            static long n = 0, sdis = 0, satN = 0, gtN = 0, pdis[8] = {0};
-            static double sAbsP = 0, sAbsR = 0, sPR = 0, sRR = 0, sPP = 0;
-            int16_t *ref = (int16_t *)malloc((size_t)nb_re * 8 * sizeof(int16_t));
-            nr_qam256_llr_2layer_lbest(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, ref, rho0, nb_re, 256, 0.0f);
-            for (uint32_t k = 0; k < nb_re * 8; k++) {
-              const int p = llr_layers0[k], r = ref[k];
-              const int ap = p < 0 ? -p : p, ar = r < 0 ? -r : r;
-              n++;
-              if ((long)p * r < 0) { sdis++; pdis[k & 7]++; } // k&7 = bit pos {I0,Q0,I1,Q1,I2,Q2,I3,Q3}
-              if (ap >= 30000) satN++;
-              if (ap >= 128) gtN++; // int8 clip point: LDPC narrows int16->int8 (packs, sat +-127)
-              sAbsP += ap; sAbsR += ar;
-              sPR += (double)p * r; sRR += (double)r * r; sPP += (double)p * p;
-            }
-            free(ref);
-            if (n >= 200000) {
-              const double a = sRR > 0 ? sPR / sRR : 0;
-              const double resid = sPP - 2 * a * sPR + a * a * sRR;
-              const double per = n / 8.0; // occurrences per bit position
-              fprintf(stderr,
-                      "### LBEST_DBG256 kernel=%s N=%ld signDisagree=%.3f%% meanAbs prod=%.0f ref=%.0f "
-                      "sat|.|>=30000=%.3f%% int8clip|.|>=128=%.3f%% fitScale=%.3f residFrac=%.3f\n"
-                      "###   per-bit signDisagree{I0,Q0,I1,Q1,I2,Q2,I3,Q3}= "
-                      "%.1f %.1f %.1f %.1f %.1f %.1f %.1f %.1f (%%)\n",
-                      "simd16_256", n, 100.0 * sdis / n,
-                      sAbsP / n, sAbsR / n, 100.0 * satN / n, 100.0 * gtN / n, a,
-                      sPP > 0 ? resid / sPP : 0,
-                      100.0 * pdis[0] / per, 100.0 * pdis[1] / per, 100.0 * pdis[2] / per, 100.0 * pdis[3] / per,
-                      100.0 * pdis[4] / per, 100.0 * pdis[5] / per, 100.0 * pdis[6] / per, 100.0 * pdis[7] / per);
-              n = sdis = satN = gtN = 0; sAbsP = sAbsR = sPR = sRR = sPP = 0;
-              for (int b = 0; b < 8; b++) pdis[b] = 0;
-            }
-          }
-        }
       }
       break;
     default:
