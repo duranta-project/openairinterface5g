@@ -231,7 +231,13 @@ endif()
 # clang: suppress complaints about unused command line argument (-rdynamic only
 # used during linking) and "const member leaves the object uninitialized"
 if(CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  set(commonOpts "${commonOpts} -Wno-unused-command-line-argument -Wno-default-const-init-field-unsafe")
+  set(commonOpts "${commonOpts} -Wno-unused-command-line-argument")
+  # added in clang 21; older clang warns about the unknown option on every file
+  include(CheckCCompilerFlag)
+  check_c_compiler_flag(-Wdefault-const-init-field-unsafe HAS_WDEFAULT_CONST_INIT_FIELD_UNSAFE)
+  if(HAS_WDEFAULT_CONST_INIT_FIELD_UNSAFE)
+    set(commonOpts "${commonOpts} -Wno-default-const-init-field-unsafe")
+  endif()
 endif()
 
 if (ENABLE_LDPC_CUDA)
