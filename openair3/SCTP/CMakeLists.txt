@@ -5,6 +5,7 @@ add_library(SCTP_CLIENT STATIC
   sctp_common.c
   sctp_eNB_task.c
   sctp_eNB_itti_messaging.c
+  oai_sctp.c
 )
 target_include_directories(SCTP_CLIENT PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(SCTP_CLIENT PRIVATE sctp::sctp)
