@@ -118,9 +118,11 @@ typedef struct {
   int start_prb;
   int filter_id;
   uint16_t beam_id; // section type 3 beamId: the PRACH beam for this stream (UL Rx beamforming)
+  oru_bfw_set_t bfw; // dynamic weights of this section
   fh_comp_method_t comp_method;
   uint8_t iq_width;
   bool served; // write_prach_iq() sent U-Plane for it
+  _Atomic(uint32_t) seq; // odd while the C-Plane thread rewrites the job, for get_prach_bfw_set()
 } prach_job_t;
 typedef struct {
   _Atomic(uint64_t) dl_tdd_mismatch;
@@ -835,6 +837,18 @@ static unsigned handle_ul_cplane_section(oru_packet_processor_context_t *ctx,
   return SECTION_ERR_TOO_SLOW;
 }
 
+// The C-Plane thread rewrites a PRACH job between these, so that get_prach_bfw_set() reads it whole from another thread
+static void prach_job_write_begin(prach_job_t *job)
+{
+  atomic_store_explicit(&job->seq, atomic_load_explicit(&job->seq, memory_order_relaxed) + 1, memory_order_relaxed);
+  atomic_thread_fence(memory_order_release);
+}
+
+static void prach_job_write_end(prach_job_t *job)
+{
+  atomic_store_explicit(&job->seq, atomic_load_explicit(&job->seq, memory_order_relaxed) + 1, memory_order_release);
+}
+
 // Registers PRACH section section_id of stream aarx starting at start_symbol. Jobs of an earlier slot are released
 // first. Sections starting at different symbols are TDM occasions, one job each. nr-oru extracts a single FDM occasion,
 // so a second section starting at the same symbol is unsupported. Returns NULL for such a section, a duplicate or a
@@ -853,7 +867,9 @@ static prach_job_t *add_prach_job(oru_packet_processor_context_t *ctx,
     if (job->active && job->start_absolute_symbol / NR_SYMBOLS_PER_SLOT != start_symbol / NR_SYMBOLS_PER_SLOT) {
       if (!job->served)
         ctx->stats.prach_sections_unserved++;
+      prach_job_write_begin(job);
       job->active = false;
+      prach_job_write_end(job);
     }
     if (!job->active) {
       if (free_job == NULL)
@@ -911,8 +927,8 @@ static prach_job_t *find_prach_job(oru_packet_processor_context_t *ctx, int slot
   return found;
 }
 
-// Registers one Type 3 section of a PRACH C-Plane message for stream aarx, starting at start_symbol. Returns the
-// SECTION_ERR_* flags of the section.
+// Registers one Type 3 section of a PRACH C-Plane message for stream aarx, starting at start_symbol, with its dynamic
+// weights. Returns the SECTION_ERR_* flags of the section.
 static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
                                   const struct xran_cp_radioapp_section3_header *hdr,
                                   const struct xran_cp_radioapp_section3 *section,
@@ -920,12 +936,14 @@ static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
                                   int aarx,
                                   uint64_t start_symbol,
                                   int num_prb,
+                                  const oru_bfw_set_t *bfw,
                                   oru_pcap_cplane_snap_t *snap)
 {
   unsigned errors = 0;
   prach_job_t *job = add_prach_job(ctx, slot_in_frame, aarx, start_symbol, section->hdr.u1.common.sectionId, &errors);
   if (job == NULL)
     return errors;
+  prach_job_write_begin(job);
   job->active = true;
   job->start_absolute_symbol = start_symbol;
   job->num_symbols = section->hdr.u.s3.numSymbol;
@@ -934,8 +952,10 @@ static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
   job->start_prb = section->hdr.u1.common.startPrbc;
   job->filter_id = hdr->cmnhdr.field.filterIndex;
   job->beam_id = section->hdr.u.s3.beamId;
+  job->bfw = *bfw;
   job->comp_method = (fh_comp_method_t)hdr->udComp.udCompMeth;
   job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
+  prach_job_write_end(job);
   RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
     LOG_A(HW, "PRACH JOB added slot_in_frame %d, aarx %d, target_absolute_symbol %lu\n", slot_in_frame, aarx, start_symbol);
   });
@@ -1019,7 +1039,8 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
     // Type 3 PRBs are in the SCS of frameStructure (O-RAN CUS 7.5.2.13), taken to be the carrier's: PRACH formats with
     // another SCS aren't supported. numPrbc 0 is then all carrier PRBs (7.5.3.6).
     const int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
-    // Validates ext1/ext11 formatting as for Type 1; weights are extracted in a later stage
+    // ext1/ext11 weights are stored as for Type 1
+    oru_bfw_set_t bfw;
     const uint8_t *next = parse_section_extensions(ctx,
                                                    sect + sizeof(*section),
                                                    end,
@@ -1027,13 +1048,13 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
                                                    section->hdr.u.s3.beamId,
                                                    section->hdr.u1.common.startPrbc,
                                                    num_prb,
-                                                   NULL);
+                                                   &bfw);
     const uint16_t section_id = section->hdr.u1.common.sectionId;
     if (section_id != SECTION_ID_UNCOUPLED && test_bit(cited, section_id)) {
       ctx->stats.cplane_section_repeated++;
     } else {
       set_bit(cited, section_id);
-      errors |= add_prach_section(ctx, hdr, section, slot_in_frame, aarx, target_absolute_symbol, num_prb, snap);
+      errors |= add_prach_section(ctx, hdr, section, slot_in_frame, aarx, target_absolute_symbol, num_prb, &bfw, snap);
     }
     // A malformed chain hides where the next section starts
     if (next == NULL)
@@ -1151,13 +1172,9 @@ static oru_bfw_set_t bfw_ext11_set(oru_packet_processor_context_t *ctx,
   return set;
 }
 
-// Decodes the weights of an ext1 of ext_len bytes and, if store is set, stores them for beam_id. Without configured
-// weights it only counts the ext1. Returns false if the weights don't decode.
-static bool parse_section_ext1(oru_packet_processor_context_t *ctx,
-                               uint16_t beam_id,
-                               const uint8_t *ext,
-                               size_t ext_len,
-                               bool store)
+// Decodes the weights of an ext1 of ext_len bytes and stores them for beam_id. Without configured weights it only counts
+// the ext1. Returns false if the weights don't decode.
+static bool parse_section_ext1(oru_packet_processor_context_t *ctx, uint16_t beam_id, const uint8_t *ext, size_t ext_len)
 {
   ctx->stats.cplane_ext1_received++;
   if (ctx->num_bfw_counts == 0)
@@ -1171,16 +1188,15 @@ static bool parse_section_ext1(oru_packet_processor_context_t *ctx,
       continue;
     if (err != XRAN_EXT_OK)
       return false;
-    if (store)
-      bfw_store(ctx, beam_id, weights, n);
+    bfw_store(ctx, beam_id, weights, n);
     return true;
   }
   return false;
 }
 
 // Decodes the beamIds and weights of an ext11 of ext_len bytes for a section of num_prb PRBs from start_prb and stores each
-// bundle's weights for its beamId; *bfw, if not NULL, gets the bundles. Without configured weights it only counts the
-// ext11. Returns false if the extension doesn't decode.
+// bundle's weights for its beamId; *bfw gets the bundles. Without configured weights it only counts the ext11. Returns
+// false if the extension doesn't decode.
 static bool parse_section_ext11(oru_packet_processor_context_t *ctx,
                                 int start_prb,
                                 const uint8_t *ext,
@@ -1209,8 +1225,7 @@ static bool parse_section_ext11(oru_packet_processor_context_t *ctx,
       continue;
     if (err != XRAN_EXT_OK)
       return false;
-    if (bfw)
-      *bfw = bfw_ext11_set(ctx, start_prb, &hdr, num_bundles, n);
+    *bfw = bfw_ext11_set(ctx, start_prb, &hdr, num_bundles, n);
     return true;
   }
   return false;
@@ -1219,8 +1234,7 @@ static bool parse_section_ext11(oru_packet_processor_context_t *ctx,
 // Walks the extension chain in [ext, end) of a section of num_prb PRBs from start_prb, with the given beamId and ef,
 // counting malformed ext1, ext11 and other extensions, and a chain that ends before an extension its ef promised. Returns
 // the end of the chain, or NULL at the first error, since the rest of the chain can't be located. A decoded ext11 sets
-// *bfw. Otherwise *bfw gets the weights stored for beam_id, by an ext1 of this section or an earlier one. With bfw NULL,
-// the weights are only decoded.
+// *bfw. Otherwise *bfw gets the weights stored for beam_id, by an ext1 of this section or an earlier one.
 static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *ctx,
                                                const uint8_t *ext,
                                                const uint8_t *end,
@@ -1230,8 +1244,7 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
                                                int num_prb,
                                                oru_bfw_set_t *bfw)
 {
-  if (bfw)
-    *bfw = (oru_bfw_set_t){0};
+  *bfw = (oru_bfw_set_t){0};
 
   // Walk the extension chain until ef is 0
   while (ef) {
@@ -1252,7 +1265,7 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
     bool valid = true;
     switch (ext_type) {
       case XRAN_CP_SECTIONEXTCMD_1:
-        valid = parse_section_ext1(ctx, beam_id, ext, ext_len, bfw != NULL);
+        valid = parse_section_ext1(ctx, beam_id, ext, ext_len);
         break;
       case XRAN_CP_SECTIONEXTCMD_11:
         valid = parse_section_ext11(ctx, start_prb, ext, ext_len, num_prb, bfw);
@@ -1267,7 +1280,7 @@ static const uint8_t *parse_section_extensions(oru_packet_processor_context_t *c
     }
     ext += ext_len;
   }
-  if (bfw && bfw->num_bundles == 0 && ctx->num_bfw_counts > 0)
+  if (bfw->num_bundles == 0 && ctx->num_bfw_counts > 0)
     *bfw = bfw_section_set(ctx, start_prb, num_prb, bfw_lookup(ctx, beam_id));
   return ext;
 }
@@ -1689,15 +1702,38 @@ static uint64_t prach_target_symbol(const oru_packet_processor_context_t *ctx, i
 
 int get_prach_beam_id(void *context, int slot_in_frame, int aarx, int symbol)
 {
+  oru_bfw_set_t bfw;
+  return get_prach_bfw_set(context, slot_in_frame, aarx, symbol, &bfw);
+}
+
+int get_prach_bfw_set(void *context, int slot_in_frame, int aarx, int symbol, oru_bfw_set_t *bfw)
+{
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
+  *bfw = (oru_bfw_set_t){0};
   if (ctx == NULL || slot_in_frame < 0 || slot_in_frame >= MAX_SLOTS_PER_FRAME || aarx < 0 || aarx >= MAX_ANTENNAS)
     return -1;
   const uint64_t target_absolute_symbol = prach_target_symbol(ctx, slot_in_frame, symbol);
-  const prach_job_t *job = find_prach_job(ctx, slot_in_frame, aarx, target_absolute_symbol);
-  if (job == NULL || target_absolute_symbol < job->start_absolute_symbol
-      || target_absolute_symbol >= job->start_absolute_symbol + job->num_symbols)
-    return -1;
-  return job->beam_id;
+  for (int i = 0; i < MAX_PRACH_JOBS; i++) {
+    prach_job_t *job = &ctx->prach_jobs[slot_in_frame][aarx][i];
+    uint32_t seq;
+    bool match;
+    uint16_t beam_id;
+    oru_bfw_set_t set;
+    // Retry while the C-Plane thread rewrites the job
+    do {
+      seq = atomic_load_explicit(&job->seq, memory_order_acquire);
+      match = job->active && target_absolute_symbol >= job->start_absolute_symbol
+              && target_absolute_symbol < job->start_absolute_symbol + job->num_symbols;
+      beam_id = job->beam_id;
+      set = job->bfw;
+      atomic_thread_fence(memory_order_acquire);
+    } while ((seq & 1) || atomic_load_explicit(&job->seq, memory_order_relaxed) != seq);
+    if (match) {
+      *bfw = set;
+      return beam_id;
+    }
+  }
+  return -1;
 }
 
 int get_bf_weights(void *context, const oru_bfw_set_t *set, int bundle, uint16_t *beam_id, c16_t *weights)
