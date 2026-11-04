@@ -71,7 +71,7 @@ TEST(test_pucch_power_state, test_accumulated_delta_pucch)
   mac.current_UL_BWP->pucch_ConfigCommon = &pucch_ConfigCommon;
   mac.nr_band = 20;
   NR_PUCCH_Config_t pucch_Config = {0};
-  struct NR_PUCCH_PowerControl power_config;
+  struct NR_PUCCH_PowerControl power_config = {0};
   pucch_Config.pucch_PowerControl = &power_config;
   mac.G_b_f_c = 0;
   mac.pucch_power_control_initialized = true;
