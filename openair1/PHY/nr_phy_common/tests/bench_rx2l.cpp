@@ -30,14 +30,14 @@ uint8_t nr_compute_MMSE_llr(c16_t **, uint32_t, uint32_t, int, int, c16_t *, c16
 #include <random>
 
 // Per-slot (12 data symbols) cost of the 2-layer PUSCH LLR stage, from the matched-filter output
-// on: ML / L-best = nr_compute_ML_llr (OAI_LBEST=0/1, separate processes: the gate is a static),
-// MMSE = nr_compute_MMSE_llr (Gram-fed 2x2 equalization + scalar LLR). Both consume the same
-// rxdataF_comp/ch_mag/rho that channel compensation produces. usage: bench_rx2l ml|mmse [Qm]
+// on: ML / L-best = nr_compute_ML_llr (full search / reduced search), MMSE = nr_compute_MMSE_llr
+// (Gram-fed 2x2 equalization + scalar LLR). All consume the same rxdataF_comp/ch_mag/rho that channel
+// compensation produces. usage: bench_rx2l ml|lbest|mmse [Qm]
 int main(int argc, char **argv)
 {
   logInit();
   const bool mmse = argc > 1 && !strcmp(argv[1], "mmse");
-  const char *e = getenv("OAI_LBEST");
+  const bool lbest = argc > 1 && !strcmp(argv[1], "lbest");
   const int qm = argc > 2 ? atoi(argv[2]) : 6, nsym = 12, iters = 300;
   for (uint32_t nb_re : {1272u, 3276u}) {
     const uint32_t B = (nb_re + 64 + 15) & ~15u; // layer-1 slices (base + B) must stay 64-byte aligned
@@ -68,14 +68,14 @@ int main(int argc, char **argv)
           nr_compute_MMSE_llr(comp, B, B, 4, 2, mag.data(), magb.data(), magc.data(), chF.data(), nb_re / 12, qm, 12, 0,
                               nb_re, 100, r00.data(), r01.data(), r10.data(), r11.data(), llr);
         else
-          nr_compute_ML_llr(w0.data(), w1.data(), mag.data(), mag.data() + B, llr[0], llr[1], r01.data(), r10.data(), nb_re, qm, e && atoi(e));
+          nr_compute_ML_llr(w0.data(), w1.data(), mag.data(), mag.data() + B, llr[0], llr[1], r01.data(), r10.data(), nb_re, qm, lbest);
         auto b = std::chrono::steady_clock::now();
         us += std::chrono::duration<double, std::micro>(b - a).count();
       }
       t.push_back(us);
     }
     std::sort(t.begin(), t.end());
-    printf("%-7s Qm=%d nb_re=%5u  median %8.1f us/slot  min %8.1f\n", mmse ? "MMSE" : (e && atoi(e) ? "L-best" : "ML"), qm, nb_re,
+    printf("%-7s Qm=%d nb_re=%5u  median %8.1f us/slot  min %8.1f\n", mmse ? "MMSE" : (lbest ? "L-best" : "ML"), qm, nb_re,
            t[t.size() / 2], t[0]);
   }
   return 0;

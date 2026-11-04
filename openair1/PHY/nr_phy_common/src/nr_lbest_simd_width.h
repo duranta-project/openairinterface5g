@@ -1,8 +1,8 @@
 /*
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  *
- * Width abstraction for the 2-layer L-best SIMD kernels. Included once per width
- * (define NRLB_W = 128, 256 or 512 before including). Provides:
+ * Width abstraction for the 2-layer L-best SIMD kernels. Included by nr_lbest_simd.c, which
+ * the build compiles once per width (NRLB_W = 128, 256 or 512). Provides:
  *   NRLB_VI / NRLB_VF   : int16 / float vector types for this width
  *   NRLB_N              : int16 lanes (8 for 128, 16 for 256)
  *   NRLB_MM(op)         : the width's simde intrinsic prefix, e.g. NRLB_MM(mulhi_epi16)
@@ -12,7 +12,6 @@
  * The core kernel/slicer/seed use only NRLB_MM(...) + these helpers, so one source
  * compiles to AVX2 (256), SSE->NEON (128), and later AVX-512 (512).
  */
-// (no include guard: this header is intentionally re-included per width)
 
 #undef NRLB_VI
 #undef NRLB_VF
