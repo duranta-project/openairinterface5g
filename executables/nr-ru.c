@@ -581,7 +581,7 @@ int setup_RU_buffers(RU_t *ru)
  * @param frame_rx the frame to wait for
  * @param slot_rx the slot to wait for
  */
-static bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_SLOT_DEPTH], int frame_rx, int slot_rx)
+bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_SLOT_DEPTH], int frame_rx, int slot_rx)
 {
   int idx = slot_rx % RU_RX_SLOT_DEPTH;
   if (rx_tti_busy[idx]) {

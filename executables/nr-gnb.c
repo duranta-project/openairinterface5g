@@ -498,6 +498,11 @@ void term_gNB_Tpool(int inst) {
   pthread_join(gNB->L1_rx_thread, NULL);
   abortNotifiedFIFO(&gNB->L1_tx_out);
   pthread_join(gNB->L1_tx_thread, NULL);
+  // after the L1 RX thread (its producer), before split7_thread, which may block in wait_free_rx_tti()
+  abortNotifiedFIFO(&gNB->L1_rx_out);
+
+  // the stats thread reads fhi72_transport->s7cfg
+  pthread_join(gNB->proc.L1_stats_thread, NULL);
 
   if (gNB->fhi72_transport) {
     pthread_join(gNB->fhi72_transport->pthread, NULL);
@@ -506,10 +511,6 @@ void term_gNB_Tpool(int inst) {
   }
 
   abortTpool(&gNB->threadPool);
-  abortNotifiedFIFO(&gNB->L1_rx_out);
-
-  gNB_L1_proc_t *proc = &gNB->proc;
-  pthread_join(proc->L1_stats_thread, NULL);
 }
 
 /// eNB kept in function name for nffapi calls, TO FIX

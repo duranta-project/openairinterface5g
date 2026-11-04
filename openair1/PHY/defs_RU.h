@@ -601,6 +601,7 @@ typedef struct RU_t_s {
 /* defined in executables/nr-ru.c */
 void ru_rx_slot(RU_t *ru, struct PHY_VARS_gNB_s *gNB, int frame_rx, int slot_rx);
 void ru_push_tx_job(struct PHY_VARS_gNB_s *gNB, int frame_tx, int slot_tx, int frame_rx, int slot_rx, uint64_t timestamp_tx);
+bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_SLOT_DEPTH], int frame_rx, int slot_rx);
 
 
 typedef enum {

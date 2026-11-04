@@ -426,6 +426,8 @@ static void *split7_thread(void *param)
   } while (!oai_exit && w.tti != 0);
   LOG_I(HW, "SFN wrap: starting UL/DL processing\n");
 
+  // rxdataF slots still being read by L1 (rx_func() releases them through L1_rx_out)
+  bool rx_tti_busy[RU_RX_SLOT_DEPTH] = {false};
   while (!oai_exit) {
     oai_xran_slot_t s;
     oai_xran_wait_slot(&s);
@@ -438,6 +440,8 @@ static void *split7_thread(void *param)
     LOG_D(HW, "Processing tti[%d] = frame[%d].slot[%d]\n", s.tti, frame, slot);
 
     if (s7cfg->slot_dir[slot] == NR_UPLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
+      if (!wait_free_rx_tti(&gNB->L1_rx_out, rx_tti_busy, frame, slot))
+        break; // L1_rx_out aborted: stopping
       start_meas(&s7cfg->ul_up);
       process_ul_data(s.tti, frame, slot, gNB, eth->fh_init, eth->fh_config, s7cfg);
       stop_meas(&s7cfg->ul_up);
