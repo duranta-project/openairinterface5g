@@ -873,14 +873,16 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     }
     // Output shift: half channel energy (log2|h|^2/2) + MRC antenna gain.
     // Single-layer adds +1 guard bit (raw peak); multi-layer uses median so no guard needed.
-    // ML branch offset is mod-order-dependent (nr_ml_llr_maxh_off) so the near-ML LLRs don't
-    // saturate at low mod orders; OAI_ML_MAXH_OFF overrides it for the hotness sweep.
+    // 2-layer ML / L-best: the input level is capped (nr_2layer_log2_maxh) so a hot input cannot
+    // overflow the quadratic metrics, and the offset is mod-order-dependent (nr_ml_llr_maxh_off) so
+    // the near-ML LLRs don't saturate at low mod orders. The linear MMSE (nr_dlsch_mmse) normalizes
+    // in its matrix inverse and loses precision with the cap, so it keeps the plain level.
     if (nl == 1)
       *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
     else if (!do_ml)
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
     else
-      *log2_maxh = (log2_approx(avgs) >> 1) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder, lbest_gate)
+      *log2_maxh = nr_2layer_log2_maxh(avgs) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder, lbest_gate)
                    + log2_approx(nbRx >> 1);
     LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
