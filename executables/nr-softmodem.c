@@ -584,18 +584,6 @@ int main( int argc, char **argv ) {
   // start the main threads
 
   wait_gNBs();
-  int sl_ahead = NFAPI_MODE == NFAPI_MODE_AERIAL ? 0 : 6;
-  if (RC.nb_RU >0) {
-    init_NR_RU(uniqCfg, get_softmodem_params()->rf_config_file);
-
-    for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
-      RC.ru[ru_id]->rf_map.card=0;
-      RC.ru[ru_id]->rf_map.chain = CC_id;
-      if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;	
-      else AssertFatal(RC.ru[ru_id]->sl_ahead != RC.ru[0]->sl_ahead,"RU %d has different sl_ahead %d than RU 0 %d\n",ru_id,RC.ru[ru_id]->sl_ahead,RC.ru[0]->sl_ahead);
-    }
-    
-  }
 
   if (NFAPI_MODE != NFAPI_MODE_PNF)
     config_sync_var = 0;
@@ -615,9 +603,22 @@ int main( int argc, char **argv ) {
 
 #endif // E2_AGENT
 
-  // wait for F1 Setup Response before starting L1 for real
+  // wait F1 Setup Response before starting radio
+  // especially important when using 7.2 M-plane (carriers should not be activated before DU initialized the cell)
   if (NFAPI_MODE != NFAPI_MODE_PNF && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)))
     wait_f1_setup_response();
+
+  int sl_ahead = NFAPI_MODE == NFAPI_MODE_AERIAL ? 0 : 6;
+  if (RC.nb_RU >0) {
+    init_NR_RU(uniqCfg, get_softmodem_params()->rf_config_file);
+
+    for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
+      RC.ru[ru_id]->rf_map.card=0;
+      RC.ru[ru_id]->rf_map.chain = CC_id;
+      if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;
+      else AssertFatal(RC.ru[ru_id]->sl_ahead != RC.ru[0]->sl_ahead,"RU %d has different sl_ahead %d than RU 0 %d\n",ru_id,RC.ru[ru_id]->sl_ahead,RC.ru[0]->sl_ahead);
+    }
+  }
 
   if (NFAPI_MODE == NFAPI_MODE_PNF)
     config_sync_var = 0;
