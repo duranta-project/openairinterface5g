@@ -2851,6 +2851,15 @@ static nfapi_nr_ue_csi_payload_t get_ssb_sinr_payload(NR_UE_MAC_INST_t *mac,
       } else
         nb_meas = 2;
 
+      if (csi_resourceconfig->csi_RS_ResourceSetList.present != NR_CSI_ResourceConfig__csi_RS_ResourceSetList_PR_nzp_CSI_RS_SSB
+          || !csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB
+          || !csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->csi_SSB_ResourceSetList
+          || csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->csi_SSB_ResourceSetList->list.count == 0
+          || !csi_MeasConfig->csi_SSB_ResourceSetToAddModList) {
+        LOG_E(MAC, "Invalid CSI-ResourceConfig or missing csi_SSB_ResourceSetList\n");
+        break;
+      }
+
       const struct NR_CSI_SSB_ResourceSet__csi_SSB_ResourceList *SSB_resource = NULL;
       for (int csi_ssb_idx = 0; csi_ssb_idx < csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.count; csi_ssb_idx++) {
         if (csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.array[csi_ssb_idx]->csi_SSB_ResourceSetId
@@ -2950,6 +2959,15 @@ static nfapi_nr_ue_csi_payload_t get_ssb_rsrp_payload(NR_UE_MAC_INST_t *mac,
           nb_meas = 1;
       } else
         nb_meas = 2;
+
+      if (csi_resourceconfig->csi_RS_ResourceSetList.present != NR_CSI_ResourceConfig__csi_RS_ResourceSetList_PR_nzp_CSI_RS_SSB
+          || !csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB
+          || !csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->csi_SSB_ResourceSetList
+          || csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->csi_SSB_ResourceSetList->list.count == 0
+          || !csi_MeasConfig->csi_SSB_ResourceSetToAddModList) {
+        LOG_E(MAC, "Invalid CSI-ResourceConfig or missing csi_SSB_ResourceSetList\n");
+        break;
+      }
 
       const struct NR_CSI_SSB_ResourceSet__csi_SSB_ResourceList *SSB_resource = NULL;
       for (int csi_ssb_idx = 0; csi_ssb_idx < csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.count; csi_ssb_idx++) {
@@ -3063,6 +3081,13 @@ static nfapi_nr_ue_csi_payload_t get_csirs_RI_PMI_CQI_payload(NR_UE_MAC_INST_t *
     if (csi_resourceconfig->csi_ResourceConfigId != csi_ResourceConfigId)
       continue;
 
+    if (csi_resourceconfig->csi_RS_ResourceSetList.present != NR_CSI_ResourceConfig__csi_RS_ResourceSetList_PR_nzp_CSI_RS_SSB
+        || !csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB
+        || !csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList
+        || csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList->list.count == 0
+        || !csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList)
+      continue;
+
     for (int csi_idx = 0; csi_idx < csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.count; csi_idx++) {
       if (csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.array[csi_idx]->nzp_CSI_ResourceSetId
           != *(csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList->list.array[0]))
@@ -3149,6 +3174,13 @@ static nfapi_nr_ue_csi_payload_t get_csirs_RSRP_payload(NR_UE_MAC_INST_t *mac,
 
     struct NR_CSI_ResourceConfig *csi_resourceconfig = csi_MeasConfig->csi_ResourceConfigToAddModList->list.array[csi_resourceidx];
     if (csi_resourceconfig->csi_ResourceConfigId == csi_ResourceConfigId) {
+
+      if (csi_resourceconfig->csi_RS_ResourceSetList.present != NR_CSI_ResourceConfig__csi_RS_ResourceSetList_PR_nzp_CSI_RS_SSB
+          || !csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB
+          || !csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList
+          || csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList->list.count == 0
+          || !csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList)
+        break;
 
       for (int csi_idx = 0; csi_idx < csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.count; csi_idx++) {
         if (csi_MeasConfig->nzp_CSI_RS_ResourceSetToAddModList->list.array[csi_idx]->nzp_CSI_ResourceSetId ==
