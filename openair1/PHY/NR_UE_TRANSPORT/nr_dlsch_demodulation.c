@@ -725,15 +725,10 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   __attribute__((aligned(64))) c16_t dl_ch_estimates_ext[matrixSz][rx_size_symbol];
 
   // ml: joint ML LLR for 2-layer QPSK/16QAM/64QAM. lbest additionally covers 2-layer 256QAM
-  // (otherwise MMSE + single-layer LLR) and 3 layers. MMSE (default) for everything else.
+  // (otherwise MMSE + single-layer LLR). MMSE (default) for everything else, including 3-4 layers.
   const bool do_ml = ue->pdsch_mimo_rx != NR_PDSCH_RX_MMSE;
   const bool lbest_gate = ue->pdsch_mimo_rx == NR_PDSCH_RX_LBEST;
   const bool ml256 = lbest_gate;
-  // 3-layer detector selection mirrors the 2-layer path: MMSE is the default (fast linear,
-  // works for all modulations), and the hybrid ML detector (Schur-deflate one nuisance, keep
-  // the other discrete, 2-layer conditional-slice LLR) is opt-in via the lbest receiver.
-  // The hybrid covers QPSK/16/64/256QAM. (4-layer: MMSE only for now; hybrid is a later effort.)
-  const bool ml3 = lbest_gate && nl == 3;
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
@@ -1055,42 +1050,16 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     /* Multi-layer: LLR into per-layer temp buffers, then demapped into output. */
     __attribute__((aligned(32))) int16_t sym_llr[nl][llr_per_symbol];
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    if (ml3) {
-      // 3-layer hybrid ML (gated, float reference). For each target layer t, project the
-      // most-orthogonal nuisance + Schur-deflate, then 2-layer conditional-slice on the kept
-      // pair. rho_dl is [nl*nl][rx]: rho[i][j] at index i*nl+j (= h_i^H h_j).
-      // OAI_LBEST3=2 -> exact full-ML reference instead of the hybrid; OAI_LBEST_L3 -> L.
-      static int mode3 = -1, L3 = 256;
-      if (mode3 < 0) {
-        const char *e = getenv("OAI_LBEST3"); mode3 = e ? atoi(e) : 1;
-        const char *el = getenv("OAI_LBEST_L3"); L3 = el ? atoi(el) : 256;
-      }
-      for (int t = 0; t < 3; t++) {
-        const int n1 = (t + 1) % 3, n2 = (t + 2) % 3;
-        c16_t *r_tn1 = rho_dl[t * nl + n1];
-        c16_t *r_tn2 = rho_dl[t * nl + n2];
-        c16_t *r_n1n2 = rho_dl[n1 * nl + n2];
-        if (mode3 == 2)
-          nr_qam_llr_3layer_ml(rxdataF_comp[t], rxdataF_comp[n1], rxdataF_comp[n2],
-                               dl_ch_mag[t], dl_ch_mag[n1], dl_ch_mag[n2],
-                               r_tn1, r_tn2, r_n1n2, sym_llr[t], nb_re_pdsch, qamModOrder);
-        else
-          nr_qam_llr_3layer_hybrid(rxdataF_comp[t], rxdataF_comp[n1], rxdataF_comp[n2],
-                                   dl_ch_mag[t], dl_ch_mag[n1], dl_ch_mag[n2],
-                                   r_tn1, r_tn2, r_n1n2, sym_llr[t], nb_re_pdsch, qamModOrder, L3, 0.0f);
-      }
-    } else {
-      nr_dlsch_llr(dlsch,
-                   nb_re_pdsch,
-                   pdsch_buf_size_max,
-                   dl_ch_mag[0],
-                   dl_ch_magb[0],
-                   dl_ch_magr[0],
-                   nbRx,
-                   rxdataF_comp,
-                   llr_per_symbol,
-                   sym_llr);
-    }
+    nr_dlsch_llr(dlsch,
+                 nb_re_pdsch,
+                 pdsch_buf_size_max,
+                 dl_ch_mag[0],
+                 dl_ch_magb[0],
+                 dl_ch_magr[0],
+                 nbRx,
+                 rxdataF_comp,
+                 llr_per_symbol,
+                 sym_llr);
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
 
     int16_t *p_symllr[nl];
