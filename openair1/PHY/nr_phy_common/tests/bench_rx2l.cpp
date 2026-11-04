@@ -23,8 +23,26 @@ void exit_function(const char *file, const char *function, const int line, const
 void nr_qam64_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_compute_ML_llr(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, c16_t *, c16_t *, uint32_t, uint8_t, int);
-uint8_t nr_compute_MMSE_llr(c16_t **, uint32_t, uint32_t, int, int, c16_t *, c16_t *, c16_t *, c16_t *, unsigned short,
-                            unsigned char, int, unsigned char, int, uint32_t, c16_t *, c16_t *, c16_t *, c16_t *, int16_t **);
+uint8_t nr_compute_MMSE_llr(c16_t **,
+                            uint32_t,
+                            uint32_t,
+                            int,
+                            int,
+                            c16_t *,
+                            c16_t *,
+                            c16_t *,
+                            c16_t *,
+                            unsigned short,
+                            unsigned char,
+                            int,
+                            unsigned char,
+                            int,
+                            uint32_t,
+                            c16_t *,
+                            c16_t *,
+                            c16_t *,
+                            c16_t *,
+                            int16_t **);
 }
 #include "openair1/PHY/TOOLS/phy_test_tools.hpp"
 #include <random>
@@ -65,18 +83,50 @@ int main(int argc, char **argv)
         c16_t *comp[2] = {w0.data(), w1.data()};
         auto a = std::chrono::steady_clock::now();
         if (mmse)
-          nr_compute_MMSE_llr(comp, B, B, 4, 2, mag.data(), magb.data(), magc.data(), chF.data(), nb_re / 12, qm, 12, 0,
-                              nb_re, 100, r00.data(), r01.data(), r10.data(), r11.data(), llr);
+          nr_compute_MMSE_llr(comp,
+                              B,
+                              B,
+                              4,
+                              2,
+                              mag.data(),
+                              magb.data(),
+                              magc.data(),
+                              chF.data(),
+                              nb_re / 12,
+                              qm,
+                              12,
+                              0,
+                              nb_re,
+                              100,
+                              r00.data(),
+                              r01.data(),
+                              r10.data(),
+                              r11.data(),
+                              llr);
         else
-          nr_compute_ML_llr(w0.data(), w1.data(), mag.data(), mag.data() + B, llr[0], llr[1], r01.data(), r10.data(), nb_re, qm, lbest);
+          nr_compute_ML_llr(w0.data(),
+                            w1.data(),
+                            mag.data(),
+                            mag.data() + B,
+                            llr[0],
+                            llr[1],
+                            r01.data(),
+                            r10.data(),
+                            nb_re,
+                            qm,
+                            lbest);
         auto b = std::chrono::steady_clock::now();
         us += std::chrono::duration<double, std::micro>(b - a).count();
       }
       t.push_back(us);
     }
     std::sort(t.begin(), t.end());
-    printf("%-7s Qm=%d nb_re=%5u  median %8.1f us/slot  min %8.1f\n", mmse ? "MMSE" : (lbest ? "L-best" : "ML"), qm, nb_re,
-           t[t.size() / 2], t[0]);
+    printf("%-7s Qm=%d nb_re=%5u  median %8.1f us/slot  min %8.1f\n",
+           mmse ? "MMSE" : (lbest ? "L-best" : "ML"),
+           qm,
+           nb_re,
+           t[t.size() / 2],
+           t[0]);
   }
   return 0;
 }

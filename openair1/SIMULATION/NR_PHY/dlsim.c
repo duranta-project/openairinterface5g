@@ -651,7 +651,9 @@ int main(int argc, char **argv)
       printf("-b Number of PRB for PDSCH\n");
       printf("-d number of dlsch threads, 0: no dlsch parallelization\n");
       printf("-e MSC index\n");
-      printf("-E <mmse|ml|lbest> multi-layer PDSCH receiver: mmse (default), ml (2-layer QPSK..64QAM), lbest (2-layer up to 256QAM, 3-layer)\n");
+      printf(
+          "-E <mmse|ml|lbest> multi-layer PDSCH receiver: mmse (default), ml (2-layer QPSK..64QAM), lbest (2-layer up to 256QAM, "
+          "3-layer)\n");
       printf("-f <flag> Enable optional feature flag. Available flags:\n");
 #ifdef CHANNEL_SIM_CUDA
       printf("          cuda    Enable CUDA channel simulation\n");

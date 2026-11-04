@@ -260,8 +260,7 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                         pusch_vars->ul_valid_re_per_slot[symbol],
                         rel15_ul->qam_mod_order,
                         gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST);
-    }
-    else {
+    } else {
       // Fused Gram-fed 2-layer MMSE + scalar LLR (L=1). Replaces {nr_mmse_2layers + scalar loop}.
       nr_compute_MMSE_llr(pusch_vars->rxdataF_comp,
                           buffer_length,
@@ -278,7 +277,10 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                           symbol,
                           pusch_vars->ul_valid_re_per_slot[symbol],
                           nvar,
-                          rho[0][0], rho[0][1], rho[1][0], rho[1][1],
+                          rho[0][0],
+                          rho[0][1],
+                          rho[1][0],
+                          rho[1][1],
                           llr);
     }
   }

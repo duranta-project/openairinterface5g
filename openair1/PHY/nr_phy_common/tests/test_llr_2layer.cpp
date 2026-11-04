@@ -66,13 +66,17 @@ Inputs2L gen_inputs(uint32_t nb_re, unsigned seed)
   std::uniform_int_distribution<int> sig(-16000, 16000), pos(3000, 16000), rh(-9000, 9000);
   const uint32_t N = nb_re + 64; // pad against the widest (w512, 32-RE) block load
   Inputs2L in;
-  in.s0.resize(N); in.s1.resize(N); in.mag.resize(N); in.magi.resize(N); in.rho.resize(N);
+  in.s0.resize(N);
+  in.s1.resize(N);
+  in.mag.resize(N);
+  in.magi.resize(N);
+  in.rho.resize(N);
   for (uint32_t i = 0; i < N; i++) {
     in.s0[i] = {(int16_t)sig(rng), (int16_t)sig(rng)};
     in.s1[i] = {(int16_t)sig(rng), (int16_t)sig(rng)};
     const int16_t p0 = (int16_t)pos(rng), p1 = (int16_t)pos(rng);
-    in.mag[i] = {p0, p0};   // ch_mag: real part is the used magnitude (Pp0), replicated
-    in.magi[i] = {p1, p1};  // ch_mag_i: interferer magnitude (Pp1)
+    in.mag[i] = {p0, p0}; // ch_mag: real part is the used magnitude (Pp0), replicated
+    in.magi[i] = {p1, p1}; // ch_mag_i: interferer magnitude (Pp1)
     in.rho[i] = {(int16_t)rh(rng), (int16_t)rh(rng)};
   }
   return in;
@@ -89,19 +93,23 @@ Inputs2L gen_inputs(uint32_t nb_re, unsigned seed)
 Inputs2L gen_clean_inputs(uint32_t nb_re, unsigned seed, int maxlvl, int step)
 {
   std::mt19937 rng(seed);
-  std::uniform_int_distribution<int> lvlIdx(0, maxlvl / 2);   // 0..(N/2-1) -> odd levels 1,3,..,maxlvl
+  std::uniform_int_distribution<int> lvlIdx(0, maxlvl / 2); // 0..(N/2-1) -> odd levels 1,3,..,maxlvl
   std::uniform_int_distribution<int> noise(-180, 180), sgn(0, 1);
   const int16_t P = 8192;
   auto level = [&]() { return (2 * lvlIdx(rng) + 1) * (sgn(rng) ? 1 : -1); };
   const uint32_t N = nb_re + 64;
   Inputs2L in;
-  in.s0.resize(N); in.s1.resize(N); in.mag.resize(N); in.magi.resize(N); in.rho.resize(N);
+  in.s0.resize(N);
+  in.s1.resize(N);
+  in.mag.resize(N);
+  in.magi.resize(N);
+  in.rho.resize(N);
   for (uint32_t i = 0; i < N; i++) {
     in.s0[i] = {(int16_t)(step * level() + noise(rng)), (int16_t)(step * level() + noise(rng))};
     in.s1[i] = {(int16_t)(step * level() + noise(rng)), (int16_t)(step * level() + noise(rng))};
     in.mag[i] = {P, P};
     in.magi[i] = {P, P};
-    in.rho[i] = {(int16_t)noise(rng), (int16_t)noise(rng)};  // low correlation
+    in.rho[i] = {(int16_t)noise(rng), (int16_t)noise(rng)}; // low correlation
   }
   return in;
 }
@@ -137,13 +145,36 @@ void width_equiv_64qam(uint32_t nb_re, int pattern)
   auto in = gen_inputs(nb_re, 0x64ull + nb_re * 131 + pattern);
   const size_t nll = (size_t)nb_re * 6;
   AlignedVector512<int16_t> o128(nll + 64, 0), o256(nll + 64, 0);
-  nr_qam64_llr_2layer_lbest_q15_simd_w128(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o128.data(), in.rho.data(), nb_re, pattern);
-  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o256.data(), in.rho.data(), nb_re, pattern);
-  EXPECT_EQ(0, memcmp(o128.data(), o256.data(), nll * sizeof(int16_t))) << "w128 != w256 (64QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
+  nr_qam64_llr_2layer_lbest_q15_simd_w128(in.s0.data(),
+                                          in.s1.data(),
+                                          in.mag.data(),
+                                          in.magi.data(),
+                                          o128.data(),
+                                          in.rho.data(),
+                                          nb_re,
+                                          pattern);
+  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
+                                          in.s1.data(),
+                                          in.mag.data(),
+                                          in.magi.data(),
+                                          o256.data(),
+                                          in.rho.data(),
+                                          nb_re,
+                                          pattern);
+  EXPECT_EQ(0, memcmp(o128.data(), o256.data(), nll * sizeof(int16_t)))
+      << "w128 != w256 (64QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
 #ifdef NRLB_TEST_HAVE_W512
   AlignedVector512<int16_t> o512(nll + 64, 0);
-  nr_qam64_llr_2layer_lbest_q15_simd_w512(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o512.data(), in.rho.data(), nb_re, pattern);
-  EXPECT_EQ(0, memcmp(o128.data(), o512.data(), nll * sizeof(int16_t))) << "w128 != w512 (64QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
+  nr_qam64_llr_2layer_lbest_q15_simd_w512(in.s0.data(),
+                                          in.s1.data(),
+                                          in.mag.data(),
+                                          in.magi.data(),
+                                          o512.data(),
+                                          in.rho.data(),
+                                          nb_re,
+                                          pattern);
+  EXPECT_EQ(0, memcmp(o128.data(), o512.data(), nll * sizeof(int16_t)))
+      << "w128 != w512 (64QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
 #endif
 }
 
@@ -152,13 +183,36 @@ void width_equiv_256qam(uint32_t nb_re, int pattern)
   auto in = gen_inputs(nb_re, 0x256ull + nb_re * 131 + pattern);
   const size_t nll = (size_t)nb_re * 8;
   AlignedVector512<int16_t> o128(nll + 64, 0), o256(nll + 64, 0);
-  nr_qam256_llr_2layer_lbest_q15_simd_w128(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o128.data(), in.rho.data(), nb_re, pattern);
-  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o256.data(), in.rho.data(), nb_re, pattern);
-  EXPECT_EQ(0, memcmp(o128.data(), o256.data(), nll * sizeof(int16_t))) << "w128 != w256 (256QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
+  nr_qam256_llr_2layer_lbest_q15_simd_w128(in.s0.data(),
+                                           in.s1.data(),
+                                           in.mag.data(),
+                                           in.magi.data(),
+                                           o128.data(),
+                                           in.rho.data(),
+                                           nb_re,
+                                           pattern);
+  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
+                                           in.s1.data(),
+                                           in.mag.data(),
+                                           in.magi.data(),
+                                           o256.data(),
+                                           in.rho.data(),
+                                           nb_re,
+                                           pattern);
+  EXPECT_EQ(0, memcmp(o128.data(), o256.data(), nll * sizeof(int16_t)))
+      << "w128 != w256 (256QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
 #ifdef NRLB_TEST_HAVE_W512
   AlignedVector512<int16_t> o512(nll + 64, 0);
-  nr_qam256_llr_2layer_lbest_q15_simd_w512(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o512.data(), in.rho.data(), nb_re, pattern);
-  EXPECT_EQ(0, memcmp(o128.data(), o512.data(), nll * sizeof(int16_t))) << "w128 != w512 (256QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
+  nr_qam256_llr_2layer_lbest_q15_simd_w512(in.s0.data(),
+                                           in.s1.data(),
+                                           in.mag.data(),
+                                           in.magi.data(),
+                                           o512.data(),
+                                           in.rho.data(),
+                                           nb_re,
+                                           pattern);
+  EXPECT_EQ(0, memcmp(o128.data(), o512.data(), nll * sizeof(int16_t)))
+      << "w128 != w512 (256QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
 #endif
 }
 
@@ -166,24 +220,30 @@ void width_equiv_256qam(uint32_t nb_re, int pattern)
 // remainder), so the outputs must be bit-identical.
 const std::vector<uint32_t> kMul32 = {32, 64, 96, 320, 3200};
 
-}  // namespace
+} // namespace
 
 TEST(test_llr_2layer, width_equiv_64qam_pattern0)
 {
-  for (auto n : kMul32) width_equiv_64qam(n, 0);
+  for (auto n : kMul32)
+    width_equiv_64qam(n, 0);
 }
 TEST(test_llr_2layer, width_equiv_256qam_pattern1)
 {
-  for (auto n : kMul32) width_equiv_256qam(n, 1);
+  for (auto n : kMul32)
+    width_equiv_256qam(n, 1);
 }
 // non-default patterns must be width-exact too
 TEST(test_llr_2layer, width_equiv_64qam_other_patterns)
 {
-  for (int p = 1; p <= 2; p++) for (auto n : kMul32) width_equiv_64qam(n, p);
+  for (int p = 1; p <= 2; p++)
+    for (auto n : kMul32)
+      width_equiv_64qam(n, p);
 }
 TEST(test_llr_2layer, width_equiv_256qam_other_patterns)
 {
-  for (int p : {0, 2, 3}) for (auto n : kMul32) width_equiv_256qam(n, p);
+  for (int p : {0, 2, 3})
+    for (auto n : kMul32)
+      width_equiv_256qam(n, p);
 }
 
 // RE counts that are NOT block multiples (>= 32 so every width stays on the SIMD path): the
@@ -193,8 +253,10 @@ const std::vector<uint32_t> kRagged = {33, 100, 1272, 3276};
 TEST(test_llr_2layer, width_equiv_ragged_lengths)
 {
   for (auto n : kRagged) {
-    for (int p = 0; p <= 2; p++) width_equiv_64qam(n, p);
-    for (int p : {0, 1, 2, 3}) width_equiv_256qam(n, p);
+    for (int p = 0; p <= 2; p++)
+      width_equiv_64qam(n, p);
+    for (int p : {0, 1, 2, 3})
+      width_equiv_256qam(n, p);
   }
 }
 
@@ -204,11 +266,32 @@ TEST(test_llr_2layer, overlapped_tail_matches_aligned)
   const uint32_t n = 3276, na = 3280; // na: multiple of 16
   auto in = gen_inputs(na, 0x7A11);
   AlignedVector512<int16_t> a((size_t)na * 8 + 64, 0), b((size_t)na * 8 + 64, 0);
-  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), a.data(), in.rho.data(), na, 0);
+  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
+                                          in.s1.data(),
+                                          in.mag.data(),
+                                          in.magi.data(),
+                                          a.data(),
+                                          in.rho.data(),
+                                          na,
+                                          0);
   nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), b.data(), in.rho.data(), n, 0);
   EXPECT_EQ(0, memcmp(a.data(), b.data(), (size_t)n * 6 * sizeof(int16_t))) << "64QAM overlapped tail";
-  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), a.data(), in.rho.data(), na, 1);
-  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), b.data(), in.rho.data(), n, 1);
+  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
+                                           in.s1.data(),
+                                           in.mag.data(),
+                                           in.magi.data(),
+                                           a.data(),
+                                           in.rho.data(),
+                                           na,
+                                           1);
+  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
+                                           in.s1.data(),
+                                           in.mag.data(),
+                                           in.magi.data(),
+                                           b.data(),
+                                           in.rho.data(),
+                                           n,
+                                           1);
   EXPECT_EQ(0, memcmp(a.data(), b.data(), (size_t)n * 8 * sizeof(int16_t))) << "256QAM overlapped tail";
 }
 
@@ -219,10 +302,21 @@ TEST(test_llr_2layer, fidelity_vs_float_64qam)
   const uint32_t nb_re = 3200;
   auto in = gen_clean_inputs(nb_re, 0xF64, 7, 2048);
   AlignedVector512<int16_t> dut((size_t)nb_re * 6 + 64, 0), ref((size_t)nb_re * 6 + 64, 0);
-  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), dut.data(), in.rho.data(), nb_re, 0);
+  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
+                                          in.s1.data(),
+                                          in.mag.data(),
+                                          in.magi.data(),
+                                          dut.data(),
+                                          in.rho.data(),
+                                          nb_re,
+                                          0);
   nr_qam64_llr_2layer_lbest(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), ref.data(), in.rho.data(), nb_re, 64, 0.0f);
   Fit f = fit_stats(dut.data(), ref.data(), (size_t)nb_re * 6);
-  fprintf(stderr, "[  FIT  ] 64QAM  signDisagree=%.3f%% fitScale=%.3f residFrac=%.3f\n", f.signDisagree_pct, f.fitScale, f.residFrac);
+  fprintf(stderr,
+          "[  FIT  ] 64QAM  signDisagree=%.3f%% fitScale=%.3f residFrac=%.3f\n",
+          f.signDisagree_pct,
+          f.fitScale,
+          f.residFrac);
   EXPECT_LT(f.signDisagree_pct, 1.0) << "too many LLR sign flips vs float model";
   EXPECT_GT(f.fitScale, 0.2) << "kernel output not positively correlated with the model";
   EXPECT_LT(f.residFrac, 0.40) << "post-scale residual too large vs float model";
@@ -233,10 +327,29 @@ TEST(test_llr_2layer, fidelity_vs_float_256qam)
   const uint32_t nb_re = 3200;
   auto in = gen_clean_inputs(nb_re, 0xF256, 15, 1000);
   AlignedVector512<int16_t> dut((size_t)nb_re * 8 + 64, 0), ref((size_t)nb_re * 8 + 64, 0);
-  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), dut.data(), in.rho.data(), nb_re, 1);
-  nr_qam256_llr_2layer_lbest(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), ref.data(), in.rho.data(), nb_re, 256, 0.0f);
+  nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
+                                           in.s1.data(),
+                                           in.mag.data(),
+                                           in.magi.data(),
+                                           dut.data(),
+                                           in.rho.data(),
+                                           nb_re,
+                                           1);
+  nr_qam256_llr_2layer_lbest(in.s0.data(),
+                             in.s1.data(),
+                             in.mag.data(),
+                             in.magi.data(),
+                             ref.data(),
+                             in.rho.data(),
+                             nb_re,
+                             256,
+                             0.0f);
   Fit f = fit_stats(dut.data(), ref.data(), (size_t)nb_re * 8);
-  fprintf(stderr, "[  FIT  ] 256QAM signDisagree=%.3f%% fitScale=%.3f residFrac=%.3f\n", f.signDisagree_pct, f.fitScale, f.residFrac);
+  fprintf(stderr,
+          "[  FIT  ] 256QAM signDisagree=%.3f%% fitScale=%.3f residFrac=%.3f\n",
+          f.signDisagree_pct,
+          f.fitScale,
+          f.residFrac);
   EXPECT_LT(f.signDisagree_pct, 1.0) << "too many LLR sign flips vs float model";
   EXPECT_GT(f.fitScale, 0.2) << "kernel output not positively correlated with the model";
   EXPECT_LT(f.residFrac, 0.40) << "post-scale residual too large vs float model";

@@ -470,7 +470,7 @@ typedef struct PHY_VARS_NR_UE_s {
     c16_t   *dl_ch_mag;             // [max_layers][pdsch_buf_size_max]
     c16_t   *dl_ch_magb;            // [max_layers][pdsch_buf_size_max]
     c16_t   *dl_ch_magr;            // [max_layers][pdsch_buf_size_max]
-    c16_t   *rho_dl;                // [max_layers*max_layers][pdsch_buf_size_max], only allocated for the ml/lbest receivers
+    c16_t   *rho_dl;                // [max_layers*max_layers][pdsch_buf_size_max], allocated when more than one layer is possible
     int32_t *pdsch_dl_ch_estimates; // [nb_antennas_rx*NR_MAX_NB_LAYERS][pdsch_est_size]
     int16_t *llr[2];               // [2 codewords][llr_buf_max]
 #ifdef LDPC_CUDA
