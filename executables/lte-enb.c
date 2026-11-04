@@ -1147,7 +1147,6 @@ void init_eNB_afterRU(void) {
                   "inst %d, CC_id %d : nb_antennas_rx %d\n",inst,CC_id,eNB->frame_parms.nb_antennas_rx);
       LOG_I(PHY,"inst %d, CC_id %d : nb_antennas_rx %d\n",inst,CC_id,eNB->frame_parms.nb_antennas_rx);
       init_transport(eNB);
-      //init_precoding_weights(RC.eNB[inst][CC_id]);
     }
 
     init_eNB_proc(inst);
