@@ -656,6 +656,26 @@ static void finish_nr_ul_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
   add_tail_nr_list(&sched_ctrl->available_ul_harq, harq_pid);
 }
 
+static void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl)
+{
+  int harq;
+  while ((harq = sched_ctrl->feedback_ul_harq.head) >= 0) {
+    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
+    finish_nr_ul_harq(sched_ctrl, harq);
+  }
+
+  while ((harq = sched_ctrl->retrans_ul_harq.head) >= 0) {
+    remove_front_nr_list(&sched_ctrl->retrans_ul_harq);
+    finish_nr_ul_harq(sched_ctrl, harq);
+  }
+
+  for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
+    sched_ctrl->ul_harq_processes[i].feedback_slot = -1;
+    sched_ctrl->ul_harq_processes[i].round = 0;
+    sched_ctrl->ul_harq_processes[i].is_waiting = false;
+  }
+}
+
 static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
 {
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
