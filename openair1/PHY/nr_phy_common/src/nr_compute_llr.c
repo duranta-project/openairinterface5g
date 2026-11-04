@@ -18,14 +18,19 @@
 int nr_ml_llr_maxh_off(int mod_order, int lbest)
 {
   switch (mod_order) {
-    case 2:  return 0;  // QPSK
-    case 4:  return 1;  // 16QAM
+    case 2:
+      return 0; // QPSK
+    case 4:
+      return 1; // 16QAM
     // 64QAM: hot for int16 metric precision; nr_compute_ML_llr cools the output by 1 bit. L-best
     // (graded fallback) wants one bit cooler than full ML: TDL-A, 200 trials, -3 matches ML at 4 RX
     // (MCS 27) and is ~1 dB from ML at 2 RX (MCS 20), where -2 floors at BLER ~0.1; -4 is worse.
-    case 6:  return lbest ? -3 : -2;
-    case 8:  return -3; // 256QAM (with the antenna-gain term => effective -2, the prior gNB value)
-    default: return -2;
+    case 6:
+      return lbest ? -3 : -2;
+    case 8:
+      return -3; // 256QAM (with the antenna-gain term => effective -2, the prior gNB value)
+    default:
+      return -2;
   }
 }
 
@@ -512,8 +517,10 @@ static inline simde__m128i max_epi16(simde__m128i m0,
 static inline simde__m128i max16_epi16(simde__m128i v[16])
 {
   simde__m128i a[8], b[4], c[2];
-  for (int k = 0; k < 8; k++) a[k] = simde_mm_max_epi16(v[2*k], v[2*k+1]);
-  for (int k = 0; k < 4; k++) b[k] = simde_mm_max_epi16(a[2*k], a[2*k+1]);
+  for (int k = 0; k < 8; k++)
+    a[k] = simde_mm_max_epi16(v[2 * k], v[2 * k + 1]);
+  for (int k = 0; k < 4; k++)
+    b[k] = simde_mm_max_epi16(a[2 * k], a[2 * k + 1]);
   c[0] = simde_mm_max_epi16(b[0], b[1]);
   c[1] = simde_mm_max_epi16(b[2], b[3]);
   return simde_mm_max_epi16(c[0], c[1]);
@@ -522,35 +529,41 @@ static inline simde__m128i max16_epi16(simde__m128i v[16])
 // PAM-16 interference slicer (128-bit). Compares |psi| against 7 thresholds and
 // selects one of 8 interference magnitude levels c1,c3,...,c15.
 static inline simde__m128i interference_abs_256qam_epi16(simde__m128i psi,
-                                                         simde__m128i t2, simde__m128i t4,
-                                                         simde__m128i t6, simde__m128i t8,
-                                                         simde__m128i t10, simde__m128i t12,
+                                                         simde__m128i t2,
+                                                         simde__m128i t4,
+                                                         simde__m128i t6,
+                                                         simde__m128i t8,
+                                                         simde__m128i t10,
+                                                         simde__m128i t12,
                                                          simde__m128i t14,
-                                                         simde__m128i c1, simde__m128i c3,
-                                                         simde__m128i c5, simde__m128i c7,
-                                                         simde__m128i c9, simde__m128i c11,
-                                                         simde__m128i c13, simde__m128i c15)
+                                                         simde__m128i c1,
+                                                         simde__m128i c3,
+                                                         simde__m128i c5,
+                                                         simde__m128i c7,
+                                                         simde__m128i c9,
+                                                         simde__m128i c11,
+                                                         simde__m128i c13,
+                                                         simde__m128i c15)
 {
   // Branchless slicer: cmp_k is all-ones where psi < t_k
-  simde__m128i cmp2  = simde_mm_cmpgt_epi16(t2,  psi);
-  simde__m128i cmp4  = simde_mm_cmpgt_epi16(t4,  psi);
-  simde__m128i cmp6  = simde_mm_cmpgt_epi16(t6,  psi);
-  simde__m128i cmp8  = simde_mm_cmpgt_epi16(t8,  psi);
+  simde__m128i cmp2 = simde_mm_cmpgt_epi16(t2, psi);
+  simde__m128i cmp4 = simde_mm_cmpgt_epi16(t4, psi);
+  simde__m128i cmp6 = simde_mm_cmpgt_epi16(t6, psi);
+  simde__m128i cmp8 = simde_mm_cmpgt_epi16(t8, psi);
   simde__m128i cmp10 = simde_mm_cmpgt_epi16(t10, psi);
   simde__m128i cmp12 = simde_mm_cmpgt_epi16(t12, psi);
   simde__m128i cmp14 = simde_mm_cmpgt_epi16(t14, psi);
   // Region mask = XOR of adjacent comparisons (one-hot interval selection)
-  simde__m128i r1  = simde_mm_and_si128(cmp2,                                  c1);
-  simde__m128i r3  = simde_mm_and_si128(simde_mm_xor_si128(cmp4,  cmp2),  c3);
-  simde__m128i r5  = simde_mm_and_si128(simde_mm_xor_si128(cmp6,  cmp4),  c5);
-  simde__m128i r7  = simde_mm_and_si128(simde_mm_xor_si128(cmp8,  cmp6),  c7);
-  simde__m128i r9  = simde_mm_and_si128(simde_mm_xor_si128(cmp10, cmp8),  c9);
+  simde__m128i r1 = simde_mm_and_si128(cmp2, c1);
+  simde__m128i r3 = simde_mm_and_si128(simde_mm_xor_si128(cmp4, cmp2), c3);
+  simde__m128i r5 = simde_mm_and_si128(simde_mm_xor_si128(cmp6, cmp4), c5);
+  simde__m128i r7 = simde_mm_and_si128(simde_mm_xor_si128(cmp8, cmp6), c7);
+  simde__m128i r9 = simde_mm_and_si128(simde_mm_xor_si128(cmp10, cmp8), c9);
   simde__m128i r11 = simde_mm_and_si128(simde_mm_xor_si128(cmp12, cmp10), c11);
   simde__m128i r13 = simde_mm_and_si128(simde_mm_xor_si128(cmp14, cmp12), c13);
   simde__m128i r15 = simde_mm_and_si128(simde_mm_xor_si128(allones128(), cmp14), c15);
-  return simde_mm_or_si128(
-      simde_mm_or_si128(simde_mm_or_si128(r1, r3), simde_mm_or_si128(r5, r7)),
-      simde_mm_or_si128(simde_mm_or_si128(r9, r11), simde_mm_or_si128(r13, r15)));
+  return simde_mm_or_si128(simde_mm_or_si128(simde_mm_or_si128(r1, r3), simde_mm_or_si128(r5, r7)),
+                           simde_mm_or_si128(simde_mm_or_si128(r9, r11), simde_mm_or_si128(r13, r15)));
 }
 
 // a_sq = int_ch_mag * (a_r^2 + a_i^2) * scale_factor for 256QAM (128-bit).
@@ -688,8 +701,10 @@ static inline simde__m256i max_epi16_256(simde__m256i m0,
 static inline simde__m256i max16_epi16_256(simde__m256i v[16])
 {
   simde__m256i a[8], b[4], c[2];
-  for (int k = 0; k < 8; k++) a[k] = simde_mm256_max_epi16(v[2*k], v[2*k+1]);
-  for (int k = 0; k < 4; k++) b[k] = simde_mm256_max_epi16(a[2*k], a[2*k+1]);
+  for (int k = 0; k < 8; k++)
+    a[k] = simde_mm256_max_epi16(v[2 * k], v[2 * k + 1]);
+  for (int k = 0; k < 4; k++)
+    b[k] = simde_mm256_max_epi16(a[2 * k], a[2 * k + 1]);
   c[0] = simde_mm256_max_epi16(b[0], b[1]);
   c[1] = simde_mm256_max_epi16(b[2], b[3]);
   return simde_mm256_max_epi16(c[0], c[1]);
@@ -698,33 +713,39 @@ static inline simde__m256i max16_epi16_256(simde__m256i v[16])
 // PAM-16 interference slicer (256-bit). Compares |psi| against 7 thresholds and
 // selects one of 8 interference magnitude levels c1,c3,...,c15.
 static inline simde__m256i interference_abs_256qam_epi16_256(simde__m256i psi,
-                                                              simde__m256i t2, simde__m256i t4,
-                                                              simde__m256i t6, simde__m256i t8,
-                                                              simde__m256i t10, simde__m256i t12,
-                                                              simde__m256i t14,
-                                                              simde__m256i c1, simde__m256i c3,
-                                                              simde__m256i c5, simde__m256i c7,
-                                                              simde__m256i c9, simde__m256i c11,
-                                                              simde__m256i c13, simde__m256i c15)
+                                                             simde__m256i t2,
+                                                             simde__m256i t4,
+                                                             simde__m256i t6,
+                                                             simde__m256i t8,
+                                                             simde__m256i t10,
+                                                             simde__m256i t12,
+                                                             simde__m256i t14,
+                                                             simde__m256i c1,
+                                                             simde__m256i c3,
+                                                             simde__m256i c5,
+                                                             simde__m256i c7,
+                                                             simde__m256i c9,
+                                                             simde__m256i c11,
+                                                             simde__m256i c13,
+                                                             simde__m256i c15)
 {
-  simde__m256i cmp2  = simde_mm256_cmpgt_epi16(t2,  psi);
-  simde__m256i cmp4  = simde_mm256_cmpgt_epi16(t4,  psi);
-  simde__m256i cmp6  = simde_mm256_cmpgt_epi16(t6,  psi);
-  simde__m256i cmp8  = simde_mm256_cmpgt_epi16(t8,  psi);
+  simde__m256i cmp2 = simde_mm256_cmpgt_epi16(t2, psi);
+  simde__m256i cmp4 = simde_mm256_cmpgt_epi16(t4, psi);
+  simde__m256i cmp6 = simde_mm256_cmpgt_epi16(t6, psi);
+  simde__m256i cmp8 = simde_mm256_cmpgt_epi16(t8, psi);
   simde__m256i cmp10 = simde_mm256_cmpgt_epi16(t10, psi);
   simde__m256i cmp12 = simde_mm256_cmpgt_epi16(t12, psi);
   simde__m256i cmp14 = simde_mm256_cmpgt_epi16(t14, psi);
-  simde__m256i r1  = simde_mm256_and_si256(cmp2,                                    c1);
-  simde__m256i r3  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp4,  cmp2),  c3);
-  simde__m256i r5  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp6,  cmp4),  c5);
-  simde__m256i r7  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp8,  cmp6),  c7);
-  simde__m256i r9  = simde_mm256_and_si256(simde_mm256_xor_si256(cmp10, cmp8),  c9);
+  simde__m256i r1 = simde_mm256_and_si256(cmp2, c1);
+  simde__m256i r3 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp4, cmp2), c3);
+  simde__m256i r5 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp6, cmp4), c5);
+  simde__m256i r7 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp8, cmp6), c7);
+  simde__m256i r9 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp10, cmp8), c9);
   simde__m256i r11 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp12, cmp10), c11);
   simde__m256i r13 = simde_mm256_and_si256(simde_mm256_xor_si256(cmp14, cmp12), c13);
   simde__m256i r15 = simde_mm256_and_si256(simde_mm256_xor_si256(allones256(), cmp14), c15);
-  return simde_mm256_or_si256(
-      simde_mm256_or_si256(simde_mm256_or_si256(r1, r3), simde_mm256_or_si256(r5, r7)),
-      simde_mm256_or_si256(simde_mm256_or_si256(r9, r11), simde_mm256_or_si256(r13, r15)));
+  return simde_mm256_or_si256(simde_mm256_or_si256(simde_mm256_or_si256(r1, r3), simde_mm256_or_si256(r5, r7)),
+                              simde_mm256_or_si256(simde_mm256_or_si256(r9, r11), simde_mm256_or_si256(r13, r15)));
 }
 
 // a_sq = int_ch_mag * (a_r^2 + a_i^2) * scale_factor for 256QAM (256-bit).
@@ -2648,8 +2669,6 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
 #endif
 }
 
-
-
 /*
  * This function computes the LLRs of stream 0 (s_0) in presence of the interfering
  * stream 1 (s_1) assuming that both symbols are 256QAM.
@@ -2669,10 +2688,15 @@ void nr_qam256_llr_2layer(c16_t *stream0_in,
                           c16_t *rho01,
                           uint32_t length)
 {
-  nr_qam256_llr_2layer_lbest_q15_simd16(stream0_in, stream1_in, ch_mag, ch_mag_i,
-                                        stream0_out, rho01, length, 3 /* full 16x16 ML */);
+  nr_qam256_llr_2layer_lbest_q15_simd16(stream0_in,
+                                        stream1_in,
+                                        ch_mag,
+                                        ch_mag_i,
+                                        stream0_out,
+                                        rho01,
+                                        length,
+                                        3 /* full 16x16 ML */);
 }
-
 
 // Arithmetic right shift of n int16 LLRs in place (unaligned-safe, covers the remainder).
 static void nr_llr_srai(int16_t *llr, uint32_t n, int shift)
@@ -2756,10 +2780,10 @@ static void nr_ml_llr_shift(int16_t *llr_layer0, int16_t *llr_layer1, uint32_t n
 // LLR output needs no rescale (NR_LBEST_LLR_SCALE == 1.0). Energy terms use the
 // true 0.5*P*|x|^2 max-log coefficient.
 // ============================================================================
-#define NR_LBEST_SQRT42       6.48074069840786f   // sqrt(42)
-#define NR_LBEST_NA           0.15430334996209f    // 1/sqrt(42), unit-energy 64QAM step
-#define NR_LBEST_LLR_SCALE    1.0f                 // matches nr_qam64_llr_2layer metric scale
-#define NR_LBEST_LLR_SAT      8192.0f              // fallback magnitude when a bit-subset is empty
+#define NR_LBEST_SQRT42 6.48074069840786f // sqrt(42)
+#define NR_LBEST_NA 0.15430334996209f // 1/sqrt(42), unit-energy 64QAM step
+#define NR_LBEST_LLR_SCALE 1.0f // matches nr_qam64_llr_2layer metric scale
+#define NR_LBEST_LLR_SAT 8192.0f // fallback magnitude when a bit-subset is empty
 
 // nearest odd level in {-7,-5,-3,-1,1,3,5,7} to v (the 8-PAM slicer)
 static inline int nr_lbest_slice_pam8(float v)
@@ -2804,11 +2828,17 @@ static inline void nr_lbest_pam8_axis_llr(float e, float g, float *llr)
     int bb[3];
     nr_lbest_axis_bits(levels[k], &bb[0], &bb[1], &bb[2]);
     for (int b = 0; b < 3; b++) {
-      if (bb[b] == 0) { if (d < d0[b]) d0[b] = d; }
-      else            { if (d < d1[b]) d1[b] = d; }
+      if (bb[b] == 0) {
+        if (d < d0[b])
+          d0[b] = d;
+      } else {
+        if (d < d1[b])
+          d1[b] = d;
+      }
     }
   }
-  for (int b = 0; b < 3; b++) llr[b] = g * (d1[b] - d0[b]);
+  for (int b = 0; b < 3; b++)
+    llr[b] = g * (d1[b] - d0[b]);
 }
 
 // One target layer of 2-layer 64QAM L-best LLR (scalar float reference).
@@ -2879,9 +2909,15 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
         if (cand_d[b] < cand_d[m])
           m = b;
       if (m != a) {
-        float td = cand_d[a]; cand_d[a] = cand_d[m]; cand_d[m] = td;
-        int ti = candI[a]; candI[a] = candI[m]; candI[m] = ti;
-        int tq = candQ[a]; candQ[a] = candQ[m]; candQ[m] = tq;
+        float td = cand_d[a];
+        cand_d[a] = cand_d[m];
+        cand_d[m] = td;
+        int ti = candI[a];
+        candI[a] = candI[m];
+        candI[m] = ti;
+        int tq = candQ[a];
+        candQ[a] = candQ[m];
+        candQ[m] = tq;
       }
     }
 
@@ -2898,10 +2934,10 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
 
       // conditional ML nuisance: x2* = Q_S( (z2 - conj(rho) x1_n) / P1 )
       // conj(rho)*x1_n = (rr - j ri)(x1r + j x1i)
-      const float cr = rr * x1r + ri * x1i;       // Re{conj(rho) x1_n}
-      const float ci = rr * x1i - ri * x1r;       // Im{conj(rho) x1_n}
+      const float cr = rr * x1r + ri * x1i; // Re{conj(rho) x1_n}
+      const float ci = rr * x1i - ri * x1r; // Im{conj(rho) x1_n}
       const float invP1 = P1 != 0.0f ? 1.0f / P1 : 0.0f;
-      const float x2optr = (z2r - cr) * invP1;    // ~ I2-level / sqrt(42)
+      const float x2optr = (z2r - cr) * invP1; // ~ I2-level / sqrt(42)
       const float x2opti = (z2i - ci) * invP1;
       const int I2 = nr_lbest_slice_pam8(x2optr * NR_LBEST_SQRT42);
       const int Q2 = nr_lbest_slice_pam8(x2opti * NR_LBEST_SQRT42);
@@ -2923,9 +2959,11 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
       const int bit[6] = {bI0, bQ0, bI1, bQ1, bI2, bQ2};
       for (int p = 0; p < 6; p++) {
         if (bit[p] == 0) {
-          if (metric > max0[p]) max0[p] = metric;
+          if (metric > max0[p])
+            max0[p] = metric;
         } else {
-          if (metric > max1[p]) max1[p] = metric;
+          if (metric > max1[p])
+            max1[p] = metric;
         }
       }
     }
@@ -2937,9 +2975,11 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
       if (max0[p] > -1e29f && max1[p] > -1e29f)
         llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE; // spanned: ML LLR
       else
-        llr = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1];  // unspanned: graded linear (seed) LLR
-      if (llr > 32767.0f) llr = 32767.0f;
-      if (llr < -32768.0f) llr = -32768.0f;
+        llr = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1]; // unspanned: graded linear (seed) LLR
+      if (llr > 32767.0f)
+        llr = 32767.0f;
+      if (llr < -32768.0f)
+        llr = -32768.0f;
       *stream0_out++ = (int16_t)llr;
     }
   }
@@ -2984,8 +3024,8 @@ void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
 // 256QAM kernel exists); smaller L is the reduced search. Same algorithm/scaling
 // as the 64QAM reference, with PAM-16 levels, 1/sqrt(170) normalization, 8 bits.
 // ============================================================================
-#define NR_LBEST_SQRT170      13.03840481040530f  // sqrt(170)
-#define NR_LBEST_NA256        0.07669649888473f    // 1/sqrt(170), unit-energy 256QAM step
+#define NR_LBEST_SQRT170 13.03840481040530f // sqrt(170)
+#define NR_LBEST_NA256 0.07669649888473f // 1/sqrt(170), unit-energy 256QAM step
 
 // nearest 256QAM PAM-16 level to v (in level units), O(1) round-to-nearest-odd.
 // = 2*floor(v/2)+1, clamped to [-15,15]. The +16 offset makes the argument
@@ -2993,7 +3033,10 @@ void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
 static inline int nr_lbest_slice_pam16(float v)
 {
   int o = 2 * (int)((v + 16.0f) * 0.5f) - 15;
-  if (o < -15) o = -15; else if (o > 15) o = 15;
+  if (o < -15)
+    o = -15;
+  else if (o > 15)
+    o = 15;
   return o;
 }
 
@@ -3002,8 +3045,12 @@ static inline int nr_lbest_slice_pam16(float v)
 static inline void nr_lbest_axis_bits256(int level, int *b0, int *b1, int *b2, int *b3)
 {
   const int m = level < 0 ? -level : level;
-  int m2 = m - 8; if (m2 < 0) m2 = -m2;
-  int m3 = m2 - 4; if (m3 < 0) m3 = -m3;
+  int m2 = m - 8;
+  if (m2 < 0)
+    m2 = -m2;
+  int m3 = m2 - 4;
+  if (m3 < 0)
+    m3 = -m3;
   *b0 = level < 0 ? 1 : 0;
   *b1 = m > 8 ? 1 : 0;
   *b2 = m2 > 4 ? 1 : 0;
@@ -3011,33 +3058,44 @@ static inline void nr_lbest_axis_bits256(int level, int *b0, int *b1, int *b2, i
 }
 
 // Graded per-axis PAM-16 LLR for the target layer, from the soft seed estimate e (level units)
-// and gain g = 0.5*Peff/170, Peff = det/P1 the post-ZF energy (see nr_lbest_pam8_axis_llr). The target metric m(l) = -0.5*P0/170*(l-e)^2 + const is concave with
-// vertex ~= e, so max over a bit-subset is at the level nearest e with that bit. Fills llr[b] =
-// m(l0*)-m(l1*) = g*[(l1*-e)^2 - (l0*-e)^2] for axis bits b0..b3. This is the graded replacement
-// for the hard +-LLR_SAT fallback used when a reduced candidate set does not span a bit (the
-// coarse/MSB bits a local search window cannot reach) -> keeps reduced-search speed with correct
-// MSB soft output. In the same metric units as the ML search, so spanned/unspanned bits are
+// and gain g = 0.5*Peff/170, Peff = det/P1 the post-ZF energy (see nr_lbest_pam8_axis_llr). The target metric m(l) =
+// -0.5*P0/170*(l-e)^2 + const is concave with vertex ~= e, so max over a bit-subset is at the level nearest e with that bit. Fills
+// llr[b] = m(l0*)-m(l1*) = g*[(l1*-e)^2 - (l0*-e)^2] for axis bits b0..b3. This is the graded replacement for the hard +-LLR_SAT
+// fallback used when a reduced candidate set does not span a bit (the coarse/MSB bits a local search window cannot reach) -> keeps
+// reduced-search speed with correct MSB soft output. In the same metric units as the ML search, so spanned/unspanned bits are
 // mutually consistent.
 static inline void nr_lbest_pam16_axis_llr(float e, float g, float *llr)
 {
   static const int levels[16] = {-15, -13, -11, -9, -7, -5, -3, -1, 1, 3, 5, 7, 9, 11, 13, 15};
   float d0[4], d1[4];
-  for (int b = 0; b < 4; b++) { d0[b] = 1e30f; d1[b] = 1e30f; }
+  for (int b = 0; b < 4; b++) {
+    d0[b] = 1e30f;
+    d1[b] = 1e30f;
+  }
   for (int k = 0; k < 16; k++) {
     const float d = (levels[k] - e) * (levels[k] - e);
     int bb[4];
     nr_lbest_axis_bits256(levels[k], &bb[0], &bb[1], &bb[2], &bb[3]);
     for (int b = 0; b < 4; b++) {
-      if (bb[b] == 0) { if (d < d0[b]) d0[b] = d; }
-      else            { if (d < d1[b]) d1[b] = d; }
+      if (bb[b] == 0) {
+        if (d < d0[b])
+          d0[b] = d;
+      } else {
+        if (d < d1[b])
+          d1[b] = d;
+      }
     }
   }
-  for (int b = 0; b < 4; b++) llr[b] = g * (d1[b] - d0[b]);
+  for (int b = 0; b < 4; b++)
+    llr[b] = g * (d1[b] - d0[b]);
 }
 
 // candidate (constellation point + squared distance to the seed) for the L-nearest sort
 // (members iL/qL, not I/Q: <complex.h> defines I as the imaginary unit)
-struct nr_lbest_cand { float d; int16_t iL, qL; };
+struct nr_lbest_cand {
+  float d;
+  int16_t iL, qL;
+};
 static int nr_lbest_cand_cmp(const void *a, const void *b)
 {
   const float da = ((const struct nr_lbest_cand *)a)->d, db = ((const struct nr_lbest_cand *)b)->d;
@@ -3103,7 +3161,10 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
 
     // ---- metric over candidates, per-bit max-log reduction (8 bits) ----
     float max0[8], max1[8];
-    for (int p = 0; p < 8; p++) { max0[p] = -1e30f; max1[p] = -1e30f; }
+    for (int p = 0; p < 8; p++) {
+      max0[p] = -1e30f;
+      max1[p] = -1e30f;
+    }
 
     for (int c = 0; c < L; c++) {
       const int I1 = cand[c].iL, Q1 = cand[c].qL;
@@ -3129,8 +3190,13 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
       nr_lbest_axis_bits256(Q1, &bQ0, &bQ1, &bQ2, &bQ3);
       const int bit[8] = {bI0, bQ0, bI1, bQ1, bI2, bQ2, bI3, bQ3};
       for (int p = 0; p < 8; p++) {
-        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
-        else             { if (metric > max1[p]) max1[p] = metric; }
+        if (bit[p] == 0) {
+          if (metric > max0[p])
+            max0[p] = metric;
+        } else {
+          if (metric > max1[p])
+            max1[p] = metric;
+        }
       }
     }
 
@@ -3140,9 +3206,11 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
       if (max0[p] > -1e29f && max1[p] > -1e29f)
         llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE; // spanned: ML LLR
       else
-        llr = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1];  // unspanned: graded linear (seed) LLR
-      if (llr > 32767.0f) llr = 32767.0f;
-      if (llr < -32768.0f) llr = -32768.0f;
+        llr = (p & 1) ? axisQ[p >> 1] : axisI[p >> 1]; // unspanned: graded linear (seed) LLR
+      if (llr > 32767.0f)
+        llr = 32767.0f;
+      if (llr < -32768.0f)
+        llr = -32768.0f;
       *stream0_out++ = (int16_t)llr;
     }
   }
@@ -3154,14 +3222,17 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
 // search): the deflated 2-layer sub-problem can be any modulation. L==16 == full
 // ML. PAM-4 levels, 1/sqrt(10) norm, 4 bits {I0,Q0,I1,Q1}.
 // ============================================================================
-#define NR_LBEST_SQRT10       3.16227766016838f   // sqrt(10)
-#define NR_LBEST_NA16         0.31622776601684f    // 1/sqrt(10), unit-energy 16QAM step
+#define NR_LBEST_SQRT10 3.16227766016838f // sqrt(10)
+#define NR_LBEST_NA16 0.31622776601684f // 1/sqrt(10), unit-energy 16QAM step
 
 // nearest 16QAM PAM-4 level to v (level units), O(1) round-to-nearest-odd in [-3,3]
 static inline int nr_lbest_slice_pam4(float v)
 {
   int o = 2 * (int)((v + 4.0f) * 0.5f) - 3;
-  if (o < -3) o = -3; else if (o > 3) o = 3;
+  if (o < -3)
+    o = -3;
+  else if (o > 3)
+    o = 3;
   return o;
 }
 
@@ -3223,7 +3294,10 @@ void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
 
     // ---- metric over candidates, per-bit max-log reduction (4 bits) ----
     float max0[4], max1[4];
-    for (int p = 0; p < 4; p++) { max0[p] = -1e30f; max1[p] = -1e30f; }
+    for (int p = 0; p < 4; p++) {
+      max0[p] = -1e30f;
+      max1[p] = -1e30f;
+    }
 
     for (int c = 0; c < L; c++) {
       const int I1 = cand[c].iL, Q1 = cand[c].qL;
@@ -3248,8 +3322,13 @@ void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
       nr_lbest_axis_bits16(Q1, &bQ0, &bQ1);
       const int bit[4] = {bI0, bQ0, bI1, bQ1};
       for (int p = 0; p < 4; p++) {
-        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
-        else             { if (metric > max1[p]) max1[p] = metric; }
+        if (bit[p] == 0) {
+          if (metric > max0[p])
+            max0[p] = metric;
+        } else {
+          if (metric > max1[p])
+            max1[p] = metric;
+        }
       }
     }
 
@@ -3261,8 +3340,10 @@ void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
         llr = NR_LBEST_LLR_SAT;
       else
         llr = (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
-      if (llr > 32767.0f) llr = 32767.0f;
-      if (llr < -32768.0f) llr = -32768.0f;
+      if (llr > 32767.0f)
+        llr = 32767.0f;
+      if (llr < -32768.0f)
+        llr = -32768.0f;
       *stream0_out++ = (int16_t)llr;
     }
   }
@@ -3277,14 +3358,17 @@ void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
 // Indexed by kbits = Qm/2, for QPSK/16/64/256QAM (kbits 1/2/3/4). Index 0 (BPSK) unused.
 // sqrtN = sqrt(2*(M-1)/3), M = 4^kbits (per-axis level normalisation); RF = 2*sqrt(2*(M-1)/(3*M)).
 static const double NR_LBEST_SQRTN[5] = {0, 1.41421356237310, 3.16227766016838, 6.48074069840786, 13.03840481040530};
-static const double NR_LBEST_RF[5]    = {0, 1.41421356237310, 1.58113883008419, 1.62018517460196, 1.62980060130066};
+static const double NR_LBEST_RF[5] = {0, 1.41421356237310, 1.58113883008419, 1.62018517460196, 1.62980060130066};
 
 // nearest PAM-2^kbits level to v (level units), O(1) round-to-nearest-odd, clamped.
 static inline int nr_lbest_slice_gen(double v, int kbits)
 {
   const int nlev = 1 << kbits, maxlev = nlev - 1;
   int o = 2 * (int)((v + nlev) * 0.5) - maxlev;
-  if (o < -maxlev) o = -maxlev; else if (o > maxlev) o = maxlev;
+  if (o < -maxlev)
+    o = -maxlev;
+  else if (o > maxlev)
+    o = maxlev;
   return o;
 }
 
@@ -3303,21 +3387,35 @@ static inline void nr_lbest_axis_bits_gen(int level, int kbits, int *b)
 // Per-RE 2-layer conditional-slice LLR for the target layer (x1), in DOUBLE.
 // Inputs are recovered powers P0=||h1||^2, P1=||h2||^2 (NOT n1-scaled ch_mag),
 // MF outputs z1,z2, cross rho=(rr,ri)=h1^H h2. Writes Qm=2*kbits int16 LLRs.
-static void nr_lbest_2layer_re(double z1r, double z1i, double z2r, double z2i,
-                               double P0, double P1, double rr, double ri,
-                               int kbits, int L, double lambda, int16_t *out)
+static void nr_lbest_2layer_re(double z1r,
+                               double z1i,
+                               double z2r,
+                               double z2i,
+                               double P0,
+                               double P1,
+                               double rr,
+                               double ri,
+                               int kbits,
+                               int L,
+                               double lambda,
+                               int16_t *out)
 {
   const int nlev = 1 << kbits, M = nlev * nlev, nbits = 2 * kbits;
   const double sqrtN = NR_LBEST_SQRTN[kbits], NA = 1.0 / sqrtN;
-  if (L < 1) L = 1;
-  if (L > M) L = M;
+  if (L < 1)
+    L = 1;
+  if (L > M)
+    L = M;
 
   const double det = (P0 + lambda) * (P1 + lambda) - (rr * rr + ri * ri);
   const double invdet = det != 0.0 ? 1.0 / det : 0.0;
   const double estI = ((P1 + lambda) * z1r - (rr * z2r - ri * z2i)) * invdet * sqrtN;
   const double estQ = ((P1 + lambda) * z1i - (rr * z2i + ri * z2r)) * invdet * sqrtN;
 
-  struct { double d; int iL, qL; } cand[256];
+  struct {
+    double d;
+    int iL, qL;
+  } cand[256];
   int nc = 0;
   for (int qi = 0; qi < nlev; qi++) {
     const int lq = 2 * qi - (nlev - 1);
@@ -3334,12 +3432,20 @@ static void nr_lbest_2layer_re(double z1r, double z1i, double z2r, double z2i,
     for (int a = 0; a < L; a++) {
       int m = a;
       for (int b = a + 1; b < M; b++)
-        if (cand[b].d < cand[m].d) m = b;
-      if (m != a) { __typeof__(cand[0]) tmp = cand[a]; cand[a] = cand[m]; cand[m] = tmp; }
+        if (cand[b].d < cand[m].d)
+          m = b;
+      if (m != a) {
+        __typeof__(cand[0]) tmp = cand[a];
+        cand[a] = cand[m];
+        cand[m] = tmp;
+      }
     }
 
   double max0[8], max1[8];
-  for (int p = 0; p < nbits; p++) { max0[p] = -1e30; max1[p] = -1e30; }
+  for (int p = 0; p < nbits; p++) {
+    max0[p] = -1e30;
+    max1[p] = -1e30;
+  }
 
   for (int c = 0; c < L; c++) {
     const int I1 = cand[c].iL, Q1 = cand[c].qL;
@@ -3359,15 +3465,31 @@ static void nr_lbest_2layer_re(double z1r, double z1i, double z2r, double z2i,
     nr_lbest_axis_bits_gen(Q1, kbits, bQ);
     for (int j = 0; j < kbits; j++) {
       const int p0 = 2 * j, p1 = 2 * j + 1; // interleaved {I0,Q0,I1,Q1,...}
-      if (bI[j] == 0) { if (metric > max0[p0]) max0[p0] = metric; } else { if (metric > max1[p0]) max1[p0] = metric; }
-      if (bQ[j] == 0) { if (metric > max0[p1]) max0[p1] = metric; } else { if (metric > max1[p1]) max1[p1] = metric; }
+      if (bI[j] == 0) {
+        if (metric > max0[p0])
+          max0[p0] = metric;
+      } else {
+        if (metric > max1[p0])
+          max1[p0] = metric;
+      }
+      if (bQ[j] == 0) {
+        if (metric > max0[p1])
+          max0[p1] = metric;
+      } else {
+        if (metric > max1[p1])
+          max1[p1] = metric;
+      }
     }
   }
 
   for (int p = 0; p < nbits; p++) {
-    double llr = (max0[p] <= -1e29) ? -NR_LBEST_LLR_SAT : (max1[p] <= -1e29) ? NR_LBEST_LLR_SAT : (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
-    if (llr > 32767.0) llr = 32767.0;
-    if (llr < -32768.0) llr = -32768.0;
+    double llr = (max0[p] <= -1e29)   ? -NR_LBEST_LLR_SAT
+                 : (max1[p] <= -1e29) ? NR_LBEST_LLR_SAT
+                                      : (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+    if (llr > 32767.0)
+      llr = 32767.0;
+    if (llr < -32768.0)
+      llr = -32768.0;
     out[p] = (int16_t)llr;
   }
 }
@@ -3380,10 +3502,20 @@ static void nr_lbest_2layer_re(double z1r, double z1i, double z2r, double z2i,
 // Partial-marginalization detector [PM]/[PM-HO]/[BCH] (k=1 enumerated layer); the
 // per-RE orthogonality-based choice of which layer to project is our addition (the
 // cited works order the enumerated subset by SNR). See reference block above.
-void nr_qam_llr_3layer_hybrid(c16_t *zt, c16_t *zn1, c16_t *zn2,
-                              c16_t *cmt, c16_t *cmn1, c16_t *cmn2,
-                              c16_t *rho_tn1, c16_t *rho_tn2, c16_t *rho_n1n2,
-                              int16_t *out, uint32_t length, int Qm, int L, float lambda)
+void nr_qam_llr_3layer_hybrid(c16_t *zt,
+                              c16_t *zn1,
+                              c16_t *zn2,
+                              c16_t *cmt,
+                              c16_t *cmn1,
+                              c16_t *cmn2,
+                              c16_t *rho_tn1,
+                              c16_t *rho_tn2,
+                              c16_t *rho_n1n2,
+                              int16_t *out,
+                              uint32_t length,
+                              int Qm,
+                              int L,
+                              float lambda)
 {
   const int kbits = Qm / 2;
   // Qm>=2 (QPSK/16/64/256QAM, kbits 1..4). Index 0 (BPSK) unused.
@@ -3391,8 +3523,8 @@ void nr_qam_llr_3layer_hybrid(c16_t *zt, c16_t *zn1, c16_t *zn2,
   const double rf = NR_LBEST_RF[kbits];
   for (uint32_t re = 0; re < length; re++) {
     const double Pt = cmt[re].r * rf, Pn1 = cmn1[re].r * rf, Pn2 = cmn2[re].r * rf;
-    const double t1r = rho_tn1[re].r, t1i = rho_tn1[re].i;     // h_t^H h_n1
-    const double t2r = rho_tn2[re].r, t2i = rho_tn2[re].i;     // h_t^H h_n2
+    const double t1r = rho_tn1[re].r, t1i = rho_tn1[re].i; // h_t^H h_n1
+    const double t2r = rho_tn2[re].r, t2i = rho_tn2[re].i; // h_t^H h_n2
     const double n12r = rho_n1n2[re].r, n12i = rho_n1n2[re].i; // h_n1^H h_n2
 
     // keep the more-aligned nuisance discrete, project the other (more orthogonal)
@@ -3400,18 +3532,38 @@ void nr_qam_llr_3layer_hybrid(c16_t *zt, c16_t *zn1, c16_t *zn2,
     const double p2 = (t2r * t2r + t2i * t2i) / Pn2;
     double Pc, Pd, zcr, zci, zdr, zdi, tcr, tci, tdr, tdi, dcr, dci;
     if (p1 >= p2) { // keep n1 discrete, project n2
-      Pc = Pn2; Pd = Pn1; zcr = zn2[re].r; zci = zn2[re].i; zdr = zn1[re].r; zdi = zn1[re].i;
-      tcr = t2r; tci = t2i; tdr = t1r; tdi = t1i; dcr = n12r; dci = n12i; // rho_dc = h_n1^H h_n2
-    } else {        // keep n2 discrete, project n1
-      Pc = Pn1; Pd = Pn2; zcr = zn1[re].r; zci = zn1[re].i; zdr = zn2[re].r; zdi = zn2[re].i;
-      tcr = t1r; tci = t1i; tdr = t2r; tdi = t2i; dcr = n12r; dci = -n12i; // rho_dc = h_n2^H h_n1 = conj
+      Pc = Pn2;
+      Pd = Pn1;
+      zcr = zn2[re].r;
+      zci = zn2[re].i;
+      zdr = zn1[re].r;
+      zdi = zn1[re].i;
+      tcr = t2r;
+      tci = t2i;
+      tdr = t1r;
+      tdi = t1i;
+      dcr = n12r;
+      dci = n12i; // rho_dc = h_n1^H h_n2
+    } else { // keep n2 discrete, project n1
+      Pc = Pn1;
+      Pd = Pn2;
+      zcr = zn1[re].r;
+      zci = zn1[re].i;
+      zdr = zn2[re].r;
+      zdi = zn2[re].i;
+      tcr = t1r;
+      tci = t1i;
+      tdr = t2r;
+      tdi = t2i;
+      dcr = n12r;
+      dci = -n12i; // rho_dc = h_n2^H h_n1 = conj
     }
     const double invPc = Pc != 0.0 ? 1.0 / Pc : 0.0;
     const double Pt2 = Pt - (tcr * tcr + tci * tci) * invPc;
     const double Pd2 = Pd - (dcr * dcr + dci * dci) * invPc;
-    const double rtdr = tdr - (tcr * dcr + tci * dci) * invPc;          // rho_td - rho_tc conj(rho_dc)/Pc
+    const double rtdr = tdr - (tcr * dcr + tci * dci) * invPc; // rho_td - rho_tc conj(rho_dc)/Pc
     const double rtdi = tdi - (tci * dcr - tcr * dci) * invPc;
-    const double ztr = zt[re].r - (tcr * zcr - tci * zci) * invPc;      // z_t - rho_tc/Pc z_c
+    const double ztr = zt[re].r - (tcr * zcr - tci * zci) * invPc; // z_t - rho_tc/Pc z_c
     const double zti = zt[re].i - (tcr * zci + tci * zcr) * invPc;
     const double zdr2 = zdr - (dcr * zcr - dci * zci) * invPc;
     const double zdi2 = zdi - (dcr * zci + dci * zcr) * invPc;
@@ -3422,10 +3574,18 @@ void nr_qam_llr_3layer_hybrid(c16_t *zt, c16_t *zn1, c16_t *zn2,
 
 // 3-layer FULL ML reference (target t): per RE, exact max-log over discrete (x_t,x_n1)
 // with the conditional best x_n2 sliced. For BLER comparison against the hybrid.
-void nr_qam_llr_3layer_ml(c16_t *zt, c16_t *zn1, c16_t *zn2,
-                          c16_t *cmt, c16_t *cmn1, c16_t *cmn2,
-                          c16_t *rho_tn1, c16_t *rho_tn2, c16_t *rho_n1n2,
-                          int16_t *out, uint32_t length, int Qm)
+void nr_qam_llr_3layer_ml(c16_t *zt,
+                          c16_t *zn1,
+                          c16_t *zn2,
+                          c16_t *cmt,
+                          c16_t *cmn1,
+                          c16_t *cmn2,
+                          c16_t *rho_tn1,
+                          c16_t *rho_tn2,
+                          c16_t *rho_n1n2,
+                          int16_t *out,
+                          uint32_t length,
+                          int Qm)
 {
   const int kbits = Qm / 2, nlev = 1 << kbits, nbits = 2 * kbits;
   AssertFatal(kbits >= 1 && kbits <= 4, "nr_qam_llr_3layer_ml: unsupported Qm=%d\n", Qm);
@@ -3433,41 +3593,62 @@ void nr_qam_llr_3layer_ml(c16_t *zt, c16_t *zn1, c16_t *zn2,
   for (uint32_t re = 0; re < length; re++) {
     const double Pt = cmt[re].r * rf, Pn1 = cmn1[re].r * rf, Pn2 = cmn2[re].r * rf;
     const double ztr = zt[re].r, zti = zt[re].i, z1r = zn1[re].r, z1i = zn1[re].i, z2r = zn2[re].r, z2i = zn2[re].i;
-    const double t1r = rho_tn1[re].r, t1i = rho_tn1[re].i, t2r = rho_tn2[re].r, t2i = rho_tn2[re].i, n12r = rho_n1n2[re].r, n12i = rho_n1n2[re].i;
+    const double t1r = rho_tn1[re].r, t1i = rho_tn1[re].i, t2r = rho_tn2[re].r, t2i = rho_tn2[re].i, n12r = rho_n1n2[re].r,
+                 n12i = rho_n1n2[re].i;
     const double invPn2 = Pn2 != 0.0 ? 1.0 / Pn2 : 0.0;
     double max0[8], max1[8];
-    for (int p = 0; p < nbits; p++) { max0[p] = -1e30; max1[p] = -1e30; }
-
-    for (int qit = 0; qit < nlev; qit++) for (int iit = 0; iit < nlev; iit++) {
-      const int It = 2 * iit - (nlev - 1), Qt = 2 * qit - (nlev - 1);
-      const double xtr = It * NA, xti = Qt * NA;
-      for (int q1 = 0; q1 < nlev; q1++) for (int i1 = 0; i1 < nlev; i1++) {
-        const int I1 = 2 * i1 - (nlev - 1), Q1 = 2 * q1 - (nlev - 1);
-        const double x1r = I1 * NA, x1i = Q1 * NA;
-        const double ar = z2r - (t2r * xtr + t2i * xti) - (n12r * x1r + n12i * x1i);
-        const double ai = z2i - (t2r * xti - t2i * xtr) - (n12r * x1i - n12i * x1r);
-        const int I2 = nr_lbest_slice_gen(ar * invPn2 * sqrtN, kbits), Q2 = nr_lbest_slice_gen(ai * invPn2 * sqrtN, kbits);
-        const double x2r = I2 * NA, x2i = Q2 * NA;
-        double m = (xtr * ztr + xti * zti) - 0.5 * Pt * (xtr * xtr + xti * xti)
-                 + (x1r * z1r + x1i * z1i) - 0.5 * Pn1 * (x1r * x1r + x1i * x1i)
-                 + (x2r * z2r + x2i * z2i) - 0.5 * Pn2 * (x2r * x2r + x2i * x2i)
-                 - (t1r * (xtr * x1r + xti * x1i) - t1i * (xtr * x1i - xti * x1r))
-                 - (t2r * (xtr * x2r + xti * x2i) - t2i * (xtr * x2i - xti * x2r))
-                 - (n12r * (x1r * x2r + x1i * x2i) - n12i * (x1r * x2i - x1i * x2r));
-        int bI[4], bQ[4];
-        nr_lbest_axis_bits_gen(It, kbits, bI);
-        nr_lbest_axis_bits_gen(Qt, kbits, bQ);
-        for (int j = 0; j < kbits; j++) {
-          const int p0 = 2 * j, p1 = 2 * j + 1;
-          if (bI[j] == 0) { if (m > max0[p0]) max0[p0] = m; } else { if (m > max1[p0]) max1[p0] = m; }
-          if (bQ[j] == 0) { if (m > max0[p1]) max0[p1] = m; } else { if (m > max1[p1]) max1[p1] = m; }
-        }
-      }
-    }
     for (int p = 0; p < nbits; p++) {
-      double llr = (max0[p] <= -1e29) ? -NR_LBEST_LLR_SAT : (max1[p] <= -1e29) ? NR_LBEST_LLR_SAT : (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
-      if (llr > 32767.0) llr = 32767.0;
-      if (llr < -32768.0) llr = -32768.0;
+      max0[p] = -1e30;
+      max1[p] = -1e30;
+    }
+
+    for (int qit = 0; qit < nlev; qit++)
+      for (int iit = 0; iit < nlev; iit++) {
+        const int It = 2 * iit - (nlev - 1), Qt = 2 * qit - (nlev - 1);
+        const double xtr = It * NA, xti = Qt * NA;
+        for (int q1 = 0; q1 < nlev; q1++)
+          for (int i1 = 0; i1 < nlev; i1++) {
+            const int I1 = 2 * i1 - (nlev - 1), Q1 = 2 * q1 - (nlev - 1);
+            const double x1r = I1 * NA, x1i = Q1 * NA;
+            const double ar = z2r - (t2r * xtr + t2i * xti) - (n12r * x1r + n12i * x1i);
+            const double ai = z2i - (t2r * xti - t2i * xtr) - (n12r * x1i - n12i * x1r);
+            const int I2 = nr_lbest_slice_gen(ar * invPn2 * sqrtN, kbits), Q2 = nr_lbest_slice_gen(ai * invPn2 * sqrtN, kbits);
+            const double x2r = I2 * NA, x2i = Q2 * NA;
+            double m = (xtr * ztr + xti * zti) - 0.5 * Pt * (xtr * xtr + xti * xti) + (x1r * z1r + x1i * z1i)
+                       - 0.5 * Pn1 * (x1r * x1r + x1i * x1i) + (x2r * z2r + x2i * z2i) - 0.5 * Pn2 * (x2r * x2r + x2i * x2i)
+                       - (t1r * (xtr * x1r + xti * x1i) - t1i * (xtr * x1i - xti * x1r))
+                       - (t2r * (xtr * x2r + xti * x2i) - t2i * (xtr * x2i - xti * x2r))
+                       - (n12r * (x1r * x2r + x1i * x2i) - n12i * (x1r * x2i - x1i * x2r));
+            int bI[4], bQ[4];
+            nr_lbest_axis_bits_gen(It, kbits, bI);
+            nr_lbest_axis_bits_gen(Qt, kbits, bQ);
+            for (int j = 0; j < kbits; j++) {
+              const int p0 = 2 * j, p1 = 2 * j + 1;
+              if (bI[j] == 0) {
+                if (m > max0[p0])
+                  max0[p0] = m;
+              } else {
+                if (m > max1[p0])
+                  max1[p0] = m;
+              }
+              if (bQ[j] == 0) {
+                if (m > max0[p1])
+                  max0[p1] = m;
+              } else {
+                if (m > max1[p1])
+                  max1[p1] = m;
+              }
+            }
+          }
+      }
+    for (int p = 0; p < nbits; p++) {
+      double llr = (max0[p] <= -1e29)   ? -NR_LBEST_LLR_SAT
+                   : (max1[p] <= -1e29) ? NR_LBEST_LLR_SAT
+                                        : (max0[p] - max1[p]) * NR_LBEST_LLR_SCALE;
+      if (llr > 32767.0)
+        llr = 32767.0;
+      if (llr < -32768.0)
+        llr = -32768.0;
       out[re * nbits + p] = (int16_t)llr;
     }
   }
@@ -3500,9 +3681,12 @@ void nr_qam_llr_3layer_ml(c16_t *zt, c16_t *zn1, c16_t *zn2,
 // nearest 64QAM PAM-8 level magnitude for |a|, thresholds at 2/4/6 * step.
 static inline int nr_lbest_q_pam8_abs(int64_t a, int64_t step)
 {
-  if (a < 2 * step) return 1;
-  if (a < 4 * step) return 3;
-  if (a < 6 * step) return 5;
+  if (a < 2 * step)
+    return 1;
+  if (a < 4 * step)
+    return 3;
+  if (a < 6 * step)
+    return 5;
   return 7;
 }
 
@@ -3524,9 +3708,9 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
   for (uint32_t re = 0; re < length; re++) {
     const int32_t z1r = stream0_in[re].r, z1i = stream0_in[re].i;
     const int32_t z2r = stream1_in[re].r, z2i = stream1_in[re].i;
-    const int32_t rr = rho01[re].r, ri = rho01[re].i;     // rho = h0^H h1
-    const int32_t cm0 = ch_mag[re].r;                     // ||h0||^2 * 4/sqrt(42)
-    const int32_t cm1 = ch_mag_i[re].r;                   // ||h1||^2 * 4/sqrt(42)
+    const int32_t rr = rho01[re].r, ri = rho01[re].i; // rho = h0^H h1
+    const int32_t cm0 = ch_mag[re].r; // ||h0||^2 * 4/sqrt(42)
+    const int32_t cm1 = ch_mag_i[re].r; // ||h1||^2 * 4/sqrt(42)
 
     // recovered channel powers ||h||^2 (for the seed determinant / thresholds)
     const int64_t Pp0 = ((int64_t)cm0 * NR_LBEST_Q_SQRT42_OVER4_Q14) >> 14;
@@ -3541,8 +3725,14 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
     if (det > 0) {
       estI_q6 = (int32_t)((numr * NR_LBEST_Q_SQRT42_Q12) / (det * 64));
       estQ_q6 = (int32_t)((numi * NR_LBEST_Q_SQRT42_Q12) / (det * 64));
-      if (estI_q6 < -512) estI_q6 = -512; else if (estI_q6 > 512) estI_q6 = 512;
-      if (estQ_q6 < -512) estQ_q6 = -512; else if (estQ_q6 > 512) estQ_q6 = 512;
+      if (estI_q6 < -512)
+        estI_q6 = -512;
+      else if (estI_q6 > 512)
+        estI_q6 = 512;
+      if (estQ_q6 < -512)
+        estQ_q6 = -512;
+      else if (estQ_q6 > 512)
+        estQ_q6 = 512;
     }
     // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/42, Peff = det/Pp1
     float axisI[3], axisQ[3];
@@ -3570,15 +3760,24 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
         if (cand_d[b] < cand_d[m])
           m = b;
       if (m != a) {
-        int64_t td = cand_d[a]; cand_d[a] = cand_d[m]; cand_d[m] = td;
-        int ti = candI[a]; candI[a] = candI[m]; candI[m] = ti;
-        int tq = candQ[a]; candQ[a] = candQ[m]; candQ[m] = tq;
+        int64_t td = cand_d[a];
+        cand_d[a] = cand_d[m];
+        cand_d[m] = td;
+        int ti = candI[a];
+        candI[a] = candI[m];
+        candI[m] = ti;
+        int tq = candQ[a];
+        candQ[a] = candQ[m];
+        candQ[m] = tq;
       }
     }
 
     // ---- 3+4. metric over candidates (scaled by 8*sqrt(42)), max-log per bit -
     int64_t max0[6], max1[6];
-    for (int p = 0; p < 6; p++) { max0[p] = INT64_MIN; max1[p] = INT64_MIN; }
+    for (int p = 0; p < 6; p++) {
+      max0[p] = INT64_MIN;
+      max1[p] = INT64_MIN;
+    }
 
     for (int c = 0; c < L; c++) {
       const int I1 = candI[c], Q1 = candQ[c];
@@ -3602,8 +3801,13 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       nr_lbest_axis_bits(Q1, &bQ0, &bQ1, &bQ2);
       const int bit[6] = {bI0, bQ0, bI1, bQ1, bI2, bQ2};
       for (int p = 0; p < 6; p++) {
-        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
-        else             { if (metric > max1[p]) max1[p] = metric; }
+        if (bit[p] == 0) {
+          if (metric > max0[p])
+            max0[p] = metric;
+        } else {
+          if (metric > max1[p])
+            max1[p] = metric;
+        }
       }
     }
 
@@ -3614,8 +3818,10 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
         llr = (int32_t)(g + (g >= 0.0f ? 0.5f : -0.5f));
       } else
         llr = (int32_t)(((max0[p] - max1[p]) * NR_LBEST_Q_LLR_NUM) >> NR_LBEST_Q_LLR_SHIFT);
-      if (llr > 32767) llr = 32767;
-      if (llr < -32768) llr = -32768;
+      if (llr > 32767)
+        llr = 32767;
+      if (llr < -32768)
+        llr = -32768;
       *stream0_out++ = (int16_t)llr;
     }
   }
@@ -3656,13 +3862,20 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
 // PAM-16 level magnitude for |a|, thresholds at {2,4,...,14}*step (== ||h1||^2).
 static inline int nr_lbest_q_pam16_abs(int64_t a, int64_t step)
 {
-  if (a <  2 * step) return  1;
-  if (a <  4 * step) return  3;
-  if (a <  6 * step) return  5;
-  if (a <  8 * step) return  7;
-  if (a < 10 * step) return  9;
-  if (a < 12 * step) return 11;
-  if (a < 14 * step) return 13;
+  if (a < 2 * step)
+    return 1;
+  if (a < 4 * step)
+    return 3;
+  if (a < 6 * step)
+    return 5;
+  if (a < 8 * step)
+    return 7;
+  if (a < 10 * step)
+    return 9;
+  if (a < 12 * step)
+    return 11;
+  if (a < 14 * step)
+    return 13;
   return 15;
 }
 
@@ -3675,23 +3888,25 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
                                                  uint32_t length,
                                                  int L)
 {
-  if (L < 1)   L = 1;
-  if (L > 256) L = 256;
-  static const int levels[16] = {-15,-13,-11,-9,-7,-5,-3,-1,1,3,5,7,9,11,13,15};
+  if (L < 1)
+    L = 1;
+  if (L > 256)
+    L = 256;
+  static const int levels[16] = {-15, -13, -11, -9, -7, -5, -3, -1, 1, 3, 5, 7, 9, 11, 13, 15};
 
   for (uint32_t re = 0; re < length; re++) {
-    const int32_t z1r = stream0_in[re].r,  z1i = stream0_in[re].i;
-    const int32_t z2r = stream1_in[re].r,  z2i = stream1_in[re].i;
-    const int32_t rr  = rho01[re].r,       ri  = rho01[re].i;      // rho = h0^H h1
-    const int32_t cm0 = ch_mag[re].r;      // ||h0||^2 * 8/sqrt(170)
-    const int32_t cm1 = ch_mag_i[re].r;    // ||h1||^2 * 8/sqrt(170)
+    const int32_t z1r = stream0_in[re].r, z1i = stream0_in[re].i;
+    const int32_t z2r = stream1_in[re].r, z2i = stream1_in[re].i;
+    const int32_t rr = rho01[re].r, ri = rho01[re].i; // rho = h0^H h1
+    const int32_t cm0 = ch_mag[re].r; // ||h0||^2 * 8/sqrt(170)
+    const int32_t cm1 = ch_mag_i[re].r; // ||h1||^2 * 8/sqrt(170)
 
     // recover channel powers ||h||^2 via cm * sqrt(170)/8
     const int64_t Pp0 = ((int64_t)cm0 * NR_LBEST_Q_SQRT170_OVER8_Q14) >> 14;
     const int64_t Pp1 = ((int64_t)cm1 * NR_LBEST_Q_SQRT170_OVER8_Q14) >> 14;
 
     // ---- 1. division-free ZF seed: x_hat1 = ((Pp1) z1 - rho z2) / det ----
-    const int64_t det  = Pp0 * Pp1 - ((int64_t)rr * rr + (int64_t)ri * ri);
+    const int64_t det = Pp0 * Pp1 - ((int64_t)rr * rr + (int64_t)ri * ri);
     const int64_t numr = Pp1 * z1r - ((int64_t)rr * z2r - (int64_t)ri * z2i);
     const int64_t numi = Pp1 * z1i - ((int64_t)rr * z2i + (int64_t)ri * z2r);
     // soft level estimate in Q6 (level units * 64); clamp to ±1024 (head-room above ±15*64=±960)
@@ -3699,8 +3914,14 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
     if (det > 0) {
       estI_q6 = (int32_t)((numr * NR_LBEST_Q_SQRT170_Q12) / (det * 64));
       estQ_q6 = (int32_t)((numi * NR_LBEST_Q_SQRT170_Q12) / (det * 64));
-      if (estI_q6 < -1024) estI_q6 = -1024; else if (estI_q6 > 1024) estI_q6 = 1024;
-      if (estQ_q6 < -1024) estQ_q6 = -1024; else if (estQ_q6 > 1024) estQ_q6 = 1024;
+      if (estI_q6 < -1024)
+        estI_q6 = -1024;
+      else if (estI_q6 > 1024)
+        estI_q6 = 1024;
+      if (estQ_q6 < -1024)
+        estQ_q6 = -1024;
+      else if (estQ_q6 > 1024)
+        estQ_q6 = 1024;
     }
     // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/170, Peff = det/Pp1
     float axisI[4], axisQ[4];
@@ -3709,7 +3930,7 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
     nr_lbest_pam16_axis_llr(estQ_q6 / 64.0f, g, axisQ);
 
     // ---- 2. candidate set: L nearest of 256 points ----
-    int     candI[256], candQ[256];
+    int candI[256], candQ[256];
     int64_t cand_d[256];
     int nc = 0;
     for (int qi = 0; qi < 16; qi++) {
@@ -3730,16 +3951,25 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
           if (cand_d[b] < cand_d[m])
             m = b;
         if (m != a) {
-          int64_t td = cand_d[a]; cand_d[a] = cand_d[m]; cand_d[m] = td;
-          int  ti = candI[a];    candI[a]  = candI[m];  candI[m]  = ti;
-          int  tq = candQ[a];    candQ[a]  = candQ[m];  candQ[m]  = tq;
+          int64_t td = cand_d[a];
+          cand_d[a] = cand_d[m];
+          cand_d[m] = td;
+          int ti = candI[a];
+          candI[a] = candI[m];
+          candI[m] = ti;
+          int tq = candQ[a];
+          candQ[a] = candQ[m];
+          candQ[m] = tq;
         }
       }
     }
 
     // ---- 3+4. metric over candidates (scaled by 16*sqrt(170)), max-log per bit ----
     int64_t max0[8], max1[8];
-    for (int p = 0; p < 8; p++) { max0[p] = INT64_MIN; max1[p] = INT64_MIN; }
+    for (int p = 0; p < 8; p++) {
+      max0[p] = INT64_MIN;
+      max1[p] = INT64_MIN;
+    }
 
     for (int c = 0; c < L; c++) {
       const int I1 = candI[c], Q1 = candQ[c];
@@ -3754,8 +3984,7 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       int64_t metric = 16 * ((int64_t)I1 * z1r + (int64_t)Q1 * z1i) - cm0 * ((int64_t)I1 * I1 + (int64_t)Q1 * Q1);
       metric += 16 * ((int64_t)I2 * z2r + (int64_t)Q2 * z2i) - cm1 * ((int64_t)I2 * I2 + (int64_t)Q2 * Q2);
       // cross = 16 * Re{rho . conj(X1) . X2} / sqrt(170)
-      const int64_t rec = (int64_t)rr * ((int64_t)I1 * I2 + (int64_t)Q1 * Q2)
-                        + (int64_t)ri * ((int64_t)Q1 * I2 - (int64_t)I1 * Q2);
+      const int64_t rec = (int64_t)rr * ((int64_t)I1 * I2 + (int64_t)Q1 * Q2) + (int64_t)ri * ((int64_t)Q1 * I2 - (int64_t)I1 * Q2);
       metric -= (16 * rec * NR_LBEST_Q_INVSQRT170_Q15) >> 15;
 
       // bit labels, interleaved {I0,Q0,I1,Q1,I2,Q2,I3,Q3} (matches nr_qam256_llr_2layer_lbest)
@@ -3764,8 +3993,13 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       nr_lbest_axis_bits256(Q1, &bQ0, &bQ1, &bQ2, &bQ3);
       const int bit[8] = {bI0, bQ0, bI1, bQ1, bI2, bQ2, bI3, bQ3};
       for (int p = 0; p < 8; p++) {
-        if (bit[p] == 0) { if (metric > max0[p]) max0[p] = metric; }
-        else             { if (metric > max1[p]) max1[p] = metric; }
+        if (bit[p] == 0) {
+          if (metric > max0[p])
+            max0[p] = metric;
+        } else {
+          if (metric > max1[p])
+            max1[p] = metric;
+        }
       }
     }
 
@@ -3777,8 +4011,10 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
         llr = (int32_t)(g + (g >= 0.0f ? 0.5f : -0.5f));
       } else
         llr = (int32_t)(((max0[p] - max1[p]) * NR_LBEST_Q_LLR256_NUM) >> NR_LBEST_Q_LLR256_SHIFT);
-      if (llr > 32767)  llr =  32767;
-      if (llr < -32768) llr = -32768;
+      if (llr > 32767)
+        llr = 32767;
+      if (llr < -32768)
+        llr = -32768;
       *stream0_out++ = (int16_t)llr;
     }
   }
@@ -4204,12 +4440,27 @@ uint8_t nr_compute_MMSE_llr(c16_t **rxdataF_comp,
                             c16_t *rho11,
                             int16_t **llr)
 {
-  const uint8_t ret = nr_mmse_2layers(rxdataF_comp, buffer_length, pdsch_buf_size_max, nb_rx_ant, nb_layers,
-                                      ch_mag, ch_magb, ch_magc, ch_estimates_ext, nb_rb, mod_order, shift,
-                                      symbol, length, noise_var, rho00, rho01, rho10, rho11);
+  const uint8_t ret = nr_mmse_2layers(rxdataF_comp,
+                                      buffer_length,
+                                      pdsch_buf_size_max,
+                                      nb_rx_ant,
+                                      nb_layers,
+                                      ch_mag,
+                                      ch_magb,
+                                      ch_magc,
+                                      ch_estimates_ext,
+                                      nb_rb,
+                                      mod_order,
+                                      shift,
+                                      symbol,
+                                      length,
+                                      noise_var,
+                                      rho00,
+                                      rho01,
+                                      rho10,
+                                      rho11);
   for (int l = 0; l < nb_layers; l++)
-    nr_compute_llr(&rxdataF_comp[l][symbol * buffer_length], ch_mag[l], ch_magb[l], ch_magc[l],
-                   llr[l], length, symbol, mod_order);
+    nr_compute_llr(&rxdataF_comp[l][symbol * buffer_length], ch_mag[l], ch_magb[l], ch_magc[l], llr[l], length, symbol, mod_order);
   return ret;
 }
 

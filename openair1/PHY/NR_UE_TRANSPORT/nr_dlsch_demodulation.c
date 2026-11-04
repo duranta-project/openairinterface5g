@@ -882,8 +882,7 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     else if (!do_ml)
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
     else
-      *log2_maxh = nr_2layer_log2_maxh(avgs) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder, lbest_gate)
-                   + log2_approx(nbRx >> 1);
+      *log2_maxh = nr_2layer_log2_maxh(avgs) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder, lbest_gate) + log2_approx(nbRx >> 1);
     LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
     T(T_UE_PHY_PDSCH_ENERGY,

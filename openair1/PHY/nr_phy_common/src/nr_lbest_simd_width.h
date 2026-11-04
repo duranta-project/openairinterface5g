@@ -37,65 +37,65 @@
 #define NRLB_CC(a, b) NRLB_CC1(a, b)
 
 #if NRLB_W == 256
-  #define NRLB_VI simde__m256i
-  #define NRLB_VF simde__m256
-  #define NRLB_N 16
-  #define NRLB_MM(op) NRLB_CC(simde_mm256_, op)
-  #define NRLB_MMF(op) NRLB_CC(simde_mm256_, op)
-  #define NRLB_NAME(base) NRLB_CC(base, _w256)
-  #define NRLB_SETZERO() simde_mm256_setzero_si256()
-  #define NRLB_CASTPS_SI(x) simde_mm256_castps_si256(x)
-  #define NRLB_CASTSI_PS(x) simde_mm256_castsi256_ps(x)
-  #define NRLB_OR(a, b) simde_mm256_or_si256(a, b)
-  #define NRLB_AND(a, b) simde_mm256_and_si256(a, b)
-  #define NRLB_ANDNOT(a, b) simde_mm256_andnot_si256(a, b)
-  #define NRLB_BLENDV(a, b, m) simde_mm256_blendv_epi8(a, b, m)
-  #define NRLB_CMPGT16(a, b) simde_mm256_cmpgt_epi16(a, b)
-  #define NRLB_CMPEQ16(a, b) simde_mm256_cmpeq_epi16(a, b)
-  #define NRLB_CMPPS_SI(a, b, imm) simde_mm256_castps_si256(simde_mm256_cmp_ps(a, b, imm))
-  #define NRLB_ROUNDPS(x, imm) simde_mm256_round_ps(x, imm)
+#define NRLB_VI simde__m256i
+#define NRLB_VF simde__m256
+#define NRLB_N 16
+#define NRLB_MM(op) NRLB_CC(simde_mm256_, op)
+#define NRLB_MMF(op) NRLB_CC(simde_mm256_, op)
+#define NRLB_NAME(base) NRLB_CC(base, _w256)
+#define NRLB_SETZERO() simde_mm256_setzero_si256()
+#define NRLB_CASTPS_SI(x) simde_mm256_castps_si256(x)
+#define NRLB_CASTSI_PS(x) simde_mm256_castsi256_ps(x)
+#define NRLB_OR(a, b) simde_mm256_or_si256(a, b)
+#define NRLB_AND(a, b) simde_mm256_and_si256(a, b)
+#define NRLB_ANDNOT(a, b) simde_mm256_andnot_si256(a, b)
+#define NRLB_BLENDV(a, b, m) simde_mm256_blendv_epi8(a, b, m)
+#define NRLB_CMPGT16(a, b) simde_mm256_cmpgt_epi16(a, b)
+#define NRLB_CMPEQ16(a, b) simde_mm256_cmpeq_epi16(a, b)
+#define NRLB_CMPPS_SI(a, b, imm) simde_mm256_castps_si256(simde_mm256_cmp_ps(a, b, imm))
+#define NRLB_ROUNDPS(x, imm) simde_mm256_round_ps(x, imm)
 #elif NRLB_W == 128
-  #define NRLB_VI simde__m128i
-  #define NRLB_VF simde__m128
-  #define NRLB_N 8
-  #define NRLB_MM(op) NRLB_CC(simde_mm_, op)
-  #define NRLB_MMF(op) NRLB_CC(simde_mm_, op)
-  #define NRLB_NAME(base) NRLB_CC(base, _w128)
-  #define NRLB_SETZERO() simde_mm_setzero_si128()
-  #define NRLB_CASTPS_SI(x) simde_mm_castps_si128(x)
-  #define NRLB_CASTSI_PS(x) simde_mm_castsi128_ps(x)
-  #define NRLB_OR(a, b) simde_mm_or_si128(a, b)
-  #define NRLB_AND(a, b) simde_mm_and_si128(a, b)
-  #define NRLB_ANDNOT(a, b) simde_mm_andnot_si128(a, b)
-  #define NRLB_BLENDV(a, b, m) simde_mm_blendv_epi8(a, b, m)
-  #define NRLB_CMPGT16(a, b) simde_mm_cmpgt_epi16(a, b)
-  #define NRLB_CMPEQ16(a, b) simde_mm_cmpeq_epi16(a, b)
-  #define NRLB_CMPPS_SI(a, b, imm) simde_mm_castps_si128(simde_mm_cmp_ps(a, b, imm))
-  #define NRLB_ROUNDPS(x, imm) simde_mm_round_ps(x, imm)
+#define NRLB_VI simde__m128i
+#define NRLB_VF simde__m128
+#define NRLB_N 8
+#define NRLB_MM(op) NRLB_CC(simde_mm_, op)
+#define NRLB_MMF(op) NRLB_CC(simde_mm_, op)
+#define NRLB_NAME(base) NRLB_CC(base, _w128)
+#define NRLB_SETZERO() simde_mm_setzero_si128()
+#define NRLB_CASTPS_SI(x) simde_mm_castps_si128(x)
+#define NRLB_CASTSI_PS(x) simde_mm_castsi128_ps(x)
+#define NRLB_OR(a, b) simde_mm_or_si128(a, b)
+#define NRLB_AND(a, b) simde_mm_and_si128(a, b)
+#define NRLB_ANDNOT(a, b) simde_mm_andnot_si128(a, b)
+#define NRLB_BLENDV(a, b, m) simde_mm_blendv_epi8(a, b, m)
+#define NRLB_CMPGT16(a, b) simde_mm_cmpgt_epi16(a, b)
+#define NRLB_CMPEQ16(a, b) simde_mm_cmpeq_epi16(a, b)
+#define NRLB_CMPPS_SI(a, b, imm) simde_mm_castps_si128(simde_mm_cmp_ps(a, b, imm))
+#define NRLB_ROUNDPS(x, imm) simde_mm_round_ps(x, imm)
 #elif NRLB_W == 512
-  #define NRLB_VI simde__m512i
-  #define NRLB_VF simde__m512
-  #define NRLB_N 32
-  #define NRLB_MM(op) NRLB_CC(simde_mm512_, op)
-  #define NRLB_MMF(op) NRLB_CC(simde_mm512_, op)
-  #define NRLB_NAME(base) NRLB_CC(base, _w512)
-  #define NRLB_SETZERO() simde_mm512_setzero_si512()
-  #define NRLB_CASTPS_SI(x) simde_mm512_castps_si512(x)
-  #define NRLB_CASTSI_PS(x) simde_mm512_castsi512_ps(x)
-  #define NRLB_OR(a, b) simde_mm512_or_si512(a, b)
-  #define NRLB_AND(a, b) simde_mm512_and_si512(a, b)
-  #define NRLB_ANDNOT(a, b) simde_mm512_andnot_si512(a, b)
-  // AVX-512 compares yield k-masks; lift them back to vector (-1/0) via movm so the
-  // vector-mask kernel body is unchanged. blendv_epi8 has no 512 form -> emulate with
-  // movepi8_mask (high bit -> k) + mask_blend_epi8 (2 native insns: vpmovb2m + vpblendmb).
-  #define NRLB_BLENDV(a, b, m) simde_mm512_mask_blend_epi8(simde_mm512_movepi8_mask(m), a, b)
-  #define NRLB_CMPGT16(a, b) simde_mm512_movm_epi16(simde_mm512_cmpgt_epi16_mask(a, b))
-  // equality is sign-agnostic; use the unsigned mask -- some SIMDe versions ship only cmpeq_epu16_mask.
-  #define NRLB_CMPEQ16(a, b) simde_mm512_movm_epi16(simde_mm512_cmpeq_epu16_mask(a, b))
-  #define NRLB_CMPPS_SI(a, b, imm) simde_mm512_movm_epi32(simde_mm512_cmp_ps_mask(a, b, imm))
-  #define NRLB_ROUNDPS(x, imm) simde_mm512_roundscale_ps(x, imm)
+#define NRLB_VI simde__m512i
+#define NRLB_VF simde__m512
+#define NRLB_N 32
+#define NRLB_MM(op) NRLB_CC(simde_mm512_, op)
+#define NRLB_MMF(op) NRLB_CC(simde_mm512_, op)
+#define NRLB_NAME(base) NRLB_CC(base, _w512)
+#define NRLB_SETZERO() simde_mm512_setzero_si512()
+#define NRLB_CASTPS_SI(x) simde_mm512_castps_si512(x)
+#define NRLB_CASTSI_PS(x) simde_mm512_castsi512_ps(x)
+#define NRLB_OR(a, b) simde_mm512_or_si512(a, b)
+#define NRLB_AND(a, b) simde_mm512_and_si512(a, b)
+#define NRLB_ANDNOT(a, b) simde_mm512_andnot_si512(a, b)
+// AVX-512 compares yield k-masks; lift them back to vector (-1/0) via movm so the
+// vector-mask kernel body is unchanged. blendv_epi8 has no 512 form -> emulate with
+// movepi8_mask (high bit -> k) + mask_blend_epi8 (2 native insns: vpmovb2m + vpblendmb).
+#define NRLB_BLENDV(a, b, m) simde_mm512_mask_blend_epi8(simde_mm512_movepi8_mask(m), a, b)
+#define NRLB_CMPGT16(a, b) simde_mm512_movm_epi16(simde_mm512_cmpgt_epi16_mask(a, b))
+// equality is sign-agnostic; use the unsigned mask -- some SIMDe versions ship only cmpeq_epu16_mask.
+#define NRLB_CMPEQ16(a, b) simde_mm512_movm_epi16(simde_mm512_cmpeq_epu16_mask(a, b))
+#define NRLB_CMPPS_SI(a, b, imm) simde_mm512_movm_epi32(simde_mm512_cmp_ps_mask(a, b, imm))
+#define NRLB_ROUNDPS(x, imm) simde_mm512_roundscale_ps(x, imm)
 #else
-  #error "NRLB_W must be 128, 256 or 512"
+#error "NRLB_W must be 128, 256 or 512"
 #endif
 
 // ---- cross-lane helpers (the only structurally width-specific pieces) ----
@@ -111,8 +111,7 @@ static inline NRLB_VI NRLB_NAME(nrlbw_widen)(NRLB_VI v, int hi)
             : simde_mm256_cvtepi16_epi32(simde_mm256_castsi256_si128(v));
 #else
   // 128-bit: low half = cvt of low 4 int16; high half = cvt after an 8-byte shift
-  return hi ? simde_mm_cvtepi16_epi32(simde_mm_srli_si128(v, 8))
-            : simde_mm_cvtepi16_epi32(v);
+  return hi ? simde_mm_cvtepi16_epi32(simde_mm_srli_si128(v, 8)) : simde_mm_cvtepi16_epi32(v);
 #endif
 }
 
@@ -142,16 +141,50 @@ static inline void NRLB_NAME(nrlbw_load)(const c16_t *p, NRLB_VI *re, NRLB_VI *i
   *re = simde_mm512_permutex2var_epi64(A, simde_mm512_set_epi64(14, 12, 10, 8, 6, 4, 2, 0), B);
   *im = simde_mm512_permutex2var_epi64(A, simde_mm512_set_epi64(15, 13, 11, 9, 7, 5, 3, 1), B);
 #elif NRLB_W == 256
-  const simde__m256i sh = simde_mm256_setr_epi8(0, 1, 4, 5, 8, 9, 12, 13, 2, 3, 6, 7, 10, 11, 14, 15,
-                                                0, 1, 4, 5, 8, 9, 12, 13, 2, 3, 6, 7, 10, 11, 14, 15);
-  const simde__m256i v0 = simde_mm256_permute4x64_epi64(simde_mm256_shuffle_epi8(simde_mm256_loadu_si256((const simde__m256i *)p), sh), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
-  const simde__m256i v1 = simde_mm256_permute4x64_epi64(simde_mm256_shuffle_epi8(simde_mm256_loadu_si256((const simde__m256i *)(p + 8)), sh), SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  const simde__m256i sh = simde_mm256_setr_epi8(0,
+                                                1,
+                                                4,
+                                                5,
+                                                8,
+                                                9,
+                                                12,
+                                                13,
+                                                2,
+                                                3,
+                                                6,
+                                                7,
+                                                10,
+                                                11,
+                                                14,
+                                                15,
+                                                0,
+                                                1,
+                                                4,
+                                                5,
+                                                8,
+                                                9,
+                                                12,
+                                                13,
+                                                2,
+                                                3,
+                                                6,
+                                                7,
+                                                10,
+                                                11,
+                                                14,
+                                                15);
+  const simde__m256i v0 =
+      simde_mm256_permute4x64_epi64(simde_mm256_shuffle_epi8(simde_mm256_loadu_si256((const simde__m256i *)p), sh),
+                                    SIMDE_MM_SHUFFLE(3, 1, 2, 0));
+  const simde__m256i v1 =
+      simde_mm256_permute4x64_epi64(simde_mm256_shuffle_epi8(simde_mm256_loadu_si256((const simde__m256i *)(p + 8)), sh),
+                                    SIMDE_MM_SHUFFLE(3, 1, 2, 0));
   *re = simde_mm256_set_m128i(simde_mm256_castsi256_si128(v1), simde_mm256_castsi256_si128(v0));
   *im = simde_mm256_set_m128i(simde_mm256_extracti128_si256(v1, 1), simde_mm256_extracti128_si256(v0, 1));
 #else
   // 128-bit: 8 c16 (re,im) -> shuffle so the low 8 bytes are the 4... need 8 REs: load 8 c16 = 16 int16
   const simde__m128i sh = simde_mm_setr_epi8(0, 1, 4, 5, 8, 9, 12, 13, 2, 3, 6, 7, 10, 11, 14, 15);
-  const simde__m128i v0 = simde_mm_shuffle_epi8(simde_mm_loadu_si128((const simde__m128i *)p), sh);       // re0..3 | im0..3
+  const simde__m128i v0 = simde_mm_shuffle_epi8(simde_mm_loadu_si128((const simde__m128i *)p), sh); // re0..3 | im0..3
   const simde__m128i v1 = simde_mm_shuffle_epi8(simde_mm_loadu_si128((const simde__m128i *)(p + 4)), sh); // re4..7 | im4..7
   *re = simde_mm_unpacklo_epi64(v0, v1); // re0..7
   *im = simde_mm_unpackhi_epi64(v0, v1); // im0..7
@@ -166,8 +199,10 @@ static inline void NRLB_NAME(nrlbw_store_llr)(int16_t *stream0_out, uint32_t re,
   // runs independently in each of the 4 lanes: 128-lane L holds REs 8L..8L+7, and after the
   // transpose c[j] lane-L = the Qm LLRs for RE (8L+j).
   simde__m512i r[8];
-  for (int p = 0; p < Qm; p++) r[p] = res[p];
-  for (int p = Qm; p < 8; p++) r[p] = simde_mm512_setzero_si512();
+  for (int p = 0; p < Qm; p++)
+    r[p] = res[p];
+  for (int p = Qm; p < 8; p++)
+    r[p] = simde_mm512_setzero_si512();
   const simde__m512i a0 = simde_mm512_unpacklo_epi16(r[0], r[1]), a1 = simde_mm512_unpackhi_epi16(r[0], r[1]);
   const simde__m512i a2 = simde_mm512_unpacklo_epi16(r[2], r[3]), a3 = simde_mm512_unpackhi_epi16(r[2], r[3]);
   const simde__m512i a4 = simde_mm512_unpacklo_epi16(r[4], r[5]), a5 = simde_mm512_unpackhi_epi16(r[4], r[5]);
@@ -177,25 +212,37 @@ static inline void NRLB_NAME(nrlbw_store_llr)(int16_t *stream0_out, uint32_t re,
   const simde__m512i b4 = simde_mm512_unpacklo_epi32(a4, a6), b5 = simde_mm512_unpackhi_epi32(a4, a6);
   const simde__m512i b6 = simde_mm512_unpacklo_epi32(a5, a7), b7 = simde_mm512_unpackhi_epi32(a5, a7);
   simde__m512i c[8];
-  c[0] = simde_mm512_unpacklo_epi64(b0, b4); c[1] = simde_mm512_unpackhi_epi64(b0, b4);
-  c[2] = simde_mm512_unpacklo_epi64(b1, b5); c[3] = simde_mm512_unpackhi_epi64(b1, b5);
-  c[4] = simde_mm512_unpacklo_epi64(b2, b6); c[5] = simde_mm512_unpackhi_epi64(b2, b6);
-  c[6] = simde_mm512_unpacklo_epi64(b3, b7); c[7] = simde_mm512_unpackhi_epi64(b3, b7);
+  c[0] = simde_mm512_unpacklo_epi64(b0, b4);
+  c[1] = simde_mm512_unpackhi_epi64(b0, b4);
+  c[2] = simde_mm512_unpacklo_epi64(b1, b5);
+  c[3] = simde_mm512_unpackhi_epi64(b1, b5);
+  c[4] = simde_mm512_unpacklo_epi64(b2, b6);
+  c[5] = simde_mm512_unpackhi_epi64(b2, b6);
+  c[6] = simde_mm512_unpacklo_epi64(b3, b7);
+  c[7] = simde_mm512_unpackhi_epi64(b3, b7);
   for (int j = 0; j < 8; j++) {
     // extracti32x4 needs a compile-time-constant lane -> extract all 4 with literal indices,
     // then index at runtime (a loop variable in the lane arg fails at -O0, where nothing unrolls).
-    const simde__m128i cc[4] = {simde_mm512_extracti32x4_epi32(c[j], 0), simde_mm512_extracti32x4_epi32(c[j], 1),
-                                simde_mm512_extracti32x4_epi32(c[j], 2), simde_mm512_extracti32x4_epi32(c[j], 3)};
+    const simde__m128i cc[4] = {simde_mm512_extracti32x4_epi32(c[j], 0),
+                                simde_mm512_extracti32x4_epi32(c[j], 1),
+                                simde_mm512_extracti32x4_epi32(c[j], 2),
+                                simde_mm512_extracti32x4_epi32(c[j], 3)};
     for (int L = 0; L < 4; L++) {
       int16_t *o = &stream0_out[(re + (uint32_t)(L * 8 + j)) * Qm];
-      if (Qm == 8) simde_mm_storeu_si128((simde__m128i *)o, cc[L]);
-      else { simde_mm_storel_epi64((simde__m128i *)o, cc[L]); *(int32_t *)(o + 4) = simde_mm_extract_epi32(cc[L], 2); }
+      if (Qm == 8)
+        simde_mm_storeu_si128((simde__m128i *)o, cc[L]);
+      else {
+        simde_mm_storel_epi64((simde__m128i *)o, cc[L]);
+        *(int32_t *)(o + 4) = simde_mm_extract_epi32(cc[L], 2);
+      }
     }
   }
 #elif NRLB_W == 256
   simde__m256i r[8];
-  for (int p = 0; p < Qm; p++) r[p] = res[p];
-  for (int p = Qm; p < 8; p++) r[p] = simde_mm256_setzero_si256();
+  for (int p = 0; p < Qm; p++)
+    r[p] = res[p];
+  for (int p = Qm; p < 8; p++)
+    r[p] = simde_mm256_setzero_si256();
   const simde__m256i a0 = simde_mm256_unpacklo_epi16(r[0], r[1]), a1 = simde_mm256_unpackhi_epi16(r[0], r[1]);
   const simde__m256i a2 = simde_mm256_unpacklo_epi16(r[2], r[3]), a3 = simde_mm256_unpackhi_epi16(r[2], r[3]);
   const simde__m256i a4 = simde_mm256_unpacklo_epi16(r[4], r[5]), a5 = simde_mm256_unpackhi_epi16(r[4], r[5]);
@@ -205,22 +252,34 @@ static inline void NRLB_NAME(nrlbw_store_llr)(int16_t *stream0_out, uint32_t re,
   const simde__m256i b4 = simde_mm256_unpacklo_epi32(a4, a6), b5 = simde_mm256_unpackhi_epi32(a4, a6);
   const simde__m256i b6 = simde_mm256_unpacklo_epi32(a5, a7), b7 = simde_mm256_unpackhi_epi32(a5, a7);
   simde__m256i c[8];
-  c[0] = simde_mm256_unpacklo_epi64(b0, b4); c[1] = simde_mm256_unpackhi_epi64(b0, b4);
-  c[2] = simde_mm256_unpacklo_epi64(b1, b5); c[3] = simde_mm256_unpackhi_epi64(b1, b5);
-  c[4] = simde_mm256_unpacklo_epi64(b2, b6); c[5] = simde_mm256_unpackhi_epi64(b2, b6);
-  c[6] = simde_mm256_unpacklo_epi64(b3, b7); c[7] = simde_mm256_unpackhi_epi64(b3, b7);
+  c[0] = simde_mm256_unpacklo_epi64(b0, b4);
+  c[1] = simde_mm256_unpackhi_epi64(b0, b4);
+  c[2] = simde_mm256_unpacklo_epi64(b1, b5);
+  c[3] = simde_mm256_unpackhi_epi64(b1, b5);
+  c[4] = simde_mm256_unpacklo_epi64(b2, b6);
+  c[5] = simde_mm256_unpackhi_epi64(b2, b6);
+  c[6] = simde_mm256_unpacklo_epi64(b3, b7);
+  c[7] = simde_mm256_unpackhi_epi64(b3, b7);
   for (int j = 0; j < 8; j++) {
     const simde__m128i lo = simde_mm256_castsi256_si128(c[j]), hi = simde_mm256_extracti128_si256(c[j], 1);
     int16_t *o0 = &stream0_out[(re + j) * Qm], *o8 = &stream0_out[(re + j + 8) * Qm];
-    if (Qm == 8) { simde_mm_storeu_si128((simde__m128i *)o0, lo); simde_mm_storeu_si128((simde__m128i *)o8, hi); }
-    else { simde_mm_storel_epi64((simde__m128i *)o0, lo); *(int32_t *)(o0 + 4) = simde_mm_extract_epi32(lo, 2);
-           simde_mm_storel_epi64((simde__m128i *)o8, hi); *(int32_t *)(o8 + 4) = simde_mm_extract_epi32(hi, 2); }
+    if (Qm == 8) {
+      simde_mm_storeu_si128((simde__m128i *)o0, lo);
+      simde_mm_storeu_si128((simde__m128i *)o8, hi);
+    } else {
+      simde_mm_storel_epi64((simde__m128i *)o0, lo);
+      *(int32_t *)(o0 + 4) = simde_mm_extract_epi32(lo, 2);
+      simde_mm_storel_epi64((simde__m128i *)o8, hi);
+      *(int32_t *)(o8 + 4) = simde_mm_extract_epi32(hi, 2);
+    }
   }
 #else
   // 128-bit: 8 REs in one lane. Transpose 8x8 int16 (padded from Qm) via unpack, store Qm/RE.
   simde__m128i r[8];
-  for (int p = 0; p < Qm; p++) r[p] = res[p];
-  for (int p = Qm; p < 8; p++) r[p] = simde_mm_setzero_si128();
+  for (int p = 0; p < Qm; p++)
+    r[p] = res[p];
+  for (int p = Qm; p < 8; p++)
+    r[p] = simde_mm_setzero_si128();
   const simde__m128i a0 = simde_mm_unpacklo_epi16(r[0], r[1]), a1 = simde_mm_unpackhi_epi16(r[0], r[1]);
   const simde__m128i a2 = simde_mm_unpacklo_epi16(r[2], r[3]), a3 = simde_mm_unpackhi_epi16(r[2], r[3]);
   const simde__m128i a4 = simde_mm_unpacklo_epi16(r[4], r[5]), a5 = simde_mm_unpackhi_epi16(r[4], r[5]);
@@ -230,14 +289,22 @@ static inline void NRLB_NAME(nrlbw_store_llr)(int16_t *stream0_out, uint32_t re,
   const simde__m128i b4 = simde_mm_unpacklo_epi32(a4, a6), b5 = simde_mm_unpackhi_epi32(a4, a6);
   const simde__m128i b6 = simde_mm_unpacklo_epi32(a5, a7), b7 = simde_mm_unpackhi_epi32(a5, a7);
   simde__m128i c[8];
-  c[0] = simde_mm_unpacklo_epi64(b0, b4); c[1] = simde_mm_unpackhi_epi64(b0, b4);
-  c[2] = simde_mm_unpacklo_epi64(b1, b5); c[3] = simde_mm_unpackhi_epi64(b1, b5);
-  c[4] = simde_mm_unpacklo_epi64(b2, b6); c[5] = simde_mm_unpackhi_epi64(b2, b6);
-  c[6] = simde_mm_unpacklo_epi64(b3, b7); c[7] = simde_mm_unpackhi_epi64(b3, b7);
+  c[0] = simde_mm_unpacklo_epi64(b0, b4);
+  c[1] = simde_mm_unpackhi_epi64(b0, b4);
+  c[2] = simde_mm_unpacklo_epi64(b1, b5);
+  c[3] = simde_mm_unpackhi_epi64(b1, b5);
+  c[4] = simde_mm_unpacklo_epi64(b2, b6);
+  c[5] = simde_mm_unpackhi_epi64(b2, b6);
+  c[6] = simde_mm_unpacklo_epi64(b3, b7);
+  c[7] = simde_mm_unpackhi_epi64(b3, b7);
   for (int j = 0; j < 8; j++) {
     int16_t *o = &stream0_out[(re + j) * Qm];
-    if (Qm == 8) simde_mm_storeu_si128((simde__m128i *)o, c[j]);
-    else { simde_mm_storel_epi64((simde__m128i *)o, c[j]); *(int32_t *)(o + 4) = simde_mm_extract_epi32(c[j], 2); }
+    if (Qm == 8)
+      simde_mm_storeu_si128((simde__m128i *)o, c[j]);
+    else {
+      simde_mm_storel_epi64((simde__m128i *)o, c[j]);
+      *(int32_t *)(o + 4) = simde_mm_extract_epi32(c[j], 2);
+    }
   }
 #endif
 }
