@@ -193,7 +193,8 @@ If that parameter is omitted, the TA is continuously computed based on the SIB19
 
 For LEO satellite scenario we assume the LO to be very accurate and the main FO contribution comes from Doppler shift.
 Therefore, we use the command line parameter `--cont-fo-comp 2` to continuously compensate the DL Doppler and pre-compensate the UL Doppler.
-The initial Doppler frequency offset must be provided via command line with the parameter `--initial-fo`.
+The initial Doppler frequency offset can be provided via command line with `--initial-fo`, or estimated by the blind CFO-PSS
+search described below.
 
 For other information on optional NR UE command line options, please refer [here](./runmodem-nrue.md#optional-nr-ue-command-line-options).
 
@@ -202,6 +203,18 @@ So an example NR UE command for FDD, 5MHz BW, 15 kHz SCS, transparent LEO satell
 cd cmake_targets
 sudo ./ran_build/build/nr-uesoftmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF/ue.conf --band 254 -C 2488400000 --CO -873500000 -r 25 --numerology 0 --ssb 60 --rfsim --rfsimulator.[0].prop_delay 20 --rfsimulator.[0].options chanmod --time-sync-I 0.1 --ntn-initial-time-drift -46 --initial-fo 57340 --cont-fo-comp 2
 ```
+
+### Blind initial Doppler acquisition
+
+If the initial Doppler is unknown, replace `--initial-fo 57340` in the previous command with:
+
+```text
+--initial-fo 0 --ue-fo-compensation --ue-pss-cfo-search
+```
+
+The UE then searches the initial CFO, PSS sequence and timing before continuing with the existing SSS and PBCH processing.
+The default search covers -60 to +60 kHz on a 5 kHz coarse grid and refines the result over +/-6 kHz in 400 Hz steps. The
+grid parameters are configurable through the [optional NR UE command line options](./runmodem-nrue.md#optional-nr-ue-command-line-options).
 
 
 ### Interoperability testing with OCUDU gNB

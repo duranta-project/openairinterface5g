@@ -957,6 +957,11 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/MODULATION/nr_modulation.c
   ${OPENAIR1_DIR}/PHY/MODULATION/slot_fep_nr.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/pss_nr.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_pss_cfo_search.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_pss_cfo_hypothesis.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_pss_cfo_coarse_search.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_pss_cfo_fine_search.c
+  ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_pss_cfo_stage1.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/sss_nr.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/cic_filter_nr.c
   ${OPENAIR1_DIR}/PHY/NR_UE_TRANSPORT/nr_initial_sync.c
