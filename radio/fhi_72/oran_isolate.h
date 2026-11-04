@@ -12,7 +12,6 @@
 
 #include "xran_fh_o_du.h"
 #include "oran-init.h"
-#include "openair1/PHY/impl_defs_nr.h"
 #include "openair1/PHY/TOOLS/tools_defs.h"
 #include "openair1/PHY/defs_nr_common.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_transport_proto.h"

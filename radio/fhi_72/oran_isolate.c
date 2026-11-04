@@ -157,7 +157,7 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
   const struct xran_fh_init *fh_init = get_xran_fh_init();
 
   // UL slot
-  if (s7cfg->slot_dir[slot] == NR_UPLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
+  if (s7cfg->slot_dir[slot] & NR_UPLINK_SLOT) { // also covers NR_MIXED_SLOT (and FDD)
     start_meas(&s7cfg->ul_cp);
     for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
       for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
@@ -176,7 +176,7 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
   }
 
   // DL slot
-  if (s7cfg->slot_dir[slot] == NR_DOWNLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
+  if (s7cfg->slot_dir[slot] & NR_DOWNLINK_SLOT) { // also covers NR_MIXED_SLOT (and FDD)
     start_meas(&s7cfg->dl_cp);
     for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
       for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {

@@ -8,11 +8,9 @@
 #include "common/utils/time_meas.h" // time_stats_t
 #include "radio/COMMON/common_lib.h" // duplex_mode_t
 #include "common/utils/threadPool/thread-pool.h" // tpool_t
+#include "openair1/PHY/impl_defs_nr.h" // NR_DOWNLINK_SLOT, NR_UPLINK_SLOT, NR_MIXED_SLOT
 
 struct PHY_VARS_gNB_s;
-
-/*! \brief direction of a slot; bitmask, SLOT_DIR_MIXED = SLOT_DIR_DL | SLOT_DIR_UL */
-typedef enum { SLOT_DIR_DL = 1, SLOT_DIR_UL = 2, SLOT_DIR_MIXED = 3 } slot_direction_t;
 
 /*! \brief Split 7.2 configuration */
 typedef struct split7_config {
@@ -40,8 +38,8 @@ typedef struct split7_config {
   int slots_per_frame;
   /*! number of slots TX is processed ahead of RX */
   int sl_ahead;
-  /*! direction of each slot in a frame, index: [0..slots_per_frame[; FDD: all SLOT_DIR_MIXED */
-  slot_direction_t slot_dir[160];
+  /*! direction of each slot in a frame, as nr_slot_select(): NR_DOWNLINK_SLOT, NR_UPLINK_SLOT or NR_MIXED_SLOT (FDD: all) */
+  uint8_t slot_dir[160];
   /*! frequency-domain RX buffers, index: [0..rx_num_channels[; points to RU_t common.rxdataF */
   int32_t **rxdataF;
   /*! precoded frequency-domain TX buffers, index: [0..tx_num_channels[; points to RU_t common.txdataF_BF */

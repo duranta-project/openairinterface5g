@@ -479,8 +479,7 @@ void fill_split7_2_config(const RU_t *ru)
   split7->sl_ahead = ru->sl_ahead;
   AssertFatal(fp->slots_per_frame <= sizeofArray(split7->slot_dir), "%d slots per frame not supported\n", fp->slots_per_frame);
   for (int slot = 0; slot < fp->slots_per_frame; slot++) {
-    const int type = nr_slot_select(config, 0, slot);
-    split7->slot_dir[slot] = ((type & NR_DOWNLINK_SLOT) ? SLOT_DIR_DL : 0) | ((type & NR_UPLINK_SLOT) ? SLOT_DIR_UL : 0);
+    split7->slot_dir[slot] = nr_slot_select(config, 0, slot);
   }
   DevAssert(prach_config->prach_ConfigurationIndex.tl.tag == NFAPI_NR_CONFIG_PRACH_CONFIG_INDEX_TAG);
   split7->prach_index = prach_config->prach_ConfigurationIndex.value;
