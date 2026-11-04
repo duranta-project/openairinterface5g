@@ -244,8 +244,8 @@ typedef struct {
 int mm_msg_encode(const fgmm_nas_message_plain_t *mm_msg, uint8_t *buffer, uint32_t len);
 int nas_protected_security_header_encode(uint8_t *buffer, const fgs_nas_message_security_header_t *header, int length);
 int _nas_mm_msg_encode_header(const fgmm_msg_header_t *header, uint8_t *buffer, uint32_t len);
-uint8_t decode_5gmm_msg_header(fgmm_msg_header_t *mm_header, const uint8_t *buffer, uint32_t len);
-uint8_t decode_5gsm_msg_header(fgsm_msg_header_t *sm_header, const uint8_t *buffer, uint32_t len);
+int decode_5gmm_msg_header(fgmm_msg_header_t *mm_header, const uint8_t *buffer, uint32_t len);
+int decode_5gsm_msg_header(fgsm_msg_header_t *sm_header, const uint8_t *buffer, uint32_t len);
 int decode_5gs_security_protected_header(fgs_nas_message_security_header_t *header, const uint8_t *buf, uint32_t len);
 
 #endif // NR_NAS_DEFS_H

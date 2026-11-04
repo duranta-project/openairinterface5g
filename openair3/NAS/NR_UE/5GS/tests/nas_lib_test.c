@@ -396,6 +396,23 @@ static void test_auth_reject(void)
   AssertFatal(eq_auth_reject(&orig, &dec), "test_auth_reject() failed: original and decoded messages do not match\n");
 }
 
+/** @brief Test the plain 5GMM and 5GSM header decoders, which must fail on a truncated header */
+static void test_msg_headers(void)
+{
+  const uint8_t mm[] = {FGS_MOBILITY_MANAGEMENT_MESSAGE, PLAIN_5GS_MSG, FGS_SERVICE_ACCEPT};
+  fgmm_msg_header_t mm_header = {0};
+  AssertFatal(decode_5gmm_msg_header(&mm_header, mm, sizeof(mm)) == sizeof(mm) && mm_header.message_type == FGS_SERVICE_ACCEPT,
+              "decode_5gmm_msg_header() failed\n");
+  AssertFatal(decode_5gmm_msg_header(&mm_header, mm, sizeof(mm) - 1) < 0, "decode_5gmm_msg_header() accepted a truncated header\n");
+
+  const uint8_t sm[] = {FGS_SESSION_MANAGEMENT_MESSAGE, 1, 0, FGS_PDU_SESSION_ESTABLISHMENT_ACC};
+  fgsm_msg_header_t sm_header = {0};
+  AssertFatal(decode_5gsm_msg_header(&sm_header, sm, sizeof(sm)) == sizeof(sm)
+                  && sm_header.message_type == FGS_PDU_SESSION_ESTABLISHMENT_ACC,
+              "decode_5gsm_msg_header() failed\n");
+  AssertFatal(decode_5gsm_msg_header(&sm_header, sm, sizeof(sm) - 1) < 0, "decode_5gsm_msg_header() accepted a truncated header\n");
+}
+
 int main()
 {
   // Initialize logging system
@@ -411,5 +428,6 @@ int main()
   test_auth_failure();
   test_auth_reject();
   test_security_mode_reject();
+  test_msg_headers();
   return 0;
 }
