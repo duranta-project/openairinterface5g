@@ -11,20 +11,12 @@
 #define USE_128BIT
 #endif
 
+// log2_maxh offset for the 2-layer ML / L-best receivers, before the antenna-gain term log2(nb_rx/2)
+// the caller adds. Empirical optima from nr_ulsim/nr_dlsim offset sweeps (TDL-A, 2 layers, 2 and 4 RX,
+// 200 TBs per point, each Qm at its high MCS): a uniform -2, tuned for 256QAM, over-heats
+// QPSK/16/64QAM and loses the ML gain (QPSK/16QAM ML even fall below linear MMSE).
 int nr_ml_llr_maxh_off(int mod_order, int lbest)
 {
-  // OAI_ML_MAXH_OFF (if set) forces one value across all mod orders (hotness sweep); otherwise the
-  // per-mod-order table below. Values are the empirical optima on TDL, 2-layer, z4, -gA (a uniform
-  // -2, tuned for 256QAM, over-heats QPSK/16/64QAM and loses the ML gain -- QPSK/16QAM ML even fall
-  // below linear MMSE). Retune via the env var; the table is the shipped default.
-  static int env_state = 0, env_val = 0; // 0=unread, 1=env set, 2=env unset
-  if (env_state == 0) {
-    const char *e = getenv("OAI_ML_MAXH_OFF");
-    if (e) { env_val = atoi(e); env_state = 1; }
-    else env_state = 2;
-  }
-  if (env_state == 1)
-    return env_val;
   switch (mod_order) {
     case 2:  return 0;  // QPSK
     case 4:  return 1;  // 16QAM
@@ -41,19 +33,23 @@ int nr_ml_llr_maxh_off(int mod_order, int lbest)
 // antenna-gain term log2(nb_rx/2) the caller adds (as for ML). TDL-A, 2 layers, 200 trials: -3+1
 // is best or tied for QPSK..256QAM at 4 RX, and -3 at 2 RX. The former fixed -3 at 4 RX (no antenna
 // term) left a BLER floor (~0.3 at 64QAM MCS 27 / 256QAM, 25-32 dB); one bit hotter fails outright.
-// OAI_MMSE_MAXH_OFF overrides it for retuning.
 int nr_mmse_llr_maxh_off(int mod_order)
 {
-  static int env_state = 0, env_val = 0; // 0=unread, 1=env set, 2=env unset
-  if (env_state == 0) {
-    const char *e = getenv("OAI_MMSE_MAXH_OFF");
-    if (e) { env_val = atoi(e); env_state = 1; }
-    else env_state = 2;
-  }
-  if (env_state == 1)
-    return env_val;
   (void)mod_order; // one value fits all orders today; kept per-order like nr_ml_llr_maxh_off
   return -3;
+}
+
+// Channel-level part of log2_maxh for the 2-layer receivers, from avgs = the largest per-antenna,
+// per-layer channel energy |h|^2. The usual (log2 avgs) / 2 lets rxdataF_comp, ch_mag and rho grow
+// with the channel amplitude; the 2-layer metrics (ML / L-best search, MMSE Gram inverse) are
+// quadratic in them and overflow int16 once the input runs hotter than the level the offsets above
+// were tuned at (log2 avgs ~ 18 in nr_ulsim). Above that level, track the full log2 avgs, which holds
+// the input level constant. nr_ulsim -K, fixed noise floor, 4 RX 64QAM MCS 27 L-best: UE power
+// +12 dB took the first-round BLER from 0.19 to 0.95 with (log2 avgs) / 2 alone, and to 0 with the cap.
+int nr_2layer_log2_maxh(int avgs)
+{
+  const int l = log2_approx(avgs);
+  return max(l >> 1, l - NR_2LAYER_LOG2_AVGS_NOMINAL / 2);
 }
 
 void nr_compute_llr(c16_t *rxdataF_comp,

@@ -24,10 +24,18 @@ void nr_256qam_llr(const c16_t *rxdataF_comp,
  * orders progressively different, else the ML LLRs saturate and the ML gain over linear MMSE is
  * lost (a single 256QAM-tuned -2 makes QPSK/16QAM ML worse than MMSE). Verified on TDL, z4, -gA.
  * lbest: the reduced-search L-best kernel is used (64QAM wants one bit cooler than full ML).
- * OAI_ML_MAXH_OFF forces a single value across all mod orders (hotness sweep / analysis).
  */
 int nr_ml_llr_maxh_off(int mod_order, int lbest);
 int nr_mmse_llr_maxh_off(int mod_order);
+
+/// log2_approx(avgs) at the input level the 2-layer offsets were tuned at (nr_ulsim default level)
+#define NR_2LAYER_LOG2_AVGS_NOMINAL 18
+/**
+ * @brief Channel-level part of log2_maxh for the 2-layer receivers: (log2 avgs) / 2 up to the
+ * nominal input level, the full log2 avgs above it, so a hotter input cannot overflow the
+ * quadratic 2-layer metrics. Add the receiver offset and the antenna-gain term.
+ */
+int nr_2layer_log2_maxh(int avgs);
 
 void nr_compute_llr(c16_t *rxdataF_comp,
                     c16_t *ch_mag,
