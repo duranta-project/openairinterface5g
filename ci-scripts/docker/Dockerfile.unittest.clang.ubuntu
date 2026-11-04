@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+#---------------------------------------------------------------------
+#
+# Dockerfile to build and run the Open-Air-Interface unit tests with clang
+#   Valid for Ubuntu 24.04
+#
+#---------------------------------------------------------------------
+
+FROM ran-base:develop AS ran-tests
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+        clang \
+        libclang-rt-dev \
+        libgtest-dev \
+        libyaml-cpp-dev \
+        libzmq3-dev \
+        flatbuffers-compiler \
+        libnanomsg-dev \
+        dpdk-dev \
+        dpdk \
+        curl
+
+RUN rm -Rf /oai-ran
+WORKDIR /oai-ran
+COPY . .
+
+WORKDIR /oai-ran/build
+RUN --mount=type=cache,target=/root/.cache/ccache/,id=ccache_clang \
+    --mount=type=cache,target=/root/.cache/cpm/ \
+    CC=clang CXX=clang++ cmake .. -GNinja \
+      -DENABLE_TESTS=ON -DOAI_ZMQ=ON -DCMAKE_BUILD_TYPE=Debug \
+      -DSANITIZE_ADDRESS=True -DOAI_VRTSIM_TAPS_CLIENT=ON -DOAI_RU_FRONTHAUL=ON \
+    && \
+    ninja
