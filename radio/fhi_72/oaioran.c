@@ -297,52 +297,53 @@ void xran_fh_rx_prach_read_slot_ant(const struct xran_ru_config *ru_conf, const 
 void xran_fh_rx_read_slot_ant(const int fft_size, struct xran_buffer_list *dstcp, int32_t *rxdataF_ant)
 {
   struct xran_prb_map *pPrbMap = (struct xran_prb_map *)dstcp->pBuffers->pData;
-  struct xran_prb_elm *pRbElm = &pPrbMap->prbMap[0];
+  for (uint32_t idxElm = 0; idxElm < pPrbMap->nPrbElm; idxElm++) {
+    const struct xran_prb_elm *pRbElm = &pPrbMap->prbMap[idxElm];
+    for (int32_t sym_idx = pRbElm->nStartSymb; sym_idx < pRbElm->nStartSymb + pRbElm->numSymb; sym_idx++) {
+      int32_t *pos = rxdataF_ant + sym_idx * fft_size;
+      struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
+      int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
+      LOG_D(HW, "nRxPkt %d\n", nRxPkt);
+      for (int pkt_idx = 0; pkt_idx < nRxPkt; pkt_idx++) {
+        uint8_t *src = p_rx_packet_ctl->pData[pkt_idx];
+        int numRB = p_rx_packet_ctl->nRBSize[pkt_idx];
+        int startRB = p_rx_packet_ctl->nRBStart[pkt_idx];
+        // num_prbu & start_prbu are for UL U-plane only
+        LOG_D(HW, "p_rx_packet_ctl[%d] startRB[%d]:numRB[%d]\n", pkt_idx, startRB, numRB);
 
-  for (int32_t sym_idx = pRbElm->nStartSymb; sym_idx < pRbElm->nStartSymb + pRbElm->numSymb; sym_idx++) {
-    int32_t *pos = rxdataF_ant + sym_idx * fft_size;
-    struct xran_rx_packet_ctl *p_rx_packet_ctl = &pPrbMap->sFrontHaulRxPacketCtrl[sym_idx];
-    int32_t nRxPkt = p_rx_packet_ctl->nRxPkt;
-    LOG_D(HW, "nRxPkt %d\n", nRxPkt);
-    for (int pkt_idx = 0; pkt_idx < nRxPkt; pkt_idx++) {
-      uint8_t *src = p_rx_packet_ctl->pData[pkt_idx];
-      int numRB = p_rx_packet_ctl->nRBSize[pkt_idx];
-      int startRB = p_rx_packet_ctl->nRBStart[pkt_idx];
-      // num_prbu & start_prbu are for UL U-plane only
-      LOG_D(HW, "p_rx_packet_ctl[%d] startRB[%d]:numRB[%d]\n", pkt_idx, startRB, numRB);
-
-      if (pRbElm->compMethod == XRAN_COMPMETHOD_NONE) {
-        // NOTE: gcc 11 knows how to generate AVX2 for this!
-        for (int idx = 0; idx < (numRB * N_SC_PER_PRB) * 2; idx++)
-          ((int16_t *)pos)[idx + startRB * N_SC_PER_PRB * 2] = ((int16_t)ntohs(((uint16_t *)src)[idx])) >> 2;
-      } else if (pRbElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
+        if (pRbElm->compMethod == XRAN_COMPMETHOD_NONE) {
+          // NOTE: gcc 11 knows how to generate AVX2 for this!
+          for (int idx = 0; idx < (numRB * N_SC_PER_PRB) * 2; idx++)
+            ((int16_t *)pos)[idx + startRB * N_SC_PER_PRB * 2] = ((int16_t)ntohs(((uint16_t *)src)[idx])) >> 2;
+        } else if (pRbElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
 #if defined(__i386__) || defined(__x86_64__)
-        struct xranlib_decompress_request bfp_decom_req = {};
-        struct xranlib_decompress_response bfp_decom_rsp = {};
+          struct xranlib_decompress_request bfp_decom_req = {};
+          struct xranlib_decompress_response bfp_decom_rsp = {};
 
-        int16_t payload_len = (3 * pRbElm->iqWidth + 1) * numRB;
+          int16_t payload_len = (3 * pRbElm->iqWidth + 1) * numRB;
 
-        bfp_decom_req.data_in = (int8_t *)src;
-        bfp_decom_req.numRBs = numRB;
-        bfp_decom_req.len = payload_len;
-        bfp_decom_req.compMethod = pRbElm->compMethod;
-        bfp_decom_req.iqWidth = pRbElm->iqWidth;
+          bfp_decom_req.data_in = (int8_t *)src;
+          bfp_decom_req.numRBs = numRB;
+          bfp_decom_req.len = payload_len;
+          bfp_decom_req.compMethod = pRbElm->compMethod;
+          bfp_decom_req.iqWidth = pRbElm->iqWidth;
 
-        bfp_decom_rsp.data_out = (int16_t *)(pos + startRB * N_SC_PER_PRB);
-        bfp_decom_rsp.len = 0;
+          bfp_decom_rsp.data_out = (int16_t *)(pos + startRB * N_SC_PER_PRB);
+          bfp_decom_rsp.len = 0;
 
-        xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
+          xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
 #elif defined(__arm__) || defined(__aarch64__)
-        armral_bfp_decompression(pRbElm->iqWidth, numRB, (int8_t *)src, (int16_t *)(pos + startRB * N_SC_PER_PRB));
+          armral_bfp_decompression(pRbElm->iqWidth, numRB, (int8_t *)src, (int16_t *)(pos + startRB * N_SC_PER_PRB));
 #else
-        AssertFatal(1 == 0, "BFP compression not supported on this architecture");
+          AssertFatal(1 == 0, "BFP compression not supported on this architecture");
 #endif
-      } else {
-        printf("pRbElm->compMethod == %d is not supported\n", pRbElm->compMethod);
-        exit(-1);
-      }
-    } // pkt_idx
-  } // sym_idx
+        } else {
+          printf("pRbElm->compMethod == %d is not supported\n", pRbElm->compMethod);
+          exit(-1);
+        }
+      } // pkt_idx
+    } // sym_idx
+  } // idxElm
 }
 
 // Send CP DL/UL packets
