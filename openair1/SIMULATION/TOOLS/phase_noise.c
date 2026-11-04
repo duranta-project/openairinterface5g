@@ -60,8 +60,9 @@ void add_noise_float(c16_t **rxdata,
   for (int i = 0; i < length; i++) {
     for (int ap = 0; ap < nb_antennas_rx; ap++) {
       c16_t *rxd = &rxdata[ap][slot_offset + i + delay];
-      rxd->r = (int16_t)(r_re[ap][i] + (gaussZiggurat(0.0, 1.0) * sqrt_sigma_div2));
-      rxd->i = (int16_t)(r_im[ap][i] + (gaussZiggurat(0.0, 1.0) * sqrt_sigma_div2));
+      // saturate like an ADC instead of wrapping
+      rxd->r = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, r_re[ap][i] + (gaussZiggurat(0.0, 1.0) * sqrt_sigma_div2)));
+      rxd->i = (int16_t)fmaxf(-32768.0f, fminf(32767.0f, r_im[ap][i] + (gaussZiggurat(0.0, 1.0) * sqrt_sigma_div2)));
 
       if (apply_phase_noise) {
         phase_noise(ts, &rxd->r, &rxd->i);
