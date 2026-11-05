@@ -67,6 +67,7 @@ typedef struct {
   uint64_t cplane_received_other;
   uint64_t total_uplane_received;
   uint64_t total_uplane_sent;
+  uint64_t uplane_tx_dropped; // built, but not accepted by the transmit queue
   uint64_t cplane_err_hdr; // apphdr or section extraction
   uint64_t cplane_err_ver; // payloadVer
   uint64_t cplane_err_early;
@@ -117,7 +118,9 @@ typedef struct {
 struct rte_mbuf;
 
 typedef void *(*alloc_func_t)(void *io_controller);
-typedef void (*send_func_t)(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs);
+// Transmits the packets in array order. Returns how many were accepted for transmission; the packets
+// not accepted have been freed by the callee.
+typedef int (*send_func_t)(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs);
 
 void *init_packet_processor(int numerology,
                             int num_prb,
@@ -131,7 +134,7 @@ void *init_packet_processor(int numerology,
                             int num_ul_symbols,
                             int tdd_pattern_length_slots,
                             void *(*alloc_mbuf)(void *io_controller),
-                            void (*send_mbufs)(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs),
+                            send_func_t send_mbufs,
                             void *io_controller,
                             size_t mtu,
                             int prach_eaxc_offset,

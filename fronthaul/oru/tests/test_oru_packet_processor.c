@@ -64,7 +64,7 @@ void *test_alloc_mbuf(void *io_controller)
 void *last_sent_mbuf = NULL;
 size_t last_sent_size = 0;
 
-void test_send_mbuf(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+int test_send_mbuf(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
     if (last_sent_mbuf) {
@@ -73,6 +73,7 @@ void test_send_mbuf(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_m
     last_sent_mbuf = mbufs[i];
     last_sent_size = rte_pktmbuf_pkt_len(mbufs[i]) + 14;
   }
+  return num_mbufs;
 }
 
 // Places/sums read_dl_iq_streams()'s raw output into txdataF, and picks a representative
@@ -1223,7 +1224,7 @@ void test_dl_wideband_fragments_4ant()
 
 int g_packets_sent = 0;
 
-void test_send_mbuf_no_frag(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+int test_send_mbuf_no_frag(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
     struct rte_mbuf *mbuf = mbufs[i];
@@ -1245,9 +1246,10 @@ void test_send_mbuf_no_frag(void *io_controller, struct rte_mbuf **mbufs, uint32
 
     rte_pktmbuf_free(mbuf);
   }
+  return num_mbufs;
 }
 
-void test_send_mbuf_prach(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+int test_send_mbuf_prach(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
     struct rte_mbuf *mbuf = mbufs[i];
@@ -1276,9 +1278,10 @@ void test_send_mbuf_prach(void *io_controller, struct rte_mbuf **mbufs, uint32_t
 
     rte_pktmbuf_free(mbuf);
   }
+  return num_mbufs;
 }
 
-void test_send_mbuf_frag(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+int test_send_mbuf_frag(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
     struct rte_mbuf *mbuf = mbufs[i];
@@ -1305,9 +1308,10 @@ void test_send_mbuf_frag(void *io_controller, struct rte_mbuf **mbufs, uint32_t 
     }
     rte_pktmbuf_free(mbuf);
   }
+  return num_mbufs;
 }
 
-void test_send_mbuf_large_mtu(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+int test_send_mbuf_large_mtu(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
     struct rte_mbuf *mbuf = mbufs[i];
@@ -1334,9 +1338,10 @@ void test_send_mbuf_large_mtu(void *io_controller, struct rte_mbuf **mbufs, uint
 
     rte_pktmbuf_free(mbuf);
   }
+  return num_mbufs;
 }
 
-void test_send_mbuf_prb_offset(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+int test_send_mbuf_prb_offset(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
     struct rte_mbuf *mbuf = mbufs[i];
@@ -1357,9 +1362,10 @@ void test_send_mbuf_prb_offset(void *io_controller, struct rte_mbuf **mbufs, uin
 
     rte_pktmbuf_free(mbuf);
   }
+  return num_mbufs;
 }
 
-void test_send_mbuf_ul_bfp(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+int test_send_mbuf_ul_bfp(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
     struct rte_mbuf *mbuf = mbufs[i];
@@ -1385,6 +1391,7 @@ void test_send_mbuf_ul_bfp(void *io_controller, struct rte_mbuf **mbufs, uint32_
 
     rte_pktmbuf_free(mbuf);
   }
+  return num_mbufs;
 }
 
 void test_uplink_basic()
@@ -1759,18 +1766,24 @@ void test_uplink_prb_offset()
   printf("Uplink PRB offset passed!\n");
 }
 
-static void test_send_mbuf_sequence(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+// When set, every second call rejects its whole batch, like a transmit queue that is full.
+static bool g_reject_every_other_send = false;
+static int test_send_mbuf_sequence(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
+  static int call = 0;
+  const bool reject = g_reject_every_other_send && (call++ & 1);
   uint8_t *expected = io_controller;
   for (uint32_t i = 0; i < num_mbufs; i++) {
     const struct xran_ecpri_hdr *hdr = rte_pktmbuf_mtod(mbufs[i], const struct xran_ecpri_hdr *);
     const uint16_t eaxc = rte_be_to_cpu_16(hdr->ecpri_xtc_id);
     assert(eaxc < 16);
+    // A rejected packet keeps its number: the gap tells the O-DU that it was lost.
     assert(hdr->ecpri_seq_id.bits.seq_id == expected[eaxc]);
     expected[eaxc]++;
     g_packets_sent++;
     rte_pktmbuf_free(mbufs[i]);
   }
+  return reject ? 0 : (int)num_mbufs;
 }
 
 void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
@@ -1877,6 +1890,24 @@ void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
       write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId);
     }
     assert(g_packets_sent == 4 + 300 * 3);
+
+    // Packets the transmitter does not accept are counted as dropped, not as sent.
+    oru_packet_processor_stats_t stats;
+    get_packet_processor_stats(ctx, &stats);
+    assert(stats.total_uplane_sent == 4 + 300 * 3);
+    assert(stats.uplane_tx_dropped == 0);
+    g_reject_every_other_send = true;
+    for (int i = 0; i < 10; i++) {
+      for (int antenna = 0; antenna < 2; antenna++) {
+        job.antenna_id = antenna;
+        write_ul_iq(ctx, iq_input, startSymbolId, &job);
+      }
+      write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId);
+    }
+    g_reject_every_other_send = false;
+    get_packet_processor_stats(ctx, &stats);
+    assert(stats.total_uplane_sent + stats.uplane_tx_dropped == 4 + 310 * 3);
+    assert(stats.uplane_tx_dropped == 15);
   }
 
   // A one-PRB section cannot hold the active sequence and must not emit a packet.

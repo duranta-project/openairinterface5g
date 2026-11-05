@@ -15,6 +15,7 @@
 #include "assertions.h"
 #include "log.h"
 #include <rte_ring.h>
+#include <rte_spinlock.h>
 #include "common/utils/nr/nr_common.h"
 #include <sys/types.h>
 #include <stdatomic.h>
@@ -104,6 +105,7 @@ typedef struct {
   _Atomic(uint64_t) prach_jobs_pool_exhausted;
   _Atomic(uint64_t) out_of_mbufs;
   _Atomic(uint64_t) total_uplane_sent;
+  _Atomic(uint64_t) uplane_tx_dropped; // built, but not accepted by the transmit queue
   _Atomic(int64_t) ul_uplane_ota_delay_sum;
   _Atomic(uint64_t) ul_uplane_ota_delay_count;
 } thread_safe_stats_t;
@@ -138,8 +140,11 @@ typedef struct {
   alloc_func_t alloc_func;
   send_func_t send_func;
   void *io_controller;
-  // O-RAN CUS, 5.1.3.2.8: sequence IDs advance per U-plane UL eAxC, not per channel type.
-  _Atomic(uint8_t) ul_seq_id[NUM_RU_PORT_IDS];
+  // O-RAN CUS, 5.1.3.2.8: sequence IDs advance per U-plane UL eAxC, not per channel type. They are
+  // assigned in send_uplane(), under ul_send_lock, so they follow the transmit order even though
+  // several worker threads build and send U-plane packets concurrently.
+  uint8_t ul_seq_id[NUM_RU_PORT_IDS];
+  rte_spinlock_t ul_send_lock;
   size_t mtu;
   fh_comp_method_t dl_comp_method;
   int num_bf_weights;
@@ -240,6 +245,7 @@ void *init_packet_processor(int numerology,
   oru_packet_processor_context_t *ctx = calloc(1, sizeof(*ctx));
   ctx->alloc_func = alloc_func;
   ctx->send_func = send_func;
+  rte_spinlock_init(&ctx->ul_send_lock);
   ctx->io_controller = io_controller;
   ctx->current_absolute_symbol = 0;
   ctx->num_prb = num_prb;
@@ -1068,6 +1074,8 @@ void print_packet_processor_stats(void *context)
         ctx->stats.cplane_received_other);
   LOG_I(HW, "  Total U-Plane Packets received: %lu\n", ctx->stats.total_uplane_received);
   LOG_I(HW, "  Total U-Plane Packets sent: %lu\n", ctx->thread_safe_stats.total_uplane_sent);
+  if (ctx->thread_safe_stats.uplane_tx_dropped > 0)
+    LOG_W(HW, "  U-Plane Packets dropped at transmit: %lu\n", ctx->thread_safe_stats.uplane_tx_dropped);
   if (ctx->thread_safe_stats.ul_uplane_ota_delay_count > 0)
     LOG_I(HW,
           "  UL U-Plane OTA delay (mean symbols): %.2f (%lu packets)\n",
@@ -1159,6 +1167,7 @@ void get_packet_processor_stats(void *context, oru_packet_processor_stats_t *out
     out_stats->prach_jobs_pool_exhausted += ctx->thread_safe_stats.prach_jobs_pool_exhausted;
     out_stats->out_of_mbufs += ctx->thread_safe_stats.out_of_mbufs;
     out_stats->total_uplane_sent = ctx->thread_safe_stats.total_uplane_sent;
+    out_stats->uplane_tx_dropped = ctx->thread_safe_stats.uplane_tx_dropped;
     out_stats->ul_uplane_ota_delay_sum += ctx->thread_safe_stats.ul_uplane_ota_delay_sum;
     out_stats->ul_uplane_ota_delay_count += ctx->thread_safe_stats.ul_uplane_ota_delay_count;
   }
@@ -1322,6 +1331,26 @@ int poll_ul_job(void *context, ul_job_t *job)
   return -1;
 }
 
+// Hand a batch of U-plane packets to the transmitter. The eCPRI sequence number is assigned here, per
+// eAxC and in transmit order (O-RAN CUS 3.1.3.1.7): the packets of neighbouring symbols are built by
+// different worker threads and reach the transmit queue in a different order than they were built, so
+// a number taken at build time leaves gaps and reordering for the O-DU to resolve. The lock also
+// serialises the send itself so that a thread that numbered its packets later also transmits later.
+static void send_uplane(oru_packet_processor_context_t *ctx, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+{
+  rte_spinlock_lock(&ctx->ul_send_lock);
+  for (uint32_t i = 0; i < num_mbufs; i++) {
+    struct xran_ecpri_hdr *ecpri_header = rte_pktmbuf_mtod(mbufs[i], struct xran_ecpri_hdr *);
+    uint8_t cu_port_id, band_sector_id, cc_id, ru_port_id;
+    xran_decompose_cid(ecpri_header->ecpri_xtc_id, &ctx->eaxcid_config, &cu_port_id, &band_sector_id, &cc_id, &ru_port_id);
+    ecpri_header->ecpri_seq_id.bits.seq_id = ctx->ul_seq_id[ru_port_id & (NUM_RU_PORT_IDS - 1)]++;
+  }
+  int sent = ctx->send_func(ctx->io_controller, mbufs, num_mbufs);
+  rte_spinlock_unlock(&ctx->ul_send_lock);
+  ctx->thread_safe_stats.total_uplane_sent += sent;
+  ctx->thread_safe_stats.uplane_tx_dropped += num_mbufs - sent;
+}
+
 void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *job)
 {
   oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
@@ -1399,15 +1428,14 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
     }
 
     if (num_mbufs == (MAX_MBUFS_PER_SYMBOL - 1)) {
-      ctx->send_func(ctx->io_controller, mbufs, num_mbufs);
-      ctx->thread_safe_stats.total_uplane_sent += num_mbufs;
+      send_uplane(ctx, mbufs, num_mbufs);
       num_mbufs = 0;
     }
     mbufs[num_mbufs++] = pkt;
 
     struct xran_ecpri_hdr *ecpri_header = (struct xran_ecpri_hdr *)buf;
     uint16_t ecpri_payload_size = (uint16_t)(header_length - 4 + data_len);
-    fill_ecpri_header(ecpri_header, &ctx->eaxcid_config, ECPRI_IQ_DATA, ecpri_payload_size, 0, aarx, ctx->ul_seq_id[aarx]++, 0);
+    fill_ecpri_header(ecpri_header, &ctx->eaxcid_config, ECPRI_IQ_DATA, ecpri_payload_size, 0, aarx, 0 /* see send_uplane() */, 0);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
     fill_radio_app_header(radio_app_header, 0, XRAN_DIR_UL, frame, slot_in_frame, symbol, mu);
@@ -1442,10 +1470,8 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
     rbs_sent += num_ul_rbs;
   }
 
-  if (num_mbufs > 0) {
-    ctx->send_func(ctx->io_controller, mbufs, num_mbufs);
-    ctx->thread_safe_stats.total_uplane_sent += num_mbufs;
-  }
+  if (num_mbufs > 0)
+    send_uplane(ctx, mbufs, num_mbufs);
 }
 
 void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int slot_in_frame, int symbol)
@@ -1551,7 +1577,7 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
                       ecpri_payload_size,
                       0,
                       aarx + ctx->prach_eaxc_offset,
-                      ctx->ul_seq_id[(aarx + ctx->prach_eaxc_offset) & (NUM_RU_PORT_IDS - 1)]++,
+                      0 /* see send_uplane() */,
                       0);
 
     struct radio_app_common_hdr *radio_app_header = (struct radio_app_common_hdr *)(ecpri_header + 1);
@@ -1585,8 +1611,6 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
     }
   }
 
-  if (num_mbufs > 0) {
-    ctx->send_func(ctx->io_controller, mbufs, num_mbufs);
-    ctx->thread_safe_stats.total_uplane_sent += num_mbufs;
-  }
+  if (num_mbufs > 0)
+    send_uplane(ctx, mbufs, num_mbufs);
 }
