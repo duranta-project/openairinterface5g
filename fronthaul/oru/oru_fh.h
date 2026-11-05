@@ -113,6 +113,18 @@ int oru_fh_tx_read_symbol(void *handle,
 int oru_fh_get_utc_anchor_point(void *handle, uint64_t *hyper_frame, uint32_t* frame, uint32_t* slot, struct timespec *ts);
 
 /**
+ * @brief Absolute symbol number (since the GPS epoch) of a symbol given by the hyperframe, frame and
+ * slot numbering of oru_fh_get_utc_anchor_point().
+ */
+uint64_t oru_fh_absolute_symbol(void *handle, uint64_t hyper_frame, uint32_t frame, uint32_t slot, uint32_t symbol);
+
+/**
+ * @brief Sleep until the fronthaul clock has passed the end of an absolute symbol, i.e. until an O-RU
+ * would have received the whole symbol over the air. Returns at once if that time has already passed.
+ */
+void oru_fh_wait_symbol_end(void *handle, uint64_t absolute_symbol);
+
+/**
  * @brief Send PRACH symbol data (U-Plane) over the Fronthaul interface.
  *
  * @param handle Pointer to the fronthaul handle.

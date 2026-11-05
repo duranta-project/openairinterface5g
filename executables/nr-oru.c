@@ -1267,10 +1267,14 @@ void *oru_south_read_thread(void *arg)
   int slot, frame;
   uint32_t start_frame = 0, start_slot = 0;
   uint64_t hyper_frame = 0;
+  // Absolute symbol of the next symbol read from the south side, counted from the anchor point so
+  // that it keeps the hyperframe across the 1024-frame wrap of `frame`.
+  uint64_t south_abs = 0;
   struct timespec utc_anchor_point;
   if (ru->rfdevice.get_timestamp) {
     AssertFatal(ru->rfdevice.get_timestamp != NULL, "rfdevice has no capability to translate UTC timestamp to sample index\n");
     oru_fh_get_utc_anchor_point(oru->fronthaul, &hyper_frame, &start_frame, &start_slot, &utc_anchor_point);
+    south_abs = oru_fh_absolute_symbol(oru->fronthaul, hyper_frame, start_frame, start_slot, 0);
     int64_t start_timestamp = ru->rfdevice.get_timestamp(&ru->rfdevice, &utc_anchor_point);
 
     const int num_samples = 3000;
@@ -1285,6 +1289,7 @@ void *oru_south_read_thread(void *arg)
     openair0_timestamp_t next_timestamp = timestamp + num_samples_read;
     while (next_timestamp > start_timestamp) {
       start_timestamp += get_samples_slot_duration(fp, start_slot, 1);
+      south_abs += NR_SYMBOLS_PER_SLOT;
       start_slot++;
       if (start_slot == fp->slots_per_frame) {
         start_slot = 0;
@@ -1316,6 +1321,7 @@ void *oru_south_read_thread(void *arg)
       AssertFatal(num_samples_read == num_samples, "Unexpected number of samples received\n");
     }
     oru_fh_get_utc_anchor_point(oru->fronthaul, &hyper_frame, &start_frame, &start_slot, &utc_anchor_point);
+    south_abs = oru_fh_absolute_symbol(oru->fronthaul, hyper_frame, start_frame, start_slot, 0);
     timestamp += num_samples;
     notify_north_read(hyper_frame, start_frame, start_slot, timestamp);
   }
@@ -1364,11 +1370,20 @@ void *oru_south_read_thread(void *arg)
         ul_calendar_add(&ul_cal, &beam_queue, &fft_queue, oru, reader_abs, &new_job);
       }
 
-      if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
+      const bool ul_symbol = rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT;
+      const int prach_symbol = get_prach_symbol(oru, frame, slot, symbol, ru->numerology);
+      if (ul_symbol || prach_symbol != -1) {
+        // A simulated south side (rfsimulator, vrtsim) delivers the UE's samples as soon as the UE has
+        // produced them, up to a few slots ahead of their air time, while the O-DU discards U-plane that
+        // arrives before the symbol's reception window. Hold the symbol until a real O-RU would have
+        // received it; with an RF device the samples arrive after that time and this returns at once.
+        oru_fh_wait_symbol_end(oru->fronthaul, south_abs);
+      }
+      south_abs++;
+      if (ul_symbol) {
         // Dispatch the jobs parked on this symbol's calendar entry
         ul_calendar_tick(&ul_cal, &beam_queue, &fft_queue, oru, reader_abs);
       }
-      int prach_symbol = get_prach_symbol(oru, frame, slot, symbol, ru->numerology);
       if (prach_symbol != -1)
         receive_prach(oru, frame, slot, symbol, prach_symbol);
     }
