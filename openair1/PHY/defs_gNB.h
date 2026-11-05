@@ -432,7 +432,6 @@ typedef struct PHY_VARS_gNB_s {
 
   time_stats_t phy_proc_tx;
   time_stats_t gnb_tx_procedures_stats;
-  time_stats_t ru_tx_func_stats;
   time_stats_t phy_proc_rx;
   time_stats_t rx_prach;
 

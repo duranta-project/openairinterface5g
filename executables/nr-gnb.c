@@ -99,8 +99,6 @@ static void tx_func(processingData_L1tx_t *info)
     phy_procedures_gNB_TX(info->gNB, &sched_response.DL_req, &sched_response.TX_req, &sched_response.UL_dci_req, frame_tx,slot_tx);
     STOP_MEAS_FULL_SLOT(&info->gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
 
-    START_MEAS_FULL_SLOT(&info->gNB->ru_tx_func_stats, tx_slot_type, NR_DOWNLINK_SLOT);
-
     // split 7.2 precoding
     if (ru->feptx_prec)
       ru->feptx_prec(ru,frame_tx,slot_tx);
@@ -109,7 +107,6 @@ static void tx_func(processingData_L1tx_t *info)
     if (ru->feptx_ofdm)
       ru->feptx_ofdm(ru, frame_tx, slot_tx);
 
-    STOP_MEAS_FULL_SLOT(&info->gNB->ru_tx_func_stats, tx_slot_type, NR_DOWNLINK_SLOT);
     STOP_MEAS_FULL_SLOT(&info->gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
   }
 
@@ -237,7 +234,6 @@ static void nrL1_stats_init_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru, unsigned in
   init_sorted_list_meas(&gNB->l1_rx_proc, size);
   init_sorted_list_meas(&gNB->phy_proc_tx, size);
   init_sorted_list_meas(&gNB->gnb_tx_procedures_stats, size);
-  init_sorted_list_meas(&gNB->ru_tx_func_stats, size);
   init_sorted_list_meas(&gNB->dlsch_encoding_stats, size);
   init_sorted_list_meas(&gNB->dlsch_ldpc_encode_stats, size);
   init_sorted_list_meas(&gNB->dlsch_scrambling_stats, size);
@@ -272,7 +268,6 @@ static void nrL1_stats_free_sorted_list(PHY_VARS_gNB *gNB, RU_t *ru)
   free_sorted_list_meas(&gNB->l1_rx_proc);
   free_sorted_list_meas(&gNB->phy_proc_tx);
   free_sorted_list_meas(&gNB->gnb_tx_procedures_stats);
-  free_sorted_list_meas(&gNB->ru_tx_func_stats);
   free_sorted_list_meas(&gNB->dlsch_encoding_stats);
   free_sorted_list_meas(&gNB->dlsch_ldpc_encode_stats);
   free_sorted_list_meas(&gNB->dlsch_scrambling_stats);
@@ -308,7 +303,6 @@ static void nrL1_stats_reset(PHY_VARS_gNB *gNB, RU_t *ru)
   reset_meas(&gNB->l1_rx_proc);
   reset_meas(&gNB->phy_proc_tx);
   reset_meas(&gNB->gnb_tx_procedures_stats);
-  reset_meas(&gNB->ru_tx_func_stats);
   reset_meas(&gNB->dlsch_encoding_stats);
   reset_meas(&gNB->dlsch_ldpc_encode_stats);
   reset_meas(&gNB->dlsch_scrambling_stats);
@@ -353,12 +347,6 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
                            output,
                            end - output);
 
-  output += print_meas_log(&gNB->ru_tx_func_stats,
-                           "L1 RU TX function",
-                           NULL,
-                           NULL,
-                           output,
-                           end - output);
   output += print_meas_log(&gNB->dlsch_encoding_stats, "DLSCH encoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_ldpc_encode_stats, "LDPC encoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_scrambling_stats, "DLSCH scrambling", NULL, NULL, output, end-output);
