@@ -12,10 +12,10 @@ if (params.LockResources != null && params.LockResources.trim().length() > 0)
   params.LockResources.trim().split(",").each{lockResources += [resource: it.trim()]}
 
 // Docker Hub account to push to
-def DH_Account = "oaisoftwarealliance"
+def DH_Account = params.DH_Account
 
-// internal registry to use
-def OAI_Registry = "gracehopper3-oai.sboai.cs.eurecom.fr"
+// Internal Registry to use
+def OAI_Registry = params.OAI_Registry
 
 pipeline {
   agent {
@@ -39,6 +39,9 @@ pipeline {
           if (params.LockResources == null) {
             echo "no LockResources given"
             allParametersPresent = false
+          }
+          if (!DH_Account || !OAI_Registry) {
+            error "DH_Account and OAI_Registry parameters are required"
           }
         }
       }
