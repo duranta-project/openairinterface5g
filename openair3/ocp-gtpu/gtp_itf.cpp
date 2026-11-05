@@ -783,11 +783,29 @@ int gtpv1u_create_s1u_tunnel(instance_t instance,
   memcpy(addr, inst->foundAddr, inst->foundAddrLen);
   pthread_mutex_unlock(&globGtp.gtp_lock);
 
+  /* The E-RAB ID is coded 1..15 (TS 36.413): a core numbering from 1 is as
+   * valid as one numbering from 5 and must not abort the eNB. Validate the
+   * whole request first so that a malformed one does not leave half of the
+   * tunnels created. */
   for (int i = 0; i < create_tunnel_req->num_tunnels; i++) {
-    AssertFatal(create_tunnel_req->eps_bearer_id[i] > 4,
-                "From legacy code not clear, seems impossible (bearer=%d)\n",
-                create_tunnel_req->eps_bearer_id[i]);
-    int incoming_rb_id = create_tunnel_req->eps_bearer_id[i] - 4;
+    const int ebi = create_tunnel_req->eps_bearer_id[i];
+    if (ebi < 1 || ebi > 15) {
+      LOG_E(GTPU, "Invalid E-RAB ID %d, cannot create the S1-U tunnels\n", ebi);
+      return GTPNOK;
+    }
+  }
+
+  for (int i = 0; i < create_tunnel_req->num_tunnels; i++) {
+    const int ebi = create_tunnel_req->eps_bearer_id[i];
+    /* The DRB identity is local to the UE context and is not a function of the
+     * E-RAB ID (see rrc_eNB_get_drb_identity()); use the identity carried by
+     * the request. The legacy "E-RAB ID - 4" derivation is kept only as a
+     * fallback for callers that do not provide it. */
+    const int incoming_rb_id = create_tunnel_req->rb_id[i] > 0
+                                 ? create_tunnel_req->rb_id[i]
+                                 : ((ebi > 4) ? ebi - 4 : ebi);
+    if (create_tunnel_req->rb_id[i] <= 0)
+      LOG_W(GTPU, "No DRB identity for E-RAB %d, falling back to RB %d\n", ebi, incoming_rb_id);
     teid_t teid = newGtpuCreateTunnel(compatInst(instance),
                                       create_tunnel_req->rnti,
                                       incoming_rb_id,
