@@ -1275,11 +1275,7 @@ static bool nr_get_Msg3alloc(nr_cell_sched_t *cell, int current_slot, frame_t cu
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
   NR_UE_ServingCell_Info_t *sc_info = &UE->sc_info;
 
-  const NR_PUSCH_TimeDomainResourceAllocationList_t *pusch_TimeDomainAllocationList = ul_bwp->tdaList_Common;
-
-  int startSymbolAndLength = pusch_TimeDomainAllocationList->list.array[ra->Msg3_tda_id]->startSymbolAndLength;
-  SLIV2SL(startSymbolAndLength, &ra->msg3_startsymb, &ra->msg3_nbSymb);
-  const uint16_t msg3_mask = SL_to_bitmap(ra->msg3_startsymb, ra->msg3_nbSymb);
+  const NR_PUSCH_TimeDomainResourceAllocationList_t *tda_list = ul_bwp->tdaList_Common;
 
   const int buffer_index = ul_buffer_index(ra->Msg3_frame,
                                            ra->Msg3_slot,
@@ -1296,13 +1292,25 @@ static bool nr_get_Msg3alloc(nr_cell_sched_t *cell, int current_slot, frame_t cu
       bwpStart = act_bwp_start;
   }
 
-  /* search msg3_nb_rb free RBs */
+  /* search msg3_nb_rb free RBs, falling back to shorter TDAs of the same k2
+   * (same slot), one of which ends before the SRS symbols */
+  const long k2 = *tda_list->list.array[ra->Msg3_tda_id]->k2;
+  const uint16_t slot_bitmap = get_ul_bitmap(&cell->frame_structure, ra->Msg3_slot);
   int rbSize = 0;
   int rbStart = 0;
-  if (!get_rb_alloc(msg3_nb_rb, msg3_nb_rb, bwpStart, bwpSize, vrb_map_UL, msg3_mask, &rbStart, &rbSize)) {
+  int tda_id = ra->Msg3_tda_id;
+  for (; tda_id < tda_list->list.count && *tda_list->list.array[tda_id]->k2 == k2; tda_id++) {
+    SLIV2SL(tda_list->list.array[tda_id]->startSymbolAndLength, &ra->msg3_startsymb, &ra->msg3_nbSymb);
+    const uint16_t msg3_mask = SL_to_bitmap(ra->msg3_startsymb, ra->msg3_nbSymb);
+    if ((msg3_mask & slot_bitmap) == msg3_mask
+        && get_rb_alloc(msg3_nb_rb, msg3_nb_rb, bwpStart, bwpSize, vrb_map_UL, msg3_mask, &rbStart, &rbSize))
+      break;
+  }
+  if (tda_id == tda_list->list.count || *tda_list->list.array[tda_id]->k2 != k2) {
     LOG_D(NR_MAC, "No space to allocate Msg 3\n");
     return false;
   }
+  ra->Msg3_tda_id = tda_id;
   ra->msg3_nb_rb = msg3_nb_rb;
   ra->msg3_first_rb = rbStart;
   ra->msg3_bwp_start = bwpStart;

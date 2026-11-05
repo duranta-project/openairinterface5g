@@ -29,6 +29,7 @@ int get_full_ul_slots_per_period(const frame_structure_t *fs);
 int get_full_dl_slots_per_period(const frame_structure_t *fs);
 int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed);
 int get_ul_period_idx_from_abs_slot(const frame_structure_t *fs, int slot, bool count_mixed, int max_period);
+int nr_srs_ue_per_slot(const nr_mac_config_t *rc);
 void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE);
 NR_UE_info_t **get_periodic_ue(periodic_ue_sched_t *p, int ul_idx, int index);
 void mac_top_init_gNB(ngran_node_t node_type,

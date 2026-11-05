@@ -58,6 +58,7 @@
 #define MACRLC_PUCCH_RSSI_THRESHOLD          "pucch_RSSI_Threshold"
 #define MACRLC_STATS_MAX_UE                  "stats_max_ue"
 #define MACRLC_SPATIAL_STREAM_IDX            "spatial_stream_index"
+#define MACRLC_UL_MAX_LAYERS                 "ul_max_layers"
 
 #define HLP_MACRLC_UL_PRBBLACK "SNR threshold to decide whether a PRB will be blacklisted or not"
 #define HLP_MACRLC_DL_BLER_UP "Upper threshold of BLER to decrease DL MCS"
@@ -83,6 +84,7 @@
 #define HLP_MACRLC_PUCCH_RSSI_THRESHOLD "Limits PUCCH TPC commands based on RSSI to prevent ADC railing. Value range [-1280, 0], unit 0.1 dBm/dBFS"
 #define HLP_MACRLC_STATS_MAX_UE "Maximum number of UEs before disabling periodical output (0 to disable)"
 #define HLP_MACRLC_SPATIAL_STREAM_INDEX "Array of RU antenna ports / eAxCIDs to be used by L1. This may only be applicable for MU-MIMO. Value range [0, 15]"
+#define HLP_MACRLC_UL_MAX_LAYERS "Limit on PUSCH maxRank and SRS ports per UE, 0 to follow the UE capability"
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            MacRLC  configuration parameters                                                                           */
@@ -114,6 +116,7 @@
   {MACRLC_UL_BLER_TARGET_LOWER,        HLP_MACRLC_UL_BLER_LO,    0, .dblptr=NULL, .defdblval=0.05,            TYPE_DOUBLE,  0}, \
   {MACRLC_UL_MIN_MCS,                  HLP_MACRLC_UL_MIN_MCS,    0, .u8ptr=NULL,  .defintval=0,               TYPE_UINT8,   0}, \
   {MACRLC_UL_MAX_MCS,                  HLP_MACRLC_UL_MAX_MCS,    0, .u8ptr=NULL,  .defintval=28,              TYPE_UINT8,   0}, \
+  {MACRLC_UL_MAX_LAYERS,               HLP_MACRLC_UL_MAX_LAYERS, 0, .iptr=NULL,   .defintval=0,               TYPE_INT,     0}, \
   {MACRLC_DL_HARQ_ROUND_MAX,           HLP_MACRLC_DL_HARQ_MAX,   0, .u8ptr=NULL,  .defintval=4,               TYPE_UINT8,   0}, \
   {MACRLC_UL_HARQ_ROUND_MAX,           HLP_MACRLC_UL_HARQ_MAX,   0, .u8ptr=NULL,  .defintval=4,               TYPE_UINT8,   0}, \
   {MACRLC_MIN_GRANT_PRB,               HLP_MACRLC_MIN_GRANT_PRB, 0, .u16ptr=NULL, .defintval=5,               TYPE_UINT16,  0}, \
@@ -163,6 +166,7 @@
   { .s5 = { NULL } }, \
   { .s2 = { config_check_intrange, {0, 31} } }, /* UL min MCS */ \
   { .s2 = { config_check_intrange, {0, 31} } }, /* UL max MCS */ \
+  { .s2 = { config_check_intrange, {0, 4} } }, /* UL max layers */ \
   { .s2 = { config_check_intrange, {1, 8} } }, /* DL max HARQ rounds */ \
   { .s2 = { config_check_intrange, {1, 8} } }, /* UL max HARQ rounds */ \
   { .s5 = { NULL } }, \
@@ -185,6 +189,47 @@
   { .s5 = { NULL } }, /* removed set_analog_beamforming */ \
   { .s5 = { NULL } }, /* removed beam_weights */ \
 }
+
+/*---------------------------------------------------------------------------------------------------------------------------------------------------------*/
+/* SRS configuration parameters section name */
+#define MACRLC_CONFIG_STRING_SRS_CONFIG      "srs"
+
+/* SRS configuration parameters names   */
+#define MACRLC_SRS_COMB                      "comb"
+#define MACRLC_SRS_UE_PER_SYMBOL             "ue_per_symbol"
+#define MACRLC_SRS_SYMBOLS_PER_SLOT          "symbols_per_slot"
+#define MACRLC_SRS_LAST_SYMBOL               "last_symbol"
+#define MACRLC_SRS_PERIODICITY               "periodicity"
+#define MACRLC_SRS_PADDING_GRANT             "padding_grant"
+
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
+/*                                            SRS configuration parameters                                                                               */
+/*   optname                            helpstr   paramflags    XXXptr        defXXXval           type           numelt                                   */
+/*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
+// clang-format off
+#define MACRLC_SRSPARAMS_DESC { \
+  {MACRLC_SRS_COMB, \
+    "SRS transmission comb, 2 or 4", 0, .iptr=NULL, .defintval=2, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s1 = {config_check_intval, {2, 4}, 2}}}, \
+  {MACRLC_SRS_UE_PER_SYMBOL, \
+    "UEs sharing one periodic SRS symbol through comb offsets, at most comb", 0, .iptr=NULL, .defintval=1, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {1, 4}}}}, \
+  {MACRLC_SRS_SYMBOLS_PER_SLOT, \
+    "Symbols reserved for periodic SRS at the end of a full UL slot", 0, .iptr=NULL, .defintval=1, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {1, 6}}}}, \
+  {MACRLC_SRS_LAST_SYMBOL, \
+    "Last symbol of a full UL slot usable by periodic SRS, lower it to reserve the slot tail", 0, .iptr=NULL, \
+    .defintval=12, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {8, 13}}}}, \
+  {MACRLC_SRS_PERIODICITY, \
+    "Periodic SRS period in slots, rounded up to a valid value fitting the TDD period, 0 to derive it from the cell " \
+    "capacity", 0, .iptr=NULL, .defintval=0, TYPE_INT, 0, \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {0, 2560}}}}, \
+  {MACRLC_SRS_PADDING_GRANT, \
+    "Grant one PUSCH in each periodic SRS slot, needed by Aerial in SINGLE_SECT_MODE, which drops an SRS PDU with " \
+    "no PUSCH in the same slot", PARAMFLAG_BOOL, .iptr=NULL, .defintval=0, TYPE_INT, 0}, \
+}
+// clang-format on
 
 /*---------------------------------------------------------------------------------------------------------------------------------------------------------*/
 #endif
