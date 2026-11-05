@@ -151,9 +151,10 @@ float nr_get_Pcmax(int p_Max,
   if (frequency_range == FR1) {
     // TODO configure P-MAX from the upper layers according to 38.331
     int p_powerclass = 23; // dBm assuming poweclass 3 UE
-    int p_emax = p_Max != INT_MIN ? p_Max : p_powerclass;
+    const bool has_p_max = p_Max != INT_MIN;
+    int p_emax = has_p_max ? p_Max : p_powerclass;
     int delta_P_powerclass = 0; // for powerclass 2 needs to be changed
-    if (p_Max && Qm == 1 && powerBoostPi2BPSK
+    if (has_p_max && Qm == 1 && powerBoostPi2BPSK
         && (nr_band == 40 || nr_band == 41 || nr_band == 77 || nr_band == 78 || nr_band == 79)) {
       p_emax += 3;
       delta_P_powerclass -= 3;
@@ -176,7 +177,7 @@ float nr_get_Pcmax(int p_Max,
     float total_reduction = max(max(MPR + delta_MPR, A_MPR) + delta_T_IB + delta_TC + delta_rx_SRS, P_MPR);
 
     float pcmax_high, pcmax_low;
-    if (p_Max) {
+    if (has_p_max) {
       pcmax_high = p_emax < (p_powerclass - delta_P_powerclass) ? p_emax : (p_powerclass - delta_P_powerclass);
       pcmax_low = (p_emax - delta_TC) < (p_powerclass - delta_P_powerclass - total_reduction)
                       ? (p_emax - delta_TC)
