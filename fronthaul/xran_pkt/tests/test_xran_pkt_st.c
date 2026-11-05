@@ -2,9 +2,9 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
-// Checks the Section Type 5 structs of xran_pkt_cp.h against CUS v16.01 Table 7.4.7-1. Wire bytes are converted with
-// the same in-place swaps that oru_packet_processor.c applies to Section Type 1: rte_be_to_cpu_32 on the common header
-// bits and rte_be_to_cpu_64 on the 8-byte section.
+// Checks the Section Type 5 structs of xran_pkt_cp.h against CUS v16.01 Table 7.4.7-1, and the walk of its section
+// extensions. Wire bytes are converted with the same in-place swaps that oru_packet_processor.c applies to Section
+// Type 1: rte_be_to_cpu_32 on the common header bits and rte_be_to_cpu_64 on the 8-byte section.
 
 #include <stdio.h>
 #include <stdint.h>
@@ -13,6 +13,8 @@
 #include <assert.h>
 #include <rte_byteorder.h>
 #include "xran_pkt_cp.h"
+#include "xran_pkt_ext.h"
+#include "xran_pkt_ulpi.h"
 
 _Static_assert(sizeof(struct xran_cp_radioapp_section5_header) == 8, "Table 7.4.7-1 octets 9 to 16");
 _Static_assert(sizeof(struct xran_cp_radioapp_section5) == 8, "Table 7.4.7-1 octets 17 to 24");
@@ -289,10 +291,77 @@ static void test_spec_vectors(void)
   }
 }
 
+// An ST 5 section with ef = 1, then SE 10 (10b) and SE 24, walked as a receiver does: the extension lengths from
+// xran_section_ext_len(), and the SE 24 entry count from the ueIds other than 0x7FFF (7.7.24.3). test_xran_pkt_ulpi
+// checks each field of the extensions.
+static void test_st5_se10_se24_section(void)
+{
+  uint8_t pkt[128] = {0};
+  st_fields_t f = vectors[0].fields; // ef = 1, ueId 0x1234
+  st_wire_t w;
+  fields_to_wire(&f, &w);
+  memcpy(pkt, w.bytes, WIRE_LEN);
+  size_t off = WIRE_LEN;
+
+  const xran_se10_hdr_t se10 = {.ef = 1, .beamGroupType = XRAN_SE10_BGT_10B, .numPortc = 3};
+  const xran_se10_port_t se10_ports[] = {{.id = 0x1235}, {.id = 0x7FFF}, {.id = 0x1236}};
+  size_t len = 0;
+  assert(xran_encode_se10(&se10, se10_ports, pkt + off, sizeof(pkt) - off, &len) == XRAN_EXT_OK);
+  off += len;
+  const xran_se24_hdr_t hdr = {.ef = 0};
+  const xran_se24_entry_t entries[] = {
+      {.entryType = 2, .dmrsPortNumber = 0, .ueIdReset = 1, .dmrsSymbolMask = 0x0004, .cdmWithoutData = 2, .lastPrb = 105},
+      {.entryType = 1, .dmrsPortNumber = 1},
+      {.entryType = 1, .dmrsPortNumber = 2},
+  };
+  assert(xran_encode_se24(&hdr, entries, 3, pkt + off, sizeof(pkt) - off, &len) == XRAN_EXT_OK);
+  size_t pkt_len = off + len;
+
+  // Receive side
+  memcpy(w.bytes, pkt, WIRE_LEN);
+  wire_to_fields(&w, &f);
+  assert(f.ef == 1);
+  int n_layers = f.ueId != 0x7FFF;
+  off = WIRE_LEN;
+  int ext_count = 0;
+  int ef = 1;
+  while (ef) {
+    uint8_t ext_type = pkt[off] & 0x7F;
+    ef = pkt[off] >> 7;
+    size_t ext_len = 0;
+    assert(xran_section_ext_len(ext_type, pkt + off, pkt_len - off, &ext_len) == XRAN_EXT_OK);
+    if (ext_count == 0) {
+      assert(ext_type == XRAN_CP_SECTIONEXTCMD_10);
+      xran_se10_hdr_t out;
+      xran_se10_port_t ports[XRAN_SE10_MAX_PORTS];
+      assert(xran_decode_se10(pkt + off, ext_len, XRAN_SE10_MAX_PORTS, &out, ports) == XRAN_EXT_OK);
+      assert(xran_se10_num_ports(&out) == 3);
+      for (int k = 0; k < xran_se10_num_ports(&out); k++) {
+        assert(ports[k].id == se10_ports[k].id);
+        n_layers += ports[k].id != 0x7FFF;
+      }
+    } else {
+      assert(ext_type == XRAN_CP_SECTIONEXTCMD_24);
+      assert(n_layers == 3);
+      xran_se24_hdr_t hdr_out;
+      xran_se24_entry_t out[3];
+      assert(xran_decode_se24(pkt + off, ext_len, n_layers, &hdr_out, out) == XRAN_EXT_OK);
+      for (int i = 0; i < 3; i++)
+        assert(out[i].entryType == entries[i].entryType && out[i].dmrsPortNumber == entries[i].dmrsPortNumber);
+    }
+    off += ext_len;
+    ext_count++;
+  }
+  assert(ext_count == 2);
+  assert(off == pkt_len);
+  printf("ST 5 section with SE 10 and SE 24 passed\n");
+}
+
 int main(void)
 {
   test_field_roundtrip();
   test_spec_vectors();
+  test_st5_se10_se24_section();
   printf("All Section Type 5 tests passed!\n");
   return 0;
 }
