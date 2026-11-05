@@ -339,8 +339,14 @@ static void ul_up_task(void *arg)
   ul_up_job_t *j = arg;
   xran_fh_rx_read_slot_ant(j->fft_size, j->dstcp, j->rxdataF_ant);
   // hardcoded to use only the first PRACH occasion
-  for (int i = 0; i < j->num_prach; i++)
-    xran_fh_rx_prach_read_slot_ant(j->ru_conf, j->prach_conf, j->kbar, j->prachdstdecomp, j->prach[i]->prach_buf[j->ant_idx][0]);
+  for (int i = 0; i < j->num_prach; i++) {
+    const prach_item_t *p = j->prach[i];
+    // [ant_start, ant_start + nb_rx) -> very important when num_beams_period > 0
+    const int a = j->ant_idx - p->ant_start;
+    if (a < 0 || a >= p->nb_rx)
+      continue;
+    xran_fh_rx_prach_read_slot_ant(j->ru_conf, j->prach_conf, j->kbar, j->prachdstdecomp, p->prach_buf[a][0]);
+  }
   completed_task_ans(j->ans);
 }
 
