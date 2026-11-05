@@ -1344,7 +1344,9 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
     for (int i = 0; i < trp_list_length; i++) {
       for (int j = 0; j < NumTRPs; j++) {
         if (positioning_config->trps[j].id == req->trp_list.trp_list_item[i].trp_id) {
-          resp.trp_information_list.trp_information_item[trp_resp_len].trp_id = req->trp_list.trp_list_item[i].trp_id;
+          f1ap_trp_information_t *trp_info_item = &resp.trp_information_list.trp_information_item[trp_resp_len];
+          trp_info_item->trp_id = positioning_config->trps[j].id;
+          create_trp_info_item(req, trp_info_item, positioning_config, j);
           trp_resp_len++;
         }
       }
