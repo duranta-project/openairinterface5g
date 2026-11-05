@@ -345,9 +345,8 @@ static security_state_t nas_security_rx_process(nr_ue_nas_t *nas, byte_array_t b
       break;
     }
     case INTEGRITY_PROTECTED_WITH_NEW_SECU_CTX:
-      stream_security_container_delete(nas->security_container);
-      nas->security_container = NULL;
-      nas->security.nas_count_dl = 0;
+      /* a Security Mode Command: handle_security_mode_command() checks it with the new context and replaces the
+         current one only if it passes (24.501 5.4.2.5: a rejected command leaves the current context in use) */
       return NAS_SECURITY_NO_SECURITY_CONTEXT;
       break;
     case INTEGRITY_PROTECTED:
@@ -1454,12 +1453,13 @@ static void generateSecurityModeReject(nr_ue_nas_t *nas, as_nas_info_t *initialN
   if (has_security_context) {
     fgmm_nas_msg_security_protected_t sp = {0};
     sp.header.protocol_discriminator = FGS_MOBILITY_MANAGEMENT_MESSAGE;
-    sp.header.security_header_type = INTEGRITY_PROTECTED;
+    sp.header.security_header_type = INTEGRITY_PROTECTED_AND_CIPHERED;
     sp.header.sequence_number = nas->security.nas_count_ul & 0xff;
     size += sizeof(sp.header);
     sp.plain.header = plain_header;
     sp.plain.mm_msg.fgs_security_mode_reject = msg;
     // Security protected header encoding
+    initialNasMsg->nas_data = malloc_or_fail(size);
     int security_header_len = nas_protected_security_header_encode(initialNasMsg->nas_data, &sp.header, size);
     initialNasMsg->length =
         security_header_len + mm_msg_encode(&sp.plain, initialNasMsg->nas_data + security_header_len, size - security_header_len);
@@ -1528,18 +1528,19 @@ static void handle_security_mode_command(nr_ue_nas_t *nas, as_nas_info_t *initia
   }
 
   /* retrieve integrity and ciphering algorithms  */
-  if (pdu_length < 10) {
+  if (pdu_length < 11) {
     LOG_E(NAS, "Invalid pdu_length=%d : send Security Mode Reject\n", pdu_length);
     // 3GPP TS 24.501 5.4.2.5 NAS security mode command not accepted by the UE
     generateSecurityModeReject(nas, initialNasMsg, Security_mode_rejected_unspecified);
+    return;
   }
 
   int ciphering_algorithm = (pdu[10] >> 4) & 0x0f;
   int integrity_algorithm = pdu[10] & 0x0f;
 
   uint8_t *kamf = nas->security.kamf;
-  uint8_t *knas_enc = nas->security.knas_enc;
-  uint8_t *knas_int = nas->security.knas_int;
+  uint8_t knas_enc[sizeof(nas->security.knas_enc)];
+  uint8_t knas_int[sizeof(nas->security.knas_int)];
 
   /* derive keys */
   derive_knas(0x01, ciphering_algorithm, kamf, knas_enc);
@@ -1557,38 +1558,45 @@ static void handle_security_mode_command(nr_ue_nas_t *nas, as_nas_info_t *initia
   }
   printf("\n");
 
-  if (integrity_algorithm != EIA0_ALG_ID) {
-    nas->security_container = stream_security_container_init(ciphering_algorithm, integrity_algorithm, knas_enc, knas_int);
-  } else {
-    LOG_E(NAS, "Rejecting Invalid NULL integrity %d for 5G!\n",
-      integrity_algorithm);
-    nas->security_container = NULL;
+  if (integrity_algorithm == EIA0_ALG_ID) {
+    LOG_E(NAS, "Rejecting Invalid NULL integrity %d for 5G!\n", integrity_algorithm);
+    generateSecurityModeReject(nas, initialNasMsg, Security_mode_rejected_unspecified);
+    return;
   }
-
-  /* Handle the invalid container with a reject message */
-  if(nas->security_container == NULL) {
+  stream_security_container_t *new_ctx =
+      stream_security_container_init(ciphering_algorithm, integrity_algorithm, knas_enc, knas_int);
+  if (new_ctx == NULL) {
     LOG_W(NAS, "Could not create security container!\n");
     generateSecurityModeReject(nas, initialNasMsg, Security_mode_rejected_unspecified);
     return;
   }
 
-  /* Check MAC and delete context if it does not match */
+  /* check the MAC with the new context: the command starts a new NAS COUNT (overflow 0), its sequence number gives
+     the DL count. A command retransmitted by the network (T3560) carries the same or a next sequence number */
+  stream_security_container_t *current_ctx = nas->security_container;
+  const uint32_t current_count_dl = nas->security.nas_count_dl;
+  nas->security_container = new_ctx;
+  nas->security.nas_count_dl = pdu[6];
   uint8_t computed_mac[NAS_INTEGRITY_SIZE];
   byte_array_t ba = {.buf = pdu, .len = pdu_length};
   nas_security_compute_mac(nas, ba, false, true, computed_mac);
 
-  /* Teardown security container if mismatch. */
-  if(memcmp(computed_mac, recv_mac, NAS_INTEGRITY_SIZE) != 0) {
+  if (memcmp(computed_mac, recv_mac, NAS_INTEGRITY_SIZE) != 0) {
     LOG_W(NAS, "MAC does not match\n");
     LOG_W(NAS, "Expected: %x %x %x %x\n", computed_mac[0], computed_mac[1], computed_mac[2], computed_mac[3]);
     LOG_W(NAS, "Received: %x %x %x %x\n", recv_mac[0], recv_mac[1], recv_mac[2], recv_mac[3]);
-    stream_security_container_delete(nas->security_container);
-    nas->security_container = NULL;
-
-    /* Signal rejection */
+    /* not taken into use: the current context stays (24.501 5.4.2.5) */
+    stream_security_container_delete(new_ctx);
+    nas->security_container = current_ctx;
+    nas->security.nas_count_dl = current_count_dl;
     generateSecurityModeReject(nas, initialNasMsg, Security_mode_rejected_unspecified);
     return;
   }
+
+  if (current_ctx)
+    stream_security_container_delete(current_ctx);
+  memcpy(nas->security.knas_enc, knas_enc, sizeof(knas_enc));
+  memcpy(nas->security.knas_int, knas_int, sizeof(knas_int));
 
   nas_itti_kgnb_refresh_req(nas->UE_id, nas->security.kgnb);
   generateSecurityModeComplete(nas, initialNasMsg);
@@ -2510,6 +2518,10 @@ static void process_guti(Guti5GSMobileIdentity_t *guti, nr_ue_nas_t *nas)
 
 static void handle_registration_accept(nr_ue_nas_t *nas, const uint8_t *pdu_buffer, uint32_t msg_length)
 {
+  if (!nas->security_container) {
+    LOG_E(NAS, "[UE %ld] Registration Accept without a NAS security context: ignored\n", nas->UE_id);
+    return;
+  }
   registration_accept_msg msg = {0};
   fgs_nas_message_security_header_t sp_header = {0};
   const uint8_t *end = pdu_buffer + msg_length;
