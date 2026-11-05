@@ -16,11 +16,13 @@ groups many tips and tricks.
 
 ### CPU
 
-OAI used to try to set the minimum CPU-DMA latency to 2 us by writing to
-`/dev/cpu_dma_latency`. However, it is unclear if this has a significant
-effect. Further, in containerized workloads, it might not be possible to set
-this at all. We assume the user of OAI sets this value before starting OAI.
-See the [Linux kernel
+`nr-softmodem` and `nr-uesoftmodem` limit the CPU wakeup latency to 2 us by
+writing to `/dev/cpu_dma_latency`, which blocks the deeper C-states. The
+request is held as long as the file is open: the kernel drops it when the
+process ends, nothing stays configured after OAI stops. `--cpu-dma-latency
+<us>` changes the value, `--cpu-dma-latency -1` makes no request. Without the
+rights to open the file (containers), a warning is printed and the C-states are
+left as they are. See the [Linux kernel
 documentation](https://www.kernel.org/doc/html/latest/admin-guide/pm/cpuidle.html)
 for more information.
 

@@ -27,6 +27,7 @@ int background_system(char *command);
 void start_background_system(void);
 
 void lock_memory_to_ram(void);
+void set_cpu_dma_latency(int latency_us);
 
 bool has_cap_sys_nice(void);
 void threadCreate(pthread_t *t, void *(*func)(void *), void *param, char *name, int affinity, int priority);
