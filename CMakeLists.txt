@@ -711,6 +711,7 @@ set(T_LIB $<TARGET_NAME_IF_EXISTS:T>)
 
 add_library(UTIL
   ${OPENAIR_DIR}/common/utils/LOG/vcd_signal_dumper.c
+  ${OPENAIR_DIR}/common/utils/dbt.c
   ${OPENAIR2_DIR}/UTIL/OPT/probe.c
 )
 

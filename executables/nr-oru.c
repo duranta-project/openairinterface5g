@@ -3,6 +3,7 @@
  */
 
 #include "common/config/config_userapi.h"
+#include "common/utils/dbt.h"
 #include "common/utils/system.h"
 #include "nr-oru.h"
 #include "openair1/PHY/defs_nr_common.h"
@@ -10,6 +11,7 @@
 #include "oru_packet_processor.h"
 #include "common/utils/threadPool/thread-pool.h"
 #include "common/utils/ds/work_q.h"
+#include <complex.h>
 #include <stdatomic.h>
 #include <time.h>
 #include <unistd.h>
@@ -36,6 +38,7 @@
 #define CONFIG_STRING_NB_FH_STREAMS "nb_fh_streams"
 #define CONFIG_STRING_CODEBOOK_NB_BEAMS "codebook_nb_beams"
 #define CONFIG_STRING_CODEBOOK_WEIGHTS "codebook_weights"
+#define CONFIG_STRING_DBT_FILE "dbt_file"
 #define CONFIG_STRING_ORU_TX_CORE "tx_core"
 
 #define HLP_ORU_TX_BW "set the TX bandwidth list per component carrier"
@@ -51,11 +54,13 @@
 #define HLP_ORU_NUM_UL_SLOTS "set the number of UL Slots in TDD"
 #define HLP_ORU_NUM_DL_SYMBOLS "set the number of DL symbols in the mixed slot"
 #define HLP_ORU_NUM_UL_SYMBOLS "set the number of UL symbols in the mixed slot"
-#define HLP_NB_FH_STREAMS "number of fronthaul streams from DU (0=passthrough, enables codebook beamforming when > 0)"
-#define HLP_CODEBOOK_NB_BEAMS "number of beams in the O-RU codebook"
+#define HLP_NB_FH_STREAMS \
+  "number of fronthaul streams from DU (0=passthrough without beamforming; required with dbt_file or codebook_weights)"
+#define HLP_CODEBOOK_NB_BEAMS "optional expected beam count for dbt_file; required with legacy codebook_weights"
 #define HLP_CODEBOOK_WEIGHTS \
-  "Q15 codebook weights: nb_beams * nb_tx * nb_fh_streams interleaved Re/Im pairs; per beam, the tx" \
-  " antenna row, conjugated, is also the UL Rx combine weight for that RX antenna"
+  "deprecated Q15 weights: nb_beams * nb_tx * nb_fh_streams interleaved Re/Im pairs; use dbt_file instead"
+#define HLP_DBT_FILE \
+  "CSV digital beam table; each row has beam ID then one complex weight per TX antenna, reused for each FH stream"
 #define HLP_ORU_THREEQUARTER_FS "set the 3/4 sampling frequency"
 
 // clang-format off
@@ -77,6 +82,7 @@
   {CONFIG_STRING_NB_FH_STREAMS,                 HLP_NB_FH_STREAMS,                  0,    .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}, \
   {CONFIG_STRING_CODEBOOK_NB_BEAMS,             HLP_CODEBOOK_NB_BEAMS,              0,    .iptr=NULL,       .defintval=0,                 TYPE_INT,          0}, \
   {CONFIG_STRING_CODEBOOK_WEIGHTS,              HLP_CODEBOOK_WEIGHTS,               0,    .iptr=NULL,       .defintarrayval=NULL,          TYPE_INTARRAY,     0}, \
+  {CONFIG_STRING_DBT_FILE,                       HLP_DBT_FILE,                       0,    .strptr=NULL,     .defstrval=NULL,              TYPE_STRING,       0}, \
   {CONFIG_STRING_ORU_TX_CORE,                   "The CPU core to be used to deploy south write thread for O-RU.", 0, .iptr=NULL, .defintval=-1, TYPE_INT, 0}, \
 }
 
@@ -399,6 +405,12 @@ void prepare_prach_item(ORU_t *oru)
   }
 }
 
+static int16_t dbt_weight_to_q15(double value)
+{
+  const double scaled = value * 32767.0;
+  return (int16_t)(scaled < 0.0 ? scaled - 0.5 : scaled + 0.5);
+}
+
 int get_oru_options(ORU_t *oru)
 {
   int DEFBW[] = {273};
@@ -427,10 +439,83 @@ int get_oru_options(ORU_t *oru)
   oru->num_UL_slots = *gpd(param, nump, CONFIG_STRING_ORU_NUM_UL_SLOTS)->iptr;
   oru->num_DL_symbols = *gpd(param, nump, CONFIG_STRING_ORU_NUM_DL_SYMBOLS)->iptr;
   oru->num_UL_symbols = *gpd(param, nump, CONFIG_STRING_ORU_NUM_UL_SYMBOLS)->iptr;
-  oru->codebook.nb_fh_streams = *gpd(param, nump, CONFIG_STRING_NB_FH_STREAMS)->iptr;
-  oru->codebook.nb_beams = *gpd(param, nump, CONFIG_STRING_CODEBOOK_NB_BEAMS)->iptr;
-  AssertFatal(oru->codebook.nb_fh_streams >= 0, "nb_fh_streams %d must be non-negative\n", oru->codebook.nb_fh_streams);
-  if (oru->codebook.nb_fh_streams > 0) {
+  const int configured_fh_streams = *gpd(param, nump, CONFIG_STRING_NB_FH_STREAMS)->iptr;
+  const int configured_beams = *gpd(param, nump, CONFIG_STRING_CODEBOOK_NB_BEAMS)->iptr;
+  oru->codebook.nb_fh_streams = 0;
+  oru->codebook.nb_beams = 0;
+  oru->codebook.has_beam_ids = false;
+  const paramdef_t *legacy_weights = gpd(param, nump, CONFIG_STRING_CODEBOOK_WEIGHTS);
+  char **dbt_file = gpd(param, nump, CONFIG_STRING_DBT_FILE)->strptr;
+  const bool load_dbt = dbt_file != NULL && *dbt_file != NULL && **dbt_file != '\0';
+  const bool load_legacy = legacy_weights->numelt > 0 || configured_fh_streams > 0;
+  AssertFatal(configured_fh_streams >= 0, "nb_fh_streams %d must be non-negative\n", configured_fh_streams);
+  AssertFatal(!(load_dbt && legacy_weights->numelt > 0),
+              "Configure either dbt_file or legacy codebook_weights, not both\n");
+
+  if (load_dbt) {
+    AssertFatal(oru->ru->nb_tx > 0 && oru->ru->nb_tx <= ORU_CODEBOOK_MAX_NB_TX,
+                "dbt_file requires nb_tx in range 1..%d (got %d)\n",
+                ORU_CODEBOOK_MAX_NB_TX,
+                oru->ru->nb_tx);
+    AssertFatal(oru->ru->nb_rx <= oru->ru->nb_tx,
+                "codebook beamforming needs nb_rx %d <= nb_tx %d (one weight row per RX antenna)\n",
+                oru->ru->nb_rx,
+                oru->ru->nb_tx);
+
+    dbt_table_t dbt = dbt_read_csv(*dbt_file);
+    AssertFatal(dbt.num_beams <= ORU_CODEBOOK_MAX_BEAMS,
+                "dbt_file has %d beams, maximum is %d\n",
+                dbt.num_beams,
+                ORU_CODEBOOK_MAX_BEAMS);
+    AssertFatal(dbt.num_weights_per_beam == oru->ru->nb_tx,
+                "dbt_file has %d weights per beam but nb_tx is %d\n",
+                dbt.num_weights_per_beam,
+                oru->ru->nb_tx);
+    AssertFatal(configured_fh_streams > 0 && configured_fh_streams <= ORU_CODEBOOK_MAX_STREAMS,
+                "dbt_file requires nb_fh_streams in range 1..%d (got %d)\n",
+                ORU_CODEBOOK_MAX_STREAMS,
+                configured_fh_streams);
+    AssertFatal(configured_fh_streams <= oru->ru->nb_tx,
+                "nb_fh_streams %d must not exceed nb_tx %d\n",
+                configured_fh_streams,
+                oru->ru->nb_tx);
+    AssertFatal(configured_beams == 0 || configured_beams == dbt.num_beams,
+                "codebook_nb_beams %d does not match dbt_file beam count (%d)\n",
+                configured_beams,
+                dbt.num_beams);
+
+    oru->codebook.nb_fh_streams = configured_fh_streams;
+    oru->codebook.nb_beams = dbt.num_beams;
+    oru->codebook.has_beam_ids = true;
+    for (int b = 0; b < dbt.num_beams; b++) {
+      for (int prev = 0; prev < b; prev++)
+        AssertFatal(dbt.beam_ids[b] != dbt.beam_ids[prev],
+                    "dbt_file contains duplicate beam ID %u\n",
+                    dbt.beam_ids[b]);
+      oru->codebook.beam_ids[b] = dbt.beam_ids[b];
+      for (int t = 0; t < oru->ru->nb_tx; t++) {
+        for (int s = 0; s < configured_fh_streams; s++) {
+          const double complex weight = dbt.weights[b][t];
+          const double re = creal(weight);
+          const double im = cimag(weight);
+          AssertFatal(re >= -1.0 && re <= 1.0 && im >= -1.0 && im <= 1.0,
+                      "dbt_file beam %u antenna %d stream %d weight (%f,%f) is outside [-1,1]\n",
+                      dbt.beam_ids[b],
+                      t,
+                      s,
+                      re,
+                      im);
+          oru->codebook.w[b][t][s].r = dbt_weight_to_q15(re);
+          oru->codebook.w[b][t][s].i = dbt_weight_to_q15(im);
+        }
+      }
+    }
+    dbt_table_free(&dbt);
+  } else if (load_legacy) {
+    oru->codebook.nb_fh_streams = configured_fh_streams;
+    oru->codebook.nb_beams = configured_beams;
+    AssertFatal(oru->codebook.nb_fh_streams > 0,
+                "legacy codebook_weights requires nb_fh_streams > 0\n");
     AssertFatal(oru->codebook.nb_fh_streams <= ORU_CODEBOOK_MAX_STREAMS,
                 "nb_fh_streams %d exceeds maximum %d\n",
                 oru->codebook.nb_fh_streams,
@@ -439,19 +524,21 @@ int get_oru_options(ORU_t *oru)
                 "codebook_nb_beams %d invalid (range 1..%d)\n",
                 oru->codebook.nb_beams,
                 ORU_CODEBOOK_MAX_BEAMS);
-    AssertFatal(oru->ru->nb_tx <= ORU_CODEBOOK_MAX_NB_TX, "nb_tx %d exceeds maximum %d\n", oru->ru->nb_tx, ORU_CODEBOOK_MAX_NB_TX);
+    AssertFatal(oru->ru->nb_tx > 0 && oru->ru->nb_tx <= ORU_CODEBOOK_MAX_NB_TX,
+                "nb_tx %d outside supported codebook range 1..%d\n",
+                oru->ru->nb_tx,
+                ORU_CODEBOOK_MAX_NB_TX);
     AssertFatal(oru->codebook.nb_fh_streams <= oru->ru->nb_tx,
                 "nb_fh_streams %d must not exceed nb_tx %d\n",
                 oru->codebook.nb_fh_streams,
                 oru->ru->nb_tx);
-    // The codebook's antenna axis serves both DL (nb_tx) and UL Rx combining (nb_rx antennas).
     AssertFatal(oru->ru->nb_rx <= oru->ru->nb_tx,
                 "codebook beamforming needs nb_rx %d <= nb_tx %d (one weight row per RX antenna)\n",
                 oru->ru->nb_rx,
                 oru->ru->nb_tx);
-    const paramdef_t *wgt = gpd(param, nump, CONFIG_STRING_CODEBOOK_WEIGHTS);
-    int expected = oru->codebook.nb_beams * oru->ru->nb_tx * oru->codebook.nb_fh_streams * 2;
-    AssertFatal(wgt->numelt == expected,
+
+    const int expected = oru->codebook.nb_beams * oru->ru->nb_tx * oru->codebook.nb_fh_streams * 2;
+    AssertFatal(legacy_weights->numelt == expected,
                 "codebook_weights: expected %d elements (nb_beams=%d * nb_tx=%d * nb_fh_streams=%d * 2)\n",
                 expected,
                 oru->codebook.nb_beams,
@@ -461,19 +548,21 @@ int get_oru_options(ORU_t *oru)
     for (int b = 0; b < oru->codebook.nb_beams; b++)
       for (int t = 0; t < oru->ru->nb_tx; t++)
         for (int s = 0; s < oru->codebook.nb_fh_streams; s++) {
-          AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
-                      "codebook_weights[%d] value %d out of Q15 range\n", idx, wgt->iptr[idx]);
-          oru->codebook.w[b][t][s].r = (int16_t)wgt->iptr[idx++];
-          AssertFatal(wgt->iptr[idx] >= INT16_MIN && wgt->iptr[idx] <= INT16_MAX,
-                      "codebook_weights[%d] value %d out of Q15 range\n", idx, wgt->iptr[idx]);
-          oru->codebook.w[b][t][s].i = (int16_t)wgt->iptr[idx++];
+          AssertFatal(legacy_weights->iptr[idx] >= INT16_MIN && legacy_weights->iptr[idx] <= INT16_MAX,
+                      "codebook_weights[%d] value %d out of Q15 range\n", idx, legacy_weights->iptr[idx]);
+          oru->codebook.w[b][t][s].r = (int16_t)legacy_weights->iptr[idx++];
+          AssertFatal(legacy_weights->iptr[idx] >= INT16_MIN && legacy_weights->iptr[idx] <= INT16_MAX,
+                      "codebook_weights[%d] value %d out of Q15 range\n", idx, legacy_weights->iptr[idx]);
+          oru->codebook.w[b][t][s].i = (int16_t)legacy_weights->iptr[idx++];
         }
+  }
+
+  if (oru->codebook.nb_fh_streams > 0)
     LOG_I(NR_PHY,
           "Codebook beamforming enabled: nb_fh_streams=%d nb_beams=%d nb_tx=%d\n",
           oru->codebook.nb_fh_streams,
           oru->codebook.nb_beams,
           oru->ru->nb_tx);
-  }
 
   oru->tx_write.core = *gpd(param, nump, CONFIG_STRING_ORU_TX_CORE)->iptr;
 
