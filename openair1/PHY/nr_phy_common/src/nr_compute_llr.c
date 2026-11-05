@@ -4227,26 +4227,27 @@ static simde__m128i nr_comp_muli_sum(simde__m128i input_x,
   return (output);
 }
 
-// MMSE Rx function: nr_mmse_2layers()
-uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
-                        uint32_t buffer_length,
-                        uint32_t pdsch_buf_size_max,
-                        int nb_rx_ant,
-                        int nb_layers,
-                        c16_t ch_mag[nb_layers][pdsch_buf_size_max],
-                        c16_t ch_magb[nb_layers][pdsch_buf_size_max],
-                        c16_t ch_magc[nb_layers][pdsch_buf_size_max],
-                        c16_t ch_estimates_ext[][nb_rx_ant][buffer_length],
-                        unsigned short nb_rb,
-                        unsigned char mod_order,
-                        int shift,
-                        unsigned char symbol,
-                        int length,
-                        uint32_t noise_var,
-                        c16_t *rho00,
-                        c16_t *rho01,
-                        c16_t *rho10,
-                        c16_t *rho11)
+// MMSE Rx function: nr_mmse_2layers(). File-local: the only caller is nr_compute_MMSE_llr below;
+// both the UE and gNB reach the 2-layer MMSE exclusively through that fused entry point.
+static uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
+                               uint32_t buffer_length,
+                               uint32_t pdsch_buf_size_max,
+                               int nb_rx_ant,
+                               int nb_layers,
+                               c16_t ch_mag[nb_layers][pdsch_buf_size_max],
+                               c16_t ch_magb[nb_layers][pdsch_buf_size_max],
+                               c16_t ch_magc[nb_layers][pdsch_buf_size_max],
+                               c16_t ch_estimates_ext[][nb_rx_ant][buffer_length],
+                               unsigned short nb_rb,
+                               unsigned char mod_order,
+                               int shift,
+                               unsigned char symbol,
+                               int length,
+                               uint32_t noise_var,
+                               c16_t *rho00,
+                               c16_t *rho01,
+                               c16_t *rho10,
+                               c16_t *rho11)
 {
   uint32_t nb_rb_0 = length / 12 + ((length % 12) ? 1 : 0);
 

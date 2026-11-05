@@ -955,7 +955,7 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // MRC is performed inline by nr_channel_compensation; apply MMSE for multi-layer
   start_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
   const uint8_t qamModOrder = dlsch->cw_info.qamModOrder;
-  if ((nl > 2) || (nl == 2 && !do_ml)) {
+  if (nl > 2) {
     nr_dlsch_mmse(pdsch_buf_size_max,
                   rx_size_symbol,
                   nl,
@@ -968,27 +968,9 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                   nb_re_pdsch,
                   nvar,
                   rho_dl);
-  } else if ((nl == 2) && (qamModOrder > 6) && do_ml && !ml256) {
-    nr_mmse_2layers(p_rxComp,
-                    rx_size_symbol,
-                    pdsch_buf_size_max,
-                    nbRx,
-                    nl,
-                    dl_ch_mag,
-                    dl_ch_magb,
-                    dl_ch_magr,
-                    chFext,
-                    freq_alloc->num_rbs,
-                    qamModOrder,
-                    *log2_maxh,
-                    0,
-                    nb_re_pdsch,
-                    nvar,
-                    rho_dl[0],
-                    rho_dl[1],
-                    rho_dl[nl],
-                    rho_dl[nl + 1]);
   }
+  // 2-layer MMSE (mmse receiver, or 256QAM with the ml receiver) is fused per RE with its LLR
+  // below (nr_compute_MMSE_llr), so rxdataF_comp stays the MRC output here for nl == 2.
   stop_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
 
   if (meas_enabled) {
@@ -1029,6 +1011,36 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
 
     int16_t *p_symllr[2] = {sym_llr[0], sym_llr[1]};
+    start_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
+    nr_layer_demapping(2, qamModOrder, nb_re_pdsch, p_symllr, llr);
+    stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
+  } else if (nl == 2) {
+    // 2-layer linear MMSE, every case the ML branch above did not take (mmse receiver, or 256QAM
+    // with the ml receiver): fused Gram-fed per-RE MMSE (L=1) + per-layer LLR, as in the gNB inner_rx.
+    __attribute__((aligned(32))) int16_t sym_llr[2][llr_per_symbol];
+    int16_t *p_symllr[2] = {sym_llr[0], sym_llr[1]};
+    start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
+    nr_compute_MMSE_llr(p_rxComp,
+                        rx_size_symbol,
+                        pdsch_buf_size_max,
+                        nbRx,
+                        nl,
+                        dl_ch_mag,
+                        dl_ch_magb,
+                        dl_ch_magr,
+                        chFext,
+                        freq_alloc->num_rbs,
+                        qamModOrder,
+                        *log2_maxh,
+                        0, // symbol already baked into p_rxComp
+                        nb_re_pdsch,
+                        nvar,
+                        rho_dl[0],
+                        rho_dl[1],
+                        rho_dl[nl],
+                        rho_dl[nl + 1],
+                        p_symllr);
+    stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
     start_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
     nr_layer_demapping(2, qamModOrder, nb_re_pdsch, p_symllr, llr);
     stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
