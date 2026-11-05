@@ -17,6 +17,7 @@
 #define DMRS_NR_H
 
 #include "PHY/defs_nr_common.h"
+#include "common/utils/bits.h"
 
 int pseudo_random_sequence(int M_PN, uint32_t *c, uint32_t cinit);
 uint16_t get_dmrs_freq_idx_ul(uint16_t n, uint8_t k_prime, uint8_t delta, uint8_t dmrs_type);
@@ -30,6 +31,13 @@ uint8_t allowed_xlsch_re_in_dmrs_symbol(uint16_t k,
 void nr_gen_ref_conj_symbols(const uint32_t *in, uint32_t ref_symbols, c16_t *output);
 int8_t get_next_dmrs_symbol_in_slot(uint16_t  ul_dmrs_symb_pos, uint8_t counter, uint8_t end_symbol);
 int8_t get_valid_dmrs_idx_for_channel_est(uint16_t  dmrs_symb_pos, uint8_t counter);
+/// rank of DMRS symbol \p symbol among the DMRS symbols of \p dmrs_symb_pos, i.e. its row in channel estimates stored per DMRS
+/// symbol
+static inline int get_dmrs_row(uint16_t dmrs_symb_pos, int symbol)
+{
+  const uint32_t before = dmrs_symb_pos & ((1U << symbol) - 1);
+  return count_bits(&before, 1);
+}
 void nr_chest_time_domain_avg(NR_DL_FRAME_PARMS *frame_parms,
                               int32_t **ch_estimates,
                               uint8_t num_symbols,

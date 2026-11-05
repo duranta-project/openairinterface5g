@@ -485,66 +485,54 @@ static void frequencyResponse (OAIgraph_t *graph, PHY_VARS_gNB *phy_vars_gnb, RU
 }
 */
 
+/* The PUSCH graphs show the last PUSCH demodulated by the L1, copied into the scope buffers: the L1 buffers
+ * (pusch_vars) are reused for the next slots while the scope thread reads. */
 static void puschLLR (OAIgraph_t *graph, scopeData_t *p, int nb_UEs) {
 #ifdef WEBSRVSCOPE
-  int uestart = nb_UEs - 1; // web scope shows one UE signal, that can be selected from GUI
+  int ue = nb_UEs - 1; // web scope shows one UE signal, that can be selected from GUI
 #else
-  int uestart = 0; // xforms scope designed to display nb_UEs signals
+  int ue = 0;
 #endif
-
-  NR_DL_FRAME_PARMS *frame_parms=&p->gNB->frame_parms;
-  int num_re = frame_parms->N_RB_UL*12*frame_parms->symbols_per_slot;
-  int Qm = 2;
-  int coded_bits_per_codeword = num_re*Qm;
-
-  for (int ue = uestart; ue < nb_UEs; ue++) {
-    if (p->gNB->pusch_vars && p->gNB->pusch_vars[ue].ulsch_llrs) {
-      int16_t *pusch_llr = (int16_t *)p->gNB->pusch_vars[ue].ulsch_llrs;
-      float *llr = NULL, *bit = NULL;
-      int nx = coded_bits_per_codeword;
+  scopeGraphData_t *val = p->liveData[gNBPuschLlr];
+  if (!val || !val->lineSz)
+    return;
+  int16_t *pusch_llr = (int16_t *)(val + 1);
+  int nx = val->lineSz;
+  float *llr = NULL, *bit = NULL;
 #ifdef WEBSRVSCOPE
-      nx = websrv_cpllrbuff_tomsg(graph, pusch_llr, coded_bits_per_codeword, ue, 0, 0);
+  nx = websrv_cpllrbuff_tomsg(graph, pusch_llr, val->lineSz, ue, 0, 0);
 #else
-      oai_xygraph_getbuff(graph, &bit, &llr, coded_bits_per_codeword, ue);
-
-      for (int i=0; i<coded_bits_per_codeword; i++) {
-        llr[i] = (float) pusch_llr[i];
-      }
+  oai_xygraph_getbuff(graph, &bit, &llr, val->lineSz, ue);
+  for (int i = 0; i < val->lineSz; i++)
+    llr[i] = (float)pusch_llr[i];
 #endif
-      oai_xygraph(graph, bit, llr, nx, ue, 10);
-    }
-  }
+  oai_xygraph(graph, bit, llr, nx, ue, 10);
 }
 
-static void puschIQ (OAIgraph_t *graph, scopeData_t *p, int nb_UEs) {
-  NR_DL_FRAME_PARMS *frame_parms=&p->gNB->frame_parms;
-  int sz=frame_parms->N_RB_UL*12*frame_parms->symbols_per_slot;
+static void puschIQ(OAIgraph_t *graph, scopeData_t *p, int nb_UEs)
+{
+#ifdef WEBSRVSCOPE
+  int ue = nb_UEs - 1; // web scope shows one UE signal, that can be selected from GUI
+#else
+  int ue = 0;
+#endif
+  scopeGraphData_t *val = p->liveData[gNBPuschRxIq];
+  if (!val || !val->lineSz)
+    return;
+  scopeSample_t *pusch_comp = (scopeSample_t *)(val + 1);
+  int sz = val->lineSz;
   int newsz = sz;
+  float *I = NULL, *Q = NULL;
 #ifdef WEBSRVSCOPE
-  int uestart = nb_UEs - 1; // web scope shows one UE signal, that can be selected from GUI
+  newsz = websrv_cpiqbuff_tomsg(graph, pusch_comp, sz, 0, 0);
 #else
-  int uestart = 0; // xforms scope designed to display nb_UEs signals
-#endif
-  for (int ue = uestart; ue < nb_UEs; ue++) {
-    if (p->gNB->pusch_vars &&
-        p->gNB->pusch_vars[ue].rxdataF_comp &&
-        p->gNB->pusch_vars[ue].rxdataF_comp[0] ) {
-      scopeSample_t *pusch_comp = (scopeSample_t *)p->gNB->pusch_vars[ue].rxdataF_comp[0];
-      float *I=NULL, *Q=NULL;
-#ifdef WEBSRVSCOPE
-      newsz = websrv_cpiqbuff_tomsg(graph, pusch_comp, sz, 0, 0);
-#else
-      oai_xygraph_getbuff(graph, &I, &Q, sz, ue);
-
-      for (int k=0; k<sz; k++ ) {
-        I[k] = pusch_comp[k].r;
-        Q[k] = pusch_comp[k].i;
-      }
-#endif
-
-      oai_xygraph(graph, I, Q, newsz, ue, 10);
-    }
+  oai_xygraph_getbuff(graph, &I, &Q, sz, ue);
+  for (int k = 0; k < sz; k++) {
+    I[k] = pusch_comp[k].r;
+    Q[k] = pusch_comp[k].i;
   }
+#endif
+  oai_xygraph(graph, I, Q, newsz, ue, 10);
 }
 
 static void pucchEnergy (OAIgraph_t *graph, scopeData_t *p, int nb_UEs) {
@@ -717,6 +705,52 @@ static void scopeUpdaterGnb(enum PlotTypeGnbIf plotType, int numElt)
   }
 }
 
+/* Copy in parts of data that are not contiguous in the L1 buffers (PUSCH IQ): same rotating buffers as
+ * copyData(), the new buffer becomes live at unlock. The callbacks don't get the scope data: one gNB scope. */
+static scopeData_t *gnb_scope;
+static scopeGraphData_t *gnb_pending[MAX_SCOPE_TYPES];
+
+static bool tryLockScopeDataGnb(enum scopeDataType type, int elementSz, int colSz, int lineSz, metadata *meta)
+{
+  (void)meta;
+  scopeData_t *s = gnb_scope;
+  if (!s || type >= MAX_SCOPE_TYPES)
+    return false;
+  pthread_mutex_lock(&s->copyDataMutex);
+  s->copyDataBufsIdx[type] = (s->copyDataBufsIdx[type] + 1) % COPIES_MEM;
+  const int idx = s->copyDataBufsIdx[type];
+  pthread_mutex_unlock(&s->copyDataMutex);
+  const int sz = elementSz * colSz * lineSz;
+  scopeGraphData_t *d = s->copyDataBufs[type][idx];
+  if (!d || d->dataSize < sz) {
+    scopeGraphData_t *ptr = realloc(d, sizeof(*ptr) + sz);
+    if (!ptr)
+      return false;
+    ptr->dataSize = sz;
+    s->copyDataBufs[type][idx] = d = ptr;
+  }
+  d->elementSz = elementSz;
+  d->colSz = colSz;
+  d->lineSz = lineSz;
+  gnb_pending[type] = d;
+  return true;
+}
+
+static void copyDataUnsafeWithOffsetGnb(enum scopeDataType type, void *dataIn, size_t size, size_t offset, int copy_index)
+{
+  (void)copy_index;
+  scopeGraphData_t *d = gnb_pending[type];
+  if (d && offset + size <= (size_t)d->dataSize)
+    memcpy((uint8_t *)(d + 1) + offset, dataIn, size);
+}
+
+static void unlockScopeDataGnb(enum scopeDataType type)
+{
+  if (gnb_pending[type])
+    gnb_scope->liveData[type] = gnb_pending[type];
+  gnb_pending[type] = NULL;
+}
+
 STATICFORXSCOPE void gNBinitScope(scopeParms_t *p)
 {
   p->gNB->scopeData = calloc_or_fail(sizeof(scopeData_t), 1);
@@ -727,6 +761,10 @@ STATICFORXSCOPE void gNBinitScope(scopeParms_t *p)
   scope->gNB=p->gNB;
   scope->scopeUpdater = scopeUpdaterGnb;
   scope->copyData = copyData;
+  scope->tryLockScopeData = tryLockScopeDataGnb;
+  scope->copyDataUnsafeWithOffset = copyDataUnsafeWithOffsetGnb;
+  scope->unlockScopeData = unlockScopeDataGnb;
+  gnb_scope = scope;
 #ifndef WEBSRVSCOPE
   pthread_t forms_thread;
   threadCreate(&forms_thread, scope_thread_gNB, p->gNB->scopeData, "scope", -1, OAI_PRIORITY_RT_LOW);

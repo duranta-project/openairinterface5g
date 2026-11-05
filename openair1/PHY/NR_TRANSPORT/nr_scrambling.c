@@ -59,12 +59,15 @@ void nr_codeword_unscrambling(int16_t* llr, uint32_t size, uint8_t q, uint32_t N
 #endif
 }
 
-void nr_codeword_unscrambling_init(int16_t *s2, uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI)
+const uint32_t *nr_codeword_scrambling_gold(uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI)
 {
-  const int roundedSz = (size + 31) / 32;
-  uint32_t *seq = gold_cache((n_RNTI << 15) + (q << 14) + Nid, roundedSz);
-  simde__m128i *s128=(simde__m128i *)s2;
-  for (int i = 0; i < roundedSz; i++) {
+  return gold_cache((n_RNTI << 15) + (q << 14) + Nid, (size + 31) / 32);
+}
+
+void nr_codeword_unscrambling_expand(const uint32_t *seq, int nwords, int16_t *s)
+{
+  simde__m128i *s128 = (simde__m128i *)s;
+  for (int i = 0; i < nwords; i++) {
     uint8_t *s8 = (uint8_t *)(seq + i);
     *s128++ = byte2m128i[s8[0]];
     *s128++ = byte2m128i[s8[1]];
