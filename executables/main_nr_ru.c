@@ -120,6 +120,7 @@ void beam_index_allocation(uint16_t fapi_beam_index,
                            int slot,
                            uint16_t bitmap_symbols,
                            int num_ant_max,
+                           int num_beams_period,
                            uint16_t **ant_beam_id_list)
 {
 }
