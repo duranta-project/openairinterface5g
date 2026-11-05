@@ -388,9 +388,6 @@ static inline void merge_single_meas(time_stats_t *dst_ts, const time_single_t *
   insert_in_time_hist(&dst_ts->time_hist, src_ts->p_time);
 }
 
-#define TIME_STATS_ACCUMULATE_MODE 1 // cpu_meas_enabled == 1 => accumulate through time
-#define TIME_STATS_INSTANT_MODE 2 // cpu_meas_enabled == 2 => reset every second
-
 #define CPUMEASUR_SECTION "cpumeasur"
 
 // clang-format off

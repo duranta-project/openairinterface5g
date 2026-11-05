@@ -57,11 +57,13 @@ static int processoption(configmodule_interface_t *cfg, paramdef_t *cfgoptions, 
   char defbool[2]="1";
 
   if ( value == NULL) {
-    if( (cfgoptions->paramflags & (PARAMFLAG_BOOL | PARAMFLAG_VALUE_OPTIONAL)) == 0 ) { /* not a boolean, argument required */
-      CONFIG_PRINTF_ERROR("[CONFIG] command line, option %s requires an argument\n",cfgoptions->optname);
+    if ((cfgoptions->paramflags & (PARAMFLAG_BOOL | PARAMFLAG_VALUE_OPTIONAL)) == 0) { /* not a boolean, argument required */
+      CONFIG_PRINTF_ERROR("[CONFIG] command line, option %s requires an argument\n", cfgoptions->optname);
       AssertFatal(false, "[CONFIG] command line, requires an argument\n");
-    } else {        /* boolean value option without argument, set value to true*/
+    } else if ((cfgoptions->paramflags & PARAMFLAG_VALUE_OPTIONAL) == 0) { /* boolean value option without argument, set value to true*/
       tmpval = defbool;
+    } else { /* argument is optional => if no argument provided, then use default argument */
+      tmpval = cfgoptions->defarg;
     }
   }
 

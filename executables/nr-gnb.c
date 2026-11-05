@@ -330,7 +330,7 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
 
   output += print_meas_log(&ru->tx_fhaul,"tx_fhaul",NULL,NULL, output, end - output);
 
-  if (cpu_meas_enabled == TIME_STATS_INSTANT_MODE) {
+  if (cpu_meas_enabled > 0) {
     nrL1_stats_reset(gNB, ru);
   }
   return output - begin;
@@ -351,7 +351,11 @@ void *nrL1_stats_thread(void *param) {
   nrL1_stats_reset(gNB, ru);
 
   while (!oai_exit) {
-    sleep(1);
+    if (cpu_meas_enabled > 0) {
+      sleep(cpu_meas_enabled);
+    } else {
+      sleep(1);
+    }
     if (ftruncate(fileno(fd), 0) != 0 || fseek(fd, 0, SEEK_SET) != 0) {
       LOG_E(NR_MAC, "error while writing nrL1_stats.log: %d, %s\n", errno, strerror(errno));
       break;
