@@ -15,6 +15,9 @@ void free_nrppa_trp_information_request(nrppa_trp_information_req_t *msg)
   if (msg->trp_information_type_list.trp_information_type_item) {
     free(msg->trp_information_type_list.trp_information_type_item);
   }
+  if (msg->has_trp_list) {
+    free(msg->trp_list.trp_list_item);
+  }
 }
 
 static NRPPA_TRPPositionDirect_t encode_trp_position_direct(nrppa_trp_position_direct_t *in)
@@ -1228,7 +1231,16 @@ int nrppa_gNB_handle_trp_information_request(nrppa_gnb_ue_info_t *nrppa_msg_info
   if (ie == NULL) {
     req->has_trp_list = false;
   } else {
-    LOG_W(NRPPA, "TRPInformationRequest IE TRP List : not handled\n");
+    req->has_trp_list = true;
+    uint32_t trp_list_len = ie->value.choice.TRPList.list.count;
+    AssertError(trp_list_len > 0, return false, "at least 1 TRP must be present");
+    nrppa_trp_list_t *trp_list = &req->trp_list;
+    trp_list->trp_list_length = trp_list_len;
+    trp_list->trp_list_item = calloc_or_fail(trp_list_len, sizeof(*trp_list->trp_list_item));
+    for (int i = 0; i < trp_list_len; i++) {
+      const NRPPA_TRPItem_t *item = ie->value.choice.TRPList.list.array[i];
+      trp_list->trp_list_item[i].trp_id = item->tRP_ID;
+    }
   }
 
   // IE TRP Information Type List: mandatory
