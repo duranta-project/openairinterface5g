@@ -92,7 +92,7 @@ struct pnf_p7_t {
 
 	uint8_t tx_message_buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE];
 	uint8_t* rx_message_buffer;
-	uint16_t rx_message_buffer_size;
+	uint32_t rx_message_buffer_size;
 
 	pthread_mutex_t mutex; // should we allow the client to specifiy
 	pthread_mutex_t pack_mutex; // should we allow the client to specifiy
