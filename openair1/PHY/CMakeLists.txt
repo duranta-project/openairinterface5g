@@ -2,7 +2,6 @@
 
 add_subdirectory(nr_phy_common)
 add_subdirectory(TOOLS)
-add_subdirectory(NR_TRANSPORT)
 add_subdirectory(CODING)
 add_subdirectory(MODULATION)
 if (ENABLE_TESTS)

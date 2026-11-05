@@ -26,7 +26,6 @@
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 
 #include "PHY_INTERFACE/phy_interface_vars.h"
-#include "NR_IF_Module.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
 #include "openair2/RRC/NR_UE/L2_interface_ue.h"
 #include "openair1/PHY/phy_extern_nr_ue.h"
@@ -50,7 +49,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include <openair2/LAYER2/NR_MAC_UE/mac_proto.h>
 #include <openair2/NR_UE_PHY_INTERFACE/NR_IF_Module.h>
 #include <openair1/SCHED_NR_UE/fapi_nr_ue_l1.h>
-#include "nr_rlc/nr_rlc_oai_api.h"
+#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 /* Callbacks, globals and object handlers */
 
 //#include "stats.h"
@@ -63,7 +62,6 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "executables/thread-common.h"
 
 #include "nr_nas_msg.h"
-#include "actor.h"
 
 THREAD_STRUCT thread_struct;
 nrUE_params_t nrUE_params = {0};
@@ -78,7 +76,6 @@ int64_t         uplink_frequency_offset[MAX_NUM_CCs][4];
 uint64_t        sidelink_frequency[MAX_NUM_CCs][4];
 
 // UE and OAI config variables
-double            cpuf;
 
 int create_tasks_nrue(uint32_t ue_nb) {
   LOG_D(NR_RRC, "%s(ue_nb:%d)\n", __FUNCTION__, ue_nb);
@@ -105,7 +102,7 @@ int create_tasks_nrue(uint32_t ue_nb) {
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
 {
-  LOG_W(NR_PHY, "called by: %s:%d %s() Exiting OAI softmodem: %s\n", file, line, function, s ? s : "no msg");
+  LOG_W(UTIL, "called by: %s:%d %s() Exiting OAI softmodem: %s\n", file, line, function, s ? s : "no msg");
 
   oai_exit = 1;
 
@@ -137,69 +134,6 @@ static void get_options(configmodule_interface_t *cfg)
   paramdef_t cmdline_params[] = CMDLINE_NRUEPARAMS_DESC;
   int numparams = sizeofArray(cmdline_params);
   config_get(cfg, cmdline_params, numparams, NULL);
-  AssertFatal(nrUE_params.extra_pdu_id == -1,
-              "Add additional PDU sessions in uicc.pdu_sessions array instead\n");
-}
-
-/* Parse --actor-affinity into cores[]. Returns number of cores. Empty/NULL -> 0. */
-static int parse_actor_affinity(const char *params, int *cores, int max_cores)
-{
-  if (params == NULL || params[0] == '\0')
-    return 0;
-
-  char *cpy = strdup(params);
-  AssertFatal(cpy != NULL, "Memory exhausted\n");
-  int n = 0;
-  char *saveptr = NULL;
-  for (char *tok = strtok_r(cpy, ",", &saveptr); tok != NULL; tok = strtok_r(NULL, ",", &saveptr)) {
-    AssertFatal(n < max_cores, "actor-affinity has more than %d entries\n", max_cores);
-    cores[n++] = atoi(tok);
-  }
-  free(cpy);
-  return n;
-}
-
-/* Assign one core from the shared pool to each DL actor, then each UL actor.
- * If a spare remains, pin SYNC too. Leave everyone at -1 when actor-affinity is unset. */
-static void init_ue_actors(PHY_VARS_NR_UE *UE)
-{
-  const nrUE_params_t *p = get_nrUE_params();
-  const int need = p->num_dl_actors + p->num_ul_actors;
-  int cores[64];
-  const int have = parse_actor_affinity(p->actor_affinity, cores, sizeofArray(cores));
-  AssertFatal(have == 0 || have >= need,
-              "actor-affinity has %d entries but needs at least num-dl-actors (%d) + num-ul-actors (%d) = %d\n",
-              have,
-              p->num_dl_actors,
-              p->num_ul_actors,
-              need);
-
-  int idx = 0;
-  const int sync_core = (have > need) ? cores[need] : -1;
-  init_actor(&UE->sync_actor, "SYNC_", sync_core);
-
-  if (p->num_dl_actors > 0) {
-    UE->dl_actors = calloc_or_fail(p->num_dl_actors, sizeof(*UE->dl_actors));
-    for (int i = 0; i < p->num_dl_actors; i++) {
-      const int core = (have > 0) ? cores[idx++] : -1;
-      init_actor(&UE->dl_actors[i], "DL_", core);
-    }
-  }
-  if (p->num_ul_actors > 0) {
-    UE->ul_actors = calloc_or_fail(p->num_ul_actors, sizeof(*UE->ul_actors));
-    for (int i = 0; i < p->num_ul_actors; i++) {
-      const int core = (have > 0) ? cores[idx++] : -1;
-      init_actor(&UE->ul_actors[i], "UL_", core);
-    }
-  }
-  if (have > 0)
-    LOG_I(PHY,
-          "Pinned actors from actor-affinity=%s (DL %d, UL %d, SYNC %d)%s\n",
-          p->actor_affinity,
-          p->num_dl_actors,
-          p->num_ul_actors,
-          sync_core,
-          have > need + 1 ? " (extra cores unused)" : "");
 }
 
 // set PHY vars from command line
@@ -310,7 +244,6 @@ int main(int argc, char **argv)
     LOG_W(UTIL,
           "no SYS_NICE capability: cannot set thread priority and affinity, consider running with sudo for optimum performance\n");
 
-  cpuf=get_cpu_freq_GHz();
   itti_init(TASK_MAX, tasks_info);
 
   init_opt();
@@ -347,6 +280,7 @@ int main(int argc, char **argv)
              get_nrUE_params()->uecap_file,
              get_nrUE_params()->reconfig_file,
              get_nrUE_params()->rbconfig_file,
+             get_nrUE_params()->ue_capability_rx2tx,
              nrue_get_cell(0)->numerology);
 
   // start time manager with some reasonable default for the running mode
@@ -436,7 +370,6 @@ int main(int argc, char **argv)
       mac->dl_frequency = cell.rf_frequency;
 
       UE_CC->sl_mode = get_softmodem_params()->sl_mode;
-      init_ue_actors(UE_CC);
       init_nr_ue_vars(UE_CC, inst);
 
       if (UE_CC->sl_mode) {
@@ -506,12 +439,6 @@ int main(int argc, char **argv)
     for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
       PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[0][CC_id];
       if (phy_vars) {
-        for (int i = 0; i < get_nrUE_params()->num_ul_actors; i++) {
-          shutdown_actor(&phy_vars->ul_actors[i]);
-        }
-        for (int i = 0; i < get_nrUE_params()->num_dl_actors; i++) {
-          shutdown_actor(&phy_vars->dl_actors[i]);
-        }
         int ret = pthread_join(phy_vars->main_thread, NULL);
         AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
         if (!IS_SOFTMODEM_NOSTATS) {

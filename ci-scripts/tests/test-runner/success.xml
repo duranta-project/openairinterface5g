@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>test2</htmlTabRef>
   <htmlTabName>Manual testing Success</htmlTabName>
-  <htmlTabIcon>info-sign</htmlTabIcon>
 
   <testCase>
     <class>Custom_Command</class>

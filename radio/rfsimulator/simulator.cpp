@@ -93,7 +93,7 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
   STRLISTPARAM(RFSIMU_OPTIONS_PARAMNAME, RFSIM_CONFIG_HELP_OPTIONS,                 simOpt, NULL,                             NULL),                  \
   STRINGPARAM(RFSIMU_IQFILE,            "<file path to use when saving IQs>\n",     simOpt, NULL,                             "/tmp/rfsimulator.iqs"),\
   STRINGPARAM(RFSIMU_MODELNAME,         "<channel model name>\n",                   simOpt, NULL,                             "AWGN"),                \
-  DOUBLEPARAM(RFSIMU_PLOSS,             "<channel path loss in dB>\n",              simOpt, NULL,                             0),                     \
+  DOUBLEPARAM(RFSIMU_PLOSS,             "<channel path loss in dB, >0 attenuates>\n", simOpt, NULL,                             0),                     \
   DOUBLEPARAM(RFSIMU_FORGETFACT,        "<channel forget factor ((0 to 1)>\n",      simOpt, NULL,                             0),                     \
   UINT64PARAM(RFSIMU_OFFSET,            "<channel offset in samps>\n",              simOpt, NULL,                             0L),                    \
   DOUBLEPARAM(RFSIMU_PROP_DELAY,        "<propagation delay in ms>\n",              simOpt, NULL,                             0.0),                   \
@@ -1555,7 +1555,7 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   device->openair0_cfg = openair0_cfg;
   device->priv = rfsimulator;
   device->trx_write_init = rfsimulator_write_init;
-  device->trx_set_beams = rfsimulator->beam_ctrl->enable_beams ? rfsimulator_set_beams_vector : nullptr;
+  device->trx_set_beams = rfsimulator_set_beams_vector;
 
   for (int i = 0; i < MAX_FD_RFSIMU; i++)
     rfsimulator->buf[i].conn_sock = -1;

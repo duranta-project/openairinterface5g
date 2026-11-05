@@ -8,6 +8,8 @@
 
 #include "gtest/gtest.h"
 #include <cstdint>
+#include <cmath>
+#include <vector>
 #include <simde/x86/avx512.h>
 
 #ifdef __cplusplus
@@ -45,6 +47,34 @@ void nr_layer_precoder_2x2_simd(int symbol_size,
                                 int re_cnt,
                                 c16_t *dataF_out_ant0,
                                 c16_t *dataF_out_ant1);
+
+// Cross-polar fast paths: fill both ports of the pair (p, p+2) in one pass, sharing the
+// per-layer complex multiplies between the two polarisations. The rank-2 specialisation is
+// dispatched on ARMv8.0 only; the general one is built on every target.
+#if defined(__aarch64__) && !defined(__ARM_FEATURE_QRDMX)
+void nr_layer_precoder_2x4_simd(int symbol_size,
+                                const c16_t (*dataF_in)[/*symbol_size*/], // c16_t dataF_in[2][symbol_size]
+                                c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
+                                int p,
+                                bool phi_swap,
+                                bool phi_neg,
+                                int offset,
+                                int re_cnt,
+                                c16_t *dataF_out_lo,
+                                c16_t *dataF_out_hi);
+#endif
+
+void nr_layer_precoder_Nx4_simd(int n_layers,
+                                int symbol_size,
+                                const c16_t (*dataF_in)[/*symbol_size*/], // c16_t dataF_in[n_layers][symbol_size]
+                                c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
+                                int p,
+                                const bool phi_swap[NR_MAX_NB_LAYERS],
+                                const bool phi_neg[NR_MAX_NB_LAYERS],
+                                int offset,
+                                int re_cnt,
+                                c16_t *dataF_out_lo,
+                                c16_t *dataF_out_hi);
 
 #ifdef __cplusplus
 }
@@ -256,6 +286,131 @@ TEST(NrLayerPrecoderTest, Compare_2x2_SIMD)
       }
     }
   }
+}
+
+// Build a 4-port, rank-r codebook entry of the cross-polar form the fast paths assume:
+// ports {p, p+2} are the two polarisations of one co-polar element and differ, per layer,
+// by a co-phasing phi_l in {+1,-1,+j,-j}. W[l][p+2] is computed from W[l][p], as the real
+// codebook does, so the two are rounded independently -- which is why the comparison below
+// tolerates a few LSB rather than requiring bit-exactness.
+static void make_xpol_weights(int n_layers,
+                              int16_t amp,
+                              const int *phi, // phi_l: 0 = +1, 1 = -1, 2 = +j, 3 = -j
+                              c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS],
+                              bool phi_swap[NR_MAX_NB_LAYERS],
+                              bool phi_neg[NR_MAX_NB_LAYERS])
+{
+  for (int l = 0; l < n_layers; ++l) {
+    for (int p = 0; p < 2; ++p) {
+      // an arbitrary but non-degenerate beam weight for the first polarisation
+      const c16_t w = (l + p) % 2 ? (c16_t){0, amp} : (c16_t){amp, 0};
+      weights[l][p] = w;
+      switch (phi[l]) {
+        case 0:
+          weights[l][p + 2] = w;
+          break;
+        case 1:
+          weights[l][p + 2] = (c16_t){(int16_t)-w.r, (int16_t)-w.i};
+          break;
+        case 2:
+          weights[l][p + 2] = (c16_t){(int16_t)-w.i, w.r};
+          break;
+        default:
+          weights[l][p + 2] = (c16_t){w.i, (int16_t)-w.r};
+          break;
+      }
+    }
+    phi_swap[l] = phi[l] >= 2;
+    phi_neg[l] = (phi[l] & 1) != 0;
+  }
+}
+
+// Compare both cross-polar kernels against the generic per-antenna kernel over every
+// co-phasing pattern, at each supported rank.
+TEST(NrLayerPrecoderTest, Compare_Xpol_4port_SIMD)
+{
+  constexpr int symbol_size = 24;
+  constexpr int in_max = 20000; // r terms of amp/sqrt(2r) each stay inside int16
+
+  // Real allocations are a multiple of NR_NB_SC_PER_RB = 12. 24 REs exercise the widest
+  // vector tier, 12 leave a remainder for the narrower ones to mop up, so both the main
+  // loop and the tier cascade are covered.
+  for (int re_cnt : {12, 24})
+    for (int n_layers = 2; n_layers <= 4; ++n_layers) {
+      const int16_t amp = (int16_t)(SHRT_MAX / sqrt(2.0 * n_layers));
+
+      std::vector<c16_t> buffer_in(n_layers * symbol_size);
+      for (int i = 0; i < n_layers * symbol_size; ++i)
+        buffer_in[i] = {static_cast<int16_t>((rand() % (2 * in_max + 1)) - in_max),
+                        static_cast<int16_t>((rand() % (2 * in_max + 1)) - in_max)};
+      c16_t(*dataF_in)[symbol_size] = reinterpret_cast<c16_t(*)[symbol_size]>(buffer_in.data());
+
+      // every co-phasing pattern: 4^n_layers is small enough to enumerate exhaustively
+      int n_patterns = 1;
+      for (int l = 0; l < n_layers; ++l)
+        n_patterns *= 4;
+
+      for (int pat = 0; pat < n_patterns; ++pat) {
+        int phi[NR_MAX_NB_LAYERS] = {0};
+        for (int l = 0, q = pat; l < n_layers; ++l, q /= 4)
+          phi[l] = q % 4;
+
+        c16_t weights[NR_MAX_NB_LAYERS][NR_MAX_CSI_PORTS];
+        bool phi_swap[NR_MAX_NB_LAYERS], phi_neg[NR_MAX_NB_LAYERS];
+        make_xpol_weights(n_layers, amp, phi, weights, phi_swap, phi_neg);
+
+        std::vector<c16_t> out_ref(4 * symbol_size, {0, 0});
+        std::vector<c16_t> out_fast(4 * symbol_size, {0, 0});
+        c16_t(*ref)[symbol_size] = reinterpret_cast<c16_t(*)[symbol_size]>(out_ref.data());
+        c16_t(*fast)[symbol_size] = reinterpret_cast<c16_t(*)[symbol_size]>(out_fast.data());
+
+        for (int ant = 0; ant < 4; ++ant)
+          nr_layer_precoder_simd(n_layers, symbol_size, dataF_in, ant, weights, 0, re_cnt, ref[ant]);
+
+        for (int p = 0; p < 2; ++p)
+          nr_layer_precoder_Nx4_simd(n_layers,
+                                     symbol_size,
+                                     dataF_in,
+                                     weights,
+                                     p,
+                                     phi_swap,
+                                     phi_neg,
+                                     0,
+                                     re_cnt,
+                                     fast[p],
+                                     fast[p + 2]);
+
+        for (int ant = 0; ant < 4; ++ant) {
+          for (int sym = 0; sym < re_cnt; ++sym) {
+            EXPECT_C16_NEAR(ref[ant][sym].r, fast[ant][sym].r, n_layers)
+                << " Nx4 layers " << n_layers << " pattern " << pat << " ant " << ant << " sym " << sym;
+            EXPECT_C16_NEAR(ref[ant][sym].i, fast[ant][sym].i, n_layers)
+                << " Nx4 layers " << n_layers << " pattern " << pat << " ant " << ant << " sym " << sym;
+          }
+        }
+
+      // The rank-2 specialisation covers the subset of the codebook where layer 1 takes
+      // -phi against layer 0's +phi, and phi is restricted to {+1, +j}. Dispatched on
+      // ARMv8.0 only, so that is where it is checked; ARMv8.1+ and x86 serve rank 2 from
+      // the general kernel checked above.
+#if defined(__aarch64__) && !defined(__ARM_FEATURE_QRDMX)
+        if (n_layers == 2 && !phi_neg[0] && phi_swap[1] == phi_swap[0] && phi_neg[1]) {
+          std::vector<c16_t> out_2x4(4 * symbol_size, {0, 0});
+          c16_t(*bf)[symbol_size] = reinterpret_cast<c16_t(*)[symbol_size]>(out_2x4.data());
+          for (int p = 0; p < 2; ++p)
+            nr_layer_precoder_2x4_simd(symbol_size, dataF_in, weights, p, phi_swap[0], phi_neg[0], 0, re_cnt, bf[p], bf[p + 2]);
+          for (int ant = 0; ant < 4; ++ant) {
+            for (int sym = 0; sym < re_cnt; ++sym) {
+              EXPECT_C16_NEAR(ref[ant][sym].r, bf[ant][sym].r, n_layers)
+                  << " 2x4 pattern " << pat << " ant " << ant << " sym " << sym;
+              EXPECT_C16_NEAR(ref[ant][sym].i, bf[ant][sym].i, n_layers)
+                  << " 2x4 pattern " << pat << " ant " << ant << " sym " << sym;
+            }
+          }
+        }
+#endif // __aarch64__ && !__ARM_FEATURE_QRDMX
+      }
+    }
 }
 
 int main(int argc, char **argv)

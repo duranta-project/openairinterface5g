@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include "taps_generated.h"
+#include "taps_client.h"
 #include "SIMULATION/TOOLS/sim.h"
 extern "C" {
 #include "assertions.h"
@@ -24,7 +25,6 @@ extern "C" {
 
 #define NUM_TAPS_BUFFERS 16
 #define MAX_NUM_IDS 4
-#define MAX_TAPS_LEN 100
 #define MAX_TX_RX_ANTENNAS 8
 #define MAX_TAPS_MSG_SIZE (sizeof(struct complexf) * MAX_TAPS_LEN * MAX_TX_RX_ANTENNAS * MAX_TX_RX_ANTENNAS + 256)
 

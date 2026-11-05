@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 # `loader_shlibfunc_t`structure
-It is defined in include file [ common/util/load_module_shlib.h ](../../load_module_shlib.h#L38). This structure is used  to list the symbols that should be searched by the loader when calling the `load_module_shlib` function.
+It is defined in include file [ common/util/load_module_shlib.h ](../../../load_module_shlib.h#L38). This structure is used  to list the symbols that should be searched by the loader when calling the `load_module_shlib` function.
 
 | Fields     | Description                                                       | I/O |
 |:-----------|:------------------------------------------------------------------|----:|

@@ -1,8 +1,6 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 <testCaseList>
-  <htmlTabRef>physim-tab</htmlTabRef>
   <htmlTabName>PhySim</htmlTabName>
-  <htmlTabIcon>wrench</htmlTabIcon>
 
   <testCase>
     <class>Create_Workspace</class>

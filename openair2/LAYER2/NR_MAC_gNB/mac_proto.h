@@ -28,8 +28,9 @@ int get_dl_slots_per_period(const frame_structure_t *fs);
 int get_full_ul_slots_per_period(const frame_structure_t *fs);
 int get_full_dl_slots_per_period(const frame_structure_t *fs);
 int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed);
-void delete_nr_ue_data(NR_UE_info_t *UE, uid_allocator_t *uia);
-
+int get_ul_period_idx_from_abs_slot(const frame_structure_t *fs, int slot, bool count_mixed, int max_period);
+void delete_nr_ue_data(gNB_MAC_INST *mac, NR_UE_info_t *UE);
+NR_UE_info_t **get_periodic_ue(periodic_ue_sched_t *p, int ul_idx, int index);
 void mac_top_init_gNB(ngran_node_t node_type,
                       NR_ServingCellConfigCommon_t *scc,
                       const nr_mac_config_t *conf,
@@ -222,7 +223,7 @@ void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
                         uint16_t O_ack,
                         uint8_t O_sr,
                         int r_pucch,
-                        nr_beam_mode_t mode,
+                        const NR_beam_info_t *beam_info,
                         uint16_t ant_port_idx,
                         uint16_t *ssi,
                         uint16_t num_ant);
@@ -335,7 +336,7 @@ nfapi_nr_pusch_pdu_t *prepare_pusch_pdu(nfapi_nr_ul_tti_request_t *future_ul_tti
                                         int harq_round,
                                         int fh,
                                         int rnti,
-                                        nr_beam_mode_t beam_mode);
+                                        const NR_beam_info_t *beam_info);
 nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu,
                                                      const nr_cell_sched_t *cell,
                                                      const NR_UE_info_t *UE,
@@ -518,7 +519,7 @@ uint64_t get_ssb_bitmap_and_len(const NR_ServingCellConfigCommon_t *scc, uint8_t
 void fill_beam_index_list(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, nr_cell_sched_t *cell);
 int get_beam_from_ssbidx(nr_cell_sched_t *cell, int ssb_idx);
 int16_t get_allocated_beam(const NR_beam_info_t *beam_info, int frame, int slot, int slots_per_frame, int beam_number_in_period);
-uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const nr_beam_mode_t mode);
+uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const NR_beam_info_t *beam_info);
 NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame);
 void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame, bool new_beam);
 int beam_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE);
@@ -527,7 +528,7 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frameP,
 bwp_info_t get_pdsch_bwp_start_size(nr_cell_sched_t *cell, NR_UE_info_t *UE);
 bwp_info_t get_pusch_bwp_start_size(NR_UE_info_t *UE);
 size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *output, size_t strlen, bool reset_rsrp);
-
+periodic_ue_sched_t create_period_structure(nr_cell_sched_t *cell, nr_periodic_channel_t channel);
 long get_lcid_from_drbid(int drb_id);
 long get_lcid_from_srbid(int srb_id);
 
@@ -543,7 +544,6 @@ void nr_mac_trigger_release_complete(gNB_MAC_INST *mac, int rnti);
 void nr_mac_release_ue(gNB_MAC_INST *mac, int rnti);
 bool nr_mac_request_release_ue(const gNB_MAC_INST *nrmac, int rnti);
 void clean_bwp_structures(NR_SpCellConfig_t *spCellConfig);
-
 bool nr_mac_ue_is_active(const NR_UE_info_t *ue);
 
 void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing);

@@ -2,7 +2,7 @@
 
 Implementing a shared library dynamic load using the oai loader  is a two steps task:
 1.  define the `loader_shlibfunc_t` array, describing the list of externally available functions implemented in the library. This is the interface of the module.
-1.  Call the `load_module_shlib` function, passing it the previously defined array and the number of items in this array. The first argument to `load_module_shlib` is the name identifying the module, which is also used to format the corresponding library name, as described [here](loader/rtusage#shared-library-names)
+1.  Call the `load_module_shlib` function, passing it the previously defined array and the number of items in this array. The first argument to `load_module_shlib` is the name identifying the module, which is also used to format the corresponding library name, as described [here](../rtusage.md#shared-library-names)
 
 After a successful `load__module_shlib` call, the function pointer of each `loader_shlibfunc_t` array item has been set and can be used to call the corresponding function.
 
@@ -54,5 +54,5 @@ if (f2 != NULL) {
 ```
 When loading a shared library the loader looks for a symbol named `< module name > _autoinit` and, if it finds it, calls it. The `autoinit` function is called without any argument and the returned value, if any, is not tested.
 
-[loader home page](../loader.md)
+[loader home page](../../loader.md)
 [loader developer home page](../../loader/devusage.md)

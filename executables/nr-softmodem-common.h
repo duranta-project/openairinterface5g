@@ -38,7 +38,7 @@
 #define CONFIG_HLP_ULNL_PHYTEST   "Set the uplink nrOfLayers for PHYTEST mode\n"
 #define CONFIG_HLP_DLBW_PHYTEST   "Set the number of PRBs used for DLSCH in PHYTEST mode\n"
 #define CONFIG_HLP_ULBW_PHYTEST   "Set the number of PRBs used for ULSCH in PHYTEST mode\n"
-#define CONFIG_HLP_UECAP_FILE     "path for UE Capabilities file\n"
+#define CONFIG_HLP_UECAP_FILE     "path for UE Capabilities file (empty UE capabilities sent if not provided)\n"
 #define CONFIG_HLP_USRP_ARGS      "set the arguments to identify USRP (same syntax as in UHD)\n"
 #define CONFIG_HLP_TX_SUBDEV      "set the arguments to select tx_subdev (same syntax as in UHD)\n"
 #define CONFIG_HLP_RX_SUBDEV      "set the arguments to select rx_subdev (same syntax as in UHD)\n"

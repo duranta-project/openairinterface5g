@@ -2,7 +2,7 @@
 
 # telnet server principles
 
-The oai telnet server is implemented in shared libraries to be loaded by the [oai shared library loader](loader). `libtelnetsrv.so ` contains the code common to all oai softmodem executables, where `libtelnetsrv_<app>.so` contains the code specific to the executable identified by `app`. 
+The oai telnet server is implemented in shared libraries to be loaded by the [oai shared library loader](../../DOC/loader.md). `libtelnetsrv.so ` contains the code common to all oai softmodem executables, where `libtelnetsrv_<app>.so` contains the code specific to the executable identified by `app`. 
 
 | `<app>` |    executable     |
 | :-----: | :---------------: |
@@ -28,6 +28,6 @@ telnet server source files are located in `common/utils/telnetsrv/`
 1.  `telnetsrv_<XXX\>.c`: implementation of \<XXX\> CLI command which are delivered with the telnet server and are common to all softmodem executables. 
 1. `telnetsrv_<XXX\>.h`: include file for the implementation of XXX CLI command. Usually included only in the corresponding `.c`file
 1.  `telnetsrv_<app>_<XXX>.c`: implementation of \<XXX\> CLI command specific to the executable identified by \<app\>.These sources are used to create `libtelnetsrv_<app>.so` at build time.
-1.  [telnetsrv_CMakeLists.txt](../CMakeLists.txt): CMakelists file containing the cmake instructions to build the telnet server. this file is included in the [global oai CMakelists](../../../../cmake_targets/CMakeLists.txt).
+1.  [telnetsrv_CMakeLists.txt](../CMakeLists.txt): CMakelists file containing the cmake instructions to build the telnet server. this file is included in the [global oai CMakelists](../../../../CMakeLists.txt).
 
 [oai telnet server home](telnetsrv.md)

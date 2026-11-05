@@ -33,8 +33,7 @@
 
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "nr-uesoftmodem.h"
-#include "plmn_data.h"
-#include "nr_pdcp/nr_pdcp_oai_api.h"
+#include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "openair3/SECU/secu_defs.h"
 #include "openair3/SECU/key_nas_deriver.h"
 
@@ -467,7 +466,7 @@ static void get_sib19_schedinfo(NR_UE_RRC_SI_INFO *SI_info, NR_SI_SchedulingInfo
   }
 }
 
-static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_info, NR_SIB1_t *sib1)
+static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_info, NR_SIB1_t *sib1, bool is_dedicatedSIB1)
 {
   if(g_log->log_component[NR_RRC].level >= OAILOG_DEBUG)
     xer_fprint(stdout, &asn_DEF_NR_SIB1, (const void *) sib1);
@@ -533,6 +532,7 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   rrc_msg.payload_type = NR_MAC_RRC_CONFIG_SIB1;
   nr_mac_rrc_config_sib1_t *config_sib1 = &rrc_msg.payload.config_sib1;
   config_sib1->sib1 = sib1;
+  config_sib1->is_dedicated_sib1 = is_dedicatedSIB1;
   config_sib1->can_start_ra = !rrc->is_NTN_UE;
   nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
 }
@@ -721,6 +721,47 @@ static void nr_rrc_process_dedicatedNAS_MessageList(NR_UE_RRC_INST_t *rrc, NR_RR
       itti_send_msg_to_task(TASK_NAS_NRUE, rrc->ue_id, ittiMsg);
     }
   }
+}
+
+/** @brief RRC notifies SDAP to stop the reader for all active PSI
+ * @note Fetch pdu_tun from NAS */
+static void nr_rrc_ue_tun_stop_readers(ue_id_t ue_id)
+{
+  nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
+  for (int psi = 1; psi < MAX_NUM_PSI; psi++) {
+    nas_ue_pdu_tun_t *t = &nas->pdu_tun[psi];
+    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0)
+      nr_sdap_tun_stop_reader(&t->reader_thread);
+  }
+}
+
+/** @brief RRC notifies SDAP to start the idle listener for all active PSI
+ * @note Fetch pdu_tun from NAS */
+static void nr_rrc_ue_tun_start_idle_listeners(ue_id_t ue_id)
+{
+  nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
+  for (int psi = 1; psi < MAX_NUM_PSI; psi++) {
+    nas_ue_pdu_tun_t *t = &nas->pdu_tun[psi];
+    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0)
+      nr_sdap_tun_start_idle_listener(ue_id, psi, t->sock, &t->reader_thread);
+  }
+}
+
+/** @brief Start the user-plane TUN UL reader for one PDU session
+ * Stop any prior reader on reader_thread, bind sock and qfi onto the SDAP entity, then start the reader
+ * @note reader_thread is NAS pdu_tun state, start/stop only through RRC */
+static void nr_rrc_ue_tun_start_user_plane(ue_id_t ue_id, int pdusession_id, int sock, int qfi, pthread_t *reader_thread)
+{
+  DevAssert(pdusession_id > 0 && pdusession_id < MAX_NUM_PSI);
+  DevAssert(sock >= 0);
+  DevAssert(reader_thread != NULL);
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
+  DevAssert(entity != NULL);
+  nr_sdap_tun_stop_reader(reader_thread);
+  nr_sdap_tun_bind(entity, sock, qfi);
+  char name[64];
+  snprintf(name, sizeof(name), "ue_tun_read_%ld_p%d", ue_id, pdusession_id);
+  nr_sdap_tun_start_reader(entity, reader_thread, name);
 }
 
 /** @brief Add bearer in PDCP/SDAP for 5GC association (SA) */
@@ -1009,7 +1050,11 @@ static void nr_rrc_process_reconfigurationWithSync(NR_UE_RRC_INST_t *rrc,
   }
 }
 
-static bool nr_rrc_cellgroup_configuration(NR_UE_RRC_INST_t *rrc, NR_CellGroupConfig_t *cgConfig, int gNB_index, bool dedicatedsib1)
+static bool nr_rrc_cellgroup_configuration(NR_UE_RRC_INST_t *rrc,
+                                           NR_CellGroupConfig_t *cgConfig,
+                                           int gNB_index,
+                                           bool dedicatedsib1,
+                                           bool *reconf_with_sync_scc)
 {
   if (!check_cellgroup_config(cgConfig)) {
     // if we received a configuration not supported or with some wrong combination
@@ -1029,6 +1074,8 @@ static bool nr_rrc_cellgroup_configuration(NR_UE_RRC_INST_t *rrc, NR_CellGroupCo
     NR_ReconfigurationWithSync_t *reconfigurationWithSync = spCellConfig->reconfigurationWithSync;
     if (reconfigurationWithSync) {
       RRCLOG_I("Processing reconfigurationWithSync\n");
+      if (reconf_with_sync_scc)
+        *reconf_with_sync_scc = reconfigurationWithSync->spCellConfigCommon != NULL;
       nr_rrc_process_reconfigurationWithSync(rrc, reconfigurationWithSync, gNB_index);
       // if RRCReconfiguration does not include dedicatedSIB1-Delivery
       // if the active downlink BWP, which is indicated by the firstActiveDownlinkBWP-Id for the target SpCell of the MCG,
@@ -1074,7 +1121,9 @@ static bool nr_rrc_cellgroup_configuration(NR_UE_RRC_INST_t *rrc, NR_CellGroupCo
 static bool nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
                                               OCTET_STRING_t *masterCellGroup,
                                               long *fullConfig,
-                                              int gNB_index)
+                                              int gNB_index,
+                                              bool dedicatedsib1,
+                                              bool *reconf_with_sync_scc)
 {
   AssertFatal(!fullConfig, "fullConfig not supported yet\n");
   NR_CellGroupConfig_t *cellGroupConfig = NULL;
@@ -1094,7 +1143,7 @@ static bool nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
     xer_fprint(stdout, &asn_DEF_NR_CellGroupConfig, (const void *) cellGroupConfig);
   }
 
-  bool ret = nr_rrc_cellgroup_configuration(rrc, cellGroupConfig, gNB_index, false);
+  bool ret = nr_rrc_cellgroup_configuration(rrc, cellGroupConfig, gNB_index, dedicatedsib1, reconf_with_sync_scc);
   if (!ret)
     return false;
 
@@ -1116,8 +1165,16 @@ static bool nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCRe
     // TODO perform the full configuration procedure as specified in 5.3.5.11 of 331
     RRCLOG_E("RRCReconfiguration includes fullConfig but this is not implemented yet\n");
   }
+
+  bool reconf_with_sync_scc = false;
+  const bool dedicatedsib1 = rec_1530->dedicatedSIB1_Delivery != NULL;
   if (rec_1530->masterCellGroup) {
-    bool ret = nr_rrc_ue_process_masterCellGroup(rrc, rec_1530->masterCellGroup, rec_1530->fullConfig, gNB_index);
+    bool ret = nr_rrc_ue_process_masterCellGroup(rrc,
+                                                 rec_1530->masterCellGroup,
+                                                 rec_1530->fullConfig,
+                                                 gNB_index,
+                                                 dedicatedsib1,
+                                                 &reconf_with_sync_scc);
     if (!ret)
       return false;
   }
@@ -1127,9 +1184,7 @@ static bool nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCRe
     nr_pdcp_config_set_security(rrc->ue_id, 1, true, &sp);
   }
   NR_UE_RRC_SI_INFO *SI_info = &rrc->perNB[gNB_index].SInfo;
-  bool dedicatedsib1 = false;
-  if (rec_1530->dedicatedSIB1_Delivery) {
-    dedicatedsib1 = true;
+  if (dedicatedsib1) {
     NR_SIB1_t *sib1 = NULL;
     asn_dec_rval_t dec_rval = uper_decode(NULL,
                                           &asn_DEF_NR_SIB1,
@@ -1143,7 +1198,7 @@ static bool nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCRe
       SEQUENCE_free(&asn_DEF_NR_SIB1, sib1, 1);
     } else {
       // mac layer will free sib1
-      nr_rrc_process_sib1(rrc, SI_info, sib1);
+      nr_rrc_process_sib1(rrc, SI_info, sib1, reconf_with_sync_scc);
     }
   }
   if (rec_1530->dedicatedSystemInformationDelivery) {
@@ -1699,7 +1754,7 @@ static void nr_rrc_ue_process_rrcReconfiguration(NR_UE_RRC_INST_t *rrc, int gNB_
           if (LOG_DEBUGFLAG(DEBUG_ASN1))
             xer_fprint(stdout, &asn_DEF_NR_CellGroupConfig, (const void *) cellGroupConfig);
 
-          bool ret = nr_rrc_cellgroup_configuration(rrc, cellGroupConfig, gNB_index, dedicatedsib1);
+          bool ret = nr_rrc_cellgroup_configuration(rrc, cellGroupConfig, gNB_index, dedicatedsib1, NULL);
           AssertFatal(ret, "CellGroup has wrong configuration for the UE. Unexpected\n");
           AssertFatal(!IS_SA_MODE(get_softmodem_params()), "secondaryCellGroup only used in NSA for now\n");
           nr_mac_rrc_message_t rrc_msg = {0};
@@ -1818,9 +1873,9 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int instance_id, int num_ant_
   rrc->access_barred = false;
 
   FILE *f = NULL;
-  if (uecap_file)
+  if (uecap_file) {
     f = fopen(uecap_file, "r");
-  if (f) {
+    AssertFatal(f, "could not open UE capabilities file \"%s\": %s\n", uecap_file, strerror(errno));
     fseek(f, 0, SEEK_END);
     long file_size = ftell(f);
     rewind(f);
@@ -1828,13 +1883,10 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int instance_id, int num_ant_
                 "UE Capabilities XER file %s is too large (%ld bytes, max 1MB)\n", uecap_file, file_size);
     char *UE_NR_Capability_xer = malloc_or_fail(file_size);
     size_t size = fread(UE_NR_Capability_xer, 1, file_size, f);
-    if (size == 0) {
-      RRCLOG_E("UE Capabilities XER file %s: read error\n", uecap_file);
-    } else {
-      asn_dec_rval_t dec_rval =
-          xer_decode(0, &asn_DEF_NR_UE_NR_Capability, (void *)&rrc->UECap.UE_NR_Capability, UE_NR_Capability_xer, size);
-      assert(dec_rval.code == RC_OK);
-    }
+    AssertFatal(size > 0, "UE Capabilities XER file %s: read error\n", uecap_file);
+    asn_dec_rval_t dec_rval =
+        xer_decode(0, &asn_DEF_NR_UE_NR_Capability, (void *)&rrc->UECap.UE_NR_Capability, UE_NR_Capability_xer, size);
+    DevAssert(dec_rval.code == RC_OK);
     free(UE_NR_Capability_xer);
     fclose(f);
     /* Verify consistency of num PHY antennas vs UE Capabilities */
@@ -2223,7 +2275,7 @@ static void nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(NR_UE_RRC_INST_t *rrc,
   if (bcch_message->message.present == NR_BCCH_DL_SCH_MessageType_PR_c1) {
     switch (bcch_message->message.choice.c1->present) {
       case NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1:
-        nr_rrc_process_sib1(rrc, SI_info, bcch_message->message.choice.c1->choice.systemInformationBlockType1);
+        nr_rrc_process_sib1(rrc, SI_info, bcch_message->message.choice.c1->choice.systemInformationBlockType1, false);
         // mac layer will free after usage the sib1
         bcch_message->message.choice.c1->choice.systemInformationBlockType1 = NULL;
         break;
@@ -2338,6 +2390,8 @@ static void nr_rrc_rrcsetup_fallback(NR_UE_RRC_INST_t *rrc)
   for (int i = 1; i < NR_MAX_NUM_LCID; i++) {
     nr_rrc_release_rlc_entity(rrc, i);
   }
+  // stop UE TUN readers before SDAP delete (connected reader holds entity pointer)
+  nr_rrc_ue_tun_stop_readers(rrc->ue_id);
   nr_sdap_delete_ue_entities(rrc->ue_id);
 
   // indicate to upper layers fallback of the RRC connection
@@ -2355,7 +2409,7 @@ static void nr_rrc_process_rrcsetup(NR_UE_RRC_INST_t *rrc, const NR_RRCSetup_t *
     nr_rrc_rrcsetup_fallback(rrc);
 
   // perform the cell group configuration procedure in accordance with the received masterCellGroup
-  bool ret = nr_rrc_ue_process_masterCellGroup(rrc, &rrcSetup->criticalExtensions.choice.rrcSetup->masterCellGroup, NULL, 0);
+  bool ret = nr_rrc_ue_process_masterCellGroup(rrc, &rrcSetup->criticalExtensions.choice.rrcSetup->masterCellGroup, NULL, 0, false, NULL);
   if (!ret)
     return;
   // perform the radio bearer configuration procedure in accordance with the received radioBearerConfig
@@ -3302,6 +3356,9 @@ void *rrc_nrue(void *notUsed)
     break;
 
   case NR_RRC_MAC_SYNC_IND: {
+    // TS 38.331 clause 5.3.10.1 applies in RRC_CONNECTED only
+    if (rrc->nrRrcState != RRC_STATE_CONNECTED_NR)
+      break;
     nr_sync_msg_t sync_msg = NR_RRC_MAC_SYNC_IND(msg_p).in_sync ? IN_SYNC : OUT_OF_SYNC;
     NR_UE_Timers_Constants_t *tac = &rrc->timers_and_constants;
     handle_rlf_sync(tac, sync_msg);
@@ -3467,6 +3524,30 @@ void *rrc_nrue(void *notUsed)
     rrc->fiveG_S_TMSI = req->fiveG_STMSI;
     /* Push the 5G-S-TMSI-derived UE_ID to MAC for paging PF/PO derivation */
     nr_rrc_mac_config_req_paging_ue_id(rrc->ue_id, rrc->fiveG_S_TMSI);
+    break;
+  }
+
+  case NAS_TUN_REQ: {
+    const nas_tun_req_t *req = &NAS_TUN_REQ(msg_p);
+    DevAssert(req->n_psi >= 0 && req->n_psi <= NAS_TUN_LIST_MAX);
+    if (req->action == NAS_TUN_START_USER_PLANE) {
+      for (int i = 0; i < req->n_psi; i++) {
+        const nas_tun_psi_t *p = &req->psi[i];
+        nr_rrc_ue_tun_start_user_plane(rrc->ue_id, p->pdusession_id, p->sock, p->qfi, p->reader_thread);
+      }
+    } else if (req->action == NAS_TUN_START_IDLE_LISTENER) {
+      nr_rrc_ue_tun_stop_readers(rrc->ue_id);
+      nr_rrc_ue_tun_start_idle_listeners(rrc->ue_id);
+    } else {
+      AssertFatal(false, "unknown NAS_TUN_REQ action %d\n", req->action);
+    }
+    break;
+  }
+
+  case NAS_MO_UL_DATA_IND: {
+    nr_rrc_ue_tun_stop_readers(rrc->ue_id);
+    MessageDef *nas_msg = itti_alloc_new_message(TASK_RRC_NRUE, rrc->ue_id, NAS_MO_UL_DATA_IND);
+    itti_send_msg_to_task(TASK_NAS_NRUE, rrc->ue_id, nas_msg);
     break;
   }
 
@@ -3686,8 +3767,12 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
       nr_pdcp_release_drb(rrc->ue_id, i);
     }
   }
-  // stop TUN threads and clean up SDAP entities
+  // Stop UE TUN readers before deleting SDAP entities,
+  // then start idle listeners so MO UL can trigger Service Request while CM-IDLE
+  nr_rrc_ue_tun_stop_readers(rrc->ue_id);
   nr_sdap_delete_ue_entities(rrc->ue_id);
+  if (rrc->nrRrcState != RRC_STATE_DETACH_NR)
+    nr_rrc_ue_tun_start_idle_listeners(rrc->ue_id);
 
   for (int i = 1; i < NR_NUM_SRB; i++) {
     if (rrc->Srb[i] != RB_NOT_PRESENT) {

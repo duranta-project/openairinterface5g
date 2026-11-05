@@ -461,6 +461,13 @@
                 <maxNumberMIMO-LayersPDSCH><fourLayers/></maxNumberMIMO-LayersPDSCH>
                 <supportedModulationOrderDL><qam256/></supportedModulationOrderDL>
             </FeatureSetDownlinkPerCC>
+            <FeatureSetDownlinkPerCC>
+                <supportedSubcarrierSpacingDL><kHz15/></supportedSubcarrierSpacingDL>
+                <supportedBandwidthDL>
+                    <fr1><mhz5/></fr1>
+                </supportedBandwidthDL>
+                <supportedModulationOrderDL><qam256/></supportedModulationOrderDL>
+            </FeatureSetDownlinkPerCC>
         </featureSetsDownlinkPerCC>
         <featureSetsUplink>
             <FeatureSetUplink>
@@ -774,6 +781,17 @@
                 <supportedSubcarrierSpacingUL><kHz30/></supportedSubcarrierSpacingUL>
                 <supportedBandwidthUL>
                     <fr1><mhz60/></fr1>
+                </supportedBandwidthUL>
+                <mimo-CB-PUSCH>
+                    <maxNumberMIMO-LayersCB-PUSCH><oneLayer/></maxNumberMIMO-LayersCB-PUSCH>
+                    <maxNumberSRS-ResourcePerSet>1</maxNumberSRS-ResourcePerSet>
+                </mimo-CB-PUSCH>
+                <supportedModulationOrderUL><qam256/></supportedModulationOrderUL>
+            </FeatureSetUplinkPerCC>
+            <FeatureSetUplinkPerCC>
+                <supportedSubcarrierSpacingUL><kHz15/></supportedSubcarrierSpacingUL>
+                <supportedBandwidthUL>
+                    <fr1><mhz5/></fr1>
                 </supportedBandwidthUL>
                 <mimo-CB-PUSCH>
                     <maxNumberMIMO-LayersCB-PUSCH><oneLayer/></maxNumberMIMO-LayersCB-PUSCH>

@@ -6,3 +6,7 @@ add_library(ldpc_segment OBJECT
   nrLDPC_coding_segment_encoder.c
 )
 target_link_libraries(ldpc_segment PUBLIC log_headers)
+
+if (ENABLE_TESTS)
+  add_subdirectory(tests)
+endif()

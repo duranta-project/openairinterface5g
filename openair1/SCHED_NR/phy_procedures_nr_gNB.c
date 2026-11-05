@@ -438,7 +438,9 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int
 {
   DevAssert(nb_pusch > 0);
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
-  
+
+  nr_uci_decoding(gNB, UL_INFO, nb_pusch, ulsch_to_decode, frame_rx, slot_rx);
+
   //----------------------------------------------------------
   //--------------------- ULSCH decoding ---------------------
   //----------------------------------------------------------
@@ -453,9 +455,10 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int
     NR_UL_gNB_HARQ_t *ulsch_harq = ulsch->harq_process;
     NR_gNB_PHY_STATS_t *stats = get_phy_stats(gNB, ulsch->rnti);
     const nfapi_nr_pusch_pdu_t *pusch_pdu = &ulsch_harq->ulsch_pdu;
+    if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_DATA))
+      continue;
 
     bool crc_valid = false;
-
     // if all segments are done
     if (ulsch_harq->processedSegments == ulsch_harq->C) {
       if (ulsch_harq->C > 1) {
@@ -541,67 +544,21 @@ static void nr_fill_indication(const PHY_VARS_gNB *gNB,
                                nfapi_nr_crc_t *crc,
                                nfapi_nr_rx_data_pdu_t *pdu)
 {
-  // Get estimated timing advance for MAC
-  const int sync_pos = pusch->delay.est_delay;
-  int timing_advance_update = 0xffff;
-
-  // scale the 16 factor in N_TA calculation in 38.213 section 4.2 according to the used FFT size
-  uint16_t bw_scaling = 16 * gNB->frame_parms.ofdm_symbol_size / 2048;
-
-  if (stats)
-    stats->ulsch_stats.sync_pos = sync_pos;
-
-  if (pusch->delay.valid) {
-    // do some integer rounding to improve TA accuracy
-    int sync_pos_rounded;
-    if (sync_pos > 0)
-      sync_pos_rounded = sync_pos + (bw_scaling / 2) - 1;
-    else
-      sync_pos_rounded = sync_pos - (bw_scaling / 2) + 1;
-
-    timing_advance_update = sync_pos_rounded / bw_scaling;
-
-    // put timing advance command in 0..63 range
-    timing_advance_update += 31;
-    timing_advance_update = max(timing_advance_update, 0);
-    timing_advance_update = min(timing_advance_update, 63);
-  }
-
-  // estimate UL_CQI for MAC
-  int SNRtimes10 = dB_fixed_x10(pusch->ulsch_power_tot) - dB_fixed_x10(pusch->ulsch_noise_power_tot);
-
-  LOG_D(PHY,
-        "%d.%d: Estimated SNR for PUSCH is = %f dB (ulsch_power %f, noise %f) delay %d%s\n",
-        frame,
-        slot_rx,
-        SNRtimes10 / 10.0,
-        dB_fixed_x10(pusch->ulsch_power_tot) / 10.0,
-        dB_fixed_x10(pusch->ulsch_noise_power_tot) / 10.0,
-        sync_pos,
-        pusch->delay.valid ? "" : " (invalid)");
-
-  int cqi;
-  if      (SNRtimes10 < -640) cqi=0;
-  else if (SNRtimes10 >  635) cqi=255;
-  else                        cqi=(640+SNRtimes10)/5;
-
   crc->handle = pusch_pdu->handle;
   crc->rnti = pusch_pdu->rnti;
   crc->harq_id = pusch_pdu->pusch_data.harq_process_id;
   crc->tb_crc_status = payload == NULL; // 222.10.02/04: pass 0, fail 1
   crc->num_cb = pusch_pdu->pusch_data.num_cb;
-  crc->ul_cqi = cqi;
-  crc->timing_advance = timing_advance_update;
+  crc->ul_cqi = get_pusch_cqi(pusch, frame, slot_rx);
+  crc->timing_advance = get_pusch_ta(gNB, stats, pusch, frame, slot_rx);
   // in terms of dBFS range -128 to 0 with 0.1 step
-  int n_rx = pusch_pdu->param_v4.numSpatialStreamIndices;
-  uint16_t rssi = 1280 - (10 * dB_fixed(32767 * 32767) - dB_fixed_times10(pusch->ulsch_power_tot / n_rx));
-  crc->rssi = (dtx_flag == 0) ? rssi : 0;
+  crc->rssi = (dtx_flag == 0) ? get_pusch_rssi(pusch, pusch_pdu->param_v4.numSpatialStreamIndices) : 0;
 
   pdu->handle = pusch_pdu->handle;
   pdu->rnti = pusch_pdu->rnti;
   pdu->harq_id = pusch_pdu->pusch_data.harq_process_id;
-  pdu->ul_cqi = cqi;
-  pdu->timing_advance = timing_advance_update;
+  pdu->ul_cqi = crc->ul_cqi;
+  pdu->timing_advance = crc->timing_advance;
   pdu->rssi = crc->rssi;
   pdu->pdu_length = payload != NULL ? pusch_pdu->pusch_data.tb_size : 0;
   pdu->pdu = payload;
@@ -980,7 +937,9 @@ static void handle_srs(fsn_t now,
                                                 &timing_advance_offset,
                                                 timing_advance_offset_nsec);
 
-  if ((snr * 10) < gNB->srs_thres) {
+  // Measurement outputs are valid on raw success (including 0), before SNR thresholding.
+  const bool estimate_valid = srs_est >= 0;
+  if (estimate_valid && (snr * 10) < gNB->srs_thres) {
     srs_est = -1;
   }
 
@@ -989,8 +948,12 @@ static void handle_srs(fsn_t now,
   srs_indication->timing_advance_offset = srs_est >= 0 ? timing_advance_offset : 0xFFFF;
   // TODO: currently we fill timing_advance_offset_nsec for antenna 0. Need to extend it for other antennas
   srs_indication->timing_advance_offset_nsec = srs_est >= 0 ? timing_advance_offset_nsec[0] : 0x8000;
+  srs_indication->srs_usage = NFAPI_NR_SRS_BEAMMANAGEMENT;
   switch (srs_pdu->srs_parameters_v4.usage) {
     case 0:
+      srs_indication->report_type = 0;
+      srs_indication->report_tlv.tag = 0;
+      srs_indication->report_tlv.length = 0;
       LOG_W(NR_PHY, "SRS report was not requested by MAC\n");
       return;
     case 1 << NFAPI_NR_SRS_BEAMMANAGEMENT:
@@ -1016,6 +979,13 @@ static void handle_srs(fsn_t now,
   nfapi_srs_report_tlv_t *report_tlv = &srs_indication->report_tlv;
   report_tlv->tag = 0;
   report_tlv->length = 0;
+
+  if (!estimate_valid) {
+    srs_indication->report_type = 0;
+    if (srs_indication->srs_usage == NFAPI_NR_SRS_POSITIONING)
+      srs_toa_v_ext->num_ta = 0;
+    return;
+  }
 
   start_meas(&gNB->srs_report_tlv_stats);
   switch (srs_indication->srs_usage) {
@@ -1083,6 +1053,7 @@ static void handle_pucch(PHY_VARS_gNB *gNB, c16_t **rxdataF, const NR_gNB_PUCCH_
       uci->pdu_type = NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE;
       uci->pdu_size = sizeof(nfapi_nr_uci_pucch_pdu_format_0_1_t);
       nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu_format0 = &uci->pucch_pdu_format_0_1;
+      uci_pdu_format0->handle = 0;
       start_meas(&gNB->pucch01_proc_rx);
       nr_decode_pucch0(gNB, rxdataF, pucch->frame, pucch->slot, uci_pdu_format0, pucch_pdu);
       stop_meas(&gNB->pucch01_proc_rx);
@@ -1091,6 +1062,9 @@ static void handle_pucch(PHY_VARS_gNB *gNB, c16_t **rxdataF, const NR_gNB_PUCCH_
       uci->pdu_type = NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE;
       uci->pdu_size = sizeof(nfapi_nr_uci_pucch_pdu_format_2_3_4_t);
       nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu_format2 = &uci->pucch_pdu_format_2_3_4;
+      uci_pdu_format2->csi_part2.csi_part2_crc = 0;
+      uci_pdu_format2->csi_part2.csi_part2_bit_len = 0;
+      uci_pdu_format2->csi_part2.csi_part2_payload = NULL;
       start_meas(&gNB->pucch23_proc_rx);
       nr_decode_pucch2(gNB, rxdataF, pucch->frame, pucch->slot, uci_pdu_format2, pucch_pdu);
       stop_meas(&gNB->pucch23_proc_rx);
@@ -1347,6 +1321,7 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
 
   int slot_type = nr_slot_select(&gNB->gNB_config, frame_rx, slot_rx);
   START_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
+  UL_INFO->uci_ind.header.transmit_timestamp = 0;
   UL_INFO->uci_ind.uci_list = UL_INFO->uci_pdu_list;
   UL_INFO->uci_ind.sfn = frame_rx;
   UL_INFO->uci_ind.slot = slot_rx;
@@ -1363,12 +1338,16 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
   }
 
 
+  UL_INFO->crc_ind.header.transmit_timestamp = 0;
   UL_INFO->crc_ind.sfn = frame_rx;
   UL_INFO->crc_ind.slot = slot_rx;
   UL_INFO->crc_ind.crc_list = UL_INFO->crc_pdu_list;
+  UL_INFO->crc_ind.number_crcs = 0;
+  UL_INFO->rx_ind.header.transmit_timestamp = 0;
   UL_INFO->rx_ind.sfn = frame_rx;
   UL_INFO->rx_ind.slot = slot_rx;
   UL_INFO->rx_ind.pdu_list = UL_INFO->rx_pdu_list;
+  UL_INFO->rx_ind.number_of_pdus = 0;
   int ulsch_idx_to_decode[MAX_UL_PDUS_PER_SLOT];
   int num_pusch = 0;
 
@@ -1420,10 +1399,17 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
     STOP_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
   }
 
+  UL_INFO->srs_ind.header.transmit_timestamp = 0;
   UL_INFO->srs_ind.sfn = frame_rx;
   UL_INFO->srs_ind.slot = slot_rx;
   UL_INFO->srs_ind.pdu_list = UL_INFO->srs_pdu_list;
   UL_INFO->srs_ind.number_of_pdus = n_srs;
+  UL_INFO->srs_ind.control_length = 0;
+  UL_INFO->srs_toa_vendor_ext_ind.header.transmit_timestamp = 0;
+  UL_INFO->srs_toa_vendor_ext_ind.sfn = frame_rx;
+  UL_INFO->srs_toa_vendor_ext_ind.slot = slot_rx;
+  UL_INFO->srs_toa_vendor_ext_ind.rnti = 0;
+  UL_INFO->srs_toa_vendor_ext_ind.num_ta = 0;
   for (int i = 0; i < n_srs; ++i) {
     start_meas(&gNB->rx_srs_stats);
     handle_srs(now, gNB, &srs[i], &UL_INFO->srs_ind.pdu_list[i], &UL_INFO->srs_toa_vendor_ext_ind);

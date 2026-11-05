@@ -582,7 +582,7 @@ int8_t polar_decoder_dci(double *input,
   return 0;
 }
 
-static inline void nr_polar_rate_matching_int16(int16_t *input,
+static inline void nr_polar_rate_matching_int16(const int16_t *input,
                                                 int16_t *output,
                                                 const uint16_t *rmp,
                                                 const uint16_t K,
@@ -641,7 +641,7 @@ static inline void nr_polar_info_extraction_from_u(uint64_t *Cprime,
   }
 }
 
-uint32_t polar_decoder_int16(int16_t *input,
+uint32_t polar_decoder_int16(const int16_t *input,
                              uint64_t *out,
                              uint8_t ones_flag,
                              int8_t messageType,
@@ -665,7 +665,7 @@ uint32_t polar_decoder_int16(int16_t *input,
   int16_t d_tilde[N];
   const uint E = polarParams->encoderLength;
   int16_t inbis[E];
-  int16_t *input_deinterleaved;
+  const int16_t *input_deinterleaved;
   if (polarParams->i_bil) {
     for (int i = 0; i < E; i++)
       inbis[i] = input[polarParams->i_bil_pattern[i]];

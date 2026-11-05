@@ -90,11 +90,7 @@ int sl_nr_ue_slot_select(const sl_nr_phy_config_request_t *cfg, int slot, uint8_
 
   const fapi_nr_max_tdd_periodicity_t *current_slot = &tdd_table->max_tdd_periodicity_list[rel_slot];
 
-  for (int symbol_count = 0; symbol_count < NR_SYMBOLS_PER_SLOT; symbol_count++) {
-    if (current_slot->max_num_of_symbol_per_slot_list[symbol_count].slot_config == 1) {
-      ul_sym++;
-    }
-  }
+  ul_sym = current_slot->num_dl_ul_symbols_list.num_ul;
 
   if (ul_sym == NR_SYMBOLS_PER_SLOT) {
     slot_type = NR_SIDELINK_SLOT;
@@ -344,7 +340,6 @@ static void sl_schedule_rx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
 
     nr_scheduled_response_t scheduled_response = {.sl_rx_config = &rx_config,
                                                   .module_id = sl_ind->module_id,
-                                                  .CC_id = sl_ind->cc_id,
                                                   .phy_data = sl_ind->phy_data,
                                                   .mac = mac};
 
@@ -391,7 +386,6 @@ static void sl_schedule_tx_actions(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_I
 
     nr_scheduled_response_t scheduled_response = {.sl_tx_config = &tx_config,
                                                   .module_id = sl_ind->module_id,
-                                                  .CC_id = sl_ind->cc_id,
                                                   .phy_data = sl_ind->phy_data,
                                                   .mac = mac};
 

@@ -12,15 +12,11 @@
 #include <errno.h>
 #include <bits/getopt_core.h>
 #include "common/utils/nr/nr_common.h"
-#define inMicroS(a) (((double)(a)) / (get_cpu_freq_GHz() * 1000.0))
+#define inMicroS(a) (((double)(a)) / (1000.0))
 #include "SIMULATION/LTE_PHY/common_sim.h"
 #include "common/utils/assertions.h"
 #include "executables/softmodem-common.h"
 #include "NR_BCCH-BCH-Message.h"
-#include "NR_MAC_COMMON/nr_mac.h"
-#include "NR_MAC_COMMON/nr_mac_common.h"
-#include "NR_MAC_UE/mac_defs.h"
-#include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "NR_ReconfigurationWithSync.h"
 #include "NR_ServingCellConfig.h"
@@ -83,7 +79,6 @@ RAN_CONTEXT_t RC;
 char *uecap_file;
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 
-double cpuf;
 // uint8_t nfapi_mode = 0;
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
 THREAD_STRUCT thread_struct;
@@ -196,7 +191,6 @@ int main(int argc, char *argv[])
   double sigma;
   int start_rb = 0;
   int print_perf = 0;
-  cpuf = get_cpu_freq_GHz();
   bool no_phase_pre_comp = false;
   int rv_index = 0;
   float eff_tp_check = 100;
@@ -733,8 +727,8 @@ int main(int argc, char *argv[])
     }
 
     init_nr_ue_transport(UE[u]);
-
-    UE_mac[u] = nr_l2_init_ue(u, mu);
+    int capability_rx2tx = 3;
+    UE_mac[u] = nr_l2_init_ue(u, mu, capability_rx2tx);
     ue_init_config_request(UE_mac[u], get_slots_per_frame_from_scs(mu));
     UE[u]->if_inst = nr_ue_if_module_init(u);
     UE[u]->if_inst->scheduled_response = nr_ue_scheduled_response;
@@ -1269,7 +1263,7 @@ int main(int argc, char *argv[])
 
             LOG_M("rxsigF0_llr.m",
                   "rxsF0_llr",
-                  &pusch_vars->llr[0],
+                  &pusch_vars->ulsch_llrs[0],
                   precod_nbr_layers * (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order,
                   1,
                   0 | log_format);
@@ -1287,7 +1281,7 @@ int main(int argc, char *argv[])
 
             for (i = 0; i < available_bits; i++) {
               const uint8_t current_bit = (UE[u]->ul_harq_processes[harq_pid].f[i / 8] >> (i & 7)) & 1;
-              if (((current_bit == 0) && (pusch_vars->llr[i] <= 0)) || ((current_bit == 1) && (pusch_vars->llr[i] >= 0))) {
+              if (((current_bit == 0) && (pusch_vars->ulsch_llrs[i] <= 0)) || ((current_bit == 1) && (pusch_vars->ulsch_llrs[i] >= 0))) {
                 errors_scrambling[u][round]++;
               }
             }

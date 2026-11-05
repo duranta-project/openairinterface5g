@@ -2198,6 +2198,20 @@ uint8_t get_l0_ul(uint8_t mapping_type, uint8_t dmrs_typeA_position)
   return ((mapping_type==typeA)?dmrs_typeA_position:0);
 }
 
+pusch_dmrs_AdditionalPosition_t get_pusch_dmrs_pos(const long *dmrs_AdditionalPosition)
+{
+  if (!dmrs_AdditionalPosition)
+    return pusch_dmrs_pos2;
+  if (*dmrs_AdditionalPosition == NR_DMRS_UplinkConfig__dmrs_AdditionalPosition_pos0)
+    return pusch_dmrs_pos0;
+  if (*dmrs_AdditionalPosition == NR_DMRS_UplinkConfig__dmrs_AdditionalPosition_pos1)
+    return pusch_dmrs_pos1;
+  if (*dmrs_AdditionalPosition == NR_DMRS_UplinkConfig__dmrs_AdditionalPosition_pos3)
+    return pusch_dmrs_pos3;
+  AssertFatal(false, "Invalid PUSCH DMRS additional position\n");
+  return pusch_dmrs_pos2;
+}
+
 int32_t get_l_prime(uint8_t duration_in_symbols,
                     uint8_t mapping_type,
                     pusch_dmrs_AdditionalPosition_t additional_pos,
@@ -2328,8 +2342,8 @@ uint8_t get_K_ptrs(uint32_t nrb0, uint32_t nrb1, uint32_t N_RB)
 *
 *********************************************************************/
 
-uint16_t get_nr_srs_offset(NR_SRS_PeriodicityAndOffset_t periodicityAndOffset) {
-
+int get_nr_srs_offset(NR_SRS_PeriodicityAndOffset_t periodicityAndOffset)
+{
   switch(periodicityAndOffset.present) {
     case NR_SRS_PeriodicityAndOffset_PR_sl1:
       return periodicityAndOffset.choice.sl1;
@@ -2366,10 +2380,11 @@ uint16_t get_nr_srs_offset(NR_SRS_PeriodicityAndOffset_t periodicityAndOffset) {
     case NR_SRS_PeriodicityAndOffset_PR_sl2560:
       return periodicityAndOffset.choice.sl2560;
     case NR_SRS_PeriodicityAndOffset_PR_NOTHING:
-      LOG_W(NR_MAC,"NR_SRS_PeriodicityAndOffset_PR_NOTHING\n");
-      return 0;
+      LOG_E(NR_MAC,"NR_SRS_PeriodicityAndOffset_PR_NOTHING\n");
+      return -1;
     default:
-      return 0;
+      LOG_E(NR_MAC, "Invalid SRS periodicityAndOffset\n");
+      return -1;
   }
 }
 
@@ -3358,6 +3373,20 @@ int ul_ant_bits(NR_DMRS_UplinkConfig_t *NR_DMRS_UplinkConfig, long transformPrec
   }
 }
 
+static pdsch_dmrs_AdditionalPosition_t get_pdsch_dmrs_pos(const long *dmrs_AdditionalPosition)
+{
+  if (!dmrs_AdditionalPosition)
+    return pdsch_dmrs_pos2;
+  if (*dmrs_AdditionalPosition == NR_DMRS_DownlinkConfig__dmrs_AdditionalPosition_pos0)
+    return pdsch_dmrs_pos0;
+  if (*dmrs_AdditionalPosition == NR_DMRS_DownlinkConfig__dmrs_AdditionalPosition_pos1)
+    return pdsch_dmrs_pos1;
+  if (*dmrs_AdditionalPosition == NR_DMRS_DownlinkConfig__dmrs_AdditionalPosition_pos3)
+    return pdsch_dmrs_pos3;
+  AssertFatal(false, "Invalid PDSCH DMRS additional position\n");
+  return pdsch_dmrs_pos2;
+}
+
 int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
                        int dci_format,
                        int dmrs_TypeA_Position,
@@ -3366,7 +3395,6 @@ int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
                        mappingType_t mappingtype,
                        int length)
 {
-  int dmrs_AdditionalPosition = 0;
   NR_DMRS_DownlinkConfig_t *dmrs_config = NULL;
 
   LOG_D(NR_MAC,
@@ -3387,8 +3415,7 @@ int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
   }
   // in case of DCI FORMAT 1_0 or dedicated pdsch config not received additionposition = pos2, len1 should be used
   // referred to section 5.1.6.2 in 38.214
-  dmrs_AdditionalPosition = 2;
-
+  pdsch_dmrs_AdditionalPosition_t dmrs_AdditionalPosition = pdsch_dmrs_pos2;
   if (pdsch_Config != NULL) {
     if (mappingtype == typeA) { // Type A
       if (dci_format != NR_DL_DCI_FORMAT_1_0
@@ -3404,8 +3431,8 @@ int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
     }
 
     // default values of additionalposition is pos2
-    if (dmrs_config && dmrs_config->dmrs_AdditionalPosition != NULL)
-      dmrs_AdditionalPosition = *dmrs_config->dmrs_AdditionalPosition;
+    if (dmrs_config)
+      dmrs_AdditionalPosition = get_pdsch_dmrs_pos(dmrs_config->dmrs_AdditionalPosition);
   }
 
   // columns 0-3 for TypeA, 4-7 for TypeB
@@ -3421,7 +3448,8 @@ int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
 
   if (mappingtype == typeA) {
     // Section 7.4.1.1.2 in Spec 38.211
-    AssertFatal((l0 == 2) || (l0 == 3 && dmrs_AdditionalPosition != 3),"Wrong config, If dmrs_TypeA_Position POS3, ADD POS cannot be POS3 \n");
+    AssertFatal((l0 == 2) || (l0 == 3 && dmrs_AdditionalPosition != pdsch_dmrs_pos3),
+                "Wrong config, If dmrs_TypeA_Position POS3, ADD POS cannot be POS3\n");
     // Table 5.1.2.1-1 in Spec 38.214
     AssertFatal(startSymbol <= l0, "Wrong config, Start symbol %d cannot be later than dmrs_TypeA_Position %d \n", startSymbol, l0);
     // Section 7.4.1.1.2 in Spec 38.211
@@ -3718,6 +3746,14 @@ void csi_period_offset(const NR_CSI_ReportConfig_t *csirep,
       AssertFatal(1==0,"No periodicity and offset resource found in CSI report");
     }
   }
+}
+
+bool is_periodic_occasion(int frame, int slot, int slots_per_frame, int period, int offset)
+{
+  // (slots_per_frame * frame + slot - offset) mod period == 0
+  // Signed arithmetic on purpose: with unsigned frame_t, a negative left operand right after SFN wrap-around
+  // would wrap to 2^32 - d and could give a spurious occasion
+  return (slots_per_frame * frame + slot - offset) % period == 0;
 }
 
 uint8_t get_BG(uint32_t A, uint16_t R)
@@ -5088,6 +5124,62 @@ ssb_ro_preambles_t get_ssb_ro_preambles_4step(struct NR_RACH_ConfigCommon__ssb_p
   }
   LOG_D(NR_MAC, "SSB per RO %f preambles per SSB %d\n", ret.ssb_per_ro, ret.preambles_per_ssb);
   return ret;
+}
+
+ssb_ro_preambles_t get_ssb_ro_preambles_2step(struct NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16 *config)
+{
+  ssb_ro_preambles_t ret = {0};
+  switch (config->present) {
+    case NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16_PR_oneEighth :
+      ret.ssb_per_ro = 0.125;
+      ret.preambles_per_ssb = (config->choice.oneEighth + 1) << 2;
+      break;
+    case NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16_PR_oneFourth :
+      ret.ssb_per_ro = 0.25;
+      ret.preambles_per_ssb = (config->choice.oneFourth + 1) << 2;
+      break;
+    case NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16_PR_oneHalf :
+      ret.ssb_per_ro = 0.5;
+      ret.preambles_per_ssb = (config->choice.oneHalf + 1) << 2;
+      break;
+    case NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16_PR_one :
+      ret.ssb_per_ro = 1;
+      ret.preambles_per_ssb = (config->choice.one + 1) << 2;
+      break;
+    case NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16_PR_two :
+      ret.ssb_per_ro = 2;
+      ret.preambles_per_ssb = (config->choice.two + 1) << 2;
+      break;
+    case NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16_PR_four :
+      ret.ssb_per_ro = 4;
+      ret.preambles_per_ssb = config->choice.four;
+      break;
+    case NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16_PR_eight :
+      ret.ssb_per_ro = 8;
+      ret.preambles_per_ssb = config->choice.eight;
+      break;
+    case NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16_PR_sixteen :
+      ret.ssb_per_ro = 16;
+      ret.preambles_per_ssb = config->choice.sixteen;
+      break;
+    default :
+      AssertFatal(false, "Invalid msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16\n");
+  }
+  return ret;
+}
+
+void get_config_index_and_ssb_ro(const NR_MsgA_ConfigCommon_r16_t *msgacc,
+                                 const NR_RACH_ConfigCommon_t *rach_ConfigCommon,
+                                 uint8_t *config_index,
+                                 ssb_ro_preambles_t *ssb_ro)
+{
+  if (msgacc) {
+    *config_index = *msgacc->rach_ConfigCommonTwoStepRA_r16.rach_ConfigGenericTwoStepRA_r16.msgA_PRACH_ConfigurationIndex_r16;
+    *ssb_ro = get_ssb_ro_preambles_2step(msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
+  } else {
+    *config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
+    *ssb_ro = get_ssb_ro_preambles_4step(rach_ConfigCommon->ssb_perRACH_OccasionAndCB_PreamblesPerSSB);
+  }
 }
 
 // RA-RNTI computation (associated to PRACH occasion in which the RA Preamble is transmitted)

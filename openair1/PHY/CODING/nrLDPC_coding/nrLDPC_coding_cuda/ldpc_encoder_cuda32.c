@@ -17,7 +17,8 @@
 #include "PHY/sse_intrin.h"
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
 
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
+#include "PHY/gpu_alloc.h"
 
 //#define DEBUG_LDPC 1
 
@@ -38,23 +39,23 @@ int managed = 0, concurrent = 0, uva = 0, pageable = 0, pageable_uses_host = 0, 
 
 int cuda_support_set = 0;
 
-extern cudaStream_t encoderStreams[4];
+extern gpuStream_t encoderStreams[4];
 
-int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,cudaStream_t *s,int sidx);
+int ldpc_input(uint32_t **input,uint32_t *cc[4],int nseg,int Zc,int ncols,gpuStream_t *s,int sidx);
 
 void cuda_support_init()
 {
   int dev = 0;
-  struct cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, dev);
+  gpuDeviceProp_t prop;
+  gpuGetDeviceProperties(&prop, dev);
 
-  cudaDeviceGetAttribute(&managed, cudaDevAttrManagedMemory, dev);
-  cudaDeviceGetAttribute(&concurrent, cudaDevAttrConcurrentManagedAccess, dev);
-  cudaDeviceGetAttribute(&uva, cudaDevAttrUnifiedAddressing, dev);
-  cudaDeviceGetAttribute(&pageable, cudaDevAttrPageableMemoryAccess, dev);
-  cudaDeviceGetAttribute(&pageable_uses_host, cudaDevAttrPageableMemoryAccessUsesHostPageTables, dev);
-  cudaDeviceGetAttribute(&register_host, cudaDevAttrHostRegisterSupported, dev);
-  cudaDeviceGetAttribute(&integrated, cudaDevAttrIntegrated, dev);
+  gpuDeviceGetAttribute(&managed, gpuDevAttrManagedMemory, dev);
+  gpuDeviceGetAttribute(&concurrent, gpuDevAttrConcurrentManagedAccess, dev);
+  gpuDeviceGetAttribute(&uva, gpuDevAttrUnifiedAddressing, dev);
+  gpuDeviceGetAttribute(&pageable, gpuDevAttrPageableMemoryAccess, dev);
+  gpuDeviceGetAttribute(&pageable_uses_host, gpuDevAttrPageableMemoryAccessUsesHostPageTables, dev);
+  gpuDeviceGetAttribute(&register_host, gpuDevAttrHostRegisterSupported, dev);
+  gpuDeviceGetAttribute(&integrated, gpuDevAttrIntegrated, dev);
 
   LOG_I(NR_PHY, "Device: %s (cc %d.%d)\n", prop.name, prop.major, prop.minor);
   LOG_I(NR_PHY, "Unified Virtual Addressing (UVA): %s\n", uva ? "YES" : "NO");
@@ -67,75 +68,53 @@ void cuda_support_init()
 
   if (!pageable && !integrated) {
     LOG_I(NR_PHY, "Allocating c,d,cc arrays for GPU \n");
-    cudaError_t err = cudaMalloc((void**)&c_dev, 4 * sizeof(uint32_t*));
-    AssertFatal(err == cudaSuccess, "CUDA Error (c_dev): %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void**)&c_host, 4 * sizeof(uint32_t*), cudaHostAllocDefault);
-    AssertFatal(err == cudaSuccess, "CUDA Error (c_host): %s\n", cudaGetErrorString(err));
+    c_dev = gpuMalloc_or_fail(4 * sizeof(uint32_t*));
+    c_host = gpuHostAlloc_or_fail(4 * sizeof(uint32_t*), gpuHostAllocDefault);
     for (int i = 0; i < 4; i++) {
-      err = cudaMalloc((void**)&c_devh[i], 2 * 22 * 384 * sizeof(uint32_t));
-      AssertFatal(err == cudaSuccess, "CUDA Error (c_devh[%d]): %s\n", i, cudaGetErrorString(err));
-      err = cudaHostAlloc((void**)&c_host[i], 2 * 22 * 384 * sizeof(uint32_t), cudaHostAllocDefault);
-      AssertFatal(err == cudaSuccess, "CUDA Error (chost[%d]): %s\n", i, cudaGetErrorString(err));
+      c_devh[i] = gpuMalloc_or_fail(2 * 22 * 384 * sizeof(uint32_t));
+      c_host[i] = gpuHostAlloc_or_fail(2 * 22 * 384 * sizeof(uint32_t), gpuHostAllocDefault);
     }
-    err = cudaMemcpy(c_dev, c_devh, 4 * sizeof(uint32_t*), cudaMemcpyHostToDevice);
-    AssertFatal(err == cudaSuccess, "CUDA Error (memcpy c_devh -> c_dev): %s\n", cudaGetErrorString(err));
-    err = cudaMalloc((void**)&d_dev, MAX_SEGx32 * sizeof(uint32_t*));
-    AssertFatal(err == cudaSuccess, "CUDA Error: %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void**)&d_host, MAX_SEGx32 * sizeof(uint32_t*), cudaHostAllocDefault);
-    AssertFatal(err == cudaSuccess, "CUDA Error (d_host): %s\n", cudaGetErrorString(err));
+    gpuError_t err = gpuMemcpy(c_dev, c_devh, 4 * sizeof(uint32_t*), gpuMemcpyHostToDevice);
+    AssertFatal(err == gpuSuccess, "CUDA Error (memcpy c_devh -> c_dev): %s\n", gpuGetErrorString(err));
+    d_dev = gpuMalloc_or_fail(MAX_SEGx32 * sizeof(uint32_t*));
+    d_host = gpuHostAlloc_or_fail(MAX_SEGx32 * sizeof(uint32_t*), gpuHostAllocDefault);
     for (int i = 0; i < MAX_SEGx32; i++) {
-      err = cudaMalloc((void**)&d_devh[i], 68 * 384 * sizeof(uint32_t));
-      AssertFatal(err == cudaSuccess, "CUDA Error (d_devh[%d]: %s\n", i, cudaGetErrorString(err));
-      err = cudaHostAlloc((void**)&d_host[i], 68 * 384 * sizeof(uint32_t), cudaHostAllocDefault);
-      AssertFatal(err == cudaSuccess, "CUDA Error (d_host[%d]): %s\n", i, cudaGetErrorString(err));
+      d_devh[i] = gpuMalloc_or_fail(68 * 384 * sizeof(uint32_t));
+      d_host[i] = gpuHostAlloc_or_fail(68 * 384 * sizeof(uint32_t), gpuHostAllocDefault);
     }
-    err = cudaMemcpy(d_dev, d_devh, MAX_SEGx32 * sizeof(uint32_t*), cudaMemcpyHostToDevice);
-    AssertFatal(err == cudaSuccess, "CUDA Error (memcpy d_devh -> d_dev): %s\n", cudaGetErrorString(err));
-    err = cudaMalloc((void**)&input_dev, 144 * sizeof(uint8_t*));
-    AssertFatal(err == cudaSuccess, "CUDA Error: %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void**)&input_host, 144 * sizeof(uint8_t*), cudaHostAllocDefault);
-    AssertFatal(err == cudaSuccess, "CUDA Error (cc_host): %s\n", cudaGetErrorString(err));
+    err = gpuMemcpy(d_dev, d_devh, MAX_SEGx32 * sizeof(uint32_t*), gpuMemcpyHostToDevice);
+    AssertFatal(err == gpuSuccess, "CUDA Error (memcpy d_devh -> d_dev): %s\n", gpuGetErrorString(err));
+    input_dev = gpuMalloc_or_fail(144 * sizeof(uint8_t*));
+    input_host = gpuHostAlloc_or_fail(144 * sizeof(uint8_t*), gpuHostAllocDefault);
     for (int i = 0; i < 144; i++) {
-      err = cudaMalloc((void**)&input_devh[i], (8448 / 8) * sizeof(uint8_t));
-      AssertFatal(err == cudaSuccess, "CUDA Error (input_devh[%d]: %s\n", i, cudaGetErrorString(err));
-      err = cudaHostAlloc((void**)&input_host[i], (8448 / 8) * sizeof(uint8_t), cudaHostAllocDefault);
-      AssertFatal(err == cudaSuccess, "CUDA Error (input_host[%d]): %s\n", i, cudaGetErrorString(err));
+      input_devh[i] = gpuMalloc_or_fail((8448 / 8) * sizeof(uint8_t));
+      input_host[i] = gpuHostAlloc_or_fail((8448 / 8) * sizeof(uint8_t), gpuHostAllocDefault);
     }
-    err = cudaMemcpy(input_dev, input_devh, 144 * sizeof(uint8_t*), cudaMemcpyHostToDevice);
-    AssertFatal(err == cudaSuccess, "CUDA Error (memcpy cc_devh -> d_dev): %s\n", cudaGetErrorString(err));
+    err = gpuMemcpy(input_dev, input_devh, 144 * sizeof(uint8_t*), gpuMemcpyHostToDevice);
+    AssertFatal(err == gpuSuccess, "CUDA Error (memcpy cc_devh -> d_dev): %s\n", gpuGetErrorString(err));
   } else {
     LOG_I(NR_PHY, "Allocating c,d,cc arrays for CPU/GPU shared-memory\n");
-    cudaError_t err = cudaHostAlloc((void**)&c_host, 4 * sizeof(uint32_t*), cudaHostAllocMapped | cudaHostAllocPortable);
-    AssertFatal(err == cudaSuccess, "CUDA Error (c_host): %s\n", cudaGetErrorString(err));
-    err = cudaHostGetDevicePointer((void**)&c_dev, c_host, 0);
-    AssertFatal(err == cudaSuccess, "CUDA Error (c_dev): %s\n", cudaGetErrorString(err));
+    c_host = gpuHostAlloc_or_fail(4 * sizeof(uint32_t*), gpuHostAllocMapped | gpuHostAllocPortable);
+    c_dev = gpuHostGetDevicePointer_or_fail(c_host);
     LOG_I(NR_PHY, "c_host %p, c_dev %p\n", c_host, c_dev);
     for (int i = 0; i < 4; i++) {
-      err = cudaHostAlloc((void**)&c_host[i], 2 * 22 * 384 * sizeof(uint32_t), cudaHostAllocMapped);
-      AssertFatal(err == cudaSuccess, "CUDA Error (c_host[%d]): %s\n", i, cudaGetErrorString(err));
-      err = cudaHostGetDevicePointer((void**)&c_devh[i], c_host[i], 0);
-      AssertFatal(err == cudaSuccess, "CUDA Error (c_devh[%d]): %s\n", i, cudaGetErrorString(err));
+      c_host[i] = gpuHostAlloc_or_fail(2 * 22 * 384 * sizeof(uint32_t), gpuHostAllocMapped);
+      c_devh[i] = gpuHostGetDevicePointer_or_fail(c_host[i]);
     }
-    err = cudaMemcpy(c_dev, c_devh, 4 * sizeof(uint32_t*), cudaMemcpyHostToDevice);
-    AssertFatal(err == cudaSuccess, "CUDA Error (memcpy c_devh -> c_dev): %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void**)&d_host, 4 * sizeof(uint32_t*), cudaHostAllocMapped);
-    AssertFatal(err == cudaSuccess, "CUDA Error (d_host): %s\n", cudaGetErrorString(err));
-    err = cudaHostGetDevicePointer((void**)&d_dev, d_host, 0);
-    AssertFatal(err == cudaSuccess, "CUDA Error cudaHostGetDevicePointer(d_dev): %s\n", cudaGetErrorString(err));
+    gpuError_t err = gpuMemcpy(c_dev, c_devh, 4 * sizeof(uint32_t*), gpuMemcpyHostToDevice);
+    AssertFatal(err == gpuSuccess, "CUDA Error (memcpy c_devh -> c_dev): %s\n", gpuGetErrorString(err));
+    d_host = gpuHostAlloc_or_fail(4 * sizeof(uint32_t*), gpuHostAllocMapped);
+    d_dev = gpuHostGetDevicePointer_or_fail(d_host);
     LOG_I(NR_PHY, "d_host %p, d_dev %p\n", d_host, d_dev);
     for (int i = 0; i < MAX_SEGx32; i++) {
-      err = cudaHostAlloc((void**)&d_host[i], 68 * 384 * sizeof(uint32_t), cudaHostAllocMapped);
-      AssertFatal(err == cudaSuccess, "CUDA Error (d_host[%d]): %s\n", i, cudaGetErrorString(err));
-      err = cudaHostGetDevicePointer((void**)&d_devh[i], d_host[i], 0);
-      AssertFatal(err == cudaSuccess, "CUDA Error (cudaHostGetDevicePointer) d_devh[%d]: %s\n", i, cudaGetErrorString(err));
+      d_host[i] = gpuHostAlloc_or_fail(68 * 384 * sizeof(uint32_t), gpuHostAllocMapped);
+      d_devh[i] = gpuHostGetDevicePointer_or_fail(d_host[i]);
       LOG_I(NR_PHY, "d_host[%d] %p, d_devh[%d] %p\n", i, d_host[i], i, d_devh[i]);
     }
-    err = cudaMemcpy(d_dev, d_devh, MAX_SEGx32 * sizeof(uint32_t*), cudaMemcpyHostToDevice);
-    AssertFatal(err == cudaSuccess, "CUDA Error (memcpy d_devh -> d_dev): %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void**)&input_host, 144 * sizeof(uint8_t*), cudaHostAllocMapped);
-    AssertFatal(err == cudaSuccess, "CUDA Error (input_host): %s\n", cudaGetErrorString(err));
-    err = cudaHostGetDevicePointer((void**)&input_dev, input_host, 0);
-    AssertFatal(err == cudaSuccess, "CUDA Error cudaHostGetDevicePointer(cc_host): %s\n", cudaGetErrorString(err));
+    err = gpuMemcpy(d_dev, d_devh, MAX_SEGx32 * sizeof(uint32_t*), gpuMemcpyHostToDevice);
+    AssertFatal(err == gpuSuccess, "CUDA Error (memcpy d_devh -> d_dev): %s\n", gpuGetErrorString(err));
+    input_host = gpuHostAlloc_or_fail(144 * sizeof(uint8_t*), gpuHostAllocMapped);
+    input_dev = gpuHostGetDevicePointer_or_fail(input_host);
     LOG_I(NR_PHY, "input_host %p, input_dev %p\n", input_host, input_dev);
   }
 
@@ -156,7 +135,8 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
   int encoder_stream = 0;
 
   AssertFatal(BG == 1, "BG %d is not supported for CUDA version\n", BG);
-  AssertFatal(Zc == 384 || Zc == 176, "Zc %d is not supported for CUDA version \n", Zc);
+  // the supported set of lifting sizes is the one for which a parity check
+  // kernel has been generated, see encode_parity_check_part_cuda() below
 
   if (impp->tinput != NULL)
     start_meas(impp->tinput);
@@ -179,12 +159,14 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
   AssertFatal(ret == 0, "pthread_mutex_lock(): ret %d, errno %d, %s\n", ret, errno, strerror(errno));
   if (!pageable && !integrated) { // this means we are not on shared memory
     for (int r = 0; r < impp->n_segments; r++) {
-      cudaMemcpyAsync(input_devh[r], input[r], block_length >> 3, cudaMemcpyHostToDevice, encoderStreams[encoder_stream]);
+      gpuMemcpyAsync_or_fail(input_devh[r], input[r], block_length >> 3, gpuMemcpyHostToDevice, encoderStreams[encoder_stream]);
     }
   }
   ldpc_input(pageable || integrated ? (uint32_t**)input : (uint32_t**)input_dev,
              (uint32_t**)c_dev,
              impp->n_segments,
+             Zc,
+             ncols,
              encoderStreams,
              encoder_stream);
   if (impp->tinput != NULL)
@@ -196,9 +178,9 @@ uint32_t** LDPCencoder32(uint8_t** input, encoder_implemparams_t* impp)
   if (!pageable && !integrated) { // this means we are not on shared memory
     AssertFatal(n_inputs <= MAX_SEGx32, "d_devh only allocated till %d, but requested %d\n", MAX_SEGx32, n_inputs);
     for (int r = 0; r < n_inputs; r++)
-      cudaMemcpyAsync(d_host[r], d_devh[r], 68 * 384 * sizeof(uint32_t), cudaMemcpyDeviceToHost, encoderStreams[encoder_stream]);
+      gpuMemcpyAsync_or_fail(d_host[r], d_devh[r], 68 * Zc * sizeof(uint32_t), gpuMemcpyDeviceToHost, encoderStreams[encoder_stream]);
   }
-  cudaStreamSynchronize(encoderStreams[encoder_stream]);
+  gpuStreamSynchronize(encoderStreams[encoder_stream]);
   if (impp->tparity != NULL)
     stop_meas(impp->tparity);
   ret = pthread_mutex_unlock(&encoder_mutex);

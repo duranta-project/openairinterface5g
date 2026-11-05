@@ -45,7 +45,7 @@ int config_libconfig_getlist(paramlist_def_t *ParamList, paramdef_t *params, int
 
 ## utility functions and macros
 
-The configuration module also defines APIs to access the  `paramdef_t` and `configmodule_interface_t` fields. They are listed in the configuration module [include file `common/config/config_userapi.h`](../../../../common/config/config_userapi.h)
+The configuration module also defines APIs to access the  `paramdef_t` and `configmodule_interface_t` fields. They are listed in the configuration module [include file `common/config/config_userapi.h`](../../../config_userapi.h)
 
 [Configuration module developer main page](../../config/devusage.md)
 [Configuration module home](../../config.md)

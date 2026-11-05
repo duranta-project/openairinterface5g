@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 // generated code for Zc=192, byte encoding
 __global__ void ldpc_BG1_Zc192_worker(uint32_t *c[4],uint32_t *d[4]) {
   uint32_t *c32=c[blockIdx.x];
@@ -9,7 +9,7 @@ __global__ void ldpc_BG1_Zc192_worker(uint32_t *c[4],uint32_t *d[4]) {
   int i2 = threadIdx.x;
 
   int i1 = blockIdx.y;
-  // copy 20 c values to d
+  // copy the 20 systematic columns to d, the first 2 are punctured
   if (i1<20) d[blockIdx.x][(i1*192) + i2] = c32[4*192+(2*192*i1)+i2];
   if (i2 < 192) {
     c32+=i2;
@@ -202,13 +202,13 @@ __global__ void ldpc_BG1_Zc192_worker(uint32_t *c[4],uint32_t *d[4]) {
      }
   }
 }
-extern "C" int ldpc_BG1_Zc192_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs) { 
+extern "C" int ldpc_BG1_Zc192_cuda32(uint32_t *c[4],uint32_t *d[4],int n_inputs,gpuStream_t *stream,int sidx) { 
  dim3 numblocks(n_inputs,46);
- ldpc_BG1_Zc192_worker<<<numblocks,192>>>(c,d);
+ ldpc_BG1_Zc192_worker<<<numblocks,192,0,stream[sidx]>>>(c,d);
  
- cudaError_t err=cudaPeekAtLastError();
- if (err!=cudaSuccess) {
-    printf("cuda error: %s (c %p, d %p)\n",cudaGetErrorString(err),c,d);
+ gpuError_t err=gpuPeekAtLastError();
+ if (err!=gpuSuccess) {
+    printf("cuda error: %s (c %p, d %p)\n",gpuGetErrorString(err),c,d);
     exit(-1);
  }
  return(0);

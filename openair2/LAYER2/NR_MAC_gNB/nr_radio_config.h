@@ -17,7 +17,6 @@
 #include "f1ap_messages_types.h"
 #include "common/platform_types.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/ue_capability_handler.h"
-#include "openair2/LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac.h"
@@ -31,6 +30,7 @@ typedef struct nr_mac_timers nr_mac_timers_t;
 typedef struct measgap_config measgap_config_t;
 typedef struct gNB_MAC_INST_s gNB_MAC_INST;
 typedef struct nr_cell_sched_s nr_cell_sched_t;
+typedef enum nr_periodic_channel_e nr_periodic_channel_t;
 
 void nr_rrc_config_dl_tda(NR_PDSCH_TimeDomainResourceAllocationList_t *pdsch_TimeDomainAllocationList,
                           frame_type_t frame_type,
@@ -49,7 +49,7 @@ void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
                        int rbsize,
                        int mcs_table_dl,
                        int mcs_table_ul);
-
+int get_ideal_period(const nr_cell_sched_t *cell, nr_periodic_channel_t channel_type, int num_pucch_slot);
 NR_BCCH_BCH_Message_t *get_new_MIB_NR(const NR_ServingCellConfigCommon_t *scc);
 void free_MIB_NR(NR_BCCH_BCH_Message_t *mib);
 int encode_MIB_NR(NR_BCCH_BCH_Message_t *mib, int frame, uint8_t *buf, int buf_size);
@@ -89,6 +89,9 @@ void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
                             const NR_feature_set_ids_t *fs_ids,
                             const nr_cell_sched_t *cell,
                             const NR_ServingCellConfigCommon_t *scc);
+/* Handover target only: release any dedicated BWP source_cd (source cell's spCellConfigDedicated)
+ * has that target_cd doesn't itself configure. */
+void release_stale_ho_source_bwps(NR_ServingCellConfig_t *target_cd, const NR_ServingCellConfig_t *source_cd);
 int encode_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig, uint8_t *buffer, int max_buffer_size);
 
 /* Note: this function returns a new CellGroupConfig for a user with given

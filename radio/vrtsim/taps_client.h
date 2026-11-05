@@ -11,6 +11,8 @@ extern "C" {
 
 #include "sim.h"
 
+#define MAX_TAPS_LEN 128
+
 void *taps_client_connect(const char *socket_path, int num_tx_ant, int num_rx_ant);
 channel_desc_t *taps_client_get_model(void *handle, int id);
 void taps_client_stop(void *handle);

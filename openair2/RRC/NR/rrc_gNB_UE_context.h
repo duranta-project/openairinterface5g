@@ -21,7 +21,7 @@ RB_PROTOTYPE(rrc_nr_ue_tree_s, rrc_gNB_ue_context_s, entries, rrc_gNB_compare_ue
 
 rrc_gNB_ue_context_t* rrc_gNB_get_ue_context(gNB_RRC_INST* rrc_instance_pP, ue_id_t ue);
 rrc_gNB_ue_context_t* rrc_gNB_get_ue_context_by_rnti(gNB_RRC_INST* rrc_instance_pP, sctp_assoc_t assoc_id, rnti_t rntiP);
-rrc_gNB_ue_context_t* rrc_gNB_get_ue_context_by_rnti_any_du(gNB_RRC_INST* rrc_instance_pP, rnti_t rntiP);
+rrc_gNB_ue_context_t* rrc_gNB_get_ue_context_by_rnti_any_du(gNB_RRC_INST* rrc_instance_pP, rnti_t rntiP, int pci);
 rrc_gNB_ue_context_t* rrc_gNB_get_ue_context_by_amf_ue_ngap_id(gNB_RRC_INST* rrc_instance_pP, uint64_t amf_ue_ngap_id);
 
 void rrc_gNB_free_mem_ue_context(rrc_gNB_ue_context_t* const ue_context_pP);

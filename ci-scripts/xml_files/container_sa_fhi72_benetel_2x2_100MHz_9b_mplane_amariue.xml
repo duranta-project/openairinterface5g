@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>test-5g-fhi72-benetel-2x2-100MHz-9b-mplane</htmlTabRef>
   <htmlTabName>100 MHz 2x2 9b TDD SA Benetel M-plane</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
     <class>DeployCoreNetwork</class>
@@ -129,6 +127,15 @@
     <analysis>
       <services>oai-gnb=EndsWithBye</services>
     </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <always_exec>true</always_exec>
+    <desc>Collect logs from Benetel RU</desc>
+    <node>cacofonix</node>
+    <script>scripts/remote-collect-log.sh</script>
+    <options>/home/root/mplane/logs/o_ru_app_mplane.log %%log_dir%% benetel81-mplane</options>
   </testCase>
 
   <testCase>

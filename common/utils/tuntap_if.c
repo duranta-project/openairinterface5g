@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -55,6 +56,18 @@ int tuntap_alloc(int flag, const char *dev)
   }
 
   return fd;
+}
+
+void tuntap_reblock(int fd)
+{
+  int f = fcntl(fd, F_GETFL, 0);
+  if (f == -1) {
+    LOG_E(UTIL, "fcntl(F_GETFL) failed on fd %d: errno %d, %s\n", fd, errno, strerror(errno));
+    return;
+  }
+  f &= ~O_NONBLOCK;
+  if (fcntl(fd, F_SETFL, f) == -1)
+    LOG_E(UTIL, "fcntl(F_SETFL) failed on fd %d: errno %d, %s\n", fd, errno, strerror(errno));
 }
 
 int tun_init_mbms(char *ifname)

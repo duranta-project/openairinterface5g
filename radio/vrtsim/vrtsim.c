@@ -724,7 +724,10 @@ static int vrtsim_connect(openair0_device_t *device)
 #ifdef CHANNEL_SIM_CUDA
     // RX / TX antenna config known per UE config -> init with optimized config rather than worst case config (64TX64RX)
     int max_rx_ant = vrtsim_state->peer_rx_ant;
-    int max_channel_length = vrtsim_state->channel_desc[0] ? vrtsim_state->channel_desc[0]->channel_length : 1;
+    // Taps supplied by the taps client are dynamic and no channel descriptor is available here.
+    int max_channel_length = vrtsim_state->taps_socket
+                                 ? MAX_TAPS_LEN
+                                 : (vrtsim_state->channel_desc[0] ? vrtsim_state->channel_desc[0]->channel_length : 1);
     if (vrtsim_state->role == ROLE_SERVER && vrtsim_state->num_ues > 1) {
       for (int u = 0; u < vrtsim_state->num_ues; u++) {
         if (vrtsim_state->ue_conf[u].rx_ant > max_rx_ant)
@@ -823,13 +826,13 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
     cf_t *channel_impulse_response_p[nb_rx * nb_tx] __attribute__((aligned(32)));
     int channel_index = 0;
     if (!vrtsim_state->taps_socket && !vrtsim_state->use_cirdb) {
-      const float pathloss_linear = powf(10, chan_desc->path_loss_dB / 20.0);
+      const float path_gain_linear = powf(10, -chan_desc->path_loss_dB / 20.0);
       for (int aarx = 0; aarx < nb_rx; aarx++) {
         for (int aatx = 0; aatx < nb_tx; aatx++) {
           const cf_t *channelModel = chan_desc->ch_ps[aarx + (aatx * chan_desc->nb_rx)];
           for (int i = 0; i < channel_length; i++) {
-            channel_impulse_response[channel_index][i].r = channelModel[i].r * pathloss_linear;
-            channel_impulse_response[channel_index][i].i = channelModel[i].i * pathloss_linear;
+            channel_impulse_response[channel_index][i].r = channelModel[i].r * path_gain_linear;
+            channel_impulse_response[channel_index][i].i = channelModel[i].i * path_gain_linear;
           }
           channel_impulse_response_p[channel_index] = channel_impulse_response[channel_index];
           channel_index++;

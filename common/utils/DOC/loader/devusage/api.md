@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
- Loader API is defined in the [common/utils/load_module_shlib.h](../../load_module_shlib.h) include file.
+ Loader API is defined in the [common/utils/load_module_shlib.h](../../../load_module_shlib.h) include file.
 ```c
 int load_module_shlib(char *modname,loader_shlibfunc_t *farray, int numf)
 ```
@@ -8,7 +8,7 @@ int load_module_shlib(char *modname,loader_shlibfunc_t *farray, int numf)
 * Formats the full shared library path, using the `modname` argument and the loader `shlibpath` and `shlibversion`configuration parameters.
 * loads the shared library, using the dlopen system call
 * looks for `< modname >_autoinit` symbol, using the `dlsym` system call and possibly call the corresponding function.
-* looks for `< modname >_checkbuildver` symbol, using the `dlsym` system call and possibly calls the corresponding function. If the return value of this call is `-1`, program execution is stopped. It is the responsibility of the shared library developer to implement or not a `< modname >_checkbuildver` function and to decide if a version mismatch is a fatal condition. The `< modname >_checkbuildver` function must match the `checkverfunc_t` function type. The first argument is the main executable version, as set  in the `OAI_PACKAGE_VERSION` macro defined in the [`common/CMakeLists`](../../../CMakeLists). The second argument points to the shared library version which should be set  by the `< modname >_checkbuildver` function.
+* looks for `< modname >_checkbuildver` symbol, using the `dlsym` system call and possibly calls the corresponding function. If the return value of this call is `-1`, program execution is stopped. It is the responsibility of the shared library developer to implement or not a `< modname >_checkbuildver` function and to decide if a version mismatch is a fatal condition. The `< modname >_checkbuildver` function must match the `checkverfunc_t` function type. The first argument is the main executable version, as set  in the `OAI_PACKAGE_VERSION` macro defined in the [`common/CMakeLists.txt`](../../../../CMakeLists.txt). The second argument points to the shared library version which should be set  by the `< modname >_checkbuildver` function.
 * If the farray pointer is null,  looks for `< modname >_getfarray` symbol, calls the corresponding function when the symbol is found. `< modname >_getfarray` takes one argument, a pointer to a  `loader_shlibfunc_t` array, and returns the number of items in this array, as defined by the `getfarrayfunc_t` type. The `loader_shlibfunc_t` array returned by the shared library must be fully filled (both `fname` and `fptr` fields).
 * looks for the `numf` function symbols listed in the `farray[i].fname` arguments and set the corresponding `farray[i].fptr`function pointers
 

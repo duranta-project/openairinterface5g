@@ -3,12 +3,15 @@
  */
 
 #include "PHY/defs_nr_common.h"
+#include "PHY/impl_defs_nr.h"
 #define _GNU_SOURCE // For pthread_setname_np
 #include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
 #include "executables/nr-ue-ru.h"
 #include "executables/nr-uesoftmodem.h"
 #include "PHY/INIT/nr_phy_init.h"
-#include "NR_MAC_UE/mac_proto.h"
+#include "LAYER2/NR_MAC_UE/mac_proto.h"
 #include "RRC/NR_UE/rrc_proto.h"
 #include "RRC/NR_UE/L2_interface_ue.h"
 #include "SCHED_NR_UE/defs.h"
@@ -20,6 +23,7 @@
 #include "openair1/PHY/TOOLS/phy_scope_interface.h"
 #include "instrumentation.h"
 #include "common/utils/threadPool/notified_fifo.h"
+#include "actor.h"
 #include "position_interface.h"
 #include "nr_phy_common.h"
 #include "PHY/MODULATION/nr_modulation.h"
@@ -37,14 +41,14 @@
  *  - PUCCH/PUSCH (transmission of acknowledgements, CSI, ... or data).
  *
  *  Time between reception of the slot and related transmission depends on UE processing performance.
- *  It is defined by the value NR_UE_CAPABILITY_SLOT_RX_TO_TX.
+ *  It is defined by the value command line parameter ue-capability-rx2tx.
  *
  *  In NR, network gives the duration between Rx slot and Tx slot in the DCI:
  *  - for reception of a PDSCH and its associated acknowledgment slot (with a PUCCH or a PUSCH),
  *  - for reception of an uplink grant and its associated PUSCH slot.
  *
  *  So duration between reception and it associated transmission depends on its transmission slot given in the DCI.
- *  NR_UE_CAPABILITY_SLOT_RX_TO_TX means the minimum duration but higher duration can be given by the network because UE can support it.
+ *  ue-capability-rx2tx means the minimum duration but higher duration can be given by the network because UE can support it.
  *
  *                                                                                                    Slot k
  *                                                                                  -------+------------+--------
@@ -88,7 +92,7 @@ static void start_process_slot_tx(void* arg) {
   nr_rxtx_thread_data_t *curMsgTx = NotifiedFifoData(newTx);
   int num_ul_actors = get_nrUE_params()->num_ul_actors;
   if (num_ul_actors > 0) {
-    pushNotifiedFIFO(&curMsgTx->UE->ul_actors[curMsgTx->proc.nr_slot_tx % num_ul_actors].fifo, newTx);
+    pushNotifiedFIFO(&curMsgTx->ul_actors[curMsgTx->proc.nr_slot_tx % num_ul_actors].fifo, newTx);
   } else {
     newTx->processingFunc(curMsgTx);
   }
@@ -218,8 +222,8 @@ static void UE_synch(void *arg) {
     syncD->rx_offset = ret.rx_offset;
     const int freq_offset = UE->common_vars.freq_offset; // frequency offset computed with pss in initial sync
     const int hw_slot_offset =
-        ((ret.rx_offset << 1) / fp->samples_per_subframe * fp->slots_per_subframe)
-        + round((float)((ret.rx_offset << 1) % fp->samples_per_subframe) / fp->samples_per_slot0);
+        ((ret.rx_offset * 2) / fp->samples_per_subframe * fp->slots_per_subframe)
+        + round((float)((ret.rx_offset * 2) % fp->samples_per_subframe) / fp->samples_per_slot0);
 
     UE->freq_offset = freq_offset - UE->dl_Doppler_shift;
     if (!get_nrUE_params()->cont_fo_comp) {
@@ -245,6 +249,23 @@ static void UE_synch(void *arg) {
   }
 }
 
+static uint num_dl_symbols_slot(const fapi_nr_config_request_t *cfg, int nr_slot)
+{
+  if (cfg->cell_config.frame_duplex_type == FDD)
+    return NR_SYMBOLS_PER_SLOT;
+
+  const fapi_nr_tdd_table_t *tdd_table = &cfg->tdd_table;
+  if (tdd_table->max_tdd_periodicity_list == NULL) {
+    LOG_E(NR_PHY, "No TDD table present in PHY config\n");
+    return 0;
+  }
+
+  int rel_slot = nr_slot % tdd_table->tdd_period_in_slots;
+
+  const fapi_nr_max_tdd_periodicity_t *current_slot = &tdd_table->max_tdd_periodicity_list[rel_slot];
+  return current_slot->num_dl_ul_symbols_list.num_dl;
+}
+
 static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
 {
   if (cfg->cell_config.frame_duplex_type == FDD)
@@ -258,23 +279,13 @@ static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
 
   const fapi_nr_max_tdd_periodicity_t *current_slot = &tdd_table->max_tdd_periodicity_list[rel_slot];
 
-  // if the 1st symbol is UL the whole slot is UL
-  if (current_slot->max_num_of_symbol_per_slot_list[0].slot_config == 1)
+  if (current_slot->num_dl_ul_symbols_list.num_dl == NR_SYMBOLS_PER_SLOT)
+    return NR_DOWNLINK_SLOT;
+
+  if (current_slot->num_dl_ul_symbols_list.num_ul == NR_SYMBOLS_PER_SLOT)
     return NR_UPLINK_SLOT;
 
-  // if the 1st symbol is flexible the whole slot is mixed
-  if (current_slot->max_num_of_symbol_per_slot_list[0].slot_config == 2)
-    return NR_MIXED_SLOT;
-
-  for (int i = 1; i < NR_SYMBOLS_PER_SLOT; i++) {
-    // if the 1st symbol is DL and any other is not, the slot is mixed
-    if (current_slot->max_num_of_symbol_per_slot_list[i].slot_config != 0) {
-      return NR_MIXED_SLOT;
-    }
-  }
-
-  // if here, all the symbols where DL
-  return NR_DOWNLINK_SLOT;
+  return NR_MIXED_SLOT;
 }
 
 static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **txp)
@@ -295,6 +306,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
 
   radio_tx_burst_flag_t flags = TX_BURST_INVALID;
 
+  const int curr_slot_type = nr_ue_slot_select(cfg, slot);
   if (UE->received_config_request) {
     if (fp->frame_type == FDD || get_softmodem_params()->continuous_tx) {
       flags = TX_BURST_MIDDLE;
@@ -305,8 +317,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
         flags = TX_BURST_START_AND_END;
     } else {
       int slots_frame = fp->slots_per_frame;
-      int curr_slot = nr_ue_slot_select(cfg, slot);
-      if (curr_slot != NR_DOWNLINK_SLOT) {
+      if (curr_slot_type != NR_DOWNLINK_SLOT) {
         int next_slot = nr_ue_slot_select(cfg, (slot + 1) % slots_frame);
         int prev_slot = nr_ue_slot_select(cfg, (slot + slots_frame - 1) % slots_frame);
         if (prev_slot == NR_DOWNLINK_SLOT)
@@ -351,6 +362,19 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
 
     writeTimestamp += dummyBlockSize;
     writeBlockSize -= dummyBlockSize;
+  }
+
+  // if mixed slot in TDD, set start of burst in first guard symbol.
+  if (flags == TX_BURST_START && curr_slot_type == NR_MIXED_SLOT) {
+    const uint num_dl_symbols = num_dl_symbols_slot(cfg, slot);
+    const uint num_zero_samples = get_samples_symbol_timestamp(fp, slot, num_dl_symbols);
+    int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, num_zero_samples, fp->nb_antennas_tx, TX_BURST_INVALID);
+    AssertFatal(tmp == num_zero_samples, "write samples to reorder function failed %d", tmp);
+
+    writeTimestamp += num_zero_samples;
+    writeBlockSize -= num_zero_samples;
+    for (int ant = 0; ant < fp->nb_antennas_tx; ant++)
+      txp[ant] += num_zero_samples;
   }
 
   // pre-compensate UL frequency offset
@@ -399,8 +423,6 @@ void processSlotTX(void *arg)
       if (UE->if_inst != NULL && UE->if_inst->sl_indication != NULL) {
         start_meas(&UE->ue_ul_indication_stats);
         nr_sidelink_indication_t sl_indication = {.module_id = UE->Mod_id,
-                                                  .gNB_index = proc->gNB_id,
-                                                  .cc_id = UE->CC_id,
                                                   .hfn_tx = proc->hfn_tx,
                                                   .frame_tx = proc->frame_tx,
                                                   .slot_tx = proc->nr_slot_tx,
@@ -431,8 +453,6 @@ void processSlotTX(void *arg)
       if (UE->if_inst != NULL && UE->if_inst->ul_indication != NULL) {
         start_meas(&UE->ue_ul_indication_stats);
         nr_uplink_indication_t ul_indication = {.module_id = UE->Mod_id,
-                                                .gNB_index = proc->gNB_id,
-                                                .cc_id = UE->CC_id,
                                                 .frame = proc->frame_tx,
                                                 .slot = proc->nr_slot_tx,
                                                 .phy_data = &phy_data};
@@ -458,7 +478,7 @@ static uint64_t get_carrier_frequency(const int N_RB, const int mu, const uint32
   return carrier_freq;
 }
 
-static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE)
+static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE, Actor_t *dl_actors, Actor_t *ul_actors)
 {
   NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
   // Start synchronization with a target gNB
@@ -473,32 +493,35 @@ static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE)
 
     const fapi_nr_config_request_t *config = &UE->nrUE_config;
     const fapi_nr_ue_carrier_config_t *cfg = &config->carrier_config;
-    uint64_t dl_CarrierFreq = get_carrier_frequency(fp->N_RB_DL, fp->numerology_index, cfg->dl_frequency);
-    uint64_t ul_CarrierFreq = get_carrier_frequency(fp->N_RB_UL, fp->numerology_index, cfg->uplink_frequency);
-    if (dl_CarrierFreq != fp->dl_CarrierFreq || ul_CarrierFreq != fp->ul_CarrierFreq) {
-      LOG_I(NR_PHY,
-            "[UE %d] SYNC REQ: RF frequency change: dl %lu->%lu Hz, ul %lu->%lu Hz (from dl_frequency=%u kHz, target_Nid_cell=%d)\n",
-            UE->Mod_id,
-            fp->dl_CarrierFreq,
-            dl_CarrierFreq,
-            fp->ul_CarrierFreq,
-            ul_CarrierFreq,
-            cfg->dl_frequency,
-            UE->target_Nid_cell);
-      nrue_ru_set_freq(UE, ul_CarrierFreq, dl_CarrierFreq, 0);
-      fp->dl_CarrierFreq = dl_CarrierFreq;
-      fp->ul_CarrierFreq = ul_CarrierFreq;
-      init_symbol_rotation(fp);
-    }
+    if (cfg->dl_frequency != 0) {
+      uint64_t dl_CarrierFreq = get_carrier_frequency(fp->N_RB_DL, fp->numerology_index, cfg->dl_frequency);
+      uint64_t ul_CarrierFreq = get_carrier_frequency(fp->N_RB_UL, fp->numerology_index, cfg->uplink_frequency);
+      if (dl_CarrierFreq != fp->dl_CarrierFreq || ul_CarrierFreq != fp->ul_CarrierFreq) {
+        LOG_I(NR_PHY,
+              "[UE %d] SYNC REQ: RF frequency change: dl %lu->%lu Hz, ul %lu->%lu Hz (from dl_frequency=%u kHz, "
+              "target_Nid_cell=%d)\n",
+              UE->Mod_id,
+              fp->dl_CarrierFreq,
+              dl_CarrierFreq,
+              fp->ul_CarrierFreq,
+              ul_CarrierFreq,
+              cfg->dl_frequency,
+              UE->target_Nid_cell);
+        nrue_ru_set_freq(UE, ul_CarrierFreq, dl_CarrierFreq, 0);
+        fp->dl_CarrierFreq = dl_CarrierFreq;
+        fp->ul_CarrierFreq = ul_CarrierFreq;
+        init_symbol_rotation(fp);
+      }
 
-    int ssb_start_subcarrier = nr_get_ssb_start_sc(fp->numerology_index,
-                                                   config->ssb_table.ssb_offset_point_a,
-                                                   config->ssb_table.ssb_subcarrier_offset,
-                                                   fp->freq_range);
-    // SSB location can change during for ex: handover on the target cell
-    if (ssb_start_subcarrier != fp->ssb_start_subcarrier) {
-      fp->ssb_start_subcarrier = ssb_start_subcarrier;
-      LOG_I(NR_PHY, "SYNC REQ: SSB location changed:%d\n", fp->ssb_start_subcarrier);
+      int ssb_start_subcarrier = nr_get_ssb_start_sc(fp->numerology_index,
+                                                     config->ssb_table.ssb_offset_point_a,
+                                                     config->ssb_table.ssb_subcarrier_offset,
+                                                     fp->freq_range);
+      // SSB location can change during for ex: handover on the target cell
+      if (ssb_start_subcarrier != fp->ssb_start_subcarrier) {
+        fp->ssb_start_subcarrier = ssb_start_subcarrier;
+        LOG_I(NR_PHY, "SYNC REQ: SSB location changed:%d\n", fp->ssb_start_subcarrier);
+      }
     }
 
     // Apply Doppler based on NTN-Config for target cell
@@ -510,10 +533,10 @@ static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE)
     /* Clearing UE harq while DL actors are active causes race condition.
         So we let the current execution to complete here.*/
     for (int i = 0; i < get_nrUE_params()->num_dl_actors; i++) {
-      flush_actor(UE->dl_actors + i);
+      flush_actor(&dl_actors[i]);
     }
     for (int i = 0; i < get_nrUE_params()->num_ul_actors; i++) {
-      flush_actor(UE->ul_actors + i);
+      flush_actor(&ul_actors[i]);
     }
 
     clean_UE_harq(UE);
@@ -722,6 +745,17 @@ static void syncInFrame(PHY_VARS_NR_UE *UE, openair0_timestamp_t *timestamp, int
   }
 }
 
+// Keeps RRC timers (T310/T311/T304/...) advancing while out of sync: one RRC tick per frame read from the radio.
+static void out_of_sync_rrc_timer_tick(PHY_VARS_NR_UE *UE, int num_frames, int *frame, int *hfn)
+{
+  for (int i = 0; i < num_frames; i++) {
+    nr_ue_rrc_timer_trigger(UE->Mod_id, *hfn, *frame, 0);
+    *frame = (*frame + 1) % MAX_FRAME_NUMBER;
+    if (*frame == 0)
+      (*hfn)++;
+  }
+}
+
 static inline int get_firstSymSamp(uint16_t slot, const NR_DL_FRAME_PARMS *fp)
 {
   return get_samples_symbol_duration(fp, slot, 0, 1);
@@ -748,6 +782,62 @@ void trs_freq_correction(PHY_VARS_NR_UE *ue, int cfo)
   }
 }
 
+/* Parse --actor-affinity into cores[]. Returns number of cores. Empty/NULL -> 0. */
+static int parse_actor_affinity(const char *params, int *cores, int max_cores)
+{
+  if (params == NULL || params[0] == '\0')
+    return 0;
+
+  char *cpy = strdup(params);
+  AssertFatal(cpy != NULL, "Memory exhausted\n");
+  int n = 0;
+  char *saveptr = NULL;
+  for (char *tok = strtok_r(cpy, ",", &saveptr); tok != NULL; tok = strtok_r(NULL, ",", &saveptr)) {
+    AssertFatal(n < max_cores, "actor-affinity has more than %d entries\n", max_cores);
+    cores[n++] = atoi(tok);
+  }
+  free(cpy);
+  return n;
+}
+
+/* Assign one core from the shared pool to each DL actor, then each UL actor.
+ * If a spare remains, pin SYNC too. Leave everyone at -1 when actor-affinity is unset.
+ * The actors are UE_thread-owned stack arrays: they live exactly as long as the thread. */
+static void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_actors)
+{
+  const nrUE_params_t *p = get_nrUE_params();
+  const int need = p->num_dl_actors + p->num_ul_actors;
+  int cores[64];
+  const int have = parse_actor_affinity(p->actor_affinity, cores, sizeof(cores) / sizeof(cores[0]));
+  AssertFatal(have == 0 || have >= need,
+              "actor-affinity has %d entries but needs at least num-dl-actors (%d) + num-ul-actors (%d) = %d\n",
+              have,
+              p->num_dl_actors,
+              p->num_ul_actors,
+              need);
+
+  int idx = 0;
+  const int sync_core = (have > need) ? cores[need] : -1;
+  init_actor(sync_actor, "SYNC_", sync_core);
+
+  for (int i = 0; i < p->num_dl_actors; i++) {
+    const int core = (have > 0) ? cores[idx++] : -1;
+    init_actor(&dl_actors[i], "DL_", core);
+  }
+  for (int i = 0; i < p->num_ul_actors; i++) {
+    const int core = (have > 0) ? cores[idx++] : -1;
+    init_actor(&ul_actors[i], "UL_", core);
+  }
+  if (have > 0)
+    LOG_I(PHY,
+          "Pinned actors from actor-affinity=%s (DL %d, UL %d, SYNC %d)%s\n",
+          p->actor_affinity,
+          p->num_dl_actors,
+          p->num_ul_actors,
+          sync_core,
+          have > need + 1 ? " (extra cores unused)" : "");
+}
+
 void *UE_thread(void *arg)
 {
   //this thread should be over the processing thread to keep in real time
@@ -771,6 +861,14 @@ void *UE_thread(void *arg)
   notifiedFIFO_t freeBlocks;
   initNotifiedFIFO_nothreadSafe(&freeBlocks);
 
+  const int num_dl_actors = get_nrUE_params()->num_dl_actors;
+  const int num_ul_actors = get_nrUE_params()->num_ul_actors;
+  Actor_t sync_actor;
+  // zero-length VLAs are undefined (C11 6.7.6.2), hence the size-1 floor
+  Actor_t dl_actors[num_dl_actors > 0 ? num_dl_actors : 1];
+  Actor_t ul_actors[num_ul_actors > 0 ? num_ul_actors : 1];
+  init_ue_actors(&sync_actor, dl_actors, ul_actors);
+
   const double ntn_init_time_drift = get_nrUE_params()->ntn_init_time_drift;
   if (get_nrUE_params()->time_sync_I)
     // ntn_init_time_drift is in µs/s, max_pos_acc * time_sync_I is in samples/frame
@@ -780,7 +878,7 @@ void *UE_thread(void *arg)
 
   bool ntn_targetcell = false;
   int ntn_koffset = 0;
-  int duration_rx_to_tx = NR_UE_CAPABILITY_SLOT_RX_TO_TX;
+  int duration_rx_to_tx = get_nrUE_params()->ue_capability_rx2tx;
   int timing_advance = UE->timing_advance + UE->timing_advance_ntn;
   UE->N_TA_offset = determine_N_TA_offset(UE);
   NR_UE_MAC_INST_t *mac = get_mac_inst(UE->Mod_id);
@@ -789,6 +887,9 @@ void *UE_thread(void *arg)
   const int nb_slot_frame = fp->slots_per_frame;
   int absolute_slot = 0, decoded_frame_rx = MAX_FRAME_NUMBER - 1, skipped_frames = 0;
   int tx_wait_for_dlsch[NR_MAX_SLOTS_PER_FRAME];
+  // out-of-sync RRC timer tick frame/hfn (see out_of_sync_rrc_timer_tick())
+  int out_of_sync_rrc_tick_frame = 0, out_of_sync_rrc_tick_hfn = 0;
+  bool out_of_sync_rrc_tick_seeded = false;
 
   for(int i = 0; i < NUM_PROCESS_SLOT_TX_BARRIERS; i++) {
     dynamic_barrier_init(&UE->process_slot_tx_barriers[i]);
@@ -820,6 +921,7 @@ void *UE_thread(void *arg)
           free(sync_buf[i]);
         if (UE->is_synchronized) {
           UE->synch_request.received_synch_request = 0;
+          out_of_sync_rrc_tick_seeded = false;
           if (UE->sl_mode == SL_MODE2_SUPPORTED)
             decoded_frame_rx = UE->SL_UE_PHY_PARAMS.sync_params.DFN;
           else {
@@ -848,10 +950,13 @@ void *UE_thread(void *arg)
           while (skipped_frames != sync_in_frames) {
             readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
             skipped_frames += 2;
+            out_of_sync_rrc_timer_tick(UE, 2, &out_of_sync_rrc_tick_frame, &out_of_sync_rrc_tick_hfn);
           }
         } else {
           readFrame(UE, &sync_timestamp, duration_rx_to_tx, compute_sync_size(UE), NULL);
-          skipped_frames += UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
+          const int num_frames_read = (UE->sl_mode == 2) ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2;
+          skipped_frames += num_frames_read;
+          out_of_sync_rrc_timer_tick(UE, num_frames_read, &out_of_sync_rrc_tick_frame, &out_of_sync_rrc_tick_hfn);
         }
         continue;
       }
@@ -860,6 +965,13 @@ void *UE_thread(void *arg)
     AssertFatal(!syncRunning, "At this point synchronization can't be running\n");
 
     if (!UE->is_synchronized) {
+      // seed the out-of-sync tick once from the last known synchronized frame/hfn:
+      // absolute_slot doesn't advance while out of sync, so failed sync attempts must not re-seed
+      if (!out_of_sync_rrc_tick_seeded) {
+        out_of_sync_rrc_tick_frame = (absolute_slot / nb_slot_frame) % MAX_FRAME_NUMBER;
+        out_of_sync_rrc_tick_hfn = (absolute_slot / nb_slot_frame) / MAX_FRAME_NUMBER;
+        out_of_sync_rrc_tick_seeded = true;
+      }
       int sz = compute_sync_size(UE);
       for (int i = 0; i < fp->nb_antennas_rx; i++)
         sync_buf[i] = malloc(sz * sizeof(**sync_buf));
@@ -879,8 +991,9 @@ void *UE_thread(void *arg)
       }
       syncMsg->UE = UE;
       memset(&syncMsg->proc, 0, sizeof(syncMsg->proc));
-      pushNotifiedFIFO(&UE->sync_actor.fifo, Msg);
+      pushNotifiedFIFO(&sync_actor.fifo, Msg);
       skipped_frames = UE->sl_mode == 2 ? SL_NR_PSBCH_REPETITION_IN_FRAMES : 2; // the capture for decoding
+      out_of_sync_rrc_timer_tick(UE, skipped_frames, &out_of_sync_rrc_tick_frame, &out_of_sync_rrc_tick_hfn);
       syncRunning = true;
       continue;
     }
@@ -939,7 +1052,7 @@ void *UE_thread(void *arg)
     }
 
     /* check if MAC has sent sync request */
-    if (handle_sync_req_from_mac(UE) == 0)
+    if (handle_sync_req_from_mac(UE, dl_actors, ul_actors) == 0)
       continue;
 
     // start of normal case, the UE is in sync
@@ -1058,8 +1171,8 @@ void *UE_thread(void *arg)
     int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed);
     if (ret != INT_MAX)
       shiftForNextFrame = ret;
-    if (get_nrUE_params()->num_dl_actors > 0) {
-      pushNotifiedFIFO(&UE->dl_actors[curMsg.proc.nr_slot_rx % get_nrUE_params()->num_dl_actors].fifo, newRx);
+    if (num_dl_actors > 0) {
+      pushNotifiedFIFO(&dl_actors[curMsg.proc.nr_slot_rx % num_dl_actors].fifo, newRx);
     } else {
       newRx->processingFunc(curMsgRx);
     }
@@ -1084,6 +1197,7 @@ void *UE_thread(void *arg)
     curMsgTx->writeBlockSize = writeBlockSize;
     curMsgTx->proc.timestamp_tx = writeTimestamp;
     curMsgTx->UE = UE;
+    curMsgTx->ul_actors = ul_actors;
     curMsgTx->absolute_deadline_us = absolute_deadline_us;
 
     int slot = curMsgTx->proc.nr_slot_tx;
@@ -1101,14 +1215,19 @@ void *UE_thread(void *arg)
     tx_wait_for_dlsch[slot] = 0;
   }
   LOG_W(NR_PHY, "UE main thread is ending\n");
+  for (int i = 0; i < num_ul_actors; i++)
+    shutdown_actor(&ul_actors[i]);
+  for (int i = 0; i < num_dl_actors; i++)
+    shutdown_actor(&dl_actors[i]);
+  destroy_actor(&sync_actor);
   return NULL;
 }
 
-void init_NR_UE(int nb_inst, char *uecap_file, char *reconfig_file, char *rbconfig_file, int numerology)
+void init_NR_UE(int nb_inst, char *uecap_file, char *reconfig_file, char *rbconfig_file, int rx2tx, int numerology)
 {
   for (int instance_id = 0; instance_id < nb_inst; instance_id++) {
     NR_UE_RRC_INST_t* rrc = nr_rrc_init_ue(uecap_file, instance_id, get_nrUE_params()->nb_antennas_tx);
-    NR_UE_MAC_INST_t *mac = nr_l2_init_ue(instance_id, numerology);
+    NR_UE_MAC_INST_t *mac = nr_l2_init_ue(instance_id, numerology, rx2tx);
 
     nr_rrc_set_mac_queue(instance_id, &mac->input_nf);
     mac->if_module = nr_ue_if_module_init(instance_id);

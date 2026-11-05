@@ -93,12 +93,16 @@ rrc_gNB_ue_context_t *rrc_gNB_get_ue_context_by_rnti(gNB_RRC_INST *rrc_instance_
   return NULL;
 }
 
-rrc_gNB_ue_context_t *rrc_gNB_get_ue_context_by_rnti_any_du(gNB_RRC_INST *rrc_instance_pP, rnti_t rntiP)
+/** @brief Fetch UE context by RNTI on any DU; if pci >= 0, the UE's PCell PCI must also match */
+rrc_gNB_ue_context_t *rrc_gNB_get_ue_context_by_rnti_any_du(gNB_RRC_INST *rrc_instance_pP, rnti_t rntiP, int pci)
 {
   rrc_gNB_ue_context_t *ue_context_p;
   RB_FOREACH(ue_context_p, rrc_nr_ue_tree_s, &(rrc_instance_pP->rrc_ue_head))
   {
-    if (ue_context_p->ue_context.rnti == rntiP) {
+    if (ue_context_p->ue_context.rnti != rntiP)
+      continue;
+    const nr_rrc_cell_container_t *pcell = pci >= 0 ? rrc_get_pcell_for_ue(rrc_instance_pP, &ue_context_p->ue_context) : NULL;
+    if (pci < 0 || (pcell != NULL && pcell->info.pci == pci)) {
       rrc_gNB_ue_context_update_time(ue_context_p);
       return ue_context_p;
     }

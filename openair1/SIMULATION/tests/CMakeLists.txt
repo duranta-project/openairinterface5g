@@ -105,6 +105,7 @@ add_physim_test(physim.5g.nr_dlsim.basic.test5 "HARQ test 33% TP 3 rounds" nr_dl
 add_physim_test(physim.5g.nr_dlsim.basic.test6 "HARQ test 50% TP 2 rounds" nr_dlsim -P -n300 -s5 -S7 -t50)
 add_physim_test(physim.5g.nr_dlsim.basic.test7 "25 PRBs, 15 kHz SCS" nr_dlsim -P -n300 -m0 -e0 -R25 -b25 -i 2 1 0)
 add_physim_test(physim.5g.nr_dlsim.basic.test8 "32 PRBs, 120 kHz SCS" nr_dlsim -P -n300 -s5 -m3 -R32 -b32)
+add_physim_test(physim.5g.nr_dlsim.basic.test9 "HARQ retx on 60 of 106 PRBs (E < Foffset) 50% TP 2 rounds" nr_dlsim -P -n100 -e27 -s17 -S18 -K60 -t50)
 add_physim_test(physim.5g.nr_dlsim.offset.test1 "106 PRB 25 PDSCH-Offset" nr_dlsim -P -n300 -R106 -a25 -s5)
 add_physim_test(physim.5g.nr_dlsim.offset.test2 "106 PRB 51 PDSCH-Offset" nr_dlsim -P -n300 -R106 -a51 -s5)
 add_physim_test(physim.5g.nr_dlsim.offset.test3 "217 PRB 100 PDSCH-PRBs" nr_dlsim -P -n300 -R217 -b100 -s5)
@@ -208,6 +209,12 @@ add_physim_test(physim.5g.nr_pucchsim.test46 "Format 1 (NACK,ACK) number of symb
 add_physim_test(physim.5g.nr_pucchsim.test47 "Format 1 (ACK,ACK) number of symbols = 14, 273PRB"   nr_pucchsim -R 273 -z8 -i 14 -P 1 -b 2 -B 3 -s-8 -n1000)
 add_physim_test(physim.5g.nr_pucchsim.test48 "Format 2 13-bit 16/273 PRB" nr_pucchsim -R 273 -i 1 -P 2 -q 16 -b 13 -n300)
 
+# Two-symbol format 0 without and with frequency hopping; a nonzero hopping ID gives a nonzero sequence group u[0].
+add_physim_test(physim.5g.nr_pucchsim.test49 "Format 0 2-symbol non-hopping ACK and SR"
+  nr_pucchsim -R 106 -N 40 -i 2 -P 0 -b 2 -c -s 10 -S 10 -n 100)
+add_physim_test(physim.5g.nr_pucchsim.test50 "Format 0 2-symbol hopping"
+  nr_pucchsim -R 106 -N 40 -i 2 -P 0 -b 2 -H -s 10 -S 10 -n 100)
+
 ####################################################################################
 ######                           nr_ulsim unit test                           ######
 ####################################################################################
@@ -237,6 +244,10 @@ add_physim_test(physim.5g.nr_ulsim.mimo.test2 "MCS 9 106 PRBs MIMO 2 layers" nr_
 add_physim_test(physim.5g.nr_ulsim.mimo.test3 "MCS 10 106 PRBs MIMO 2 layers" nr_ulsim -P -n300 -m10 -r106 -s12 -W2 -y2 -z2)
 add_physim_test(physim.5g.nr_ulsim.mimo.test4 "MCS 19 106 PRBs MIMO 2 layers" nr_ulsim -P -n300 -m19 -r106 -s22 -W2 -y2 -z2)
 add_physim_test(physim.5g.nr_ulsim.mimo.test5 "MCS 9 106 PRBs MIMO 4 layers" nr_ulsim -P -n300 -m9 -r106 -s10 -W4 -y4 -z4)
+add_physim_test(physim.5g.nr_ulsim.uci-pusch.test1 "MCS 9 106 PRBs 1 HARQ BIT" nr_ulsim -P -n300 -m9 -r106 -s10 -o 1,0,0)
+add_physim_test(physim.5g.nr_ulsim.uci-pusch.test2 "MCS 16 51 PRBs 3 HARQ BITS" nr_ulsim -P -n300 -m16 -r51 -s15 -o 3,0,0)
+add_physim_test(physim.5g.nr_ulsim.uci-pusch.test3 "MCS 27 106 PRBs 7 CSI BITS" nr_ulsim -P -n300 -m27 -r106 -s25 -o 0,7,0)
+add_physim_test(physim.5g.nr_ulsim.uci-pusch.test4 "MCS 9 106 PRBs MIMO 2 layers 2 HARQ BITS 7 CSI BITS" nr_ulsim -P -n300 -m9 -r106 -s8 -W2 -y2 -z2 -o 2,7,0)
 add_physim_test(physim.5g.nr_ulsim.3gpp.test1 "3GPP G-FR1-A5-13, PUSCH Type A, 40 MHz BW, 30 kHz SCS, 2 RX Antennas Requirements Test" nr_ulsim -P -n300 -b14 -I7 -i 0,1 -g A,l,10 -t70 -u 1 -m20 -R106 -r106 -U 0,1,1,2 -z2 -s12.4 -S12.4)
 add_physim_test(physim.5g.nr_ulsim.3gpp.test2 "3GPP G-FR1-A5-13, PUSCH Type A, 40 MHz BW, 30 kHz SCS, 4 RX Antennas Requirements Test" nr_ulsim -P -n300 -b14 -I7 -i 0,1 -g A,l,10 -t70 -u 1 -m20 -R106 -r106 -U 0,1,1,2 -z4 -s8.5 -S8.5)
 add_physim_test(physim.5g.nr_ulsim.3gpp.test3 "3GPP G-FR1-A5-13, PUSCH Type A, 40 MHz BW, 30 kHz SCS, 8 RX Antennas Requirements Test" nr_ulsim -P -n300 -b14 -I7 -i 0,1 -g A,l,10 -t70 -u 1 -m20 -R106 -r106 -U 0,1,1,2 -z8 -s5.4 -S5.4)
@@ -289,6 +300,7 @@ add_physim_test(physim.5g.nr_prachsim.test5 "120kHz SCS, 32 PRBs, Prach format A
 add_physim_test(physim.5g.nr_prachsim.test6 "120kHz SCS, 66 PRBs, Prach format A2" nr_prachsim -a -s -30 -n 300 -p 32 -R 66 -m 3 -c52)
 add_physim_test(physim.5g.nr_prachsim.test7 "120kHz SCS, 66 PRBs, High Speed Enabled" nr_prachsim -a -s -30 -n 300 -R 66 -m 3 -c52 -H)
 add_physim_test(physim.5g.nr_prachsim.test8 "15kHz SCS, 25 PRBs" nr_prachsim -a -s -30 -n 300 -p 99 -R 25 -m 0)
+add_physim_test(physim.5g.nr_prachsim.test9 "30kHz SCS, 106 PRBs, Prach format A2, NCS_config 0" nr_prachsim -a -s -30 -n 300 -p 63 -R 106 -Z 0)
 
 ####################################################################################
 ######                           nr_psbchsim unit test                        ######
@@ -324,49 +336,49 @@ add_physim_test(physim.5g.nr_srssim.test16 "SRS: 30KHz SCS, 106 PRBs, SNR 2 dB t
 
 if (ENABLE_LDPC_AAL)
 
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.1 "CPU: SNR = 30, MCS = 5, 106 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e5 -b106 -R106 -X 8,9,10,11,12 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.1  "T2 LDPC offload: SNR = 30, MCS = 5, 106 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e5 -b106 -R106 -X4,5,6,7,8,9 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.2 "CPU: SNR = 30, MCS = 15, 106 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e15 -b106 -R106 -X 8,9,10,11,12 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.2  "T2 LDPC offload: SNR = 30, MCS = 15, 106 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e15 -b106 -R106 -X4,5,6,7,8,9 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.3 "CPU: SNR = 30, MCS = 25, 106 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 8,9,10,11,12 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.3  "T2 LDPC offload: SNR = 30, MCS = 25, 106 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X4,5,6,7,8,9 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.4 "CPU: SNR = 30, MCS = 5, 273 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X 8,9,10,11,12 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.4  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X4,5,6,7,8,9 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.5 "CPU: SNR = 30, MCS = 15, 273 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X 8,9,10,11,12 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.5  "T2 LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X4,5,6,7,8,9 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.6 "CPU: SNR = 30, MCS = 25, 273 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 8,9,10,11,12 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.6  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X4,5,6,7,8,9 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.7 "CPU: SNR = 30, MCS = 5, 273 PRBs, 2 layers"             nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X 8,9,10,11,12 -x2 -z2 -y2 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.7  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 2 layers" nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X4,5,6,7,8,9 -x2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.8 "CPU: SNR = 30, MCS = 15, 273 PRBs, 2 layers"             nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X 8,9,10,11,12 -x2 -z2 -y2 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.8  "T2 LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 2 layers" nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X4,5,6,7,8,9 -x2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
-add_physim_test(physim.5g-offload.nr_dlsim.testCPU.9 "CPU: SNR = 30, MCS = 25, 273 PRBs, 2 layers"             nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 8,9,10,11,12 -x2 -z2 -y2 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.9  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 2 layers" nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X4,5,6,7,8,9 -x2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.1 "CPU: SNR = 30, MCS = 5, 106 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e5 -b106 -R106 -X 20,21,22,23,24 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.1  "T2 LDPC offload: SNR = 30, MCS = 5, 106 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e5 -b106 -R106 -X 20,21,22,23,24 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.2 "CPU: SNR = 30, MCS = 15, 106 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e15 -b106 -R106 -X 20,21,22,23,24 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.2  "T2 LDPC offload: SNR = 30, MCS = 15, 106 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e15 -b106 -R106 -X 20,21,22,23,24 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.3 "CPU: SNR = 30, MCS = 25, 106 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 20,21,22,23,24 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.3  "T2 LDPC offload: SNR = 30, MCS = 25, 106 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e25 -b106 -R106 -X 20,21,22,23,24 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.4 "CPU: SNR = 30, MCS = 5, 273 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X 20,21,22,23,24 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.4  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X 20,21,22,23,24 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.5 "CPU: SNR = 30, MCS = 15, 273 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X 20,21,22,23,24 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.5  "T2 LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X 20,21,22,23,24 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.6 "CPU: SNR = 30, MCS = 25, 273 PRBs, 1 layer"             nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 20,21,22,23,24 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.6  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 1 layer" nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 20,21,22,23,24 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.7 "CPU: SNR = 30, MCS = 5, 273 PRBs, 2 layers"             nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X 20,21,22,23,24 -x2 -z2 -y2 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.7  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 2 layers" nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X 20,21,22,23,24 -x2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.8 "CPU: SNR = 30, MCS = 15, 273 PRBs, 2 layers"             nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X 20,21,22,23,24 -x2 -z2 -y2 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.8  "T2 LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 2 layers" nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X 20,21,22,23,24 -x2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testCPU.9 "CPU: SNR = 30, MCS = 25, 273 PRBs, 2 layers"             nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 20,21,22,23,24 -x2 -z2 -y2 -P)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.9  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 2 layers" nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 20,21,22,23,24 -x2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_dlsim.testCPU.10 "CPU: SNR = 30, MCS = 5, 273 PRBs, 2 layers, 4 antennas"             nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X8,9,10,11,12 -x2 -z4 -y4 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.10  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 2 layers, 4 antennas" nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X4,5,6,7,8,9 -x2 -z4 -y4 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.10  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 2 layers, 4 antennas" nr_dlsim -n1000 -s30 -S30.2 -e5 -b273 -R273 -X 20,21,22,23,24 -x2 -z4 -y4 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_dlsim.testCPU.11 "CPU: SNR = 30, MCS = 20, 273 PRBs, 2 layers, 4 antennas"             nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X8,9,10,11,12 -x2 -z4 -y4 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.11  "T2 LDPC offload: SNR = 30, MCS = 20, 273 PRBs, 2 layers, 4 antennas" nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X4,5,6,7,8,9 -x2 -z4 -y4 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.11  "T2 LDPC offload: SNR = 30, MCS = 20, 273 PRBs, 2 layers, 4 antennas" nr_dlsim -n1000 -s30 -S30.2 -e15 -b273 -R273 -X 20,21,22,23,24 -x2 -z4 -y4 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_dlsim.testCPU.12 "CPU: SNR = 30, MCS = 27, 273 PRBs, 2 layers, 4 antennas"             nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X8,9,10,11,12 -x2 -z4 -y4 -P)
-add_physim_test(physim.5g-offload.nr_dlsim.testT2.12  "T2 LDPC offload: SNR = 30, MCS = 27, 273 PRBs, 2 layers, 4 antennas" nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X4,5,6,7,8,9 -x2 -z4 -y4 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_dlsim.testT2.12  "T2 LDPC offload: SNR = 30, MCS = 27, 273 PRBs, 2 layers, 4 antennas" nr_dlsim -n1000 -s30 -S30.2 -e25 -b273 -R273 -X 20,21,22,23,24 -x2 -z4 -y4 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.1 "CPU: SNR = 30, MCS = 5, 106 PRBs, 1 layer"             nr_ulsim -n1000 -s30 -S30.2 -m5 -r106 -R106 -C10 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.1  "T2 LDPC offload: SNR = 30, MCS = 5, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m5 -r106 -R106 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.1  "T2 LDPC offload: SNR = 30, MCS = 5, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m5 -r106 -R106 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.2 "CPU: SNR = 30, MCS = 15, 106 PRBs, 1 layer"             nr_ulsim -n1000 -s30 -S30.2 -m15 -r106 -R106 -C10 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.2  "T2 LDPC offload: SNR = 30, MCS = 15, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m15 -r106 -R106 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.2  "T2 LDPC offload: SNR = 30, MCS = 15, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m15 -r106 -R106 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.3 "CPU: SNR = 30, MCS = 25, 106 PRBs, 1 layer"             nr_ulsim -n1000 -s30 -S30.2 -m25 -r106 -R106 -C10 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.3  "T2 LDPC offload: SNR = 30, MCS = 25, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m25 -r106 -R106 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.3  "T2 LDPC offload: SNR = 30, MCS = 25, 106 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m25 -r106 -R106 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.4 "CPU: SNR = 30, MCS = 5, 273 PRBs, 1 layer"             nr_ulsim -n1000 -s30 -S30.2 -m5 -r273 -R273 -C10 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.4  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m5 -r273 -R273 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.4  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m5 -r273 -R273 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.5 "CPU: SNR = 30, MCS = 15, 273 PRBs, 1 layer"             nr_ulsim -n1000 -s30 -S30.2 -m15 -r273 -R273 -C10 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.5  "T2 LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m15 -r273 -R273 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.5  "T2 LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m15 -r273 -R273 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.6 "CPU: SNR = 30, MCS = 25, 273 PRBs, 1 layer"             nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -C10 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.6  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.6  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 1 layer" nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -C10 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.7 "CPU: SNR = 30, MCS = 5, 273 PRBs, 2 layers"             nr_ulsim -n1000 -s30 -S30.2 -m5 -r273 -R273 -C10 -W2 -z2 -y2 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.7  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m5 -r273 -R273 -C10 -W2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.7  "T2 LDPC offload: SNR = 30, MCS = 5, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m5 -r273 -R273 -C10 -W2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.8 "CPU: SNR = 30, MCS = 15, 273 PRBs, 2 layers"             nr_ulsim -n1000 -s30 -S30.2 -m15 -r273 -R273 -C10 -W2 -z2 -y2 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.8  "T2 LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m15 -r273 -R273 -C10 -W2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.8  "T2 LDPC offload: SNR = 30, MCS = 15, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m15 -r273 -R273 -C10 -W2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 add_physim_test(physim.5g-offload.nr_ulsim.testCPU.9 "CPU: SNR = 30, MCS = 25, 273 PRBs, 2 layers"             nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -C10 -W2 -z2 -y2 -P)
-add_physim_test(physim.5g-offload.nr_ulsim.testT2.9  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -C10 -W2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 11-12 --nrLDPC_coding_aal.is_t2 1)
+add_physim_test(physim.5g-offload.nr_ulsim.testT2.9  "T2 LDPC offload: SNR = 30, MCS = 25, 273 PRBs, 2 layers" nr_ulsim -n1000 -s30 -S30.2 -m25 -r273 -R273 -C10 -W2 -z2 -y2 -P --loader.ldpc.shlibversion _aal --nrLDPC_coding_aal.dpdk_dev af:00.0 --nrLDPC_coding_aal.dpdk_core_list 18-19 --nrLDPC_coding_aal.is_t2 1)
 
 endif()
 
@@ -507,6 +519,8 @@ if(ENABLE_PHYSIM_TESTS)
     physim.5g.nr_ulschsim.test2
     physim.5g.nr_ulschsim.test4
     physim.5g.nr_pucchsim.test1
+    physim.5g.nr_pucchsim.test49
+    physim.5g.nr_pucchsim.test50
     physim.5g.nr_pucchsim.test2
     physim.5g.nr_pucchsim.test4
     physim.5g.nr_pucchsim.test5

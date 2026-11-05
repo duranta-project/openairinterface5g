@@ -110,7 +110,7 @@ documentation](../../doc/BUILD.md).
 ### Adapt the OAI-gNB configuration file to your system
 
 You can start from a [sample BladeRF configuration
-fiel](../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.51PRB.bladerf20xa0.conf).
+fiel](../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.51PRB.bladerf2.0xa4.conf).
 
 The only BladeRF-specific configuration resides in `RUs.[0].sdr_addrs`. This
 string is passed to
@@ -132,7 +132,7 @@ tutorials](../..//doc/NR_SA_Tutorial_OAI_CN5G.md) for more information.
 Assuming you built from source above:
 
     cd ~/openairinterface5g/build/
-    sudo ./nr-softmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.fr1.51PRB.bladerf20xa0.conf -E
+    sudo ./nr-softmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.51PRB.bladerf2.0xa4.conf -E
 
 ### In case of problems
 

@@ -34,6 +34,8 @@ typedef struct {
   ServiceType serviceType: 4;
   Stmsi5GSMobileIdentity_t fiveg_s_tmsi;
   /* Optional fields */
+  bool has_uplink_data_status;
+  uint8_t uplink_data_status[MAX_NUM_PSI];
   bool has_pdu_session_status;
   uint8_t pdu_session_status[MAX_NUM_PSI];
   FGCNasMessageContainer *fgsnasmessagecontainer;

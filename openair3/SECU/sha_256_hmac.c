@@ -20,13 +20,8 @@ void sha_256_hmac(const uint8_t key[32], byte_array_t data, size_t len, uint8_t 
   DevAssert(data.len != 0);
   DevAssert(len != 0);
 
-  OSSL_LIB_CTX* library_context = OSSL_LIB_CTX_new();
-  DevAssert(library_context != NULL);
-
-  // A property query used for selecting the MAC implementation.
-  const char* propq = NULL;
-  // Fetch the HMAC implementation
-  EVP_MAC* mac = EVP_MAC_fetch(library_context, "HMAC", propq);
+  // Fetch the HMAC implementation from the default context, which has the process-wide OpenSSL providers loaded.
+  EVP_MAC* mac = EVP_MAC_fetch(NULL, "HMAC", NULL);
   DevAssert(mac != NULL);
 
   // Create a context for the HMAC operation
@@ -54,7 +49,6 @@ void sha_256_hmac(const uint8_t key[32], byte_array_t data, size_t len, uint8_t 
   // OpenSSL free functions will ignore NULL arguments
   EVP_MAC_CTX_free(mctx);
   EVP_MAC_free(mac);
-  OSSL_LIB_CTX_free(library_context);
 }
 
 #elif OPENSSL_VERSION_NUMBER >= 0x10100000L

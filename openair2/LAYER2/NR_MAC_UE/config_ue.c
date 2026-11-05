@@ -9,8 +9,8 @@
 #define _GNU_SOURCE
 
 #include "mac_defs.h"
-#include "NR_MAC_UE/mac_proto.h"
 #include "NR_MAC-CellGroupConfig.h"
+#include "LAYER2/NR_MAC_UE/mac_proto.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "common/utils/nr/nr_common.h"
 #include "executables/softmodem-common.h"
@@ -73,31 +73,17 @@ static void set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table, const frame_str
   const tdd_period_config_t *pc = &fs->period_cfg;
   for (int i = 0; i < fs->numb_slots_period; i++) {
     fapi_nr_max_tdd_periodicity_t *period_list = &tdd_table->max_tdd_periodicity_list[i];
-    period_list->max_num_of_symbol_per_slot_list =
-      malloc(NR_SYMBOLS_PER_SLOT * sizeof(*period_list->max_num_of_symbol_per_slot_list));
     if (pc->tdd_slot_bitmap[i].slot_type == TDD_NR_DOWNLINK_SLOT) {
-      for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 0;
-      }
+      period_list->num_dl_ul_symbols_list.num_dl = NR_SYMBOLS_PER_SLOT;
     }
     if (pc->tdd_slot_bitmap[i].slot_type == TDD_NR_UPLINK_SLOT) {
-      for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 1;
-      }
+      period_list->num_dl_ul_symbols_list.num_ul = NR_SYMBOLS_PER_SLOT;
     }
     if (pc->tdd_slot_bitmap[i].slot_type == TDD_NR_MIXED_SLOT) {
       int dl_symb = pc->tdd_slot_bitmap[i].num_dl_symbols;
       int ul_symb = pc->tdd_slot_bitmap[i].num_ul_symbols;
-      int g_symb = NR_SYMBOLS_PER_SLOT - dl_symb - ul_symb;
-      for (int s = 0; s < dl_symb; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 0;
-      }
-      for (int s = dl_symb; s < dl_symb + g_symb; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 2;
-      }
-      for (int s = dl_symb + g_symb; s < NR_SYMBOLS_PER_SLOT; s++) {
-        period_list->max_num_of_symbol_per_slot_list[s].slot_config = 1;
-      }
+      period_list->num_dl_ul_symbols_list.num_dl = dl_symb;
+      period_list->num_dl_ul_symbols_list.num_ul = ul_symb;
     }
   }
 }
@@ -1790,6 +1776,11 @@ static void configure_common_BWP_ul(NR_UE_MAC_INST_t *mac, int bwp_id, NR_BWP_Up
       HANDLE_SETUPRELEASE_DIRECT(bwp->rach_ConfigCommon, rachcommon, NR_RACH_ConfigCommon_t, asn_DEF_NR_RACH_ConfigCommon);
     }
     if (ul_common->ext1 && ul_common->ext1->msgA_ConfigCommon_r16) {
+      NR_MsgA_ConfigCommon_r16_t *msgacc = ul_common->ext1->msgA_ConfigCommon_r16->choice.setup;
+      if (msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16) {
+        mac->ssb_ro_preambles =
+            get_ssb_ro_preambles_2step(msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
+      }
       HANDLE_SETUPRELEASE_DIRECT(bwp->msgA_ConfigCommon_r16,
                                  ul_common->ext1->msgA_ConfigCommon_r16,
                                  NR_MsgA_ConfigCommon_r16_t,
@@ -2084,7 +2075,7 @@ void nr_rrc_mac_start_ra(module_id_t module_id, nr_mac_ra_start_cause_t cause)
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }
 
-void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra)
+void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra, bool dedicated_sib1)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
@@ -2095,32 +2086,39 @@ void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *si
       && sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension) {
     si_SchedulingInfo_v1700 = sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->si_SchedulingInfo_v1700;
   }
+
+  configure_si_schedulingInfo(mac, si_SchedulingInfo, si_SchedulingInfo_v1700);
   NR_ServingCellConfigCommonSIB_t *scc = sib1->servingCellConfigCommon;
   AssertFatal(scc, "SIB1 SCC should not be NULL\n");
-  UPDATE_IE(mac->tdd_UL_DL_ConfigurationCommon, scc->tdd_UL_DL_ConfigurationCommon, NR_TDD_UL_DL_ConfigCommon_t);
-  configure_si_schedulingInfo(mac, si_SchedulingInfo, si_SchedulingInfo_v1700);
   configure_pcch_config(mac, scc);
 
-  config_common_ue_sa(mac, scc, cc_idP);
-
-  // Build the list of all the valid/transmitted SSBs according to the config
-  LOG_D(NR_MAC, "Build SSB list\n");
-  build_ssb_list(mac);
-
-  int bwp_id = 0;
-  configure_common_BWP_dl(mac, bwp_id, &scc->downlinkConfigCommon.initialDownlinkBWP);
-  if (scc->uplinkConfigCommon) {
+  if (scc->uplinkConfigCommon)
     mac->timeAlignmentTimerCommon = scc->uplinkConfigCommon->timeAlignmentTimerCommon;
-    configure_common_BWP_ul(mac, bwp_id, &scc->uplinkConfigCommon->initialUplinkBWP);
-  }
-  // set current BWP only if coming from non-connected state
-  // otherwise it is just a periodically update of the SIB1 content
-  if (mac->state < UE_CONNECTED) {
-    mac->current_DL_BWP = get_dl_bwp_structure(mac, 0, false);
-    AssertFatal(mac->current_DL_BWP, "Couldn't find DL-BWP0\n");
-    mac->current_UL_BWP = get_ul_bwp_structure(mac, 0, false);
-    AssertFatal(mac->current_UL_BWP, "Couldn't find DL-BWP0\n");
-    configure_timeAlignmentTimer(&mac->time_alignment_timer, mac->timeAlignmentTimerCommon, mac->current_UL_BWP->scs);
+
+  // If dedicatedSIB1-Delivery together with reconfigurationWithSync
+  // The field has the same values as the corresponding configuration in servingCellConfigCommon
+  if (!dedicated_sib1) {
+    UPDATE_IE(mac->tdd_UL_DL_ConfigurationCommon, scc->tdd_UL_DL_ConfigurationCommon, NR_TDD_UL_DL_ConfigCommon_t);
+
+    config_common_ue_sa(mac, scc, cc_idP);
+
+    // Build the list of all the valid/transmitted SSBs according to the config
+    LOG_D(NR_MAC, "Build SSB list\n");
+    build_ssb_list(mac);
+
+    int bwp_id = 0;
+    configure_common_BWP_dl(mac, bwp_id, &scc->downlinkConfigCommon.initialDownlinkBWP);
+    if (scc->uplinkConfigCommon)
+      configure_common_BWP_ul(mac, bwp_id, &scc->uplinkConfigCommon->initialUplinkBWP);
+    // set current BWP only if coming from non-connected state
+    // otherwise it is just a periodically update of the SIB1 content
+    if (mac->state < UE_CONNECTED) {
+      mac->current_DL_BWP = get_dl_bwp_structure(mac, 0, false);
+      AssertFatal(mac->current_DL_BWP, "Couldn't find DL-BWP0\n");
+      mac->current_UL_BWP = get_ul_bwp_structure(mac, 0, false);
+      AssertFatal(mac->current_UL_BWP, "Couldn't find DL-BWP0\n");
+      configure_timeAlignmentTimer(&mac->time_alignment_timer, mac->timeAlignmentTimerCommon, mac->current_UL_BWP->scs);
+    }
   }
   if (mac->state == UE_RECEIVING_SIB && can_start_ra)
     mac->state = UE_PERFORMING_RA;
