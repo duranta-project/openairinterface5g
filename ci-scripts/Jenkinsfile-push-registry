@@ -49,7 +49,7 @@ pipeline {
     stage ("Push to DockerHub") {
       steps {
         script {
-          def IMAGE_TAG = params.weeklyTag?.trim()
+          def IMAGE_TAG = params.releaseTag?.trim() ?: params.weeklyTag?.trim()
           def COMMIT_SHA
           if (IMAGE_TAG) {
             // A given tag publishes the CI images built from the tagged commit
@@ -71,7 +71,7 @@ pipeline {
             listOfImages.each { item ->
               def tags = "--tag ${DH_Account}/${item}:${IMAGE_TAG}"
               // Only the automatic run updates develop; a given tag may be older than the latest develop
-              if (!params.weeklyTag?.trim()) {
+              if (!params.releaseTag?.trim() && !params.weeklyTag?.trim()) {
                 tags += " --tag ${DH_Account}/${item}:develop"
               }
               if (["oai-gnb", "oai-nr-ue", "oai-nr-cuup"].contains(item)) {
