@@ -67,21 +67,14 @@ pipeline {
             def listOfImages = ["oai-enb", "oai-gnb", "oai-lte-ue", "oai-nr-ue", "oai-nr-cuup", "oai-gnb-fhi72"]
             sh 'echo "$DH_Password" | docker login -u "$DH_Username" --password-stdin > /dev/null 2>&1'
             sh 'echo "$REGISTRY_Password" | docker login -u "$REGISTRY_Username" --password-stdin ' + OAI_Registry + ' > /dev/null 2>&1'
-            listOfImages.eachWithIndex { item, iindex ->
+            listOfImages.each { item ->
+              def tags = "--tag ${DH_Account}/${item}:${WEEK_TAG} --tag ${DH_Account}/${item}:develop"
               if (["oai-gnb", "oai-nr-ue", "oai-nr-cuup"].contains(item)) {
-                // For images built on AMD64 and ARMv8 Jetson
-                echo "Pushing image '${item}' for both AMD64 and ARM64 architectures with tags: ${WEEK_TAG} and develop"
-                sh "docker rmi ${DH_Account}/${item}:${WEEK_TAG} ${DH_Account}/${item}:develop || true"
-                sh "docker buildx imagetools create --tag ${DH_Account}/${item}:${WEEK_TAG} ${OAI_Registry}/${item}:armv8_develop-${WEEK_SHA} ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
-                sh "docker buildx imagetools create --tag ${DH_Account}/${item}:develop ${OAI_Registry}/${item}:armv8_develop-${WEEK_SHA} ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
+                echo "Pushing image '${item}' for both AMD64 and ARM64 architectures"
+                sh "docker buildx imagetools create ${tags} ${OAI_Registry}/${item}:armv8_develop-${WEEK_SHA} ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
               } else {
-                sh "docker pull --quiet ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
-                sh "docker image tag ${OAI_Registry}/${item}:develop-${WEEK_SHA} ${DH_Account}/${item}:develop"
-                sh "docker image tag ${OAI_Registry}/${item}:develop-${WEEK_SHA} ${DH_Account}/${item}:${WEEK_TAG}"
-                sh "docker push --quiet ${DH_Account}/${item}:develop"
-                sh "docker push --quiet ${DH_Account}/${item}:${WEEK_TAG}"
+                sh "docker buildx imagetools create ${tags} ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
               }
-              sh "docker rmi ${DH_Account}/${item}:${WEEK_TAG} ${DH_Account}/${item}:develop ${OAI_Registry}/${item}:develop-${WEEK_SHA} || true"
             }
           }
         }
