@@ -459,7 +459,8 @@ enum xran_cp_sectionextcmd {
   XRAN_CP_SECTIONEXTCMD_11 = 11, /**< Flexible BF weights */
   XRAN_CP_SECTIONEXTCMD_19 = 19, /**< Compact beamforming information for multiple port (CUS v16.01 7.7.19) */
   XRAN_CP_SECTIONEXTCMD_20 = 20, /**< Puncturing extension (CUS v16.01 7.7.20) */
-  XRAN_CP_SECTIONEXTCMD_MAX /* 12~18 and 21~127 are not listed */
+  XRAN_CP_SECTIONEXTCMD_24 = 24, /**< PUSCH DMRS configuration (CUS v16.01 7.7.24) */
+  XRAN_CP_SECTIONEXTCMD_MAX /* 12~18, 21~23 and 25~127 are not listed */
 };
 
 /** Macro to convert bfwIqWidth defined in 5.4.7.1.1, Table 5-15 */
