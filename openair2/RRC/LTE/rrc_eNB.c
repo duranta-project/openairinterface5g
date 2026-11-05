@@ -1946,11 +1946,10 @@ rrc_eNB_generate_dedicatedRRCConnectionReconfiguration(const protocol_ctxt_t *co
 
     DRB_config = CALLOC(1, sizeof(*DRB_config));
     DRB_config->eps_BearerIdentity = CALLOC(1, sizeof(long));
-    // allowed value 5..15, value : x+4
-    *(DRB_config->eps_BearerIdentity) = ue_context_pP->ue_context.e_rab[i].param.e_rab_id;//+ 4; // especial case generation
-    //   DRB_config->drb_Identity =  1 + drb_identity_index + e_rab_done;// + i ;// (LTE_DRB_Identity_t) ue_context_pP->ue_context.e_rab[i].param.e_rab_id;
-    // 1 + drb_identiy_index;
-    DRB_config->drb_Identity = i+1;
+    /* The E-RAB ID comes from the MME (1..15, TS 36.413) and bears no relation
+     * to the DRB identity, which RRC assigns per UE-context slot. */
+    *(DRB_config->eps_BearerIdentity) = ue_context_pP->ue_context.e_rab[i].param.e_rab_id;
+    DRB_config->drb_Identity = rrc_eNB_get_drb_identity(i);
     DRB_config->logicalChannelIdentity = CALLOC(1, sizeof(long));
     *(DRB_config->logicalChannelIdentity) = DRB_config->drb_Identity + 2; //(long) (ue_context_pP->ue_context.e_rab[i].param.e_rab_id + 2); // value : x+2
     DRB_rlc_config = CALLOC(1, sizeof(*DRB_rlc_config));
