@@ -49,16 +49,17 @@ pipeline {
     stage ("Push to DockerHub") {
       steps {
         script {
-          def WEEK_TAG = sh returnStdout: true, script: 'date +"%Y.w%V"'
-          WEEK_TAG = WEEK_TAG.trim()
-          if ((params.forceTag != null) && (params.tagToUse != null)) {
-            if (params.forceTag) {
-              WEEK_TAG = params.tagToUse
-              echo "Forced Tag is ${WEEK_TAG}"
-            }
+          def IMAGE_TAG = params.weeklyTag?.trim()
+          def COMMIT_SHA
+          if (IMAGE_TAG) {
+            // A given tag publishes the CI images built from the tagged commit
+            sh "git fetch --force origin tag ${IMAGE_TAG} --no-tags"
+            COMMIT_SHA = sh(returnStdout: true, script: "git rev-parse --verify ${IMAGE_TAG}^{commit}").trim()
+          } else {
+            IMAGE_TAG = sh(returnStdout: true, script: 'date +"%Y.w%V"').trim()
+            COMMIT_SHA = sh(returnStdout: true, script: 'git log -n1 --pretty=format:"%H" origin/develop').trim()
           }
-          def WEEK_SHA = sh returnStdout: true, script: 'git log -n1 --pretty=format:"%H" origin/develop'
-          WEEK_SHA = WEEK_SHA.trim()
+          echo "Tag is ${IMAGE_TAG} (commit ${COMMIT_SHA})"
 
           withCredentials([
             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password'],
@@ -68,12 +69,16 @@ pipeline {
             sh 'echo "$DH_Password" | docker login -u "$DH_Username" --password-stdin > /dev/null 2>&1'
             sh 'echo "$REGISTRY_Password" | docker login -u "$REGISTRY_Username" --password-stdin ' + OAI_Registry + ' > /dev/null 2>&1'
             listOfImages.each { item ->
-              def tags = "--tag ${DH_Account}/${item}:${WEEK_TAG} --tag ${DH_Account}/${item}:develop"
+              def tags = "--tag ${DH_Account}/${item}:${IMAGE_TAG}"
+              // Only the automatic run updates develop; a given tag may be older than the latest develop
+              if (!params.weeklyTag?.trim()) {
+                tags += " --tag ${DH_Account}/${item}:develop"
+              }
               if (["oai-gnb", "oai-nr-ue", "oai-nr-cuup"].contains(item)) {
                 echo "Pushing image '${item}' for both AMD64 and ARM64 architectures"
-                sh "docker buildx imagetools create ${tags} ${OAI_Registry}/${item}:armv8_develop-${WEEK_SHA} ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
+                sh "docker buildx imagetools create ${tags} ${OAI_Registry}/${item}:armv8_develop-${COMMIT_SHA} ${OAI_Registry}/${item}:develop-${COMMIT_SHA}"
               } else {
-                sh "docker buildx imagetools create ${tags} ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
+                sh "docker buildx imagetools create ${tags} ${OAI_Registry}/${item}:develop-${COMMIT_SHA}"
               }
             }
           }
