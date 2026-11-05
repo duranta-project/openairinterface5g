@@ -124,6 +124,7 @@ void nr_fill_ulsch(PHY_VARS_gNB *gNB,
                           slot,
                           bitmap,
                           gNB->frame_parms.nb_antennas_rx,
+                          gNB->common_vars.num_beams_period,
                           gNB->common_vars.beam_id);
   }
   bool done = spsc_q_put(&gNB->pusch_queue, &pusch, sizeof(pusch));
