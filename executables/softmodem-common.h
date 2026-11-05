@@ -72,6 +72,9 @@ extern "C"
 #define CONFIG_HLP_CONTINUOUS_TX "perform continuous transmission, even in TDD mode (to work around USRP issues)\n"
 #define CONFIG_HLP_STATS_DISABLE "disable globally the stats generation and persistence"
 #define CONFIG_HLP_NOITTI        "Do not start itti threads, call queue processing in place, inside the caller thread"
+#define CONFIG_HLP_CPU_DMA_LATENCY                                                                                                \
+  "Maximum CPU wakeup latency in us requested through /dev/cpu_dma_latency (blocks the deeper C-states), held until the process " \
+  "ends; -1: no request\n"
 #define CONFIG_HLP_SYNC_REF      "UE acts a Sync Reference in Sidelink. 0-none 1-GNB 2-GNSS 4-localtiming\n"
 #define CONFIG_HLP_TADV                                                                                                      \
   "Set RF board timing_advance to compensate fix delay inside the RF board between Rx and Tx timestamps (RF board internal " \
@@ -142,6 +145,7 @@ extern int usrp_tx_thread;
   {"imscope" ,              CONFIG_HLP_IMSCOPE,       PARAMFLAG_BOOL, .uptr=&enable_imscope,                   .defintval=0,            TYPE_UINT,   0}, \
   {"imscope-record" ,       CONFIG_HLP_IMSCOPE_RECORD,PARAMFLAG_BOOL, .uptr=&enable_imscope_record,            .defintval=0,            TYPE_UINT,   0}, \
   {"default-pdu-id",        NULL,                     0,              .iptr=&DEFAULT_PDU_ID,                   .defintval=-1,           TYPE_INT,    0}, \
+  {"cpu-dma-latency",       CONFIG_HLP_CPU_DMA_LATENCY, 0,            .iptr=&softmodem_params.cpu_dma_latency, .defintval=2,            TYPE_INT,    0}, \
 }
 // clang-format on
 
@@ -176,6 +180,7 @@ extern int usrp_tx_thread;
                {"MONOLITHIC", "PNF", "VNF", "AERIAL","UE_STUB_PNF","UE_STUB_OFFNET","STANDALONE_PNF"}, \
                {NFAPI_MONOLITHIC, NFAPI_MODE_PNF, NFAPI_MODE_VNF, NFAPI_MODE_AERIAL,NFAPI_UE_STUB_PNF,NFAPI_UE_STUB_OFFNET,NFAPI_MODE_STANDALONE_PNF}, \
                7 } }, \
+    { .s5 = { NULL } },                     \
     { .s5 = { NULL } },                     \
     { .s5 = { NULL } },                     \
     { .s5 = { NULL } },                     \
@@ -294,6 +299,7 @@ typedef struct {
   int threequarter_fs;
   int default_pdu_session_id;
   int extra_pdu_session_id;
+  int cpu_dma_latency;
 } softmodem_params_t;
 
 #define IS_SA_MODE(sM_params) (!(sM_params)->phy_test && !(sM_params)->do_ra && !(sM_params)->nsa)

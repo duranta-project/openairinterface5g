@@ -355,6 +355,28 @@ void thread_top_init(char *thread_name)
   }
 }
 
+/* \brief limit the CPU wakeup latency to latency_us (blocks the deeper C-states), latency_us < 0: no request. The
+   request lives as long as /dev/cpu_dma_latency is open: the kernel drops it when the process ends */
+void set_cpu_dma_latency(int latency_us)
+{
+  static int fd = -1;
+  if (latency_us < 0 || fd >= 0)
+    return;
+  fd = open("/dev/cpu_dma_latency", O_WRONLY | O_CLOEXEC);
+  if (fd < 0) {
+    LOG_W(UTIL, "cannot open /dev/cpu_dma_latency: %s, C-states not limited\n", strerror(errno));
+    return;
+  }
+  const int32_t value = latency_us;
+  if (write(fd, &value, sizeof(value)) != sizeof(value)) {
+    LOG_W(UTIL, "cannot write /dev/cpu_dma_latency: %s, C-states not limited\n", strerror(errno));
+    close(fd);
+    fd = -1;
+    return;
+  }
+  LOG_I(UTIL, "CPU wakeup latency limited to %d us (/dev/cpu_dma_latency) until the process ends\n", latency_us);
+}
+
 /* \brief lock memory to RAM to avoid delays */
 void lock_memory_to_ram(void)
 {

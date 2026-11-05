@@ -381,6 +381,7 @@ int main(int argc, char **argv)
      UEs in one process (simulation), that is gigabytes for no real-time gain */
   if (NB_UE_INST == 1)
     lock_memory_to_ram();
+  set_cpu_dma_latency(get_softmodem_params()->cpu_dma_latency);
 
   if (IS_SOFTMODEM_DOSCOPE) {
     load_softscope("nr", nrPHY_vars_UE_g[0][0]);
