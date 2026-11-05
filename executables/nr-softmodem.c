@@ -446,6 +446,7 @@ int main( int argc, char **argv ) {
   logInit();
   lock_memory_to_ram();
   get_options(uniqCfg);
+  set_cpu_dma_latency(get_softmodem_params()->cpu_dma_latency);
 
   if (!has_cap_sys_nice())
     LOG_W(UTIL,
