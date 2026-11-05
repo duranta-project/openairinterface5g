@@ -1613,7 +1613,10 @@ long ue_supported_ul_layers(const NR_UE_NR_Capability_t *uecap, int ul_id)
 
 static long set_ul_max_layers(const nr_mac_config_t *configuration, const NR_UE_NR_Capability_t *uecap, int ul_id)
 {
-  return min(ue_supported_ul_layers(uecap, ul_id), configuration->pusch_AntennaPorts);
+  long layers = min(ue_supported_ul_layers(uecap, ul_id), configuration->pusch_AntennaPorts);
+  if (configuration->ul_max_layers > 0)
+    layers = min(layers, configuration->ul_max_layers);
+  return layers;
 }
 
 static NR_SetupRelease_PUSCH_Config_t *config_pusch(const nr_mac_config_t *configuration,

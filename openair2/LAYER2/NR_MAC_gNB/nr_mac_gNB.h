@@ -229,6 +229,8 @@ typedef struct nr_mac_config_s {
   bool force_UL256qam_off;
   bool use_deltaMCS;
   int maxMIMO_layers;
+  /// limit on UL layers and SRS ports, 0 to follow the UE capability
+  int ul_max_layers;
   bool disable_harq;
   nr_power_config_t pusch;
   /// SNR threshold needed to put or not a PRB in the black list

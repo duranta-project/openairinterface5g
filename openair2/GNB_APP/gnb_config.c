@@ -1755,6 +1755,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
     config.pucch.rssi_threshold = *gpd(params, np, MACRLC_PUCCH_RSSI_THRESHOLD)->iptr;
     config.pucch.target_snrx10 = *gpd(params, np, MACRLC_PUCCHTARGETSNRX10)->iptr;
     config.ul_prbblack_SNR_threshold = *gpd(params, np, MACRLC_UL_PRBBLACK_SNR_THRESHOLD)->iptr;
+    config.ul_max_layers = *gpd(params, np, MACRLC_UL_MAX_LAYERS)->iptr;
     snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", MACRLC_LIST, 0, MACRLC_CONFIG_STRING_SRS_CONFIG);
     GET_PARAMS(SRS_Params, MACRLC_SRSPARAMS_DESC, aprefix);
     const int n_srs = sizeofArray(SRS_Params);
