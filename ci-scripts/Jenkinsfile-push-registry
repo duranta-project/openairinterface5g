@@ -58,12 +58,12 @@ pipeline {
           WEEK_SHA = WEEK_SHA.trim()
 
           withCredentials([
-            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password']
+            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password'],
+            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.REGISTRY_Credentials}", usernameVariable: 'REGISTRY_Username', passwordVariable: 'REGISTRY_Password']
           ]) {
             def listOfImages = ["oai-enb", "oai-gnb", "oai-lte-ue", "oai-nr-ue", "oai-nr-cuup", "oai-gnb-fhi72"]
-            // Logging in on both registries
-            sh "docker login -u ${DH_Username} -p ${DH_Password} > /dev/null 2>&1"
-            sh "docker login -u oaicicd -p oaicicd ${OAI_Registry} > /dev/null 2>&1"
+            sh 'echo "$DH_Password" | docker login -u "$DH_Username" --password-stdin > /dev/null 2>&1'
+            sh 'echo "$REGISTRY_Password" | docker login -u "$REGISTRY_Username" --password-stdin ' + OAI_Registry + ' > /dev/null 2>&1'
             listOfImages.eachWithIndex { item, iindex ->
               if (["oai-gnb", "oai-nr-ue", "oai-nr-cuup"].contains(item)) {
                 // For images built on AMD64 and ARMv8 Jetson
@@ -80,9 +80,6 @@ pipeline {
               }
               sh "docker rmi ${DH_Account}/${item}:${WEEK_TAG} ${DH_Account}/${item}:develop ${OAI_Registry}/${item}:develop-${WEEK_SHA} || true"
             }
-            // Logging out on both registries
-            sh "docker logout ${OAI_Registry} > /dev/null 2>&1"
-            sh "docker logout > /dev/null 2>&1"
           }
         }
       }
@@ -93,7 +90,6 @@ pipeline {
       script {
         sh "docker logout ${OAI_Registry} > /dev/null 2>&1"
         sh "docker logout > /dev/null 2>&1"
-        echo "End of Registry Push"
       }
     }
   }
