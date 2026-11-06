@@ -261,13 +261,13 @@ static void test_service_reject(void)
   fgs_service_reject_msg_t orig = {
       .cause = Illegal_UE,
       .has_psi_status = true,
-      .t3446 = malloc_or_fail(sizeof(*orig.t3446)),
+      .t3346 = malloc_or_fail(sizeof(*orig.t3346)),
       .t3448 = malloc_or_fail(sizeof(*orig.t3448)),
   };
   orig.psi_status[1] = PDU_SESSION_INACTIVE; // PDU Session 1
   orig.psi_status[2] = PDU_SESSION_ACTIVE; // PDU Session 2
-  orig.t3446->value = 10;
-  orig.t3446->unit = TWO_SECONDS;
+  orig.t3346->value = 10;
+  orig.t3346->unit = TWO_SECONDS;
   orig.t3448->value = 1;
   orig.t3448->unit = ONE_MINUTE;
 
