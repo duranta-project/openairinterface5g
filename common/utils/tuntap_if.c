@@ -18,6 +18,10 @@
 #include "common/utils/LOG/log.h"
 #include "common/utils/system.h"
 
+#ifndef IFF_BACKPRESSURE
+#define IFF_BACKPRESSURE 0x0080
+#endif
+
 int nas_sock_fd[MAX_MOBILES_PER_ENB * 2]; // Allocated for both LTE UE and NR UE.
 int nas_sock_mbms_fd;
 
@@ -39,6 +43,9 @@ int tuntap_alloc(int flag, const char *dev)
    */
   DevAssert(flag == IFF_TUN || flag == IFF_TAP);
   ifr.ifr_flags = flag | IFF_NO_PI;
+#ifdef ENABLE_TUN_BACKPRESSURE
+  ifr.ifr_flags |= IFF_BACKPRESSURE;
+#endif
   strncpy(ifr.ifr_name, dev, sizeof(ifr.ifr_name) - 1);
   if ((err = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0) {
     close(fd);
