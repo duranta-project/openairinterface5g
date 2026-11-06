@@ -1030,6 +1030,8 @@ void nr_ra_succeeded(NR_UE_MAC_INST_t *mac, const frame_t frame, const int slot)
     asn1cFreeStruc(asn_DEF_NR_RACH_ConfigDedicated, ra->rach_ConfigDedicated);
 
   ra->RA_active = false;
+  // Rearm SR fallback for later pending data after this RA procedure completes.
+  mac->sr_fallback_ra_triggered = false;
   mac->msg3_C_RNTI = false;
   ra->ra_state = nrRA_SUCCEEDED;
   mac->state = UE_CONNECTED;
