@@ -1,3 +1,4 @@
+#!/bin/bash
 # SPDX-License-Identifier: MIT
 
 function die() { echo $@; exit 1; }
