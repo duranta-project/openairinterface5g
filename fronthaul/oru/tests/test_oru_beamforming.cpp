@@ -25,6 +25,14 @@ configmodule_interface_t *uniqCfg = NULL;
 }
 
 #define N_RB 2
+
+// The passthrough path rotates with rotate_cpx_vector(), which rounds on aarch64 for a shift of 15
+// (NEON vqrdmlah) while c16mulShift() truncates, so the two can differ by 1 LSB there.
+#ifdef __aarch64__
+static const int rotate_q15_tolerance = 1;
+#else
+static const int rotate_q15_tolerance = 0;
+#endif
 #define N_SC (N_RB * NR_NB_SC_PER_RB)
 
 static void fill_iq(uint32_t *buf, int n_re, int16_t base)
@@ -65,8 +73,8 @@ TEST(oru_beamforming, passthrough_single_stream)
   const c16_t *src = (const c16_t *)iq_buf;
   for (int i = 0; i < NR_NB_SC_PER_RB; i++) {
     c16_t expected = c16mulShift(src[i], rotation, 15);
-    EXPECT_EQ(ant0[i].r, expected.r);
-    EXPECT_EQ(ant0[i].i, expected.i);
+    EXPECT_NEAR(ant0[i].r, expected.r, rotate_q15_tolerance);
+    EXPECT_NEAR(ant0[i].i, expected.i, rotate_q15_tolerance);
   }
   assert_zero(ant0 + NR_NB_SC_PER_RB, NR_NB_SC_PER_RB);
   assert_zero((c16_t *)ant1_buf, N_SC);
@@ -96,10 +104,10 @@ TEST(oru_beamforming, passthrough_multi_stream_placement)
   for (int i = 0; i < NR_NB_SC_PER_RB; i++) {
     c16_t exp_a = c16mulShift(((c16_t *)iq_a)[i], rotation, 15);
     c16_t exp_b = c16mulShift(((c16_t *)iq_b)[i], rotation, 15);
-    EXPECT_EQ(ant0[i].r, exp_a.r);
-    EXPECT_EQ(ant0[i].i, exp_a.i);
-    EXPECT_EQ(ant0[NR_NB_SC_PER_RB + i].r, exp_b.r);
-    EXPECT_EQ(ant0[NR_NB_SC_PER_RB + i].i, exp_b.i);
+    EXPECT_NEAR(ant0[i].r, exp_a.r, rotate_q15_tolerance);
+    EXPECT_NEAR(ant0[i].i, exp_a.i, rotate_q15_tolerance);
+    EXPECT_NEAR(ant0[NR_NB_SC_PER_RB + i].r, exp_b.r, rotate_q15_tolerance);
+    EXPECT_NEAR(ant0[NR_NB_SC_PER_RB + i].i, exp_b.i, rotate_q15_tolerance);
   }
 }
 
