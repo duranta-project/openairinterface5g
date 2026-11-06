@@ -8,8 +8,6 @@ logging.basicConfig(
 	format="[%(asctime)s] %(levelname)8s: %(message)s"
 )
 import os
-os.system(f'rm -rf cmake_targets')
-os.system(f'mkdir -p cmake_targets/log')
 import unittest
 import tempfile
 
