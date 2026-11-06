@@ -75,6 +75,8 @@ typedef struct {
   int t3448;
   // Timer t3346 in seconds (-1 = disabled)
   int t3346;
+  // Timer t3502 in seconds (-1 = disabled)
+  int t3502;
   /* NAS Key Set Identifier associated to the security context */
   uint8_t *ksi;
   plmn_id_t *sn_id;

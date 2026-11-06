@@ -326,31 +326,121 @@ static void test_service_reject(void)
   free_fgs_service_reject(&dec_eap);
 }
 
-/** @brief Test NAS Registration Reject enc/dec (plain AMF reject: cause only) */
+/** @brief Test NAS Registration Reject enc/dec with optional timers. */
 static void test_registration_reject(void)
 {
-  fgs_registration_reject_msg_t orig = {
-      .cause = Illegal_UE,
+  const struct {
+    fgs_registration_reject_msg_t msg;
+    uint8_t encoded[7];
+    size_t len;
+  } cases[] = {
+      {{.cause = Illegal_UE}, {0x03}, 1},
+      {{.cause = Illegal_UE, .t3346 = &(gprs_timer_t){0}}, {0x03, 0x5f, 1, 0}, 4},
+      {{.cause = Illegal_UE, .t3502 = &(gprs_timer_t){.unit = DEACTIVATED}}, {0x03, 0x16, 1, 0xe0}, 4},
+      {{.cause = Illegal_UE,
+        .t3346 = &(gprs_timer_t){.unit = DECIHOURS, .value = 2},
+        .t3502 = &(gprs_timer_t){.unit = DEACTIVATED}},
+       {0x03, 0x5f, 1, 0x42, 0x16, 1, 0xe0},
+       7},
+      {{.cause = Illegal_UE, .t3346 = &(gprs_timer_t){0}, .t3502 = &(gprs_timer_t){0}}, {0x03, 0x5f, 1, 0, 0x16, 1, 0}, 7},
   };
 
-  uint8_t expected_enc[] = {0x03};
+  for (size_t i = 0; i < sizeofArray(cases); i++) {
+    uint8_t buf[7] = {0};
+    byte_array_t buffer = {.buf = buf, .len = cases[i].len};
+    int encoded_length = encode_fgs_registration_reject(&buffer, &cases[i].msg);
+    AssertFatal(encoded_length == cases[i].len, "Registration Reject encoding length mismatch in case %zu\n", i);
+    AssertFatal(memcmp(buf, cases[i].encoded, buffer.len) == 0, "Registration Reject encoding mismatch in case %zu\n", i);
 
-  uint8_t buf[64] = {0};
-  byte_array_t buffer = {.buf = buf, .len = sizeof(expected_enc)};
+    fgs_registration_reject_msg_t dec = {0};
+    int decoded_length = decode_fgs_registration_reject(&dec, &buffer);
+    AssertFatal(decoded_length == cases[i].len, "Registration Reject decoding length mismatch in case %zu\n", i);
+    AssertFatal(eq_registration_reject(&cases[i].msg, &dec), "Registration Reject roundtrip mismatch in case %zu\n", i);
+    free_fgs_registration_reject(&dec);
 
-  int encoded_length = encode_fgs_registration_reject(&buffer, &orig);
-  AssertFatal(encoded_length == sizeofArray(expected_enc),
-              "encode_fgs_registration_reject() failed: %d != %ld\n",
-              encoded_length,
-              sizeofArray(expected_enc));
-  AssertFatal(memcmp(buffer.buf, expected_enc, buffer.len) == 0, "Encoding mismatch!\n");
+    for (size_t capacity = 0; capacity < cases[i].len; capacity++) {
+      memset(buf, 0xa5, sizeof(buf));
+      buffer.len = capacity;
+      AssertFatal(encode_fgs_registration_reject(&buffer, &cases[i].msg) == -1,
+                  "Registration Reject accepted insufficient capacity in case %zu\n",
+                  i);
+      for (size_t j = 0; j < sizeof(buf); j++)
+        AssertFatal(buf[j] == 0xa5, "Registration Reject modified a short output buffer\n");
+    }
+  }
 
+  uint8_t reversed[] = {0x03, 0x16, 1, 0xe0, 0x5f, 1, 0x42};
+  byte_array_t buffer = {.buf = reversed, .len = sizeof(reversed)};
   fgs_registration_reject_msg_t dec = {0};
-  int decoded_length = decode_fgs_registration_reject(&dec, &buffer);
-  AssertFatal(decoded_length >= 0, "decode_fgs_registration_reject() failed\n");
-  AssertFatal(eq_registration_reject(&orig, &dec),
-              "test_registration_reject() failed: original and decoded messages do not match\n");
+  AssertFatal(decode_fgs_registration_reject(&dec, &buffer) == sizeof(reversed), "Reversed timer order failed\n");
+  AssertFatal(eq_registration_reject(&cases[3].msg, &dec), "Reversed timer values mismatch\n");
   free_fgs_registration_reject(&dec);
+
+  struct {
+    uint8_t encoded[7];
+    size_t len;
+    int consumed;
+    bool t3346_present;
+  } incomplete[] = {
+      {{0x03, 0x5f}, 2, 1, false},
+      {{0x03, 0x5f, 1}, 3, 1, false},
+      {{0x03, 0x5f, 2, 0x42, 0}, 5, 1, false},
+      {{0x03, 0x16, 0}, 3, 1, false},
+      {{0x03, 0x5f, 1, 0x42, 0x16}, 5, 4, true},
+      {{0x03, 0x5f, 1, 0x42, 0x16, 1}, 6, 4, true},
+      {{0x03, 0x5f, 1, 0x42, 0x5f, 1, 0}, 7, 4, true},
+      {{0x03, 0x5f, 1, 0x42, 0x78, 0, 0}, 7, 4, true},
+  };
+  for (size_t i = 0; i < sizeofArray(incomplete); i++) {
+    buffer = (byte_array_t){.buf = incomplete[i].encoded, .len = incomplete[i].len};
+    fgs_registration_reject_msg_t expected = {
+        .cause = Illegal_UE,
+        .t3346 = incomplete[i].t3346_present ? &(gprs_timer_t){.unit = DECIHOURS, .value = 2} : NULL,
+    };
+    AssertFatal(decode_fgs_registration_reject(&dec, &buffer) == incomplete[i].consumed,
+                "Registration Reject partial length mismatch in case %zu\n",
+                i);
+    AssertFatal(eq_registration_reject(&expected, &dec), "Registration Reject partial values mismatch in case %zu\n", i);
+    free_fgs_registration_reject(&dec);
+  }
+}
+
+/** @brief Check shared timer bounds and preservation of every value octet. */
+static void test_gprs_timer(void)
+{
+  for (unsigned int value = 0; value <= UINT8_MAX; value++) {
+    uint8_t input[] = {1, value};
+    byte_array_t buffer = {.buf = input, .len = sizeof(input)};
+    gprs_timer_t timer = {0};
+    AssertFatal(decode_gprs_timer_ie(&timer, &buffer) == 2, "GPRS timer decode failed\n");
+    uint8_t output[3] = {0};
+    buffer = (byte_array_t){.buf = output, .len = sizeof(output)};
+    AssertFatal(encode_gprs_timer_ie(&buffer, IEI_T3346_VALUE, &timer) == 3, "GPRS timer encode failed\n");
+    AssertFatal(output[0] == 0x5f && output[1] == 1 && output[2] == value, "GPRS timer value octet changed\n");
+  }
+
+  const gprs_timer_t expected = {.unit = ONE_MINUTE, .value = 5};
+  uint8_t malformed[][2] = {{1, 0x42}, {1, 0x42}, {0, 0x42}, {2, 0x42}};
+  const size_t lengths[] = {0, 1, 2, 2};
+  for (size_t i = 0; i < sizeofArray(malformed); i++) {
+    byte_array_t buffer = {.buf = malformed[i], .len = lengths[i]};
+    gprs_timer_t timer = expected;
+    AssertFatal(decode_gprs_timer_ie(&timer, &buffer) == -1, "GPRS timer accepted an invalid length\n");
+    AssertFatal(eq_gprs_timer(&timer, &expected), "GPRS timer changed output after a decoding error\n");
+
+    // These callers consume the IEI before invoking the shared decoder.
+    uint8_t service_accept[] = {0x6b, malformed[i][0], malformed[i][1]};
+    buffer = (byte_array_t){.buf = service_accept, .len = 1 + lengths[i]};
+    fgs_service_accept_msg_t accept = {0};
+    AssertFatal(decode_fgs_service_accept(&accept, &buffer) == -1, "Service Accept accepted an invalid timer\n");
+    free_fgs_service_accept(&accept);
+
+    uint8_t service_reject[] = {0x03, 0x5f, malformed[i][0], malformed[i][1]};
+    buffer = (byte_array_t){.buf = service_reject, .len = 2 + lengths[i]};
+    fgs_service_reject_msg_t reject = {0};
+    AssertFatal(decode_fgs_service_reject(&reject, &buffer) == -1, "Service Reject accepted an invalid timer\n");
+    free_fgs_service_reject(&reject);
+  }
 }
 
 /** @brief Test NAS Authentication Failure enc/dec */
@@ -469,6 +559,7 @@ int main()
   test_service_accept();
   test_service_reject();
   test_registration_reject();
+  test_gprs_timer();
   test_auth_failure();
   test_auth_reject();
   test_security_mode_reject();
