@@ -19,6 +19,7 @@
 #include "openair1/PHY/defs_nr_common.h"
 #include "openair1/PHY/defs_nr_UE.h"
 #include "openair3/NAS/NR_UE/nr_nas_msg.h"
+#include "nr-uesoftmodem.h"
 #include "openair1/PHY/phy_extern_nr_ue.h"
 #include "common/utils/utils.h"
 
@@ -133,15 +134,21 @@ static int get_rrc_state(char *buf, int debug, telnet_printfunc_t prnt)
 }
 
 /**
- * Force RLF on UE
+ * Force RLF on UE: signal RLC max retransmissions to the RRC task, so that RLF
+ * is handled in the RRC thread as a real one would be
  */
 int force_rlf(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  UNUSED(buf);
-  UNUSED(prnt);
-  NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(0);
-  handle_rlf_detection(rrc);
+  int ue_id = 0;
+  if (buf && buf[0] != '\0')
+    ue_id = strtol(buf, NULL, 10);
+  if (ue_id < 0 || ue_id >= MAX_NUM_NR_UE_INST || !get_NR_UE_rrc_inst(ue_id))
+    ERROR_MSG_RET("No UE with UE_ID %d\n", ue_id);
+  MessageDef *msg = itti_alloc_new_message(TASK_RLC_UE, ue_id, NR_RRC_RLC_MAXRTX);
+  NR_RRC_RLC_MAXRTX(msg).ue_id = ue_id;
+  itti_send_msg_to_task(TASK_RRC_NRUE, ue_id, msg);
+  prnt("triggered RLF on UE %d\n", ue_id);
   return 0;
 }
 
@@ -237,7 +244,7 @@ static telnetshell_cmddef_t cicmds[] = {
   {"sync_state", "[UE_ID(int,opt)]", get_sync_state},
   {"rrc_state", "[UE_ID(int,opt)]", get_rrc_state},
   {"nas_mode", "[UE_ID(int,opt)]", get_nas_mode},
-  {"force_rlf", "", force_rlf},
+  {"force_rlf", "[UE_ID(int,opt)]", force_rlf},
   {"force_crnti_ra", "", force_crnti_ra},
   {"deregistration", "", force_deregistration},
   {"get_max_dl_toa", "[ant]", get_dl_toa},
