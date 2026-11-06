@@ -26,8 +26,23 @@
 
 #include "common/utils/threadPool/notified_fifo.h"
 #include "common/utils/fsn.h"
+#include "openair1/PHY/sse_intrin.h"
 
 #define N_SC_PER_PRB 12
+
+static inline simde__m256i oai_mm256_bswap16(simde__m256i a)
+{
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  const simde__m256i shuffle_mask = simde_mm256_setr_epi8(
+      1, 0, 3, 2, 5, 4, 7, 6,
+      9, 8, 11, 10, 13, 12, 15, 14,
+      17, 16, 19, 18, 21, 20, 23, 22,
+      25, 24, 27, 26, 29, 28, 31, 30);
+  return simde_mm256_shuffle_epi8(a, shuffle_mask);
+#else
+  return a;
+#endif
+}
 
 // Declare variable useful for the send buffer function
 volatile bool first_call_set = false;
@@ -376,11 +391,30 @@ int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int
         /* convert Network order to host order */
         if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {
           if (sym_idx == prach_start_sym) {
-            for (idx = 0; idx < N_ZC * 2; idx++) {
+            for (; idx + 16 <= N_ZC * 2; idx += 16) {
+              simde__m256i v = simde_mm256_loadu_si256(
+                  (const simde__m256i *)(src + g_kbar + idx));
+              v = oai_mm256_bswap16(v);
+              simde_mm256_storeu_si256((simde__m256i *)(dst + idx), v);
+            }
+
+            for (; idx < N_ZC * 2; idx++) {
               dst[idx] = ((int16_t)ntohs(src[idx + g_kbar]));
             }
           } else {
-            for (idx = 0; idx < N_ZC * 2; idx++) {
+            for (; idx + 16 <= N_ZC * 2; idx += 16) {
+              simde__m256i src_v = simde_mm256_loadu_si256(
+                  (const simde__m256i *)(src + g_kbar + idx));
+              simde__m256i dst_v = simde_mm256_loadu_si256(
+                  (const simde__m256i *)(dst + idx));
+
+              src_v = oai_mm256_bswap16(src_v);
+              dst_v = simde_mm256_add_epi16(dst_v, src_v);
+
+              simde_mm256_storeu_si256((simde__m256i *)(dst + idx), dst_v);
+            }
+
+            for (; idx < N_ZC * 2; idx++) {
               dst[idx] += ((int16_t)ntohs(src[idx + g_kbar]));
             }
           }
@@ -557,8 +591,20 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
               src = pData;
               if (pRbElm->compMethod == XRAN_COMPMETHOD_NONE) {
                 // NOTE: gcc 11 knows how to generate AVX2 for this!
-                for (idx = 0; idx < (numRB * N_SC_PER_PRB) * 2; idx++)
-                  ((int16_t *)pos)[idx + startRB * N_SC_PER_PRB * 2] = ((int16_t)ntohs(((uint16_t *)src)[idx])) >> 2;
+                const int num_samples = (numRB * N_SC_PER_PRB) * 2;
+                int16_t *dst16 = (int16_t *)pos + startRB * N_SC_PER_PRB * 2;
+                const uint16_t *src16 = (const uint16_t *)src;
+
+                for (idx = 0; idx + 16 <= num_samples; idx += 16) {
+                  simde__m256i v = simde_mm256_loadu_si256(
+                      (const simde__m256i *)(src16 + idx));
+                  v = oai_mm256_bswap16(v);
+                  v = simde_mm256_srai_epi16(v, 2);
+                  simde_mm256_storeu_si256((simde__m256i *)(dst16 + idx), v);
+                }
+
+                for (; idx < num_samples; idx++)
+                  dst16[idx] = ((int16_t)ntohs(src16[idx])) >> 2;
               } else if (pRbElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
 #if defined(__i386__) || defined(__x86_64__)
                 struct xranlib_decompress_request bfp_decom_req = {};
@@ -628,9 +674,21 @@ static int16_t xran_compress_iq_section(int32_t *pos_start, uint8_t *dst, int nu
   if (compMethod == XRAN_COMPMETHOD_NONE) {
     payload_len = numRB * N_SC_PER_PRB * 4L;
     /* convert to Network order */
-    // NOTE: ggc 11 knows how to generate AVX2 for this!
-    for (int idx = 0; idx < (numRB * N_SC_PER_PRB) * 2; idx++)
-      ((uint16_t *)dst)[idx] = htons(((uint16_t *)pos_start)[idx]);
+    // NOTE: gcc 11 knows how to generate AVX2 for this!
+    const int num_samples = (numRB * N_SC_PER_PRB) * 2;
+    uint16_t *dst16 = (uint16_t *)dst;
+    const uint16_t *src16 = (const uint16_t *)pos_start;
+    int idx = 0;
+
+    for (; idx + 16 <= num_samples; idx += 16) {
+      simde__m256i v = simde_mm256_loadu_si256(
+          (const simde__m256i *)(src16 + idx));
+      v = oai_mm256_bswap16(v);
+      simde_mm256_storeu_si256((simde__m256i *)(dst16 + idx), v);
+    }
+
+    for (; idx < num_samples; idx++)
+      dst16[idx] = htons(src16[idx]);
   } else if (compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
     payload_len = (3 * iqWidth + 1) * numRB;
 
