@@ -30,6 +30,7 @@
  */
 
 #include "common/utils/nr/nr_common.h"
+#include "common/utils/latency_hist.h"
 /*MAC*/
 #include "NR_MAC_COMMON/nr_mac.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
@@ -712,7 +713,10 @@ static void pf_dl(gNB_MAC_INST *mac,
         continue;
       }
 
+      struct timespec update_dlsch_buffer_ts;
+      LATENCY_HIST_START(update_dlsch_buffer_ts);
       update_dlsch_buffer(pp_pdsch->frame, pp_pdsch->slot, UE);
+      latency_hist_record("update_dlsch_buffer", latency_hist_elapsed_us(&update_dlsch_buffer_ts));
 
       /* Check DL buffer and skip this UE if no bytes and no TA necessary */
       if (sched_ctrl->num_total_bytes == 0 && sched_ctrl->ta_apply == false)
@@ -1276,6 +1280,8 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
     int dlsch_total_bytes = 0;
     /* next, get RLC data */
     start_meas(&nr_mac->rlc_data_req);
+    struct timespec nr_mac_rlc_data_req_loop_ts;
+    LATENCY_HIST_START(nr_mac_rlc_data_req_loop_ts);
     int sdus = 0;
 
     if (sched_ctrl->num_total_bytes > 0) {
@@ -1334,6 +1340,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
       }
     }
 
+    latency_hist_record("nr_mac_rlc_data_req_loop", latency_hist_elapsed_us(&nr_mac_rlc_data_req_loop_ts));
     stop_meas(&nr_mac->rlc_data_req);
 
     // Add padding header and zero rest out if there is space left

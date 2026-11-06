@@ -37,6 +37,7 @@
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "common/platform_constants.h"
 #include "common/utils/T/T.h"
+#include "common/utils/latency_hist.h"
 #include "executables/softmodem-common.h"
 #include "nfapi/oai_integration/gnb_ind_vars.h"
 #include "nfapi/oai_integration/vendor_ext.h"
@@ -453,7 +454,10 @@ static void NR_UL_indication(NR_UL_IND_t *UL_info)
   if (UL_info->rach_ind.number_of_pdus > 0)
     handle_nr_rach(UL_info);
   handle_nr_uci(UL_info);
+  struct timespec handle_nr_ulsch_ts;
+  LATENCY_HIST_START(handle_nr_ulsch_ts);
   handle_nr_ulsch(UL_info);
+  latency_hist_record("handle_nr_ulsch", latency_hist_elapsed_us(&handle_nr_ulsch_ts));
   handle_nr_srs(UL_info);
 
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {

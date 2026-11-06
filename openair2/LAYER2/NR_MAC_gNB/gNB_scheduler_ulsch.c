@@ -32,6 +32,7 @@
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
+#include "common/utils/latency_hist.h"
 #include "utils.h"
 #include <openair2/UTIL/OPT/opt.h>
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
@@ -1039,7 +1040,10 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
       if (UE_scheduling_control->sched_ul_bytes < 0)
         UE_scheduling_control->sched_ul_bytes = 0;
 
+      struct timespec nr_process_mac_pdu_ts;
+      LATENCY_HIST_START(nr_process_mac_pdu_ts);
       nr_process_mac_pdu(gnb_mod_idP, UE, CC_idP, frameP, slotP, sduP, sdu_lenP, harq_pid);
+      latency_hist_record("nr_process_mac_pdu", latency_hist_elapsed_us(&nr_process_mac_pdu_ts));
     } else {
       if (ul_cqi == 0xff || ul_cqi <= 128) {
         UE->UE_sched_ctrl.pusch_consecutive_dtx_cnt++;

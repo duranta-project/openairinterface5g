@@ -36,6 +36,7 @@
 
 #include "common/utils/LOG/log.h"
 #include "common/utils/nr/nr_common.h"
+#include "common/utils/latency_hist.h"
 #include "common/utils/LOG/vcd_signal_dumper.h"
 #include "UTIL/OPT/opt.h"
 
@@ -248,7 +249,10 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slo
 
   // This schedules the DCI for Downlink and PDSCH
   start_meas(&gNB->schedule_dlsch);
+  struct timespec nr_schedule_ue_spec_ts;
+  LATENCY_HIST_START(nr_schedule_ue_spec_ts);
   nr_schedule_ue_spec(module_idP, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
+  latency_hist_record("nr_schedule_ue_spec", latency_hist_elapsed_us(&nr_schedule_ue_spec_ts));
   stop_meas(&gNB->schedule_dlsch);
 
   nr_sr_reporting(gNB, frame, slot);
