@@ -646,7 +646,8 @@ static int nas_fill_5gs_mobile_identity(FGSMobileIdentity *mobile_identity, cons
   }
 }
 
-void transferRES(uint8_t ck[16], uint8_t ik[16], uint8_t *input, uint8_t rand[16], uint8_t *output, plmn_id_t *plmn_id)
+/* 33.501 Annex A.4 */
+void derive_res_star(uint8_t ck[16], uint8_t ik[16], uint8_t *input, uint8_t rand[16], uint8_t *output, plmn_id_t *plmn_id)
 {
   uint8_t S[100] = {0};
   S[0] = 0x6B;
@@ -662,21 +663,6 @@ void transferRES(uint8_t ck[16], uint8_t ik[16], uint8_t *input, uint8_t rand[16
     S[21 + netNamesize + i] = input[i];
   S[29 + netNamesize] = 0x00;
   S[30 + netNamesize] = 0x08;
-
-  uint8_t plmn[3] = {0x02, 0xf8, 0x39};
-  uint8_t oldS[100];
-  oldS[0] = 0x6B;
-  memcpy(&oldS[1], plmn, 3);
-  oldS[4] = 0x00;
-  oldS[5] = 0x03;
-  for (int i = 0; i < 16; i++)
-    oldS[6 + i] = rand[i];
-  oldS[22] = 0x00;
-  oldS[23] = 0x10;
-  for (int i = 0; i < 8; i++)
-    oldS[24 + i] = input[i];
-  oldS[32] = 0x00;
-  oldS[33] = 0x08;
 
   uint8_t key[32] = {0};
   memcpy(&key[0], ck, 16);
@@ -760,35 +746,41 @@ void derive_knas(algorithm_type_dist_t nas_alg_type, uint8_t nas_alg_id, uint8_t
   memcpy(knas, out + 16, 16);
 }
 
-static void derive_ue_keys(uint8_t *buf, nr_ue_nas_t *nas)
+static void get_rand_from_auth_request(nr_ue_nas_t *nas, uint8_t *buf)
+{
+  uint8_t *rand = nas->security.rand;
+
+  // get RAND from authentication request
+  for (int index = 0; index < 16; index++) {
+    rand[index] = buf[8 + index];
+  }
+}
+
+static void compute_res_ck_ik(nr_ue_nas_t *nas,
+                              uint8_t res[16], uint8_t ck[16], uint8_t ik[16])
 {
   uint8_t ak[6];
-  uint8_t sqn[6];
+  f2345(nas->uicc->key, nas->security.rand, res, ck, ik, ak, nas->uicc->opc);
+}
+
+static void derive_ue_keys(uint8_t *buf, nr_ue_nas_t *nas,
+                           uint8_t res[16], uint8_t ck[16], uint8_t ik[16])
+{
+  uint8_t sqn_xor_ak[6];
 
   DevAssert(nas != NULL);
   uint8_t *kausf = nas->security.kausf;
   uint8_t *kseaf = nas->security.kseaf;
   uint8_t *kamf = nas->security.kamf;
-  uint8_t *output = nas->security.res;
+  uint8_t *res_star = nas->security.res;
   uint8_t *rand = nas->security.rand;
   uint8_t *kgnb = nas->security.kgnb;
 
-  // get RAND for authentication request
-  for (int index = 0; index < 16; index++) {
-    rand[index] = buf[8 + index];
-  }
+  for (int index = 0; index < 6; index++)
+    sqn_xor_ak[index] = buf[26 + index];
 
-  uint8_t resTemp[16];
-  uint8_t ck[16], ik[16];
-  f2345(nas->uicc->key, rand, resTemp, ck, ik, ak, nas->uicc->opc);
-
-  transferRES(ck, ik, resTemp, rand, output, nas->sn_id);
-
-  for (int index = 0; index < 6; index++) {
-    sqn[index] = buf[26 + index];
-  }
-
-  derive_kausf(ck, ik, sqn, kausf, nas->sn_id);
+  derive_res_star(ck, ik, res, rand, res_star, nas->sn_id);
+  derive_kausf(ck, ik, sqn_xor_ak, kausf, nas->sn_id);
   derive_kseaf(kausf, kseaf, nas->sn_id);
   derive_kamf(kseaf, kamf, 0x0000, nas->uicc);
   derive_kgnb(kamf, nas->security.nas_count_ul, kgnb);
@@ -1230,14 +1222,8 @@ static void handle_identity_request(as_nas_info_t *initialNasMsg, nr_ue_nas_t *n
     LOG_W(NAS, "Dropped Identity Response: unable to build Identity Response for identity type %d\n", msg.fgsmobileidentity);
 }
 
-static void generateAuthenticationResp(nr_ue_nas_t *nas, as_nas_info_t *initialNasMsg, uint8_t *buf)
+static void generateAuthenticationResp(as_nas_info_t *initialNasMsg, OctetString res)
 {
-  derive_ue_keys(buf, nas);
-  OctetString res;
-  res.length = 16;
-  res.value = calloc(1, 16);
-  memcpy(res.value, nas->security.res, 16);
-
   int size = sizeof(fgmm_msg_header_t);
   fgmm_nas_message_plain_t plain = {0};
 
@@ -1253,8 +1239,6 @@ static void generateAuthenticationResp(nr_ue_nas_t *nas, as_nas_info_t *initialN
   initialNasMsg->nas_data = malloc_or_fail(size * sizeof(*initialNasMsg->nas_data));
 
   initialNasMsg->length = mm_msg_encode(&plain, initialNasMsg->nas_data, size);
-  // Free res value after encode
-  free(res.value);
 }
 
 /** @brief Send Authentication Failure message from the UE to the AMF to
@@ -1306,7 +1290,15 @@ static void handle_fgmm_authentication_request(nr_ue_nas_t *nas, as_nas_info_t *
     generateAuthenticationFailure(initialNasMsg, ngKSI_already_in_use);
     return;
   }
-  generateAuthenticationResp(nas, initialNasMsg, buffer->buf);
+
+  uint8_t res[16];
+  uint8_t ck[16];
+  uint8_t ik[16];
+  get_rand_from_auth_request(nas, buffer->buf);
+  compute_res_ck_ik(nas, res, ck, ik);
+  derive_ue_keys(buffer->buf, nas, res, ck, ik);
+  OctetString res_star = { .length = 16, .value = nas->security.res };
+  generateAuthenticationResp(initialNasMsg, res_star);
 }
 
 /** @brief Handle authentication not accepted by the network
