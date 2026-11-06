@@ -304,6 +304,7 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
     ctx->maxTS = timestamp;
     ctx->initDone = true;
   }
+  const openair0_timestamp_t prev_end = ctx->writer_end[writer];
   ctx->writer_end[writer] = max(ctx->writer_end[writer], timestamp + nsamps);
   if (ctx->writer_absent[writer]) {
     ctx->writer_absent[writer] = false;
@@ -317,6 +318,15 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   }
   // make room: samples more than one ring before the end of this write must be sent first
   reorder_flush(nrue_ru_write, UE, device, nb_writers, nbAnt, timestamp + nsamps - ctx->sz);
+
+  /* a timing advance change moves the writes of a UE later by a few samples (at most 31 TA steps): the samples between
+     the end of its previous write and this one are never written, and each flush would wait wait_ms for them while all
+     the writers are already past them. They are silence of this writer. A write out of order (several TX threads)
+     leaves a gap of a whole slot, more than a grain: still waited for */
+  if (prev_end > 0 && timestamp > prev_end && timestamp - prev_end <= ctx->grain) {
+    for (openair0_timestamp_t t = max(prev_end, ctx->nextTS); t < timestamp; t++)
+      ctx->nb_writers[t % ctx->sz]++;
+  }
 
   if (skip < nsamps) {
     const openair0_timestamp_t ts = timestamp + skip;
