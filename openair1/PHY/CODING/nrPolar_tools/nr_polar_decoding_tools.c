@@ -204,6 +204,7 @@ static inline void applyFtoleft(const t_nrPolar_params *pp, decoder_node_t *node
   if (node->left->all_frozen == 0) {
     int avx2mod = sz & 15;
     if (avx2mod == 0) {
+#ifdef __AVX2__
       int avx2len = sz / 16;
 
       //      printf("avx2len %d\n",avx2len);
@@ -215,6 +216,16 @@ static inline void applyFtoleft(const t_nrPolar_params *pp, decoder_node_t *node
         simde__m256i minabs256 = simde_mm256_min_epi16(absa256, absb256);
         ((simde__m256i *)alpha_l)[i] = simde_mm256_sign_epi16(minabs256, simde_mm256_sign_epi16(a256, b256));
       }
+#else
+      // Without AVX2, simde_mm256_sign_epi16() is a C loop, which clang doesn't vectorize
+      int len128 = sz / 8;
+      for (int i = 0; i < len128; i++) {
+        simde__m128i a128 = ((simde__m128i *)alpha_v)[i];
+        simde__m128i b128 = ((simde__m128i *)alpha_v)[i + len128];
+        simde__m128i minabs128 = simde_mm_min_epi16(simde_mm_abs_epi16(a128), simde_mm_abs_epi16(b128));
+        ((simde__m128i *)alpha_l)[i] = simde_mm_sign_epi16(minabs128, simde_mm_sign_epi16(a128, b128));
+      }
+#endif
     } else if (avx2mod == 8) {
       simde__m128i a128 = *((simde__m128i *)alpha_v);
       simde__m128i b128 = ((simde__m128i *)alpha_v)[1];
@@ -301,6 +312,7 @@ static inline void applyGtoright(const t_nrPolar_params *pp, decoder_node_t *nod
     } else {
       int avx2mod = sz & 15;
       if (avx2mod == 0) {
+#ifdef __AVX2__
         int avx2len = sz / 16;
 
         for (int i = 0; i < avx2len; i++) {
@@ -308,6 +320,15 @@ static inline void applyGtoright(const t_nrPolar_params *pp, decoder_node_t *nod
               simde_mm256_sign_epi16(((simde__m256i *)alpha_v)[i], simde_mm256_cvtepi8_epi16(((simde__m128i *)betal)[i]));
           ((simde__m256i *)alpha_r)[i] = simde_mm256_subs_epi16(((simde__m256i *)alpha_v)[i + avx2len], tmp);
         }
+#else
+        // Without AVX2, simde_mm256_sign_epi16() is a C loop, which clang doesn't vectorize
+        int len128 = sz / 8;
+        for (int i = 0; i < len128; i++) {
+          simde__m128i beta128 = simde_mm_cvtepi8_epi16(simde_mm_loadl_epi64((simde__m128i *)(betal + 8 * i)));
+          simde__m128i tmp = simde_mm_sign_epi16(((simde__m128i *)alpha_v)[i], beta128);
+          ((simde__m128i *)alpha_r)[i] = simde_mm_subs_epi16(((simde__m128i *)alpha_v)[i + len128], tmp);
+        }
+#endif
       } else if (avx2mod == 8) {
         simde__m128i tmp = simde_mm_sign_epi16(((simde__m128i *)alpha_v)[0], simde_mm_cvtepi8_epi16(((simde__m128i *)betal)[0]));
         ((simde__m128i *)alpha_r)[0] = simde_mm_subs_epi16(((simde__m128i *)alpha_v)[1], tmp);
