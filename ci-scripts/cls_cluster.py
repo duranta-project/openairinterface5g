@@ -152,7 +152,7 @@ class Cluster:
 		return success
 
 	def _retrieveOCLog(cmd, ctx, job, lSourcePath, image):
-		fn = f'{lSourcePath}/cmake_targets/log/{image}.log'
+		fn = f'{lSourcePath}/{image}.log'
 		cmd.run(f'oc logs {job} &> {fn}')
 		return (image, archiveArtifact(cmd, ctx, fn))
 
@@ -211,7 +211,7 @@ class Cluster:
 
 		status = True # flag to abandon compiling if any image fails
 		log_files = []
-		build_metrics = f"{lSourcePath}/cmake_targets/log/build-metrics.log"
+		build_metrics = f"{lSourcePath}/build-metrics.log"
 		if forceBaseImageBuild:
 			Cluster._recreate_is_tag(cmd, 'ran-base', baseTag, 'openshift/ran-base-is.yaml')
 			Cluster._recreate_bc(cmd, 'ran-base', baseTag, 'openshift/ran-base-bc.yaml')
@@ -326,11 +326,11 @@ class Cluster:
 			logging.info(f'\u001B[1m{image} size is {imageSize[image]}\u001B[0m')
 
 		archiveArtifact(cmd, ctx, build_metrics)
-		logfile = f'{lSourcePath}/cmake_targets/log/image_registry.log'
+		logfile = f'{lSourcePath}/image_registry.log'
 		grep_exp = r"\|".join([i for i,f in log_files])
 		cmd.run(f'oc get images | grep -e \'{grep_exp}\' &> {logfile}');
 		archiveArtifact(cmd, ctx, logfile)
-		logfile = f'{lSourcePath}/cmake_targets/log/build_pod_summary.log'
+		logfile = f'{lSourcePath}/build_pod_summary.log'
 		cmd.run(f'for pod in $(oc get pods | tail -n +2 | awk \'{{print $1}}\'); do oc get pod $pod -o json &>> {logfile}; done')
 		archiveArtifact(cmd, ctx, logfile)
 

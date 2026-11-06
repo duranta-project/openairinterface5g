@@ -9,8 +9,6 @@ logging.basicConfig(
 )
 import os
 import tempfile
-os.system(f'rm -rf cmake_targets')
-os.system(f'mkdir -p cmake_targets/log')
 import unittest
 
 sys.path.append('./') # to find OAI imports below
