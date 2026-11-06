@@ -641,14 +641,26 @@ void nr_rlc_reconfigure_entity(int ue_id, int lc_id, NR_RLC_Config_t *rlc_Config
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
 
-  if (ue == NULL)
+  if (ue == NULL) {
     LOG_E(RLC, "RLC instance for the given UE was not found \n");
+    nr_rlc_manager_unlock(nr_rlc_ue_manager);
+    return;
+  }
 
   nr_rlc_entity_t *rb = get_rlc_entity_from_lcid(ue, lc_id);
+  if (rb == NULL) {
+    LOG_E(RLC, "No RLC entity found (channel ID %d) for reconfiguration\n", lc_id);
+    nr_rlc_manager_unlock(nr_rlc_ue_manager);
+    return;
+  }
   if (rlc_Config) {
     AssertFatal(rb->stats.mode != NR_RLC_TM, "Cannot reconfigure TM mode\n");
     if (rb->stats.mode == NR_RLC_AM) {
-      AssertFatal(rlc_Config->present == NR_RLC_Config_PR_am, "Invalid RLC Config type\n");
+      if (rlc_Config->present != NR_RLC_Config_PR_am || rlc_Config->choice.am == NULL) {
+        LOG_E(RLC, "Invalid AM RLC-Config for UE %d LCID %d\n", ue_id, lc_id);
+        nr_rlc_manager_unlock(nr_rlc_ue_manager);
+        return;
+      }
       struct NR_RLC_Config__am *am = rlc_Config->choice.am;
       int t_reassembly = decode_t_reassembly(am->dl_AM_RLC.t_Reassembly);
       int t_status_prohibit = decode_t_status_prohibit(am->dl_AM_RLC.t_StatusProhibit);
@@ -658,16 +670,22 @@ void nr_rlc_reconfigure_entity(int ue_id, int lc_id, NR_RLC_Config_t *rlc_Config
       int max_retx_threshold = decode_max_retx_threshold(am->ul_AM_RLC.maxRetxThreshold);
       int _sn_field_length;
       int *sn_field_length = NULL;
-      if (am->dl_AM_RLC.sn_FieldLength) {
-        AssertFatal(am->ul_AM_RLC.sn_FieldLength != NULL, "Cannot handle different sn_FieldLength for DL and UL\n");
-        if (am->ul_AM_RLC.sn_FieldLength) {
-          AssertFatal(*am->dl_AM_RLC.sn_FieldLength == *am->ul_AM_RLC.sn_FieldLength,
-                      "Cannot handle different sn_FieldLength for DL and UL\n");
-          _sn_field_length = decode_sn_field_length_am(*am->dl_AM_RLC.sn_FieldLength);
-          sn_field_length = &_sn_field_length;
+      if (am->dl_AM_RLC.sn_FieldLength != NULL && am->ul_AM_RLC.sn_FieldLength != NULL) {
+        if (*am->dl_AM_RLC.sn_FieldLength != *am->ul_AM_RLC.sn_FieldLength) {
+          LOG_E(RLC,
+                "Cannot handle different AM sn_FieldLength for DL and UL (%ld != %ld)\n",
+                *am->dl_AM_RLC.sn_FieldLength,
+                *am->ul_AM_RLC.sn_FieldLength);
+          nr_rlc_manager_unlock(nr_rlc_ue_manager);
+          return;
         }
-      } else
-        AssertFatal(am->ul_AM_RLC.sn_FieldLength == NULL, "Cannot handle different sn_FieldLength for DL and UL\n");
+        _sn_field_length = decode_sn_field_length_am(*am->dl_AM_RLC.sn_FieldLength);
+        sn_field_length = &_sn_field_length;
+      } else if (am->dl_AM_RLC.sn_FieldLength != NULL || am->ul_AM_RLC.sn_FieldLength != NULL) {
+        LOG_E(RLC, "Cannot handle asymmetric presence of DL/UL AM sn_FieldLength for UE %d LCID %d\n", ue_id, lc_id);
+        nr_rlc_manager_unlock(nr_rlc_ue_manager);
+        return;
+      }
       nr_rlc_entity_am_reconfigure(rb,
                                    t_poll_retransmit,
                                    t_reassembly,
@@ -677,21 +695,31 @@ void nr_rlc_reconfigure_entity(int ue_id, int lc_id, NR_RLC_Config_t *rlc_Config
                                    max_retx_threshold,
                                    sn_field_length);
     } else { // UM
-      AssertFatal(rlc_Config->present == NR_RLC_Config_PR_um_Bi_Directional, "Invalid RLC Config type\n");
+      if (rlc_Config->present != NR_RLC_Config_PR_um_Bi_Directional || rlc_Config->choice.um_Bi_Directional == NULL) {
+        LOG_E(RLC, "Invalid UM RLC-Config for UE %d LCID %d\n", ue_id, lc_id);
+        nr_rlc_manager_unlock(nr_rlc_ue_manager);
+        return;
+      }
       struct NR_RLC_Config__um_Bi_Directional *um = rlc_Config->choice.um_Bi_Directional;
       int t_reassembly = decode_t_reassembly(um->dl_UM_RLC.t_Reassembly);
       int _sn_field_length;
       int *sn_field_length = NULL;
-      if (um->dl_UM_RLC.sn_FieldLength) {
-        AssertFatal(um->ul_UM_RLC.sn_FieldLength != NULL, "Cannot handle different sn_FieldLength for DL and UL\n");
-        if (um->ul_UM_RLC.sn_FieldLength) {
-          AssertFatal(*um->dl_UM_RLC.sn_FieldLength == *um->ul_UM_RLC.sn_FieldLength,
-                      "Cannot handle different sn_FieldLength for DL and UL\n");
-          _sn_field_length = decode_sn_field_length_um(*um->dl_UM_RLC.sn_FieldLength);
-          sn_field_length = &_sn_field_length;
+      if (um->dl_UM_RLC.sn_FieldLength != NULL && um->ul_UM_RLC.sn_FieldLength != NULL) {
+        if (*um->dl_UM_RLC.sn_FieldLength != *um->ul_UM_RLC.sn_FieldLength) {
+          LOG_E(RLC,
+                "Cannot handle different UM sn_FieldLength for DL and UL (%ld != %ld)\n",
+                *um->dl_UM_RLC.sn_FieldLength,
+                *um->ul_UM_RLC.sn_FieldLength);
+          nr_rlc_manager_unlock(nr_rlc_ue_manager);
+          return;
         }
-      } else
-        AssertFatal(um->ul_UM_RLC.sn_FieldLength == NULL, "Cannot handle different sn_FieldLength for DL and UL\n");
+        _sn_field_length = decode_sn_field_length_um(*um->dl_UM_RLC.sn_FieldLength);
+        sn_field_length = &_sn_field_length;
+      } else if (um->dl_UM_RLC.sn_FieldLength != NULL || um->ul_UM_RLC.sn_FieldLength != NULL) {
+        LOG_E(RLC, "Cannot handle asymmetric presence of DL/UL UM sn_FieldLength for UE %d LCID %d\n", ue_id, lc_id);
+        nr_rlc_manager_unlock(nr_rlc_ue_manager);
+        return;
+      }
       nr_rlc_entity_um_reconfigure(rb, t_reassembly, sn_field_length);
     }
   } else {
@@ -710,8 +738,12 @@ void nr_rlc_reconfigure_entity(int ue_id, int lc_id, NR_RLC_Config_t *rlc_Config
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
-void nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
+bool nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
 {
+  if (rlc_BearerConfig == NULL) {
+    LOG_E(RLC, "Cannot add SRB %d for UE %d: rlc_BearerConfig is NULL\n", srb_id, ue_id);
+    return false;
+  }
   NR_RLC_Config_t *r = rlc_BearerConfig->rlc_Config;
   int t_status_prohibit;
   int t_poll_retransmit;
@@ -724,19 +756,36 @@ void nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_Bear
   LOG_D(RLC, "Trying to add SRB %d\n", srb_id);
   AssertFatal(srb_id > 0 && srb_id < 4, "Invalid srb id %d\n", srb_id);
 
-  if (r && r->present == NR_RLC_Config_PR_am) {
-    struct NR_RLC_Config__am *am;
-    am = r->choice.am;
+  if (r != NULL) {
+    if (r->present != NR_RLC_Config_PR_am || r->choice.am == NULL) {
+      LOG_E(RLC, "SRB %d setup for UE %d requires AM RLC-Config (got %d)\n", srb_id, ue_id, r->present);
+      return false;
+    }
+    struct NR_RLC_Config__am *am = r->choice.am;
+    if (am->dl_AM_RLC.sn_FieldLength == NULL || am->ul_AM_RLC.sn_FieldLength == NULL) {
+      LOG_E(RLC,
+            "SRB %d setup for UE %d missing mandatory sn_FieldLength (dl=%p, ul=%p) per 3GPP TS 38.331 Cond Reestab\n",
+            srb_id,
+            ue_id,
+            (void *)am->dl_AM_RLC.sn_FieldLength,
+            (void *)am->ul_AM_RLC.sn_FieldLength);
+      return false;
+    }
+    if (*am->dl_AM_RLC.sn_FieldLength != *am->ul_AM_RLC.sn_FieldLength) {
+      LOG_E(RLC,
+            "SRB %d setup for UE %d has mismatched DL/UL sn_FieldLength (%ld != %ld)\n",
+            srb_id,
+            ue_id,
+            *am->dl_AM_RLC.sn_FieldLength,
+            *am->ul_AM_RLC.sn_FieldLength);
+      return false;
+    }
     t_reassembly = decode_t_reassembly(am->dl_AM_RLC.t_Reassembly);
     t_status_prohibit = decode_t_status_prohibit(am->dl_AM_RLC.t_StatusProhibit);
     t_poll_retransmit = decode_t_poll_retransmit(am->ul_AM_RLC.t_PollRetransmit);
     poll_pdu = decode_poll_pdu(am->ul_AM_RLC.pollPDU);
     poll_byte = decode_poll_byte(am->ul_AM_RLC.pollByte);
     max_retx_threshold = decode_max_retx_threshold(am->ul_AM_RLC.maxRetxThreshold);
-    if (*am->dl_AM_RLC.sn_FieldLength != *am->ul_AM_RLC.sn_FieldLength) {
-      LOG_E(RLC, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
-      exit(1);
-    }
     sn_field_length = decode_sn_field_length_am(*am->dl_AM_RLC.sn_FieldLength);
   } else {
     // default values as in 9.2.1 of 38.331
@@ -775,9 +824,10 @@ void nr_rlc_add_srb(int ue_id, int srb_id, const NR_RLC_BearerConfig_t *rlc_Bear
     LOG_I(RLC, "Added srb %d to UE %d\n", srb_id, ue_id);
   }
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
+  return true;
 }
 
-static void add_drb_am(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
+static bool add_drb_am(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
 {
   struct NR_RLC_Config *r = rlc_BearerConfig->rlc_Config;
 
@@ -794,24 +844,32 @@ static void add_drb_am(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_B
 
   switch (r->present) {
   case NR_RLC_Config_PR_am: {
-    struct NR_RLC_Config__am *am;
-    am = r->choice.am;
+    struct NR_RLC_Config__am *am = r->choice.am;
+    if (am == NULL || am->dl_AM_RLC.sn_FieldLength == NULL || am->ul_AM_RLC.sn_FieldLength == NULL) {
+      LOG_E(RLC, "DRB %d AM setup for UE %d missing mandatory sn_FieldLength per 3GPP TS 38.331 Cond Reestab\n", drb_id, ue_id);
+      return false;
+    }
+    if (*am->dl_AM_RLC.sn_FieldLength != *am->ul_AM_RLC.sn_FieldLength) {
+      LOG_E(RLC,
+            "DRB %d AM setup for UE %d has mismatched DL/UL sn_FieldLength (%ld != %ld)\n",
+            drb_id,
+            ue_id,
+            *am->dl_AM_RLC.sn_FieldLength,
+            *am->ul_AM_RLC.sn_FieldLength);
+      return false;
+    }
     t_reassembly       = decode_t_reassembly(am->dl_AM_RLC.t_Reassembly);
     t_status_prohibit  = decode_t_status_prohibit(am->dl_AM_RLC.t_StatusProhibit);
     t_poll_retransmit  = decode_t_poll_retransmit(am->ul_AM_RLC.t_PollRetransmit);
     poll_pdu           = decode_poll_pdu(am->ul_AM_RLC.pollPDU);
     poll_byte          = decode_poll_byte(am->ul_AM_RLC.pollByte);
     max_retx_threshold = decode_max_retx_threshold(am->ul_AM_RLC.maxRetxThreshold);
-    if (*am->dl_AM_RLC.sn_FieldLength != *am->ul_AM_RLC.sn_FieldLength) {
-      LOG_E(RLC, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
-      exit(1);
-    }
     sn_field_length    = decode_sn_field_length_am(*am->dl_AM_RLC.sn_FieldLength);
     break;
   }
   default:
-    LOG_E(RLC, "%s:%d:%s: fatal error\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
+    LOG_E(RLC, "%s:%d:%s: invalid RLC-Config type %d\n", __FILE__, __LINE__, __FUNCTION__, r->present);
+    return false;
   }
 
   nr_rlc_manager_lock(nr_rlc_ue_manager);
@@ -840,9 +898,10 @@ static void add_drb_am(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_B
     LOG_I(RLC, "Added drb %d to UE %d\n", drb_id, ue_id);
   }
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
+  return true;
 }
 
-static void add_drb_um(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
+static bool add_drb_um(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
 {
   struct NR_RLC_Config *r = rlc_BearerConfig->rlc_Config;
 
@@ -854,19 +913,27 @@ static void add_drb_um(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_B
 
   switch (r->present) {
   case NR_RLC_Config_PR_um_Bi_Directional: {
-    struct NR_RLC_Config__um_Bi_Directional *um;
-    um = r->choice.um_Bi_Directional;
-    t_reassembly = decode_t_reassembly(um->dl_UM_RLC.t_Reassembly);
-    if (*um->dl_UM_RLC.sn_FieldLength != *um->ul_UM_RLC.sn_FieldLength) {
-      LOG_E(RLC, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
-      exit(1);
+    struct NR_RLC_Config__um_Bi_Directional *um = r->choice.um_Bi_Directional;
+    if (um == NULL || um->dl_UM_RLC.sn_FieldLength == NULL || um->ul_UM_RLC.sn_FieldLength == NULL) {
+      LOG_E(RLC, "DRB %d UM setup for UE %d missing mandatory sn_FieldLength per 3GPP TS 38.331 Cond Reestab\n", drb_id, ue_id);
+      return false;
     }
+    if (*um->dl_UM_RLC.sn_FieldLength != *um->ul_UM_RLC.sn_FieldLength) {
+      LOG_E(RLC,
+            "DRB %d UM setup for UE %d has mismatched DL/UL sn_FieldLength (%ld != %ld)\n",
+            drb_id,
+            ue_id,
+            *um->dl_UM_RLC.sn_FieldLength,
+            *um->ul_UM_RLC.sn_FieldLength);
+      return false;
+    }
+    t_reassembly = decode_t_reassembly(um->dl_UM_RLC.t_Reassembly);
     sn_field_length = decode_sn_field_length_um(*um->dl_UM_RLC.sn_FieldLength);
     break;
   }
   default:
-    LOG_E(RLC, "%s:%d:%s: fatal error\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
+    LOG_E(RLC, "%s:%d:%s: invalid RLC-Config type %d\n", __FILE__, __LINE__, __FUNCTION__, r->present);
+    return false;
   }
 
   nr_rlc_manager_lock(nr_rlc_ue_manager);
@@ -891,22 +958,30 @@ static void add_drb_um(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_B
     LOG_D(RLC, "Added drb %d to UE %d\n", drb_id, ue_id);
   }
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
+  return true;
 }
 
-void nr_rlc_add_drb(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
+bool nr_rlc_add_drb(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
 {
+  if (rlc_BearerConfig == NULL || rlc_BearerConfig->rlc_Config == NULL) {
+    LOG_E(RLC, "Cannot add DRB %d for UE %d: missing rlc_Config\n", drb_id, ue_id);
+    return false;
+  }
+  bool ok = false;
   switch (rlc_BearerConfig->rlc_Config->present) {
   case NR_RLC_Config_PR_am:
-    add_drb_am(ue_id, drb_id, rlc_BearerConfig);
+    ok = add_drb_am(ue_id, drb_id, rlc_BearerConfig);
     break;
   case NR_RLC_Config_PR_um_Bi_Directional:
-    add_drb_um(ue_id, drb_id, rlc_BearerConfig);
+    ok = add_drb_um(ue_id, drb_id, rlc_BearerConfig);
     break;
   default:
-    LOG_E(RLC, "Fatal: unhandled DRB type\n");
-    exit(1);
+    LOG_E(RLC, "Unhandled DRB RLC-Config type %d for UE %d DRB %d\n", rlc_BearerConfig->rlc_Config->present, ue_id, drb_id);
+    return false;
   }
-  LOG_I(RLC, "Added DRB to UE %d\n", ue_id);
+  if (ok)
+    LOG_I(RLC, "Added DRB to UE %d\n", ue_id);
+  return ok;
 }
 
 struct srb0_data {
