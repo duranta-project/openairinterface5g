@@ -174,6 +174,13 @@ typedef struct {
   /// - second index: sample [0..2*FRAME_LENGTH_COMPLEX_SAMPLES+2048[
   c16_t **rxdata;
 
+  /// \brief Received samples of the slot being processed by the UE thread, from its first sample: one pointer per rx
+  /// antenna, into the RU ring shared by the UEs of the process (or into a buffer of this UE with one UE per RU),
+  /// valid only while rx_slot_len > 0, between nrue_ru_acquire() and nrue_ru_release() of the UE thread. In sync, the
+  /// OFDM demodulation reads there (nr_slot_fep_rx()) instead of a copy in rxdata, kept for the initial sync
+  c16_t **rx_slot;
+  int rx_slot_len;
+
   /// estimated frequency offset (in radians) for all subcarriers
   int32_t freq_offset;
 } NR_UE_COMMON;
@@ -260,6 +267,10 @@ typedef struct {
   pthread_mutex_t mread;
   pthread_cond_t cread; // signaled when the oldest client timestamp advances
   uint64_t *last_timestamp;
+  /// first sample a client still processes in the ring (nrue_ru_acquire() to nrue_ru_release()), UINT64_MAX if none:
+  /// the device reads do not overwrite it
+  uint64_t *hold;
+  bool hold_waited; // a device read waits for a release
   c16_t **rxbuf;
   int sz;
   int grain;
@@ -600,6 +611,9 @@ typedef struct nr_phy_data_s {
   int num_csirs;
   NR_UE_CSI_RS csirs_vars[MAX_CSI_RES_SLOT];
   NR_UE_CSI_IM csiim_vars;
+  /// OFDM demodulated symbols of the slot for pdsch_processing() (CSI-IM, CSI-RS, PDSCH symbols), made by pdsch_fep() in
+  /// the UE thread while the slot samples are available, freed by pdsch_processing()
+  c16_t *pdsch_rxdataF;
 } nr_phy_data_t;
 
 enum stream_status_e { STREAM_STATUS_UNSYNC, STREAM_STATUS_SYNCING, STREAM_STATUS_SYNCED};

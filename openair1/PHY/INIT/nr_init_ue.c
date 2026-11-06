@@ -238,6 +238,8 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
 
   // init RX buffers
   common_vars->rxdata = malloc16(fp->nb_antennas_rx * sizeof(c16_t *));
+  common_vars->rx_slot = calloc_or_fail(fp->nb_antennas_rx, sizeof(*common_vars->rx_slot));
+  common_vars->rx_slot_len = 0;
 
   int num_samples = 2 * fp->samples_per_frame + fp->ofdm_symbol_size;
   if (ue->sl_mode == 2)
@@ -301,6 +303,7 @@ void term_nr_ue_signal(PHY_VARS_NR_UE *ue)
     free_and_zero(common_vars->rxdata[i]);
   }
   free_and_zero(common_vars->rxdata);
+  free_and_zero(common_vars->rx_slot);
 
   for (int gNB_id = 0; gNB_id < ue->n_connected_gNB; gNB_id++) {
 

@@ -946,6 +946,18 @@ void *UE_thread(void *arg)
   c16_t *sync_buf[fp->nb_antennas_rx];
   memset(sync_buf, 0, sizeof(sync_buf)); // mandatory for CI compile options
 
+  /* in sync, each slot is processed from its samples in the RU ring shared by the UEs of the process, without copy
+     (nrue_ru_acquire()). With one UE per RU, the device writes them here. The margin: the drift correction of the last
+     slot of a frame */
+  int own_slot_sz = 0;
+  for (int slot = 0; slot < fp->slots_per_subframe; slot++)
+    own_slot_sz = max(own_slot_sz, get_samples_per_slot(slot, fp));
+  own_slot_sz += fp->ofdm_symbol_size;
+  c16_t own_slot[fp->nb_antennas_rx][own_slot_sz] __attribute__((aligned(64)));
+  c16_t *own_slot_ptr[fp->nb_antennas_rx];
+  for (int i = 0; i < fp->nb_antennas_rx; i++)
+    own_slot_ptr[i] = own_slot[i];
+
   while (!oai_exit) {
     if (syncRunning) {
       notifiedFIFO_elt_t *res = pollNotifiedFIFO(&nf);
@@ -1057,13 +1069,15 @@ void *UE_thread(void *arg)
       shiftForNextFrame = -(skipped_frames)*UE->max_pos_acc
                           * get_nrUE_params()->time_sync_I; // compensate for the time drift that happened during initial sync
       LOG_I(PHY, "max_pos_acc = %d, shiftForNextFrame = %d\n", UE->max_pos_acc, shiftForNextFrame);
-      // read in first symbol
-      int ret = nrue_ru_read(UE,
-                             &sync_timestamp,
-                             (void **)UE->common_vars.rxdata,
-                             fp->ofdm_symbol_size + fp->nb_prefix_samples0,
-                             fp->nb_antennas_rx);
-      AssertFatal(fp->ofdm_symbol_size + fp->nb_prefix_samples0 == ret, "read rf board failed %d", ret);
+      // read in first symbol (in sync, a slot is read from its first sample but with sidelink)
+      if (UE->sl_mode == 2) {
+        int ret = nrue_ru_read(UE,
+                               &sync_timestamp,
+                               (void **)UE->common_vars.rxdata,
+                               fp->ofdm_symbol_size + fp->nb_prefix_samples0,
+                               fp->nb_antennas_rx);
+        AssertFatal(fp->ofdm_symbol_size + fp->nb_prefix_samples0 == ret, "read rf board failed %d", ret);
+      }
       // we have the decoded frame index in the return of the synch process
       // and we shifted above to the first slot of next frame
       const int prev_frame_rx = (absolute_slot / nb_slot_frame) % MAX_FRAME_NUMBER;
@@ -1153,18 +1167,30 @@ void *UE_thread(void *arg)
       apply_ntn_timing_advance_and_doppler(UE, fp, abs_subframe_tx);
     }
 
-    const int readBlockSize = get_readBlockSize(slot_nr, fp) - iq_shift_to_apply;
     openair0_timestamp_t rx_timestamp;
-    int tmp = nrue_ru_read(UE, &rx_timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
-    metadata meta = {.slot =  curMsg.proc.nr_slot_rx, .frame =  curMsg.proc.frame_rx};
-    UEscopeCopyWithMetadata(UE, ueTimeDomainSamples, rxp[0] - firstSymSamp, sizeof(c16_t), 1, readBlockSize, 0, &meta);
-    AssertFatal(readBlockSize == tmp, "read to rf board failed %d", tmp);
+    const bool slot_samples = UE->sl_mode != 2;
+    metadata meta = {.slot = curMsg.proc.nr_slot_rx, .frame = curMsg.proc.frame_rx};
+    if (slot_samples) {
+      // the whole slot, from its first sample, without copy, until nrue_ru_release() after its DL preprocessing
+      const int slot_len = get_samples_per_slot(slot_nr, fp) - iq_shift_to_apply;
+      AssertFatal(slot_len <= own_slot_sz, "slot of %d samples, more than %d\n", slot_len, own_slot_sz);
+      int tmp = nrue_ru_acquire(UE, &rx_timestamp, UE->common_vars.rx_slot, slot_len, own_slot_ptr);
+      AssertFatal(slot_len == tmp, "read to rf board failed %d", tmp);
+      UE->common_vars.rx_slot_len = slot_len;
+      UEscopeCopyWithMetadata(UE, ueTimeDomainSamples, UE->common_vars.rx_slot[0], sizeof(c16_t), 1, slot_len, 0, &meta);
+      rx_timestamp += firstSymSamp; // the TX timing below counts from the second symbol, as the reads of rxdata
+    } else {
+      const int readBlockSize = get_readBlockSize(slot_nr, fp) - iq_shift_to_apply;
+      int tmp = nrue_ru_read(UE, &rx_timestamp, (void **)rxp, readBlockSize, fp->nb_antennas_rx);
+      UEscopeCopyWithMetadata(UE, ueTimeDomainSamples, rxp[0] - firstSymSamp, sizeof(c16_t), 1, readBlockSize, 0, &meta);
+      AssertFatal(readBlockSize == tmp, "read to rf board failed %d", tmp);
+    }
     struct timespec current_time;
     if (clock_gettime(CLOCK_REALTIME, &current_time)) {
       LOG_E(PHY, "clock_gettime failed\n");
     }
 
-    if(slot_nr == (nb_slot_frame - 1)) {
+    if (!slot_samples && slot_nr == (nb_slot_frame - 1)) {
       // read in first symbol of next frame and adjust for timing drift
       int first_symbols = fp->ofdm_symbol_size + fp->nb_prefix_samples0; // first symbol of every frames
 
@@ -1226,6 +1252,13 @@ void *UE_thread(void *arg)
     int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed);
     if (ret != INT_MAX)
       shiftForNextFrame = ret;
+    if (slot_samples) {
+      // the DL actor works on the demodulated symbols: the slot samples are released
+      if (!UE->sl_mode)
+        pdsch_fep(UE, &curMsgRx->proc, &curMsgRx->phy_data);
+      UE->common_vars.rx_slot_len = 0;
+      nrue_ru_release(UE);
+    }
     if (num_dl_actors > 0) {
       pushNotifiedFIFO(&dl_actors[curMsg.proc.nr_slot_rx % num_dl_actors].fifo, newRx);
     } else {

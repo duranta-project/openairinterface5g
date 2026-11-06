@@ -912,7 +912,7 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
 
   for (int symbol = start_symb_pdcch; symbol <= last_symb_pdcch; symbol++) {
-    nr_slot_fep(ue, fp, proc->nr_slot_rx, symbol, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+    nr_slot_fep_rx(ue, fp, proc->nr_slot_rx, symbol, rxdataF);
     __attribute__((aligned(32))) c16_t rxdataF_symb[fp->nb_antennas_rx][((fp->ofdm_symbol_size + 7) / 8) * 8];
 
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++)
@@ -1007,7 +1007,7 @@ int nr_process_pbch_symbol(PHY_VARS_NR_UE *ue,
   __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][fp->ofdm_symbol_size];
   {
     __attribute__((aligned(32))) c16_t tmp[fp->nb_antennas_rx][fp->samples_per_slot_wCP];
-    nr_slot_fep(ue, fp, proc->nr_slot_rx, symbol, tmp, link_type_dl, 0, ue->common_vars.rxdata);
+    nr_slot_fep_rx(ue, fp, proc->nr_slot_rx, symbol, tmp);
     for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
       memcpy(rxdataF[aarx], tmp[aarx] + symbol * fp->ofdm_symbol_size, sizeof(c16_t) * fp->ofdm_symbol_size);
     }
@@ -1145,13 +1145,24 @@ static nr_meas_task_args_t *create_meas_task_args(const UE_nr_rxtx_proc_t *proc,
   args->ue = ue;
   args->rxdata_size = rxdata_size;
   args->nb_ant = fp->nb_antennas_rx;
+  const NR_UE_COMMON *common_vars = &ue->common_vars;
+  if (common_vars->rx_slot_len > 0) {
+    // the samples of the slot: the headroom after it is not received yet
+    const uint32_t len = min(rxdata_size, common_vars->rx_slot_len);
+    for (int i = 0; i < fp->nb_antennas_rx; i++) {
+      c16_t *dst = args->rxdata_ant + i * rxdata_size;
+      memcpy(dst, common_vars->rx_slot[i], len * sizeof(c16_t));
+      memset(dst + len, 0, (rxdata_size - len) * sizeof(c16_t));
+    }
+    return args;
+  }
   uint32_t slot_offset = get_samples_slot_timestamp(fp, proc->nr_slot_rx);
   // rxdata holds one frame: the samples after the end of the frame are at its beginning
   const uint32_t before_end = min(rxdata_size, fp->samples_per_frame - slot_offset);
   for (int i = 0; i < fp->nb_antennas_rx; i++) {
     c16_t *dst = args->rxdata_ant + i * rxdata_size;
-    memcpy(dst, &ue->common_vars.rxdata[i][slot_offset], before_end * sizeof(c16_t));
-    memcpy(dst + before_end, ue->common_vars.rxdata[i], (rxdata_size - before_end) * sizeof(c16_t));
+    memcpy(dst, &common_vars->rxdata[i][slot_offset], before_end * sizeof(c16_t));
+    memcpy(dst + before_end, common_vars->rxdata[i], (rxdata_size - before_end) * sizeof(c16_t));
   }
   return args;
 }
@@ -1203,7 +1214,7 @@ int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_da
         {
           for(int j = prs_config->SymbolStart; j < (prs_config->SymbolStart+prs_config->NumPRSSymbols); j++)
           {
-            nr_slot_fep(ue, fp, proc->nr_slot_rx, (j % fp->symbols_per_slot), rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+            nr_slot_fep_rx(ue, fp, proc->nr_slot_rx, (j % fp->symbols_per_slot), rxdataF);
           }
           const int slot_prs = (nr_slot_rx - i * prs_config->PRSResourceTimeGap + fp->slots_per_frame) % fp->slots_per_frame;
           const fapi_nr_dl_config_prs_pdu_rel16_t prs_pdu = {.comb_size = prs_config->CombSize,
@@ -1255,6 +1266,46 @@ int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_da
   return sampleShift;
 }
 
+/* OFDM demodulation of the symbols pdsch_processing() needs (CSI-IM, CSI-RS, PDSCH), in phy_data->pdsch_rxdataF allocated
+   only if there are some: called by the UE thread while the samples of the slot are available, pdsch_processing() runs
+   later in a DL actor */
+void pdsch_fep(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+{
+  const NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  bool needed[NR_SYMBOLS_PER_SLOT] = {0};
+  bool any = false;
+  if (phy_data->csiim_vars.active == 1) {
+    for (int symb_idx = 0; symb_idx < 4; symb_idx++)
+      needed[phy_data->csiim_vars.csiim_config_pdu.l_csiim[symb_idx]] = true;
+    any = true;
+  }
+  for (int res = 0; res < MAX_CSI_RES_SLOT; res++) {
+    if (phy_data->csirs_vars[res].active != 1)
+      continue;
+    for (int symb = 0; symb < fp->symbols_per_slot; symb++)
+      if (is_csi_rs_in_symbol(phy_data->csirs_vars[res].csirs_config_pdu, symb)) {
+        needed[symb] = true;
+        any = true;
+      }
+  }
+  for (int c = 0; c < phy_data->n_dlsch_codewords; c++) {
+    if (!phy_data->dlsch[c].active)
+      continue;
+    const fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config = &phy_data->dlsch_config;
+    for (int m = dlsch_config->start_symbol; m < dlsch_config->start_symbol + dlsch_config->number_symbols; m++)
+      needed[m] = true;
+    any = true;
+  }
+  if (!any)
+    return;
+  const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
+  c16_t(*rxdataF)[rxdataF_sz] = malloc16(fp->nb_antennas_rx * rxdataF_sz * sizeof(c16_t));
+  for (int symb = 0; symb < fp->symbols_per_slot; symb++)
+    if (needed[symb])
+      nr_slot_fep_rx(ue, fp, proc->nr_slot_rx, symb, rxdataF);
+  phy_data->pdsch_rxdataF = (c16_t *)rxdataF;
+}
+
 void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
 {
   int frame_rx = proc->frame_rx;
@@ -1263,21 +1314,16 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
 
   // do procedures for C-RNTI
 
-  bool slot_fep_map[14] = {0};
+  // demodulated by the UE thread (pdsch_fep()), else here (simulators)
+  if (!phy_data->pdsch_rxdataF)
+    pdsch_fep(ue, proc, phy_data);
+  // still NULL without CSI-IM, CSI-RS nor PDSCH: nothing below reads it
   const uint32_t rxdataF_sz = ue->frame_parms.samples_per_slot_wCP;
-  __attribute__ ((aligned(32))) c16_t rxdataF[ue->frame_parms.nb_antennas_rx][rxdataF_sz];
+  c16_t(*rxdataF)[rxdataF_sz] = (c16_t(*)[rxdataF_sz])phy_data->pdsch_rxdataF;
 
   // do procedures for CSI-IM
-  if (phy_data->csiim_vars.active == 1) {
-    for(int symb_idx = 0; symb_idx < 4; symb_idx++) {
-      int symb = phy_data->csiim_vars.csiim_config_pdu.l_csiim[symb_idx];
-      if (!slot_fep_map[symb]) {
-        nr_slot_fep(ue, &ue->frame_parms, proc->nr_slot_rx, symb, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
-        slot_fep_map[symb] = true;
-      }
-    }
+  if (phy_data->csiim_vars.active == 1)
     nr_ue_csi_im_procedures(ue, rxdataF, &phy_data->csiim_vars.csiim_config_pdu);
-  }
 
   // do procedures for CSI-RS
   {
@@ -1289,14 +1335,6 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     c16_t trs_estimates[ue->frame_parms.nb_antennas_rx][1][ue->frame_parms.ofdm_symbol_size];
     for (int res = 0; res < MAX_CSI_RES_SLOT; res++) {
       if (phy_data->csirs_vars[res].active == 1) {
-        for (int symb = 0; symb < ue->frame_parms.symbols_per_slot; symb++) {
-          if (is_csi_rs_in_symbol(phy_data->csirs_vars[res].csirs_config_pdu, symb)) {
-            if (!slot_fep_map[symb]) {
-              nr_slot_fep(ue, &ue->frame_parms, proc->nr_slot_rx, symb, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
-              slot_fep_map[symb] = true;
-            }
-          }
-        }
         if (res > 0 && phy_data->csirs_vars[res].csirs_config_pdu.csi_type == 0) // tracking CSI
           AssertFatal(phy_data->csirs_vars[res - 1].active && (phy_data->csirs_vars[res - 1].csirs_config_pdu.csi_type == 0),
                       "CSI-RS for tracking must have two consecutive active resources\n");
@@ -1323,13 +1361,6 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     uint16_t start_symb_sch = dlsch_config->start_symbol;
 
     LOG_D(PHY," ------ --> PDSCH ChannelComp/LLR Frame.slot %d.%d ------  \n", frame_rx % 1024, nr_slot_rx);
-
-    for (int m = start_symb_sch; m < (nb_symb_sch + start_symb_sch) ; m++) {
-      if (!slot_fep_map[m]) {
-        nr_slot_fep(ue, &ue->frame_parms, proc->nr_slot_rx, m, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
-        slot_fep_map[m] = true;
-      }
-    }
 
     freq_alloc_bitmap_t freq_alloc = {0};
     if (dlsch_config->resource_alloc == 0) {
@@ -1415,7 +1446,9 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   }
 
   LOG_D(PHY," ****** end RX-Chain  for AbsSubframe %d.%d ******  \n", frame_rx%1024, nr_slot_rx);
-  UEscopeCopy(ue, commonRxdataF, rxdataF, sizeof(int32_t), ue->frame_parms.nb_antennas_rx, rxdataF_sz, 0);
+  if (rxdataF)
+    UEscopeCopy(ue, commonRxdataF, rxdataF, sizeof(int32_t), ue->frame_parms.nb_antennas_rx, rxdataF_sz, 0);
+  free_and_zero(phy_data->pdsch_rxdataF);
 }
 
 /* PRACH transmit power of the MAC (TS 38.213 7.4) when the radio knows its TX power: the preamble has a constant

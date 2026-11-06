@@ -40,6 +40,14 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
                 uint32_t sample_offset,
                 c16_t **rxdata);
 
+/* OFDM demodulation of one DL symbol of the slot the UE thread processes: from the samples of the slot in the RU ring
+   (common_vars.rx_slot) in sync, else from common_vars.rxdata as nr_slot_fep() */
+int nr_slot_fep_rx(PHY_VARS_NR_UE *ue,
+                   const NR_DL_FRAME_PARMS *frame_parms,
+                   unsigned int slot,
+                   unsigned int symbol,
+                   c16_t rxdataF[][frame_parms->samples_per_slot_wCP]);
+
 int slot_fep_mbsfn(PHY_VARS_UE *phy_vars_ue,
                    unsigned char l,
                    int subframe,
