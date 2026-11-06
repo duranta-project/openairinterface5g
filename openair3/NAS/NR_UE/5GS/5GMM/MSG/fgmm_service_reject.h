@@ -12,7 +12,7 @@ typedef struct {
   // 5GMM cause (Mandatory)
   cause_id_t cause;
   // T3346 Value (Optional)
-  gprs_timer_t *t3446;
+  gprs_timer_t *t3346;
   // PDU Session Status (Optional)
   uint8_t psi_status[MAX_NUM_PSI];
   bool has_psi_status;
