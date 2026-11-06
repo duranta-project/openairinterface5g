@@ -1066,21 +1066,7 @@ static void process_recv_header(buffer_t *b, bool first_time)
   return;
 }
 
-static void rfsim_add_scaled_samples(const c16_t *src, int count, float gain, c16_t *dst)
-{
-  // Intentional to avoid floating-point arithmetic when not needed
-  if (gain == 1.0f) {
-    for (int i = 0; i < count; ++i) {
-      dst[i].r += src[i].r;
-      dst[i].i += src[i].i;
-    }
-    return;
-  }
-  for (int i = 0; i < count; ++i) {
-    dst[i].r += src[i].r * gain;
-    dst[i].i += src[i].i * gain;
-  }
-}
+static void c16_scale_adds(const c16_t *in, float gain, c16_t *out, int n);
 
 /**
  * @brief Combines samples from received packets into a single buffer for the rx beam
@@ -1133,9 +1119,9 @@ static void combine_received_beams(rfsimulator_state_t *t,
     int write_end_idx = overlap_end - start_timestamp;
     int read_start_idx = overlap_start - pkt->header.timestamp;
     for (uint aatx = 0; aatx < pkt->header.nbAnt; aatx++) {
-      float gain_linear = powf(10, (own_gain_dB + sender_gain_db[aatx]) / 20.0);
+      float gain_linear = powf(10, (own_gain_dB + sender_gain_db[aatx]) / 20.0f);
       c16_t *tx_ant_buffer_in = &buffer[aatx * pkt->header.size + read_start_idx];
-      rfsim_add_scaled_samples(tx_ant_buffer_in, write_end_idx - write_start_idx, gain_linear, &samples[aatx][write_start_idx]);
+      c16_scale_adds(tx_ant_buffer_in, gain_linear, &samples[aatx][write_start_idx], write_end_idx - write_start_idx);
     }
     packets_copy.pop();
   }
@@ -1207,6 +1193,121 @@ static bool flushInput(rfsimulator_state_t *t, int timeout, bool first_time)
   return nfds > 0;
 }
 
+/* 8 floats rounded to the nearest int32, clamped to +-65536 before the conversion (out of range, cvtps_epi32 gives
+   INT32_MIN whatever the sign): beyond these values no int16 sample brings a sum back into the int16 range */
+static inline simde__m256i f8_to_i32_sat(simde__m256 x)
+{
+  x = simde_mm256_max_ps(simde_mm256_min_ps(x, simde_mm256_set1_ps(65536)), simde_mm256_set1_ps(-65536));
+  return simde_mm256_cvtps_epi32(x);
+}
+
+/* the same for one value. No libm here: lrintf, fminf and fmaxf are real calls without -ffast-math */
+static inline int32_t f_to_i32_sat(float x)
+{
+  const simde__m128 lo = simde_mm_max_ss(simde_mm_set_ss(x), simde_mm_set_ss(-65536));
+  return simde_mm_cvtss_si32(simde_mm_min_ss(lo, simde_mm_set_ss(65536)));
+}
+
+/* rounds to the nearest like cvtps_epi32. No libm here: lrintf, fminf and fmaxf are real calls without -ffast-math */
+static inline int16_t f_to_i16_sat(float x)
+{
+  const simde__m128 lo = simde_mm_max_ss(simde_mm_set_ss(x), simde_mm_set_ss(INT16_MIN));
+  return simde_mm_cvtss_si32(simde_mm_min_ss(lo, simde_mm_set_ss(INT16_MAX)));
+}
+
+static inline int16_t i32_to_i16_sat(int32_t v)
+{
+  return v > INT16_MAX ? INT16_MAX : v < INT16_MIN ? INT16_MIN : v;
+}
+
+/* out += in, saturated to int16 */
+static void c16_adds(const c16_t *in, c16_t *out, int n)
+{
+  int i = 0;
+  for (; i + 8 <= n; i += 8) {
+    simde__m256i *po = (simde__m256i *)(out + i);
+    const simde__m256i x = simde_mm256_loadu_si256((const simde__m256i *)(in + i));
+    simde_mm256_storeu_si256(po, simde_mm256_adds_epi16(simde_mm256_loadu_si256(po), x));
+  }
+  for (; i < n; i++) {
+    out[i].r = i32_to_i16_sat(out[i].r + in[i].r);
+    out[i].i = i32_to_i16_sat(out[i].i + in[i].i);
+  }
+}
+
+/* out += in * gain, saturated to int16 like an ADC (each partial sum is saturated: the order of the senders only
+   matters beyond the full scale). The samples are int16 on both sides: all is done in integers, the gain is a fixed
+   point number of 15 significant bits and each product is rounded to the nearest. The result is within 1 LSB of the
+   exact one */
+static void c16_scale_adds(const c16_t *in, float gain, c16_t *out, int n)
+{
+  if (gain <= 0)
+    return;
+  if (gain == 1.0f) {
+    c16_adds(in, out, n);
+    return;
+  }
+  int i = 0;
+  int32_t g; // out += (in * g + half) >> sh
+  int sh;
+  if (gain < 1.0f) {
+    // attenuation: Q15 gain, 16 values per register. The rounding of the gain moves a product by less than half a LSB
+    g = std::min(lroundf(gain * 32768), 32767L);
+    sh = 15;
+    const simde__m256i vg = simde_mm256_set1_epi16(g);
+    for (; i + 8 <= n; i += 8) {
+      simde__m256i *po = (simde__m256i *)(out + i);
+      const simde__m256i x = simde_mm256_loadu_si256((const simde__m256i *)(in + i));
+      simde_mm256_storeu_si256(po, simde_mm256_adds_epi16(simde_mm256_loadu_si256(po), simde_mm256_mulhrs_epi16(x, vg)));
+    }
+  } else {
+    /* amplification: the 32-bit products are made of the two 16-bit halves (mullo, mulhi), 16 values per register;
+       unpack and packs both work per 128-bit lane, so the order is kept. Beyond 2^15 all but +-1 saturate anyway */
+    gain = std::min(gain, 32767.0f);
+    int e;
+    frexpf(gain, &e); // gain < 2^e, e in 1..15
+    sh = 15 - e;
+    g = std::min(lroundf(gain * (1 << sh)), 32767L);
+    const simde__m256i vg = simde_mm256_set1_epi16(g), vhalf = simde_mm256_set1_epi32(sh ? 1 << (sh - 1) : 0);
+    const simde__m128i vsh = simde_mm_cvtsi32_si128(sh);
+    for (; i + 8 <= n; i += 8) {
+      simde__m256i *po = (simde__m256i *)(out + i);
+      const simde__m256i x = simde_mm256_loadu_si256((const simde__m256i *)(in + i));
+      const simde__m256i lo = simde_mm256_mullo_epi16(x, vg), hi = simde_mm256_mulhi_epi16(x, vg);
+      const simde__m256i p0 = simde_mm256_sra_epi32(simde_mm256_add_epi32(simde_mm256_unpacklo_epi16(lo, hi), vhalf), vsh);
+      const simde__m256i p1 = simde_mm256_sra_epi32(simde_mm256_add_epi32(simde_mm256_unpackhi_epi16(lo, hi), vhalf), vsh);
+      simde_mm256_storeu_si256(po, simde_mm256_adds_epi16(simde_mm256_loadu_si256(po), simde_mm256_packs_epi32(p0, p1)));
+    }
+  }
+  const int32_t half = sh ? 1 << (sh - 1) : 0;
+  for (; i < n; i++) { // as the vector parts
+    out[i].r = i32_to_i16_sat(out[i].r + i32_to_i16_sat((in[i].r * g + half) >> sh));
+    out[i].i = i32_to_i16_sat(out[i].i + i32_to_i16_sat((in[i].i * g + half) >> sh));
+  }
+}
+
+/* out += in, saturated to int16: the sum is made in int32 and saturated once, so that a contribution beyond the full
+   scale still adds exactly to a sample of the opposite sign. packs_epi32 saturates and interleaves the 128-bit lanes,
+   permute4x64 puts them back in order */
+static void cf_adds(const cf_t *in, c16_t *out, int n)
+{
+  int i = 0;
+  for (; i + 8 <= n; i += 8) {
+    const simde__m256 lo = simde_mm256_loadu_ps((const float *)(in + i));
+    const simde__m256 hi = simde_mm256_loadu_ps((const float *)(in + i + 4));
+    simde__m256i *o = (simde__m256i *)(out + i);
+    const simde__m256i old = simde_mm256_loadu_si256(o);
+    const simde__m256i sum_lo = simde_mm256_add_epi32(simde_mm256_cvtepi16_epi32(simde_mm256_castsi256_si128(old)), f8_to_i32_sat(lo));
+    const simde__m256i sum_hi =
+        simde_mm256_add_epi32(simde_mm256_cvtepi16_epi32(simde_mm256_extracti128_si256(old, 1)), f8_to_i32_sat(hi));
+    simde_mm256_storeu_si256(o, simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(sum_lo, sum_hi), 0xd8));
+  }
+  for (; i < n; i++) { // as the vector part
+    out[i].r = i32_to_i16_sat(out[i].r + f_to_i32_sat(in[i].r));
+    out[i].i = i32_to_i16_sat(out[i].i + f_to_i32_sat(in[i].i));
+  }
+}
+
 static void rfsimulator_read_internal(rfsimulator_state_t *t,
                                       sample_t **samples,
                                       openair0_timestamp_t timestamp,
@@ -1214,6 +1315,9 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
                                       int nbAnt,
                                       std::vector<uint16_t> rx_beams)
 {
+  /* the senders and the noise are added with int16 saturation, like an ADC. Added with a plain conversion, the sum
+     wrapped around: a few strong senders (UEs at Pcmax during a RA burst) became a wideband garbage that hid all the
+     other signals */
   cf_t temp_array[nbAnt][nsamps];
   bool channel_modelling = false;
   // Add all input nodes signal in the output buffer
@@ -1283,21 +1387,18 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
 
           for (int aarx = 0; aarx < nbAnt; aarx++) {
             float own_gain_dB = get_beam_gain_db(t, rx_beams[aarx]);
-            double H_awgn_mimo_coeff[pkt->header.nbAnt];
+            float H_awgn_mimo_coeff[pkt->header.nbAnt];
             for (int aatx = 0; aatx < (int)pkt->header.nbAnt; aatx++) {
-              uint32_t ant_diff = std::abs(aatx - aarx);
-              float gain_linear = powf(10, (own_gain_dB + sender_gain_db[aatx]) / 20.0);
-              H_awgn_mimo_coeff[aatx] = (ant_diff ? (0.2 / ant_diff) : 1.0) * gain_linear;
+              int ant_diff = std::abs(aatx - aarx);
+              float gain_linear = powf(10, (own_gain_dB + sender_gain_db[aatx]) / 20.0f);
+              H_awgn_mimo_coeff[aatx] = ant_diff ? 0.2f / ant_diff * gain_linear : gain_linear;
             }
 
-            for (uint aatx = 0; aatx < pkt->header.nbAnt; aatx++) {
-              c16_t *tx_ant_buffer_in = &buffer[aatx * pkt->header.size + read_start_idx];
-              for (int i = write_start_idx; i < write_end_idx; i++) {
-                samples[aarx][i].r += tx_ant_buffer_in->r * H_awgn_mimo_coeff[aatx];
-                samples[aarx][i].i += tx_ant_buffer_in->i * H_awgn_mimo_coeff[aatx];
-                tx_ant_buffer_in++;
-              }
-            }
+            for (uint aatx = 0; aatx < pkt->header.nbAnt; aatx++)
+              c16_scale_adds(&buffer[aatx * pkt->header.size + read_start_idx],
+                             H_awgn_mimo_coeff[aatx],
+                             &samples[aarx][write_start_idx],
+                             write_end_idx - write_start_idx);
           }
           packets_copy.pop();
         }
@@ -1305,27 +1406,22 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
     }
   }
 
-  bool apply_global_noise = get_noise_power_dBFS() != INVALID_DBFS_VALUE;
-  if (apply_global_noise) {
-    if (!channel_modelling) {
-      memset(temp_array, 0, sizeof(temp_array));
-      channel_modelling = true;
-    }
-    int16_t noise_power = (int16_t)(32767.0 / powf(10.0, .05 * -get_noise_power_dBFS()));
-    for (int a = 0; a < nbAnt; a++) {
-      for (int i = 0; i < nsamps; i++) {
-        temp_array[a][i].r += noise_power * gaussZiggurat(0.0, 1.0);
-        temp_array[a][i].i += noise_power * gaussZiggurat(0.0, 1.0);
-      }
-    }
+  // the channel model output is in float
+  if (channel_modelling) {
+    for (int a = 0; a < nbAnt; a++)
+      cf_adds(temp_array[a], samples[a], nsamps);
   }
 
-  if (channel_modelling) {
+  if (get_noise_power_dBFS() != INVALID_DBFS_VALUE) {
+    const float noise_power = 32767 * powf(10, .05f * get_noise_power_dBFS());
+    // the noise goes straight to int16: no float buffer to clear and to convert
+    c16_t noise[nsamps];
     for (int a = 0; a < nbAnt; a++) {
       for (int i = 0; i < nsamps; i++) {
-        samples[a][i].r += lroundf(temp_array[a][i].r);
-        samples[a][i].i += lroundf(temp_array[a][i].i);
+        noise[i].r = f_to_i16_sat(noise_power * (float)gaussZiggurat(0.0, 1.0));
+        noise[i].i = f_to_i16_sat(noise_power * (float)gaussZiggurat(0.0, 1.0));
       }
+      c16_adds(noise, samples[a], nsamps);
     }
   }
 }
