@@ -328,31 +328,27 @@ static void test_service_reject(void)
   free_fgs_service_reject(&dec_eap);
 }
 
-/** @brief Test NAS Registration Reject enc/dec (plain AMF reject: cause only) */
+/** @brief Test NAS Registration Reject enc/dec with optional timers. */
 static void test_registration_reject(void)
 {
   fgs_registration_reject_msg_t orig = {
       .cause = Illegal_UE,
+      .t3346 = malloc_or_fail(sizeof(*orig.t3346)),
+      .t3502 = malloc_or_fail(sizeof(*orig.t3502)),
   };
-
-  uint8_t expected_enc[] = {0x03};
-
-  uint8_t buf[64] = {0};
-  byte_array_t buffer = {.buf = buf, .len = sizeof(expected_enc)};
-
-  int encoded_length = encode_fgs_registration_reject(&buffer, &orig);
-  AssertFatal(encoded_length == sizeofArray(expected_enc),
-              "encode_fgs_registration_reject() failed: %d != %ld\n",
-              encoded_length,
-              sizeofArray(expected_enc));
-  AssertFatal(memcmp(buffer.buf, expected_enc, buffer.len) == 0, "Encoding mismatch!\n");
+  *orig.t3346 = (gprs_timer_t){.unit = DECIHOURS, .value = 2};
+  *orig.t3502 = (gprs_timer_t){.unit = DEACTIVATED};
+  const uint8_t expected[] = {0x03, 0x5f, 1, 0x42, 0x16, 1, 0xe0};
+  uint8_t buf[sizeof(expected)] = {0};
+  byte_array_t buffer = {.buf = buf, .len = sizeof(buf)};
+  AssertFatal(encode_fgs_registration_reject(&buffer, &orig) == sizeof(expected), "Registration Reject encoding failed\n");
+  AssertFatal(memcmp(buf, expected, sizeof(expected)) == 0, "Registration Reject encoding mismatch\n");
 
   fgs_registration_reject_msg_t dec = {0};
-  int decoded_length = decode_fgs_registration_reject(&dec, &buffer);
-  AssertFatal(decoded_length >= 0, "decode_fgs_registration_reject() failed\n");
-  AssertFatal(eq_registration_reject(&orig, &dec),
-              "test_registration_reject() failed: original and decoded messages do not match\n");
+  AssertFatal(decode_fgs_registration_reject(&dec, &buffer) == sizeof(expected), "Registration Reject decoding failed\n");
+  AssertFatal(eq_registration_reject(&orig, &dec), "Registration Reject roundtrip mismatch\n");
   free_fgs_registration_reject(&dec);
+  free_fgs_registration_reject(&orig);
 }
 
 /** @brief Test NAS Authentication Failure enc/dec */

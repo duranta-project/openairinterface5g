@@ -2610,6 +2610,7 @@ static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
   fgs_service_reject_msg_t msg = {0};
   if (decode_fgs_service_reject(&msg, &ba) < 0) {
     LOG_E(NAS, "Service Reject: failed to decode NAS message body\n");
+    free_fgs_service_reject(&msg);
     return;
   }
   // Extract timer t3448 in seconds (optional IE)
@@ -2617,6 +2618,7 @@ static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
   // Extract timer t3346 in seconds (optional IE)
   nas->t3346 = process_gprs_timer(msg.t3346);
   LOG_E(NAS, "Received NAS Service Reject message with cause %s\n", print_info(msg.cause, fgmm_cause_s, sizeofArray(fgmm_cause_s)));
+  free_fgs_service_reject(&msg);
   /* Retrying the Service Request would loop forever, and re-registering is not supported:
    * terminate as after a Registration Reject. */
   LOG_E(NAS, "Service Reject: cannot connect, exiting\n");
@@ -2625,10 +2627,10 @@ static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
   send_nas_detach_req(nas, false);
 }
 
-/** @brief Handle Registration Reject (8.2.7 / 5.5.1.2.5 of 3GPP TS 24.501)
+/** @brief Handle Registration Reject (8.2.9 / 5.5.1.2.5 of 3GPP TS 24.501)
  * @todo Per §5.5.1.2.5: forbidden PLMN/TAI, registration attempt counter
  * @todo N1 NAS signalling release per §5.3.1.3
- * @todo Optional IEs T3346/T3502, EAP per §5.4.1.2.2.11 */
+ * @todo T3346/T3502 retry procedures and optional EAP handling */
 static void handle_registration_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
 {
   DevAssert(buffer && buffer->buf);
@@ -2677,6 +2679,8 @@ static void handle_registration_reject(nr_ue_nas_t *nas, const byte_array_t *buf
   }
 
   LOG_E(NAS, "Received Registration Reject cause: %s\n", print_info(msg.cause, fgmm_cause_s, sizeofArray(fgmm_cause_s)));
+  nas->t3346 = process_gprs_timer(msg.t3346);
+  nas->t3502 = process_gprs_timer(msg.t3502);
   free_fgs_registration_reject(&msg);
   nas->fiveGMM_state = FGS_DEREGISTERED;
   nas->termination_procedure = true;
