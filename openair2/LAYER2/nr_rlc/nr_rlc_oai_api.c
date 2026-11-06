@@ -26,6 +26,7 @@
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
+#include <stdatomic.h>
 #include <stdint.h>
 
 #include <executables/softmodem-common.h>
@@ -33,30 +34,12 @@
 static nr_rlc_ue_manager_t *nr_rlc_ue_manager;
 
 /* TODO: handle time a bit more properly */
-static pthread_mutex_t nr_rlc_current_time_mutex = PTHREAD_MUTEX_INITIALIZER;
-static uint64_t nr_rlc_current_time;
-
-void lock_nr_rlc_current_time(void)
-{
-  if (pthread_mutex_lock(&nr_rlc_current_time_mutex))
-    AssertFatal(0, "error locking mutex");
-}
-
-void unlock_nr_rlc_current_time(void)
-{
-  if (pthread_mutex_unlock(&nr_rlc_current_time_mutex))
-    AssertFatal(0, "error locking mutex");
-}
+/* incremented by the ms tick, read on each RLC call (for each UE, in each slot, by the scheduler): an atomic, no lock */
+static _Atomic uint64_t nr_rlc_current_time;
 
 static uint64_t get_nr_rlc_current_time(void)
 {
-  lock_nr_rlc_current_time();
-
-  uint64_t ret = nr_rlc_current_time;
-
-  unlock_nr_rlc_current_time();
-
-  return ret;
+  return atomic_load_explicit(&nr_rlc_current_time, memory_order_relaxed);
 }
 
 static void release_rlc_entity_from_lcid(nr_rlc_ue_t *ue, logical_chan_id_t channel_id)
@@ -1045,9 +1028,7 @@ void nr_rlc_test_trigger_reestablishment(int ue_id)
 
 void nr_rlc_ms_tick(void)
 {
-  lock_nr_rlc_current_time();
-  nr_rlc_current_time++;
-  unlock_nr_rlc_current_time();
+  atomic_fetch_add_explicit(&nr_rlc_current_time, 1, memory_order_relaxed);
 }
 
 void nr_rlc_activate_avg_time_to_tx(const int ue_id,
