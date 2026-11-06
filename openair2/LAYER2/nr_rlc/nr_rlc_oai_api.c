@@ -983,7 +983,7 @@ bool nr_rlc_update_id(int from_id, int to_id)
     LOG_E(RLC, "Cannot find RLC entity for UE %d\n", from_id);
     return false;
   }
-  ue->ue_id = to_id;
+  nr_rlc_manager_set_ue_id(nr_rlc_ue_manager, ue, to_id);
   LOG_I(RLC, "Update old UE ID %d context to ID %d\n", from_id, to_id);
   /* re-establish RLC for SRB1: according to 5.3.7.4 of TS 38.331 */
   if (ue->srb[0]) {
