@@ -96,6 +96,16 @@ nr_rlc_ue_t *nr_rlc_manager_get_ue(nr_rlc_ue_manager_t *_m, int ue_id)
   return m->ue_list[m->ue_count-1];
 }
 
+/* must be called with lock acquired: the UE is then looked up with its new ID */
+void nr_rlc_manager_set_ue_id(nr_rlc_ue_manager_t *_m, nr_rlc_ue_t *ue, int ue_id)
+{
+  nr_rlc_ue_manager_internal_t *m = _m;
+  hashtable_remove(&m->ue_by_id, ue->ue_id, NULL);
+  ue->ue_id = ue_id;
+  hashtable_rc_t rc = hashtable_insert(&m->ue_by_id, ue_id, ue, NULL);
+  AssertFatal(rc == HASH_TABLE_OK, "cannot index RLC UE %d: %d\n", ue_id, rc);
+}
+
 /* must be called with lock acquired */
 void nr_rlc_manager_remove_ue(nr_rlc_ue_manager_t *_m, int ue_id)
 {
