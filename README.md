@@ -94,7 +94,7 @@ openairinterface5g
 ├── cmake_targets     : Build and dependency-management utilities
 ├── common            : Common configuration, utilities, and shared infrastructure
 ├── doc               : Documentation
-├── docker            : Dockerfiles for building Ubuntu, RHEL, and Rocky Linux images
+├── docker            : Dockerfiles for building Ubuntu and RHEL images
 ├── executables       : Top-level gNB, eNB, UE, CU, DU, and O-RU entry points
 ├── fronthaul         : Native OAI 7.2x fronthaul implementation
 ├── maketags          : Script to generate Emacs tags

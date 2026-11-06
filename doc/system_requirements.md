@@ -27,7 +27,6 @@ This document describes the minimal and performant system requirements for OpenA
 |RHEL 9           |
 |Fedora 44        |
 |Debian 11        |
-|Rocky 9          |
 
 
 ## Minimum Hardware Requirement for x86_64 Platforms
