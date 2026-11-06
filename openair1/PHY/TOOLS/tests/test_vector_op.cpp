@@ -23,6 +23,11 @@ void exit_function(const char *file, const char *function, const int line, const
 #include "common/utils/LOG/log.h"
 #include "openair1/PHY/TOOLS/phy_test_tools.hpp"
 
+static int16_t sat16(int v)
+{
+  return std::clamp(v, INT16_MIN, INT16_MAX);
+}
+
 int main()
 {
   const int shift = 15; // it should always be 15 to keep int16 in same range
@@ -67,6 +72,39 @@ int main()
                input2[i].i,
                output[i].r,
                output[i].i,
+               res.r,
+               res.i);
+        return 1;
+      }
+    }
+  }
+
+  // c16multaddVectRealComplex(): y += 2 * mulhrs(x, alpha) per component, saturating each step
+  for (int n = 8; n <= 800; n += 8) {
+    const auto xc = generate_random_c16(n / 2);
+    AlignedVector512<int16_t> x;
+    for (const c16_t &v : xc) {
+      x.push_back(v.r);
+      x.push_back(v.i);
+    }
+    const c16_t alpha = generate_random_c16(1)[0];
+    const auto y_in = generate_random_c16(n);
+    auto y = y_in;
+    c16multaddVectRealComplex(x.data(), &alpha, y.data(), n);
+    for (int i = 0; i < n; i++) {
+      const c16_t res = {sat16(y_in[i].r + sat16(2 * ((alpha.r * x[i] + 0x4000) >> 15))),
+                         sat16(y_in[i].i + sat16(2 * ((alpha.i * x[i] + 0x4000) >> 15)))};
+      if (y[i].r != res.r || y[i].i != res.i) {
+        printf("Error at %d of %d: (%d,%d) + %d * (%d,%d) = (%d,%d) (should be (%d,%d))\n",
+               i,
+               n,
+               y_in[i].r,
+               y_in[i].i,
+               x[i],
+               alpha.r,
+               alpha.i,
+               y[i].r,
+               y[i].i,
                res.r,
                res.i);
         return 1;
