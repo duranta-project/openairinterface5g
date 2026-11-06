@@ -1798,6 +1798,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
 void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, slot_t slot)
 {
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
+  const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
   FOR_EACH_CONNECTED_UE(&nrmac->UE_info, UE) {
     if (UE->pcell != cell)
       continue;
@@ -1818,7 +1819,6 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, sl
       int SR_period; int SR_offset;
       find_period_offset_SR(srConf, &SR_period, &SR_offset);
       // we schedule SR max_fb_time slots in advance
-      const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
       const fsn_t sched = get_fb_frame_slot(SFN, slot, ul_bwp->max_fb_time, n_slots_frame, NTN_gNB_Koffset);
       int sfn_sf = sched.f * n_slots_frame + sched.s;
       LOG_D(NR_MAC, "SR_resource_id %d: SR_period %d, SR_offset %d\n", id, SR_period, SR_offset);

@@ -602,5 +602,12 @@ bool nr_ul_check_phr(const nr_ul_sched_params_t *params,
                      uint16_t rbSize,
                      uint8_t mcs,
                      nr_ul_phr_advice_t *advice);
-fsn_t get_fb_frame_slot(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset);
+// called for each UE and each periodic resource in each slot: inline
+static inline fsn_t get_fb_frame_slot(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset)
+{
+  // K is the feedback time in slot
+  fsn_t fb = {.f = (frame + ((slot + K + NTN_gNB_Koffset) / n_slots_frame)) % MAX_FRAME_NUMBER,
+              .s = (slot + K + NTN_gNB_Koffset) % n_slots_frame};
+  return fb;
+}
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/
