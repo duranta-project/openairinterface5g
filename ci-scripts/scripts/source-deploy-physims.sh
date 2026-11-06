@@ -2,11 +2,16 @@
 # SPDX-License-Identifier: MIT
 
 function die() { echo $@; exit 1; }
-[ $# -ge 1 ] || die "usage: $0 <directory> [ctest-options]"
+[[ $# > 1 ]] || die "usage: $0 <directory> [prefix] <ctest-options>"
 
 set -x
 DIR=$1
-shift
+shift 1
+PREFIX=
+if [[ $# > 1 ]]; then
+  PREFIX=$1
+  shift 1
+fi
 CTEST_OPT=$@
 
 cd ${DIR}/cmake_targets/ran_build/build
@@ -20,7 +25,7 @@ JSON_RES=$?
 # to be able to initialize DPDK
 sudo setcap cap_dac_override,cap_sys_admin+ep nr_ulsim
 sudo setcap cap_dac_override,cap_sys_admin+ep nr_dlsim
-numactl --cpunodebind=1 --membind=1 ctest ${CTEST_OPT} --output-junit ${DIR}/results-run.xml --test-output-size-passed 100000 --test-output-size-failed 100000 &>> ${DIR}/physim_log.txt
+${PREFIX} ctest ${CTEST_OPT} --output-junit ${DIR}/results-run.xml --test-output-size-passed 100000 --test-output-size-failed 100000 &>> ${DIR}/physim_log.txt
 RUN_RES=$?
 cp Testing/Temporary/LastTestsFailed.log ${DIR}/
 cp Testing/Temporary/LastTest.log ${DIR}/
