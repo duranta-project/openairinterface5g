@@ -12,6 +12,8 @@
 #include <arpa/inet.h>
 #include <linux/ipv6.h>
 #include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <linux/if_link.h>
 
 #include "tuntap_if.h"
 #include "common/platform_constants.h"
@@ -101,6 +103,66 @@ int tun_init(const char *ifname, int instance_id)
 
   LOG_I(UTIL, "Opened socket %s with fd nas_sock_fd[%d]=%d\n", ifname, instance_id, nas_sock_fd[instance_id]);
   return 1;
+}
+
+/*
+ * \brief Do not generate IPv6 addresses (incl. link-local) on an interface.
+ * Without a link-local address, the kernel sends no IPv6 Router Solicitation,
+ * which would wake up an idle UE (MO Service Request) on an IPv4-only PDU
+ * session. Uses netlink, as /proc/sys is read-only in containers.
+ * Must be called before the interface is set up.
+ * \param ifn the name of the interface to modify
+ * \return true on success, false otherwise
+ */
+static bool disable_ipv6_addr_gen(const char *ifn)
+{
+  const unsigned int ifindex = if_nametoindex(ifn);
+  if (ifindex == 0) {
+    LOG_W(OIP, "if_nametoindex(%s) failed: %d, %s\n", ifn, errno, strerror(errno));
+    return false;
+  }
+
+  struct {
+    struct nlmsghdr nh;
+    struct ifinfomsg ifi;
+    char attrs[64];
+  } req = {0};
+  req.nh.nlmsg_len = NLMSG_LENGTH(sizeof(req.ifi));
+  req.nh.nlmsg_type = RTM_SETLINK;
+  req.nh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+  req.ifi.ifi_family = AF_UNSPEC;
+  req.ifi.ifi_index = ifindex;
+
+  // IFLA_AF_SPEC { AF_INET6 { IFLA_INET6_ADDR_GEN_MODE = IN6_ADDR_GEN_MODE_NONE } }
+  struct rtattr *af_spec = (struct rtattr *)((char *)&req + NLMSG_ALIGN(req.nh.nlmsg_len));
+  af_spec->rta_type = IFLA_AF_SPEC;
+  struct rtattr *inet6 = RTA_DATA(af_spec);
+  inet6->rta_type = AF_INET6;
+  struct rtattr *mode = RTA_DATA(inet6);
+  mode->rta_type = IFLA_INET6_ADDR_GEN_MODE;
+  mode->rta_len = RTA_LENGTH(sizeof(uint8_t));
+  *(uint8_t *)RTA_DATA(mode) = IN6_ADDR_GEN_MODE_NONE;
+  inet6->rta_len = RTA_LENGTH(RTA_ALIGN(mode->rta_len));
+  af_spec->rta_len = RTA_LENGTH(inet6->rta_len);
+  req.nh.nlmsg_len = NLMSG_ALIGN(req.nh.nlmsg_len) + RTA_ALIGN(af_spec->rta_len);
+
+  int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+  if (fd < 0) {
+    LOG_W(OIP, "netlink socket() failed: %d, %s\n", errno, strerror(errno));
+    return false;
+  }
+  bool success = send(fd, &req, req.nh.nlmsg_len, 0) == req.nh.nlmsg_len;
+  struct {
+    struct nlmsghdr nh;
+    struct nlmsgerr err;
+  } ack = {0};
+  success = success && recv(fd, &ack, sizeof(ack), 0) >= (ssize_t)sizeof(ack) && ack.nh.nlmsg_type == NLMSG_ERROR;
+  if (success && ack.err.error != 0) {
+    LOG_W(OIP, "disabling IPv6 address generation on %s failed: %s\n", ifn, strerror(-ack.err.error));
+    success = false;
+  }
+  close(fd);
+  return success;
 }
 
 /*
@@ -238,6 +300,11 @@ bool tun_config(const char* ifname, const char *ipv4, const char *ipv6)
     }
     success = success && setInterfaceParameter(sock_fd, ifname, AF_INET6, ipv6, SIOCSIFADDR);
     close(sock_fd);
+  } else {
+    // no IPv6 address: no IPv6 traffic (e.g., Router Solicitation) from the
+    // kernel. Best effort: the interface works without it (e.g., IPv6 disabled)
+    if (!disable_ipv6_addr_gen(ifname))
+      LOG_W(OIP, "%s: IPv6 address generation not disabled, continuing\n", ifname);
   }
 
   if (success) {
