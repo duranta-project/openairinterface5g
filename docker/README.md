@@ -75,7 +75,6 @@ The currently-supported OS are:
 
 - `rhel9` for Red Hat Enterprise Linux and Openshift Universal Base Image
 - `ubuntu` for Ubuntu 24.04 LTS
-- `rocky` for Rocky-Linux 9
 
 For more details regarding the build on an Openshift Cluster, see [OpenShift README](../openshift/README.md).
 
@@ -130,8 +129,6 @@ ran-base            latest              5c9c02a5b4a8        1 minute ago        
 ran-build-fhi72     latest              5190c06dbb4d        1 minute ago    6.86GB
 ...
 ```
-
-Note that the steps are identical for `rocky-linux`.
 
 ### 3.2.1. Additional build options
 
@@ -190,8 +187,6 @@ Do not forget to remove the temporary image:
 ```
 docker image prune --force
 ```
-
-Note that the steps are identical for `rocky-linux`.
 
 If you have used the sanitizer option, then you should also pass it when building the target image:
 
