@@ -455,6 +455,12 @@ static uint16_t prach_raw_delay_to_ta(const prach_item_t *in, uint32_t raw_delay
   return 0;
 }
 
+static int cmp_u64(const void *a, const void *b)
+{
+  const uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
+  return x < y ? -1 : x > y;
+}
+
 rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 {
   const int nb_rx = in->nb_rx;
@@ -504,16 +510,17 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
     uint distance;
     uint preamble;
   } max = {0, UINT_MAX, 0};
-  // average correlation energy over all the bins of all the roots: the floor the peak must stand out of
-  uint64_t floor_energy = 0;
+  /* correlation energy of all the bins of all the roots, for the floor the peaks must stand out of. The floor is their
+     median, not their mean: in a RA burst, tens of preambles of one root fill a quarter of the bins with their peaks
+     and the mean rose to a few dB below each peak, so that none was detected, the UEs ramped up to Pcmax and the
+     burst never ended */
+  const int max_floor_bins = dft_sz * 64;
+  uint64_t *floor_bin = malloc_or_fail(max_floor_bins * sizeof(*floor_bin));
   int floor_bins = 0;
-  // peak of each preamble in its search window, and the energy of the bins of this peak (the peak spreads over about
-  // dft_sz / N_ZC bins on each side), to compute the floor without the detected preambles
+  // peak of each preamble in its search window
   struct pre_peak {
     uint64_t energy;
-    uint64_t region_energy;
     uint distance;
-    int region_bins;
   } peak[64] = {0};
 
   for (int preamble_index = 0; preamble_index < 64; preamble_index++) {
@@ -611,9 +618,10 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
           prach_ifft[i] += squaredMod(tmp);
         }
       }
-      for (int i = 0; i < dft_sz; i++)
-        floor_energy += prach_ifft[i];
-      floor_bins += dft_sz;
+      if (floor_bins + dft_sz <= max_floor_bins) {
+        memcpy(floor_bin + floor_bins, prach_ifft, dft_sz * sizeof(*floor_bin));
+        floor_bins += dft_sz;
+      }
     }
 
     // Search window of this preamble: its cyclic shift converted to IFFT bins
@@ -624,12 +632,6 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
       if (search[i] > pk->energy) {
         pk->energy = search[i];
         pk->distance = i;
-      }
-    }
-    if (pk->energy > 0) {
-      for (int i = max((int)pk->distance - guard, 0); i <= min((int)pk->distance + guard, NCS2 - 1); i++) {
-        pk->region_energy += search[i];
-        pk->region_bins++;
       }
     }
 
@@ -665,53 +667,36 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 
   // Energy normalized over the IFFT size and the receive antennas (-900, i.e. 0 in dB x10, for an empty occasion)
   rx_prach_out_t out = {.max_preamble_energy = dB_fixed_times10(max.energy / (dft_sz * nb_rx))};
+  // the energy of a noise bin is exponential: its mean is the median / ln(2)
+  int floor_db = 0;
+  if (floor_bins > 0) {
+    qsort(floor_bin, floor_bins, sizeof(*floor_bin), cmp_u64);
+    floor_db = dB_fixed_times10(max((uint64_t)(floor_bin[floor_bins / 2] / M_LN2), 1));
+  }
+  free(floor_bin);
   if (max.energy > 0 && floor_bins > 0)
-    out.peak_to_floor = dB_fixed_times10(max.energy) - dB_fixed_times10(max(floor_energy / floor_bins, 1));
+    out.peak_to_floor = dB_fixed_times10(max.energy) - floor_db;
   if (max.energy > 0) {
     out.max_preamble = max.preamble;
     out.max_preamble_delay_raw = max.distance;
     out.max_preamble_delay = prach_raw_delay_to_ta(in, max.distance);
   }
 
-  /* several preambles: the floor is the average of the bins out of the peaks that stand NR_PRACH_MIN_PEAK_TO_FLOOR above
-   * it. A few iterations: the first floor includes the energy of all the peaks. Peaks of the preambles of the same root
-   * do not leak on each other (cyclic shifts of one Zadoff-Chu sequence), the preambles of other roots raise the floor
-   * by about 1/N_ZC each */
-  bool cand[64] = {0};
-  for (int it = 0; it < 3 && floor_bins > 0; it++) {
-    uint64_t fe = floor_energy;
-    int fb = floor_bins;
-    for (int p = 0; p < 64; p++) {
-      if (cand[p]) {
-        fe -= min(peak[p].region_energy, fe);
-        fb -= peak[p].region_bins;
-      }
+  // several preambles: every preamble whose peak stands NR_PRACH_MIN_PEAK_TO_FLOOR above the floor
+  for (int p = 0; p < 64 && floor_bins > 0; p++) {
+    if (peak[p].energy == 0 || dB_fixed_times10(peak[p].energy) - floor_db < NR_PRACH_MIN_PEAK_TO_FLOOR)
+      continue;
+    int k = out.num_detected++;
+    const int en = dB_fixed_times10(peak[p].energy / (dft_sz * nb_rx));
+    // strongest first
+    while (k > 0 && out.detected[k - 1].energy < en) {
+      out.detected[k] = out.detected[k - 1];
+      k--;
     }
-    const int floor_db = dB_fixed_times10(max(fb > 0 ? fe / fb : 1, 1));
-    bool changed = false;
-    for (int p = 0; p < 64; p++) {
-      const bool c = peak[p].energy > 0 && dB_fixed_times10(peak[p].energy) - floor_db >= NR_PRACH_MIN_PEAK_TO_FLOOR;
-      changed |= c != cand[p];
-      cand[p] = c;
-    }
-    if (!changed || it == 2) {
-      for (int p = 0; p < 64; p++) {
-        if (!cand[p])
-          continue;
-        int k = out.num_detected++;
-        const int en = dB_fixed_times10(peak[p].energy / (dft_sz * nb_rx));
-        // strongest first
-        while (k > 0 && out.detected[k - 1].energy < en) {
-          out.detected[k] = out.detected[k - 1];
-          k--;
-        }
-        out.detected[k].preamble = p;
-        out.detected[k].energy = en;
-        out.detected[k].delay = prach_raw_delay_to_ta(in, peak[p].distance);
-        out.detected[k].peak_to_floor = dB_fixed_times10(peak[p].energy) - floor_db;
-      }
-      break;
-    }
+    out.detected[k].preamble = p;
+    out.detected[k].energy = en;
+    out.detected[k].delay = prach_raw_delay_to_ta(in, peak[p].distance);
+    out.detected[k].peak_to_floor = dB_fixed_times10(peak[p].energy) - floor_db;
   }
   stop_meas(in->rx_prach);
   return out;
