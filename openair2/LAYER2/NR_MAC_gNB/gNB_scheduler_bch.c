@@ -655,8 +655,9 @@ static bool test_other_sib_sched_occasion(int window_pos,
 {
   int x = (window_pos - 1) * window_len;
   int T = 8 << period;
-  int test_frame = (frame - rel_frame) % MAX_FRAME_NUMBER;
   int si_slot = (x % n_slots_frame) + rel_slot;
+  int test_frame = (frame - rel_frame - si_slot / n_slots_frame + MAX_FRAME_NUMBER) % MAX_FRAME_NUMBER;
+  si_slot %= n_slots_frame;
   bool res = ((test_frame % T) != (x / n_slots_frame)) || (si_slot != slot);
   return res;
 }
