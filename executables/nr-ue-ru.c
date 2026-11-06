@@ -324,6 +324,10 @@ void nrue_init_openair0(void)
       rd->grain = 2048; // arbitrary read size, chosen to fit in a ethernet jumbo frame
       rd->last_ts = 0;
       rd->last_timestamp = calloc_or_fail(ru->nb_clients, sizeof(*rd->last_timestamp));
+      rd->hold = malloc_or_fail(ru->nb_clients * sizeof(*rd->hold));
+      for (int i = 0; i < ru->nb_clients; i++)
+        rd->hold[i] = UINT64_MAX;
+      rd->hold_waited = false;
       rd->rxbuf = calloc_or_fail(ru->nb_rx, sizeof(*rd->rxbuf));
       for (int i = 0; i < ru->nb_rx; i++)
         rd->rxbuf[i] = create_ring(rd->sz * sizeof(c16_t));
@@ -450,17 +454,25 @@ static uint64_t oldest_client_timestamp(const read_data_t *rd, int nb_clients)
   return min;
 }
 
-int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int num_antennas)
+static uint64_t oldest_hold(const read_data_t *rd, int nb_clients)
+{
+  uint64_t min = UINT64_MAX;
+  for (int i = 0; i < nb_clients; i++)
+    min = min(min, rd->hold[i]);
+  return min;
+}
+
+/* multi client RU: with rd->mread locked, wait until this UE is the oldest client and the ring holds its next nsamps
+   samples, return the timestamp of the first one in the ring (and *min, the oldest client timestamp) */
+static uint64_t nrue_ru_ring_wait(PHY_VARS_NR_UE *UE, int nsamps, int num_antennas, uint64_t *pmin)
 {
   openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
   nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
   read_data_t *rd = &ru->rd;
-
+  const int this_ue = UE->ru_client;
+  AssertFatal(nsamps + rd->grain <= rd->sz, "too large read for the ring buffer %d %d\n", nsamps, rd->sz);
   int ret;
-  if (ru->nb_clients > 1) {
-    const int this_ue = UE->ru_client;
-    AssertFatal(nsamps + rd->grain <= rd->sz, "too large read for the ring buffer %d %d\n", nsamps, rd->sz);
-    pthread_mutex_lock(&rd->mread);
+  {
     // the ring holds one frame: only the clients at the oldest timestamp read, the others wait for them
     uint64_t min;
     while ((min = oldest_client_timestamp(rd, ru->nb_clients)) != rd->last_timestamp[this_ue])
@@ -481,6 +493,11 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
                                             UE->frame_parms.nb_antennas_tx,
                                             rd->last_ts + rd->grain - dev->firstTS,
                                             100);
+      // the grain overwrites the samples one ring before: wait for the clients that still process them
+      while (rd->last_ts && oldest_hold(rd, ru->nb_clients) < rd->last_ts + rd->grain - rd->sz) {
+        rd->hold_waited = true;
+        pthread_cond_wait(&rd->cread, &rd->mread);
+      }
       openair0_timestamp_t tmp_timestamp;
       void *tmp[ru->nb_rx];
       for (int i = 0; i < ru->nb_rx; i++)
@@ -500,7 +517,34 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
     }
     if (!rd->last_timestamp[this_ue])
       rd->last_timestamp[this_ue] = rd->last_ts - nsamps;
-    const uint64_t ts = rd->last_timestamp[this_ue];
+    *pmin = min;
+    return rd->last_timestamp[this_ue];
+  }
+}
+
+/* multi client RU, rd->mread locked: this UE consumed its samples up to ts + nsamps */
+static void nrue_ru_ring_advance(PHY_VARS_NR_UE *UE, uint64_t ts, int nsamps, uint64_t min)
+{
+  nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
+  read_data_t *rd = &ru->rd;
+  rd->last_timestamp[UE->ru_client] = ts + nsamps;
+  const uint64_t new_min = oldest_client_timestamp(rd, ru->nb_clients);
+  if (new_min != min)
+    pthread_cond_broadcast(&rd->cread);
+}
+
+int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int num_antennas)
+{
+  openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
+  nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
+  read_data_t *rd = &ru->rd;
+
+  int ret;
+  if (ru->nb_clients > 1) {
+    const int this_ue = UE->ru_client;
+    pthread_mutex_lock(&rd->mread);
+    uint64_t min;
+    const uint64_t ts = nrue_ru_ring_wait(UE, nsamps, num_antennas, &min);
     pthread_mutex_unlock(&rd->mread);
 
     /* copy out of the lock, concurrently with the other clients: the device reads above overwrite only samples
@@ -511,9 +555,7 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
     *ptimestamp = ts - dev->firstTS;
 
     pthread_mutex_lock(&rd->mread);
-    rd->last_timestamp[this_ue] = ts + nsamps;
-    if (oldest_client_timestamp(rd, ru->nb_clients) != min)
-      pthread_cond_broadcast(&rd->cread);
+    nrue_ru_ring_advance(UE, ts, nsamps, min);
     ret = pthread_mutex_unlock(&rd->mread);
     AssertFatal(!ret, "errno: %s\n", strerror(ret));
     return nsamps;
@@ -540,6 +582,47 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
   }
 
   return ret;
+}
+
+int nrue_ru_acquire(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, c16_t **samples, int nsamps, c16_t **own_buf)
+{
+  openair0_device_t *dev = &nrue_rus.openair0_dev[UE->rf_map.card];
+  nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
+  read_data_t *rd = &ru->rd;
+  const int nb_ant = UE->frame_parms.nb_antennas_rx;
+  if (ru->nb_clients <= 1) {
+    // no ring: the device writes in the buffer of this UE
+    const int ret = nrue_ru_read(UE, ptimestamp, (void **)own_buf, nsamps, nb_ant);
+    for (int i = 0; i < nb_ant; i++)
+      samples[i] = own_buf[i];
+    return ret;
+  }
+  pthread_mutex_lock(&rd->mread);
+  uint64_t min;
+  const uint64_t ts = nrue_ru_ring_wait(UE, nsamps, nb_ant, &min);
+  rd->hold[UE->ru_client] = ts;
+  nrue_ru_ring_advance(UE, ts, nsamps, min);
+  pthread_mutex_unlock(&rd->mread);
+  // the ring is mapped twice in a row (create_ring()): the samples are contiguous from their index
+  for (int i = 0; i < nb_ant; i++)
+    samples[i] = rd->rxbuf[i] + (ts % rd->sz);
+  *ptimestamp = ts - dev->firstTS;
+  return nsamps;
+}
+
+void nrue_ru_release(PHY_VARS_NR_UE *UE)
+{
+  nrUE_RU_params_t *ru = nrue_rus.cfg + UE->rf_map.card;
+  read_data_t *rd = &ru->rd;
+  if (ru->nb_clients <= 1)
+    return;
+  pthread_mutex_lock(&rd->mread);
+  rd->hold[UE->ru_client] = UINT64_MAX;
+  if (rd->hold_waited) {
+    rd->hold_waited = false;
+    pthread_cond_broadcast(&rd->cread);
+  }
+  pthread_mutex_unlock(&rd->mread);
 }
 
 int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buff, int nsamps, int num_antennas, int flags)
