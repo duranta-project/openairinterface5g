@@ -64,6 +64,8 @@ More general information is available in the
 - [E1 design](./E1AP/E1-design.md): CU-CP/CU-UP split and how to run it
 - [O-RAN 7.2 fronthaul](./ORAN_FHI7.2_Tutorial.md): run the gNB with O-RAN 7.2 radio units
 - [OAI O-RU](./ORAN_FHI7.2_ORU_Tutorial.md): configure, build and run the native OAI O-RU executable
+- [OCUDU DU with the OAI O-RU](./running_ocudu_du_with_oai_in_7_2_split.md): run the OCUDU DU with the OAI O-RU, UE and
+  5G core over O-RAN 7.2 on one host
 - [Native 7.2x fronthaul library](../fronthaul/README.md): architecture and implementation of the DPDK-based fronthaul stack
 - [OAI-VNF and OAI-PNF](./nfapi.md): FAPI/nFAPI split, with general remarks on FAPI/nFAPI
 - [nFAPI internals](./NR_NFAPI_archi.md): VNF/PNF P5/P7 message processing and flowcharts
