@@ -18,7 +18,7 @@ add_library(nr_rlc STATIC
 # L2_NR: for PDCP
 target_link_libraries(nr_rlc PUBLIC pthread f1ap nr_rlc_core log_headers)
 target_include_directories(nr_rlc PRIVATE ../../..)
-target_link_libraries(nr_rlc PRIVATE asn1_lte_rrc asn1_nr_rrc)
+target_link_libraries(nr_rlc PRIVATE asn1_lte_rrc asn1_nr_rrc ds)
 
 if(ENABLE_TESTS)
   add_subdirectory(tests)
