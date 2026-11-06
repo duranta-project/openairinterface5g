@@ -582,14 +582,18 @@ static void fill_ul_rb_mask(PHY_VARS_gNB *gNB,
     }
   }
 
-  // PRACH occasions: preambles are not noise
+  /* PRACH occasions: preambles are not noise. A preamble is not orthogonal to the OFDM grid of the other channels
+     (one cyclic prefix for all its repetitions): a strong one, from UEs that ramped their power up to Pcmax during a
+     RA burst, leaks on the whole band during its symbols, and this leak counted as noise on every PRB lowered the
+     PUCCH SNR in all the slots until the SRs and HARQ feedback were lost. The symbols of an occasion are not
+     measured at all */
   const nr_prach_rb_mask_t *pm = &gNB->prach_rb_mask[(frame * gNB->frame_parms.slots_per_frame + slot) % NR_PRACH_RB_MASK_SLOTS];
   if (pm->frame == frame && pm->slot == slot) {
     for (int i = 0; i < pm->n; i++) {
       for (int symbol = 0; symbol < 14; symbol++) {
         if (!(pm->occ[i].symb_mask & (1 << symbol)))
           continue;
-        for (int prb = pm->occ[i].first_prb; prb < pm->occ[i].first_prb + pm->occ[i].nb_prb && prb < MAX_BWP_SIZE; prb++)
+        for (int prb = 0; prb < MAX_BWP_SIZE; prb++)
           rb_mask_ul[symbol][prb] = 1;
       }
     }
