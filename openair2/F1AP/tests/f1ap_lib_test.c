@@ -1919,7 +1919,7 @@ static void test_f1ap_trp_information_response()
   orig.trp_information_list.trp_information_item =
       calloc_or_fail(trp_info_item_len, sizeof(*orig.trp_information_list.trp_information_item));
 
-  uint8_t trp_info_type_resp_item_len = 3;
+  uint8_t trp_info_type_resp_item_len = 4;
   for (int i = 0; i < trp_info_item_len; i++) {
     f1ap_trp_information_t *tRPInformation = &orig.trp_information_list.trp_information_item[i];
     tRPInformation->trp_information_type_response_list.trp_information_type_response_item_length = trp_info_type_resp_item_len;
@@ -1964,6 +1964,35 @@ static void test_f1ap_trp_information_response()
     trp_pos_cart->location_uncertainty.horizontal_confidence = i + 2;
     trp_pos_cart->location_uncertainty.vertical_uncertainty = i + 3;
     trp_pos_cart->location_uncertainty.vertical_confidence = i + 4;
+    // PRS configuration
+    trp_info_type_resp_item[3].present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
+    f1ap_prs_configuration_t *prs_config = &trp_info_type_resp_item[3].choice.prs_configuration;
+    prs_config->prs_resource_set_list_length = 1;
+    prs_config->prs_resource_set = calloc_or_fail(1, sizeof(*prs_config->prs_resource_set));
+    f1ap_prs_resource_set_t *prs_set = &prs_config->prs_resource_set[0];
+    prs_set->prs_resource_set_id = i;
+    prs_set->subcarrier_spacing = F1AP_SUBCARRIER_SPACING_30KHZ;
+    prs_set->prs_bandwidth = 21;
+    prs_set->start_prb = 0;
+    prs_set->point_a = 640008 + i;
+    prs_set->comb_size = F1AP_PRS_COMB_SIZE_N4;
+    prs_set->cp_type = F1AP_PRS_CP_TYPE_NORMAL;
+    prs_set->resource_set_periodicity = F1AP_PRS_PERIODICITY_N20;
+    prs_set->resource_set_slot_offset = 1 + i;
+    prs_set->resource_repetition_factor = F1AP_PRS_REPETITION_RF2;
+    prs_set->resource_time_gap = F1AP_PRS_TIME_GAP_TG1;
+    prs_set->resource_number_of_symbols = F1AP_PRS_NUM_SYMBOLS_N12;
+    prs_set->prs_resource_transmit_power = -10 + i;
+    prs_set->prs_resource_list_length = 2;
+    prs_set->prs_resource = calloc_or_fail(prs_set->prs_resource_list_length, sizeof(*prs_set->prs_resource));
+    for (int k = 0; k < prs_set->prs_resource_list_length; k++) {
+      f1ap_prs_resource_t *prs_res = &prs_set->prs_resource[k];
+      prs_res->prs_resource_id = k;
+      prs_res->sequence_id = 100 * i + k;
+      prs_res->re_offset = k;
+      prs_res->resource_slot_offset = 2 * k;
+      prs_res->resource_symbol_offset = 1;
+    }
   }
 
   F1AP_F1AP_PDU_t *f1enc = encode_trp_information_resp(&orig);

@@ -1256,11 +1256,100 @@ typedef struct f1ap_ng_ran_cgi_s {
   uint64_t nr_cellid;
 } f1ap_ng_ran_cgi_t;
 
+typedef enum f1ap_prs_comb_size_e {
+  F1AP_PRS_COMB_SIZE_N2 = 0,
+  F1AP_PRS_COMB_SIZE_N4,
+  F1AP_PRS_COMB_SIZE_N6,
+  F1AP_PRS_COMB_SIZE_N12
+} f1ap_prs_comb_size_pr;
+
+typedef enum f1ap_prs_cp_type_e { F1AP_PRS_CP_TYPE_NORMAL = 0, F1AP_PRS_CP_TYPE_EXTENDED } f1ap_prs_cp_type_pr;
+
+typedef enum f1ap_prs_resource_set_periodicity_e {
+  F1AP_PRS_PERIODICITY_N4 = 0,
+  F1AP_PRS_PERIODICITY_N5,
+  F1AP_PRS_PERIODICITY_N8,
+  F1AP_PRS_PERIODICITY_N10,
+  F1AP_PRS_PERIODICITY_N16,
+  F1AP_PRS_PERIODICITY_N20,
+  F1AP_PRS_PERIODICITY_N32,
+  F1AP_PRS_PERIODICITY_N40,
+  F1AP_PRS_PERIODICITY_N64,
+  F1AP_PRS_PERIODICITY_N80,
+  F1AP_PRS_PERIODICITY_N160,
+  F1AP_PRS_PERIODICITY_N320,
+  F1AP_PRS_PERIODICITY_N640,
+  F1AP_PRS_PERIODICITY_N1280,
+  F1AP_PRS_PERIODICITY_N2560,
+  F1AP_PRS_PERIODICITY_N5120,
+  F1AP_PRS_PERIODICITY_N10240,
+  F1AP_PRS_PERIODICITY_N20480,
+  F1AP_PRS_PERIODICITY_N40960,
+  F1AP_PRS_PERIODICITY_N81920
+} f1ap_prs_resource_set_periodicity_pr;
+
+typedef enum f1ap_prs_repetition_factor_e {
+  F1AP_PRS_REPETITION_RF1 = 0,
+  F1AP_PRS_REPETITION_RF2,
+  F1AP_PRS_REPETITION_RF4,
+  F1AP_PRS_REPETITION_RF6,
+  F1AP_PRS_REPETITION_RF8,
+  F1AP_PRS_REPETITION_RF16,
+  F1AP_PRS_REPETITION_RF32
+} f1ap_prs_repetition_factor_pr;
+
+typedef enum f1ap_prs_time_gap_e {
+  F1AP_PRS_TIME_GAP_TG1 = 0,
+  F1AP_PRS_TIME_GAP_TG2,
+  F1AP_PRS_TIME_GAP_TG4,
+  F1AP_PRS_TIME_GAP_TG8,
+  F1AP_PRS_TIME_GAP_TG16,
+  F1AP_PRS_TIME_GAP_TG32
+} f1ap_prs_time_gap_pr;
+
+typedef enum f1ap_prs_num_symbols_e {
+  F1AP_PRS_NUM_SYMBOLS_N2 = 0,
+  F1AP_PRS_NUM_SYMBOLS_N4,
+  F1AP_PRS_NUM_SYMBOLS_N6,
+  F1AP_PRS_NUM_SYMBOLS_N12
+} f1ap_prs_num_symbols_pr;
+
+typedef struct f1ap_prs_resource_s {
+  uint8_t prs_resource_id;
+  uint16_t sequence_id;
+  uint8_t re_offset;
+  uint16_t resource_slot_offset;
+  uint8_t resource_symbol_offset;
+} f1ap_prs_resource_t;
+
+typedef struct f1ap_prs_resource_set_s {
+  uint8_t prs_resource_set_id;
+  f1ap_subcarrier_spacing_pr subcarrier_spacing;
+  uint8_t prs_bandwidth;
+  uint16_t start_prb;
+  uint32_t point_a;
+  f1ap_prs_comb_size_pr comb_size;
+  f1ap_prs_cp_type_pr cp_type;
+  f1ap_prs_resource_set_periodicity_pr resource_set_periodicity;
+  uint32_t resource_set_slot_offset;
+  f1ap_prs_repetition_factor_pr resource_repetition_factor;
+  f1ap_prs_time_gap_pr resource_time_gap;
+  f1ap_prs_num_symbols_pr resource_number_of_symbols;
+  int8_t prs_resource_transmit_power;
+  uint8_t prs_resource_list_length;
+  f1ap_prs_resource_t *prs_resource;
+} f1ap_prs_resource_set_t;
+
+typedef struct f1ap_prs_configuration_s {
+  uint8_t prs_resource_set_list_length;
+  f1ap_prs_resource_set_t *prs_resource_set;
+} f1ap_prs_configuration_t;
+
 typedef union f1ap_trp_information_type_response_item_c {
   uint16_t pci_nr;
   f1ap_ng_ran_cgi_t ng_ran_cgi;
   uint32_t nr_arfcn;
-  // f1ap_prs_configuration_t pRSConfiguration;
+  f1ap_prs_configuration_t prs_configuration;
   // f1ap_ssb_information_t sSBinformation;
   // bit_string_t sFNInitialisationTime;
   // f1ap_spatial_direction_information_t spatialDirectionInformation;

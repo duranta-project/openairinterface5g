@@ -1295,6 +1295,31 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
     mac->mac_rrc.trp_information_failure(&fail);
     return;
   }
+
+  const f1ap_trp_information_type_list_t *types = &req->trp_information_type_list;
+  for (int i = 0; i < types->trp_information_type_list_length; i++) {
+    bool unsupported = false;
+    switch (types->trp_information_type_item[i]) {
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_PRS_CONFIG:
+        unsupported = (mac->prs_config == NULL);
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_SSB_CONFIG:
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_SFN_INIT_TIME:
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_SPATIAL_DIRECTION_INFO:
+        unsupported = true;
+        break;
+      default:
+        break;
+    }
+    if (unsupported) {
+      LOG_E(NR_MAC, "TRP Information Request: requested information type %d not available\n", types->trp_information_type_item[i]);
+      f1ap_trp_information_failure_t fail = {.transaction_id = req->transaction_id};
+      fail.cause = F1AP_CAUSE_RADIO_NETWORK;
+      mac->mac_rrc.trp_information_failure(&fail);
+      return;
+    }
+  }
+
   uint8_t NumTRPs = positioning_config->num_trp;
   f1ap_trp_information_resp_t resp = {0};
 
@@ -1309,7 +1334,9 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
     for (int i = 0; i < trp_list_length; i++) {
       for (int j = 0; j < NumTRPs; j++) {
         if (positioning_config->trps[j].id == req->trp_list.trp_list_item[i].trp_id) {
-          resp.trp_information_list.trp_information_item[trp_resp_len].trp_id = req->trp_list.trp_list_item[i].trp_id;
+          f1ap_trp_information_t *trp_info_item = &resp.trp_information_list.trp_information_item[trp_resp_len];
+          trp_info_item->trp_id = positioning_config->trps[j].id;
+          create_trp_info_item(req, trp_info_item, positioning_config, j);
           trp_resp_len++;
         }
       }

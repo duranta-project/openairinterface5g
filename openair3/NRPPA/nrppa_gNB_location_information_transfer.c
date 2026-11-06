@@ -15,6 +15,9 @@ void free_nrppa_trp_information_request(nrppa_trp_information_req_t *msg)
   if (msg->trp_information_type_list.trp_information_type_item) {
     free(msg->trp_information_type_list.trp_information_type_item);
   }
+  if (msg->has_trp_list) {
+    free(msg->trp_list.trp_list_item);
+  }
 }
 
 static NRPPA_TRPPositionDirect_t encode_trp_position_direct(nrppa_trp_position_direct_t *in)
@@ -180,6 +183,193 @@ static NRPPA_GeographicalCoordinates_t encode_geographical_coordinates_nrppa(nrp
   return out;
 }
 
+static long encode_prs_subcarrier_spacing_nrppa(const nrppa_subcarrier_spacing_pr v)
+{
+  switch (v) {
+    case NRPPA_SUBCARRIER_SPACING_15KHZ:
+      return NRPPA_PRSResourceSet_Item__subcarrierSpacing_kHz15;
+    case NRPPA_SUBCARRIER_SPACING_30KHZ:
+      return NRPPA_PRSResourceSet_Item__subcarrierSpacing_kHz30;
+    case NRPPA_SUBCARRIER_SPACING_60KHZ:
+      return NRPPA_PRSResourceSet_Item__subcarrierSpacing_kHz60;
+    case NRPPA_SUBCARRIER_SPACING_120KHZ:
+      return NRPPA_PRSResourceSet_Item__subcarrierSpacing_kHz120;
+    default:
+      AssertFatal(false, "illegal PRS subcarrier spacing %d\n", v);
+      return 0;
+  }
+}
+
+static long encode_prs_comb_size_nrppa(const nrppa_prs_comb_size_pr v)
+{
+  switch (v) {
+    case NRPPA_PRS_COMB_SIZE_N2:
+      return NRPPA_PRSResourceSet_Item__combSize_n2;
+    case NRPPA_PRS_COMB_SIZE_N4:
+      return NRPPA_PRSResourceSet_Item__combSize_n4;
+    case NRPPA_PRS_COMB_SIZE_N6:
+      return NRPPA_PRSResourceSet_Item__combSize_n6;
+    case NRPPA_PRS_COMB_SIZE_N12:
+      return NRPPA_PRSResourceSet_Item__combSize_n12;
+    default:
+      AssertFatal(false, "illegal PRS comb size %d\n", v);
+      return 0;
+  }
+}
+
+static long encode_prs_cp_type_nrppa(const nrppa_prs_cp_type_pr v)
+{
+  switch (v) {
+    case NRPPA_PRS_CP_TYPE_NORMAL:
+      return NRPPA_PRSResourceSet_Item__cPType_normal;
+    case NRPPA_PRS_CP_TYPE_EXTENDED:
+      return NRPPA_PRSResourceSet_Item__cPType_extended;
+    default:
+      AssertFatal(false, "illegal PRS CP type %d\n", v);
+      return 0;
+  }
+}
+
+static long encode_prs_periodicity_nrppa(const nrppa_prs_resource_set_periodicity_pr v)
+{
+  switch (v) {
+    case NRPPA_PRS_PERIODICITY_N4:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n4;
+    case NRPPA_PRS_PERIODICITY_N5:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n5;
+    case NRPPA_PRS_PERIODICITY_N8:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n8;
+    case NRPPA_PRS_PERIODICITY_N10:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n10;
+    case NRPPA_PRS_PERIODICITY_N16:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n16;
+    case NRPPA_PRS_PERIODICITY_N20:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n20;
+    case NRPPA_PRS_PERIODICITY_N32:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n32;
+    case NRPPA_PRS_PERIODICITY_N40:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n40;
+    case NRPPA_PRS_PERIODICITY_N64:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n64;
+    case NRPPA_PRS_PERIODICITY_N80:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n80;
+    case NRPPA_PRS_PERIODICITY_N160:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n160;
+    case NRPPA_PRS_PERIODICITY_N320:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n320;
+    case NRPPA_PRS_PERIODICITY_N640:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n640;
+    case NRPPA_PRS_PERIODICITY_N1280:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n1280;
+    case NRPPA_PRS_PERIODICITY_N2560:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n2560;
+    case NRPPA_PRS_PERIODICITY_N5120:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n5120;
+    case NRPPA_PRS_PERIODICITY_N10240:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n10240;
+    case NRPPA_PRS_PERIODICITY_N20480:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n20480;
+    case NRPPA_PRS_PERIODICITY_N40960:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n40960;
+    case NRPPA_PRS_PERIODICITY_N81920:
+      return NRPPA_PRSResourceSet_Item__resourceSetPeriodicity_n81920;
+    default:
+      AssertFatal(false, "illegal PRS resource set periodicity %d\n", v);
+      return 0;
+  }
+}
+
+static long encode_prs_repetition_factor_nrppa(const nrppa_prs_repetition_factor_pr v)
+{
+  switch (v) {
+    case NRPPA_PRS_REPETITION_RF1:
+      return NRPPA_PRSResourceSet_Item__resourceRepetitionFactor_rf1;
+    case NRPPA_PRS_REPETITION_RF2:
+      return NRPPA_PRSResourceSet_Item__resourceRepetitionFactor_rf2;
+    case NRPPA_PRS_REPETITION_RF4:
+      return NRPPA_PRSResourceSet_Item__resourceRepetitionFactor_rf4;
+    case NRPPA_PRS_REPETITION_RF6:
+      return NRPPA_PRSResourceSet_Item__resourceRepetitionFactor_rf6;
+    case NRPPA_PRS_REPETITION_RF8:
+      return NRPPA_PRSResourceSet_Item__resourceRepetitionFactor_rf8;
+    case NRPPA_PRS_REPETITION_RF16:
+      return NRPPA_PRSResourceSet_Item__resourceRepetitionFactor_rf16;
+    case NRPPA_PRS_REPETITION_RF32:
+      return NRPPA_PRSResourceSet_Item__resourceRepetitionFactor_rf32;
+    default:
+      AssertFatal(false, "illegal PRS resource repetition factor %d\n", v);
+      return 0;
+  }
+}
+
+static long encode_prs_time_gap_nrppa(const nrppa_prs_time_gap_pr v)
+{
+  switch (v) {
+    case NRPPA_PRS_TIME_GAP_TG1:
+      return NRPPA_PRSResourceSet_Item__resourceTimeGap_tg1;
+    case NRPPA_PRS_TIME_GAP_TG2:
+      return NRPPA_PRSResourceSet_Item__resourceTimeGap_tg2;
+    case NRPPA_PRS_TIME_GAP_TG4:
+      return NRPPA_PRSResourceSet_Item__resourceTimeGap_tg4;
+    case NRPPA_PRS_TIME_GAP_TG8:
+      return NRPPA_PRSResourceSet_Item__resourceTimeGap_tg8;
+    case NRPPA_PRS_TIME_GAP_TG16:
+      return NRPPA_PRSResourceSet_Item__resourceTimeGap_tg16;
+    case NRPPA_PRS_TIME_GAP_TG32:
+      return NRPPA_PRSResourceSet_Item__resourceTimeGap_tg32;
+    default:
+      AssertFatal(false, "illegal PRS resource time gap %d\n", v);
+      return 0;
+  }
+}
+
+static long encode_prs_num_symbols_nrppa(const nrppa_prs_num_symbols_pr v)
+{
+  switch (v) {
+    case NRPPA_PRS_NUM_SYMBOLS_N2:
+      return NRPPA_PRSResourceSet_Item__resourceNumberofSymbols_n2;
+    case NRPPA_PRS_NUM_SYMBOLS_N4:
+      return NRPPA_PRSResourceSet_Item__resourceNumberofSymbols_n4;
+    case NRPPA_PRS_NUM_SYMBOLS_N6:
+      return NRPPA_PRSResourceSet_Item__resourceNumberofSymbols_n6;
+    case NRPPA_PRS_NUM_SYMBOLS_N12:
+      return NRPPA_PRSResourceSet_Item__resourceNumberofSymbols_n12;
+    default:
+      AssertFatal(false, "illegal PRS resource number of symbols %d\n", v);
+      return 0;
+  }
+}
+
+static void encode_prs_configuration_nrppa(const nrppa_prs_configuration_t *in, NRPPA_PRSConfiguration_t *out)
+{
+  for (int i = 0; i < in->prs_resource_set_list_length; i++) {
+    const nrppa_prs_resource_set_t *s = &in->prs_resource_set[i];
+    asn1cSequenceAdd(out->pRSResourceSet_List.list, NRPPA_PRSResourceSet_Item_t, set);
+    set->pRSResourceSetID = s->prs_resource_set_id;
+    set->subcarrierSpacing = encode_prs_subcarrier_spacing_nrppa(s->subcarrier_spacing);
+    set->pRSbandwidth = s->prs_bandwidth;
+    set->startPRB = s->start_prb;
+    set->pointA = s->point_a;
+    set->combSize = encode_prs_comb_size_nrppa(s->comb_size);
+    set->cPType = encode_prs_cp_type_nrppa(s->cp_type);
+    set->resourceSetPeriodicity = encode_prs_periodicity_nrppa(s->resource_set_periodicity);
+    set->resourceSetSlotOffset = s->resource_set_slot_offset;
+    set->resourceRepetitionFactor = encode_prs_repetition_factor_nrppa(s->resource_repetition_factor);
+    set->resourceTimeGap = encode_prs_time_gap_nrppa(s->resource_time_gap);
+    set->resourceNumberofSymbols = encode_prs_num_symbols_nrppa(s->resource_number_of_symbols);
+    set->pRSResourceTransmitPower = s->prs_resource_transmit_power;
+    for (int k = 0; k < s->prs_resource_list_length; k++) {
+      const nrppa_prs_resource_t *r = &s->prs_resource[k];
+      asn1cSequenceAdd(set->pRSResource_List.list, NRPPA_PRSResource_Item_t, res);
+      res->pRSResourceID = r->prs_resource_id;
+      res->sequenceID = r->sequence_id;
+      res->rEOffset = r->re_offset;
+      res->resourceSlotOffset = r->resource_slot_offset;
+      res->resourceSymbolOffset = r->resource_symbol_offset;
+    }
+  }
+}
+
 NRPPA_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item_nrppa(nrppa_trp_information_type_response_item_t *in)
 {
   NRPPA_TRPInformationTypeResponseItem_t out = {0};
@@ -206,7 +396,8 @@ NRPPA_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item_nrppa(
       break;
     case NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
       out.present = NRPPA_TRPInformationTypeResponseItem_PR_pRSConfiguration;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      asn1cCalloc(out.choice.pRSConfiguration, prs_configuration);
+      encode_prs_configuration_nrppa(&in->choice.prs_configuration, prs_configuration);
       break;
     case NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       out.present = NRPPA_TRPInformationTypeResponseItem_PR_sSBinformation;
@@ -233,6 +424,13 @@ NRPPA_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item_nrppa(
   return out;
 }
 
+static void free_nrppa_prs_configuration(nrppa_prs_configuration_t *c)
+{
+  for (int i = 0; i < c->prs_resource_set_list_length; i++)
+    free(c->prs_resource_set[i].prs_resource);
+  free(c->prs_resource_set);
+}
+
 void free_nrppa_trp_information_response(nrppa_trp_information_resp_t *msg)
 {
   nrppa_trp_information_list_t *trp_information_list = &msg->trp_information_list;
@@ -240,6 +438,11 @@ void free_nrppa_trp_information_response(nrppa_trp_information_resp_t *msg)
   for (int i = 0; i < trp_info_item_length; i++) {
     nrppa_trp_information_t *trp_information_item = &trp_information_list->trp_information_item[i];
     nrppa_trp_information_type_response_list_t *trp_info_type_resp_list = &trp_information_item->trp_information_type_response_list;
+    for (int j = 0; j < trp_info_type_resp_list->trp_information_type_response_item_length; j++) {
+      nrppa_trp_information_type_response_item_t *item = &trp_info_type_resp_list->trp_information_type_response_item[j];
+      if (item->present == NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION)
+        free_nrppa_prs_configuration(&item->choice.prs_configuration);
+    }
     free(trp_info_type_resp_list->trp_information_type_response_item);
   }
   free(msg->trp_information_list.trp_information_item);
@@ -1028,7 +1231,16 @@ int nrppa_gNB_handle_trp_information_request(nrppa_gnb_ue_info_t *nrppa_msg_info
   if (ie == NULL) {
     req->has_trp_list = false;
   } else {
-    LOG_W(NRPPA, "TRPInformationRequest IE TRP List : not handled\n");
+    req->has_trp_list = true;
+    uint32_t trp_list_len = ie->value.choice.TRPList.list.count;
+    AssertError(trp_list_len > 0, return false, "at least 1 TRP must be present");
+    nrppa_trp_list_t *trp_list = &req->trp_list;
+    trp_list->trp_list_length = trp_list_len;
+    trp_list->trp_list_item = calloc_or_fail(trp_list_len, sizeof(*trp_list->trp_list_item));
+    for (int i = 0; i < trp_list_len; i++) {
+      const NRPPA_TRPItem_t *item = ie->value.choice.TRPList.list.array[i];
+      trp_list->trp_list_item[i].trp_id = item->tRP_ID;
+    }
   }
 
   // IE TRP Information Type List: mandatory

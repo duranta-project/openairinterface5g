@@ -2622,6 +2622,384 @@ static bool eq_geographical_coordinates(const f1ap_geographical_coordinates_t *i
   return true;
 }
 
+static long encode_prs_subcarrier_spacing(f1ap_subcarrier_spacing_pr scs)
+{
+  switch (scs) {
+    case F1AP_SUBCARRIER_SPACING_15KHZ:
+      return F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz15;
+    case F1AP_SUBCARRIER_SPACING_30KHZ:
+      return F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz30;
+    case F1AP_SUBCARRIER_SPACING_60KHZ:
+      return F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz60;
+    case F1AP_SUBCARRIER_SPACING_120KHZ:
+      return F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz120;
+    default:
+      AssertFatal(false, "illegal PRS subcarrier spacing %d\n", scs);
+      return 0;
+  }
+}
+
+static f1ap_subcarrier_spacing_pr decode_prs_subcarrier_spacing(long scs)
+{
+  switch (scs) {
+    case F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz15:
+      return F1AP_SUBCARRIER_SPACING_15KHZ;
+    case F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz30:
+      return F1AP_SUBCARRIER_SPACING_30KHZ;
+    case F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz60:
+      return F1AP_SUBCARRIER_SPACING_60KHZ;
+    case F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz120:
+      return F1AP_SUBCARRIER_SPACING_120KHZ;
+    default:
+      AssertFatal(false, "illegal PRS subcarrier spacing %ld\n", scs);
+      return 0;
+  }
+}
+
+static long encode_prs_comb_size(f1ap_prs_comb_size_pr comb_size)
+{
+  switch (comb_size) {
+    case F1AP_PRS_COMB_SIZE_N2:
+      return F1AP_PRSResourceSet_Item__combSize_n2;
+    case F1AP_PRS_COMB_SIZE_N4:
+      return F1AP_PRSResourceSet_Item__combSize_n4;
+    case F1AP_PRS_COMB_SIZE_N6:
+      return F1AP_PRSResourceSet_Item__combSize_n6;
+    case F1AP_PRS_COMB_SIZE_N12:
+      return F1AP_PRSResourceSet_Item__combSize_n12;
+    default:
+      AssertFatal(false, "illegal PRS comb size %d\n", comb_size);
+      return 0;
+  }
+}
+
+static f1ap_prs_comb_size_pr decode_prs_comb_size(long comb_size)
+{
+  switch (comb_size) {
+    case F1AP_PRSResourceSet_Item__combSize_n2:
+      return F1AP_PRS_COMB_SIZE_N2;
+    case F1AP_PRSResourceSet_Item__combSize_n4:
+      return F1AP_PRS_COMB_SIZE_N4;
+    case F1AP_PRSResourceSet_Item__combSize_n6:
+      return F1AP_PRS_COMB_SIZE_N6;
+    case F1AP_PRSResourceSet_Item__combSize_n12:
+      return F1AP_PRS_COMB_SIZE_N12;
+    default:
+      AssertFatal(false, "illegal PRS comb size %ld\n", comb_size);
+      return 0;
+  }
+}
+
+static long encode_prs_cp_type(f1ap_prs_cp_type_pr cp_type)
+{
+  switch (cp_type) {
+    case F1AP_PRS_CP_TYPE_NORMAL:
+      return F1AP_PRSResourceSet_Item__cPType_normal;
+    case F1AP_PRS_CP_TYPE_EXTENDED:
+      return F1AP_PRSResourceSet_Item__cPType_extended;
+    default:
+      AssertFatal(false, "illegal PRS CP type %d\n", cp_type);
+      return 0;
+  }
+}
+
+static f1ap_prs_cp_type_pr decode_prs_cp_type(long cp_type)
+{
+  switch (cp_type) {
+    case F1AP_PRSResourceSet_Item__cPType_normal:
+      return F1AP_PRS_CP_TYPE_NORMAL;
+    case F1AP_PRSResourceSet_Item__cPType_extended:
+      return F1AP_PRS_CP_TYPE_EXTENDED;
+    default:
+      AssertFatal(false, "illegal PRS CP type %ld\n", cp_type);
+      return 0;
+  }
+}
+
+static long encode_prs_periodicity(f1ap_prs_resource_set_periodicity_pr periodicity)
+{
+  switch (periodicity) {
+    case F1AP_PRS_PERIODICITY_N4:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n4;
+    case F1AP_PRS_PERIODICITY_N5:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n5;
+    case F1AP_PRS_PERIODICITY_N8:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n8;
+    case F1AP_PRS_PERIODICITY_N10:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n10;
+    case F1AP_PRS_PERIODICITY_N16:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n16;
+    case F1AP_PRS_PERIODICITY_N20:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n20;
+    case F1AP_PRS_PERIODICITY_N32:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n32;
+    case F1AP_PRS_PERIODICITY_N40:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n40;
+    case F1AP_PRS_PERIODICITY_N64:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n64;
+    case F1AP_PRS_PERIODICITY_N80:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n80;
+    case F1AP_PRS_PERIODICITY_N160:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n160;
+    case F1AP_PRS_PERIODICITY_N320:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n320;
+    case F1AP_PRS_PERIODICITY_N640:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n640;
+    case F1AP_PRS_PERIODICITY_N1280:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n1280;
+    case F1AP_PRS_PERIODICITY_N2560:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n2560;
+    case F1AP_PRS_PERIODICITY_N5120:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n5120;
+    case F1AP_PRS_PERIODICITY_N10240:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n10240;
+    case F1AP_PRS_PERIODICITY_N20480:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n20480;
+    case F1AP_PRS_PERIODICITY_N40960:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n40960;
+    case F1AP_PRS_PERIODICITY_N81920:
+      return F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n81920;
+    default:
+      AssertFatal(false, "illegal PRS resource set periodicity %d\n", periodicity);
+      return 0;
+  }
+}
+
+static f1ap_prs_resource_set_periodicity_pr decode_prs_periodicity(long periodicity)
+{
+  switch (periodicity) {
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n4:
+      return F1AP_PRS_PERIODICITY_N4;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n5:
+      return F1AP_PRS_PERIODICITY_N4;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n8:
+      return F1AP_PRS_PERIODICITY_N8;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n10:
+      return F1AP_PRS_PERIODICITY_N10;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n16:
+      return F1AP_PRS_PERIODICITY_N16;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n20:
+      return F1AP_PRS_PERIODICITY_N20;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n32:
+      return F1AP_PRS_PERIODICITY_N32;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n40:
+      return F1AP_PRS_PERIODICITY_N40;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n64:
+      return F1AP_PRS_PERIODICITY_N64;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n80:
+      return F1AP_PRS_PERIODICITY_N80;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n160:
+      return F1AP_PRS_PERIODICITY_N160;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n320:
+      return F1AP_PRS_PERIODICITY_N320;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n640:
+      return F1AP_PRS_PERIODICITY_N640;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n1280:
+      return F1AP_PRS_PERIODICITY_N1280;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n2560:
+      return F1AP_PRS_PERIODICITY_N2560;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n5120:
+      return F1AP_PRS_PERIODICITY_N5120;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n10240:
+      return F1AP_PRS_PERIODICITY_N10240;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n20480:
+      return F1AP_PRS_PERIODICITY_N20480;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n40960:
+      return F1AP_PRS_PERIODICITY_N40960;
+    case F1AP_PRSResourceSet_Item__resourceSetPeriodicity_n81920:
+      return F1AP_PRS_PERIODICITY_N81920;
+    default:
+      AssertFatal(false, "unsupported PRS resource set periodicity %ld\n", periodicity);
+      return 0;
+  }
+}
+
+static long encode_prs_repetition_factor(f1ap_prs_repetition_factor_pr repetition)
+{
+  switch (repetition) {
+    case F1AP_PRS_REPETITION_RF1:
+      return F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf1;
+    case F1AP_PRS_REPETITION_RF2:
+      return F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf2;
+    case F1AP_PRS_REPETITION_RF4:
+      return F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf4;
+    case F1AP_PRS_REPETITION_RF6:
+      return F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf6;
+    case F1AP_PRS_REPETITION_RF8:
+      return F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf8;
+    case F1AP_PRS_REPETITION_RF16:
+      return F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf16;
+    case F1AP_PRS_REPETITION_RF32:
+      return F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf32;
+    default:
+      AssertFatal(false, "illegal PRS resource repetition factor %d\n", repetition);
+      return 0;
+  }
+}
+
+static f1ap_prs_repetition_factor_pr decode_prs_repetition_factor(long repetition)
+{
+  switch (repetition) {
+    case F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf1:
+      return F1AP_PRS_REPETITION_RF1;
+    case F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf2:
+      return F1AP_PRS_REPETITION_RF2;
+    case F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf4:
+      return F1AP_PRS_REPETITION_RF4;
+    case F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf6:
+      return F1AP_PRS_REPETITION_RF6;
+    case F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf8:
+      return F1AP_PRS_REPETITION_RF8;
+    case F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf16:
+      return F1AP_PRS_REPETITION_RF16;
+    case F1AP_PRSResourceSet_Item__resourceRepetitionFactor_rf32:
+      return F1AP_PRS_REPETITION_RF32;
+    default:
+      AssertFatal(false, "illegal PRS resource repetition factor %ld\n", repetition);
+      return 0;
+  }
+}
+
+static long encode_prs_time_gap(f1ap_prs_time_gap_pr time_gap)
+{
+  switch (time_gap) {
+    case F1AP_PRS_TIME_GAP_TG1:
+      return F1AP_PRSResourceSet_Item__resourceTimeGap_tg1;
+    case F1AP_PRS_TIME_GAP_TG2:
+      return F1AP_PRSResourceSet_Item__resourceTimeGap_tg2;
+    case F1AP_PRS_TIME_GAP_TG4:
+      return F1AP_PRSResourceSet_Item__resourceTimeGap_tg4;
+    case F1AP_PRS_TIME_GAP_TG8:
+      return F1AP_PRSResourceSet_Item__resourceTimeGap_tg8;
+    case F1AP_PRS_TIME_GAP_TG16:
+      return F1AP_PRSResourceSet_Item__resourceTimeGap_tg16;
+    case F1AP_PRS_TIME_GAP_TG32:
+      return F1AP_PRSResourceSet_Item__resourceTimeGap_tg32;
+    default:
+      AssertFatal(false, "illegal PRS resource time gap %d\n", time_gap);
+      return 0;
+  }
+}
+
+static f1ap_prs_time_gap_pr decode_prs_time_gap(long time_gap)
+{
+  switch (time_gap) {
+    case F1AP_PRSResourceSet_Item__resourceTimeGap_tg1:
+      return F1AP_PRS_TIME_GAP_TG1;
+    case F1AP_PRSResourceSet_Item__resourceTimeGap_tg2:
+      return F1AP_PRS_TIME_GAP_TG2;
+    case F1AP_PRSResourceSet_Item__resourceTimeGap_tg4:
+      return F1AP_PRS_TIME_GAP_TG4;
+    case F1AP_PRSResourceSet_Item__resourceTimeGap_tg8:
+      return F1AP_PRS_TIME_GAP_TG8;
+    case F1AP_PRSResourceSet_Item__resourceTimeGap_tg16:
+      return F1AP_PRS_TIME_GAP_TG16;
+    case F1AP_PRSResourceSet_Item__resourceTimeGap_tg32:
+      return F1AP_PRS_TIME_GAP_TG32;
+    default:
+      AssertFatal(false, "illegal PRS resource time gap %ld\n", time_gap);
+      return 0;
+  }
+}
+
+static long encode_prs_num_symbols(f1ap_prs_num_symbols_pr num_symbols)
+{
+  switch (num_symbols) {
+    case F1AP_PRS_NUM_SYMBOLS_N2:
+      return F1AP_PRSResourceSet_Item__resourceNumberofSymbols_n2;
+    case F1AP_PRS_NUM_SYMBOLS_N4:
+      return F1AP_PRSResourceSet_Item__resourceNumberofSymbols_n4;
+    case F1AP_PRS_NUM_SYMBOLS_N6:
+      return F1AP_PRSResourceSet_Item__resourceNumberofSymbols_n6;
+    case F1AP_PRS_NUM_SYMBOLS_N12:
+      return F1AP_PRSResourceSet_Item__resourceNumberofSymbols_n12;
+    default:
+      AssertFatal(false, "illegal PRS resource number of symbols %d\n", num_symbols);
+      return 0;
+  }
+}
+
+static f1ap_prs_num_symbols_pr decode_prs_num_symbols(long num_symbols)
+{
+  switch (num_symbols) {
+    case F1AP_PRSResourceSet_Item__resourceNumberofSymbols_n2:
+      return F1AP_PRS_NUM_SYMBOLS_N2;
+    case F1AP_PRSResourceSet_Item__resourceNumberofSymbols_n4:
+      return F1AP_PRS_NUM_SYMBOLS_N4;
+    case F1AP_PRSResourceSet_Item__resourceNumberofSymbols_n6:
+      return F1AP_PRS_NUM_SYMBOLS_N6;
+    case F1AP_PRSResourceSet_Item__resourceNumberofSymbols_n12:
+      return F1AP_PRS_NUM_SYMBOLS_N12;
+    default:
+      AssertFatal(false, "illegal PRS resource number of symbols %ld\n", num_symbols);
+      return 0;
+  }
+}
+
+static void encode_prs_configuration(const f1ap_prs_configuration_t *in, F1AP_PRSConfiguration_t *out)
+{
+  for (int i = 0; i < in->prs_resource_set_list_length; i++) {
+    const f1ap_prs_resource_set_t *s = &in->prs_resource_set[i];
+    asn1cSequenceAdd(out->pRSResourceSet_List.list, F1AP_PRSResourceSet_Item_t, set);
+    set->pRSResourceSetID = s->prs_resource_set_id;
+    set->subcarrierSpacing = encode_prs_subcarrier_spacing(s->subcarrier_spacing);
+    set->pRSbandwidth = s->prs_bandwidth;
+    set->startPRB = s->start_prb;
+    set->pointA = s->point_a;
+    set->combSize = encode_prs_comb_size(s->comb_size);
+    set->cPType = encode_prs_cp_type(s->cp_type);
+    set->resourceSetPeriodicity = encode_prs_periodicity(s->resource_set_periodicity);
+    set->resourceSetSlotOffset = s->resource_set_slot_offset;
+    set->resourceRepetitionFactor = encode_prs_repetition_factor(s->resource_repetition_factor);
+    set->resourceTimeGap = encode_prs_time_gap(s->resource_time_gap);
+    set->resourceNumberofSymbols = encode_prs_num_symbols(s->resource_number_of_symbols);
+    set->pRSResourceTransmitPower = s->prs_resource_transmit_power;
+    for (int k = 0; k < s->prs_resource_list_length; k++) {
+      const f1ap_prs_resource_t *r = &s->prs_resource[k];
+      asn1cSequenceAdd(set->pRSResource_List.list, F1AP_PRSResource_Item_t, res);
+      res->pRSResourceID = r->prs_resource_id;
+      res->sequenceID = r->sequence_id;
+      res->rEOffset = r->re_offset;
+      res->resourceSlotOffset = r->resource_slot_offset;
+      res->resourceSymbolOffset = r->resource_symbol_offset;
+    }
+  }
+}
+
+static void decode_prs_configuration(const F1AP_PRSConfiguration_t *in, f1ap_prs_configuration_t *out)
+{
+  out->prs_resource_set_list_length = in->pRSResourceSet_List.list.count;
+  out->prs_resource_set = calloc_or_fail(out->prs_resource_set_list_length, sizeof(*out->prs_resource_set));
+  for (int i = 0; i < out->prs_resource_set_list_length; i++) {
+    const F1AP_PRSResourceSet_Item_t *set = in->pRSResourceSet_List.list.array[i];
+    f1ap_prs_resource_set_t *s = &out->prs_resource_set[i];
+    s->prs_resource_set_id = set->pRSResourceSetID;
+    s->subcarrier_spacing = decode_prs_subcarrier_spacing(set->subcarrierSpacing);
+    s->prs_bandwidth = set->pRSbandwidth;
+    s->start_prb = set->startPRB;
+    s->point_a = set->pointA;
+    s->comb_size = decode_prs_comb_size(set->combSize);
+    s->cp_type = decode_prs_cp_type(set->cPType);
+    s->resource_set_periodicity = decode_prs_periodicity(set->resourceSetPeriodicity);
+    s->resource_set_slot_offset = set->resourceSetSlotOffset;
+    s->resource_repetition_factor = decode_prs_repetition_factor(set->resourceRepetitionFactor);
+    s->resource_time_gap = decode_prs_time_gap(set->resourceTimeGap);
+    s->resource_number_of_symbols = decode_prs_num_symbols(set->resourceNumberofSymbols);
+    s->prs_resource_transmit_power = set->pRSResourceTransmitPower;
+    s->prs_resource_list_length = set->pRSResource_List.list.count;
+    s->prs_resource = calloc_or_fail(s->prs_resource_list_length, sizeof(*s->prs_resource));
+    for (int k = 0; k < s->prs_resource_list_length; k++) {
+      const F1AP_PRSResource_Item_t *res = set->pRSResource_List.list.array[k];
+      f1ap_prs_resource_t *r = &s->prs_resource[k];
+      r->prs_resource_id = res->pRSResourceID;
+      r->sequence_id = res->sequenceID;
+      r->re_offset = res->rEOffset;
+      r->resource_slot_offset = res->resourceSlotOffset;
+      r->resource_symbol_offset = res->resourceSymbolOffset;
+    }
+  }
+}
+
 static F1AP_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item(const f1ap_trp_information_type_response_item_t *in)
 {
   F1AP_TRPInformationTypeResponseItem_t out = {0};
@@ -2648,7 +3026,8 @@ static F1AP_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item(
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
       out.present = F1AP_TRPInformationTypeResponseItem_PR_pRSConfiguration;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      asn1cCalloc(out.choice.pRSConfiguration, prs_configuration);
+      encode_prs_configuration(&in->choice.prs_configuration, prs_configuration);
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       out.present = F1AP_TRPInformationTypeResponseItem_PR_sSBinformation;
@@ -2702,7 +3081,7 @@ static void decode_trp_info_type_response_item(const F1AP_TRPInformationTypeResp
       break;
     case F1AP_TRPInformationTypeResponseItem_PR_pRSConfiguration:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      decode_prs_configuration(in->choice.pRSConfiguration, &out->choice.prs_configuration);
       break;
     case F1AP_TRPInformationTypeResponseItem_PR_sSBinformation:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION;
@@ -2724,6 +3103,65 @@ static void decode_trp_info_type_response_item(const F1AP_TRPInformationTypeResp
       AssertFatal(false, "received illegal trp information type response item %d\n", in->present);
       break;
   }
+}
+
+static f1ap_prs_configuration_t cp_prs_configuration(const f1ap_prs_configuration_t *in)
+{
+  f1ap_prs_configuration_t out = {0};
+  out.prs_resource_set_list_length = in->prs_resource_set_list_length;
+  if (in->prs_resource_set_list_length > 0)
+    out.prs_resource_set = calloc_or_fail(in->prs_resource_set_list_length, sizeof(*out.prs_resource_set));
+  for (int i = 0; i < in->prs_resource_set_list_length; i++) {
+    const f1ap_prs_resource_set_t *set_in = &in->prs_resource_set[i];
+    f1ap_prs_resource_set_t *set_out = &out.prs_resource_set[i];
+    *set_out = *set_in;
+    set_out->prs_resource = NULL;
+    if (set_in->prs_resource_list_length > 0) {
+      set_out->prs_resource = calloc_or_fail(set_in->prs_resource_list_length, sizeof(*set_out->prs_resource));
+      memcpy(set_out->prs_resource, set_in->prs_resource, set_in->prs_resource_list_length * sizeof(*set_out->prs_resource));
+    }
+  }
+  return out;
+}
+
+static bool eq_prs_configuration(const f1ap_prs_configuration_t *a, const f1ap_prs_configuration_t *b)
+{
+  _EQ_CHECK_INT(a->prs_resource_set_list_length, b->prs_resource_set_list_length);
+  for (int i = 0; i < a->prs_resource_set_list_length; i++) {
+    const f1ap_prs_resource_set_t *sa = &a->prs_resource_set[i];
+    const f1ap_prs_resource_set_t *sb = &b->prs_resource_set[i];
+    _EQ_CHECK_INT(sa->prs_resource_set_id, sb->prs_resource_set_id);
+    _EQ_CHECK_INT(sa->subcarrier_spacing, sb->subcarrier_spacing);
+    _EQ_CHECK_INT(sa->prs_bandwidth, sb->prs_bandwidth);
+    _EQ_CHECK_INT(sa->start_prb, sb->start_prb);
+    _EQ_CHECK_INT(sa->point_a, sb->point_a);
+    _EQ_CHECK_INT(sa->comb_size, sb->comb_size);
+    _EQ_CHECK_INT(sa->cp_type, sb->cp_type);
+    _EQ_CHECK_INT(sa->resource_set_periodicity, sb->resource_set_periodicity);
+    _EQ_CHECK_INT(sa->resource_set_slot_offset, sb->resource_set_slot_offset);
+    _EQ_CHECK_INT(sa->resource_repetition_factor, sb->resource_repetition_factor);
+    _EQ_CHECK_INT(sa->resource_time_gap, sb->resource_time_gap);
+    _EQ_CHECK_INT(sa->resource_number_of_symbols, sb->resource_number_of_symbols);
+    _EQ_CHECK_INT(sa->prs_resource_transmit_power, sb->prs_resource_transmit_power);
+    _EQ_CHECK_INT(sa->prs_resource_list_length, sb->prs_resource_list_length);
+    for (int k = 0; k < sa->prs_resource_list_length; k++) {
+      const f1ap_prs_resource_t *ra = &sa->prs_resource[k];
+      const f1ap_prs_resource_t *rb = &sb->prs_resource[k];
+      _EQ_CHECK_INT(ra->prs_resource_id, rb->prs_resource_id);
+      _EQ_CHECK_INT(ra->sequence_id, rb->sequence_id);
+      _EQ_CHECK_INT(ra->re_offset, rb->re_offset);
+      _EQ_CHECK_INT(ra->resource_slot_offset, rb->resource_slot_offset);
+      _EQ_CHECK_INT(ra->resource_symbol_offset, rb->resource_symbol_offset);
+    }
+  }
+  return true;
+}
+
+static void free_prs_configuration(f1ap_prs_configuration_t *c)
+{
+  for (int i = 0; i < c->prs_resource_set_list_length; i++)
+    free(c->prs_resource_set[i].prs_resource);
+  free(c->prs_resource_set);
 }
 
 static f1ap_trp_information_type_response_item_t cp_trp_info_type_response_item(const f1ap_trp_information_type_response_item_t *in)
@@ -2750,7 +3188,7 @@ static f1ap_trp_information_type_response_item_t cp_trp_info_type_response_item(
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
       out.present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      out.choice.prs_configuration = cp_prs_configuration(&in->choice.prs_configuration);
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       out.present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION;
@@ -2796,8 +3234,7 @@ static bool eq_trp_info_type_response_item(const f1ap_trp_information_type_respo
       _EQ_CHECK_INT(in->choice.nr_arfcn, out->choice.nr_arfcn);
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
-      PRINT_ERROR("TRP information type response item PRS configuration unsupported\n");
-      return false;
+      _F1_CHECK_EXP(eq_prs_configuration(&in->choice.prs_configuration, &out->choice.prs_configuration));
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       PRINT_ERROR("TRP information type response item SSB Information unsupported\n");
@@ -4962,6 +5399,11 @@ void free_trp_information_resp(f1ap_trp_information_resp_t *msg)
   for (int i = 0; i < trp_info_item_length; i++) {
     f1ap_trp_information_t *trp_information_item = &trp_information_list->trp_information_item[i];
     f1ap_trp_information_type_response_list_t *trp_info_type_resp_list = &trp_information_item->trp_information_type_response_list;
+    for (int j = 0; j < trp_info_type_resp_list->trp_information_type_response_item_length; j++) {
+      f1ap_trp_information_type_response_item_t *item = &trp_info_type_resp_list->trp_information_type_response_item[j];
+      if (item->present == F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION)
+        free_prs_configuration(&item->choice.prs_configuration);
+    }
     free(trp_info_type_resp_list->trp_information_type_response_item);
   }
   free(msg->trp_information_list.trp_information_item);

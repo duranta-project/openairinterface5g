@@ -154,6 +154,184 @@ static nrppa_geographical_coordinates_t f1ap2nrppa_geographical_coordinates(cons
   return out;
 }
 
+static nrppa_subcarrier_spacing_pr f1ap2nrppa_subcarrier_spacing(const f1ap_subcarrier_spacing_pr scs);
+
+static nrppa_prs_comb_size_pr f1ap2nrppa_prs_comb_size(const f1ap_prs_comb_size_pr v)
+{
+  switch (v) {
+    case F1AP_PRS_COMB_SIZE_N2:
+      return NRPPA_PRS_COMB_SIZE_N2;
+    case F1AP_PRS_COMB_SIZE_N4:
+      return NRPPA_PRS_COMB_SIZE_N4;
+    case F1AP_PRS_COMB_SIZE_N6:
+      return NRPPA_PRS_COMB_SIZE_N6;
+    case F1AP_PRS_COMB_SIZE_N12:
+      return NRPPA_PRS_COMB_SIZE_N12;
+    default:
+      AssertFatal(false, "illegal PRS comb size %d\n", v);
+      return NRPPA_PRS_COMB_SIZE_N2;
+  }
+}
+
+static nrppa_prs_cp_type_pr f1ap2nrppa_prs_cp_type(const f1ap_prs_cp_type_pr v)
+{
+  switch (v) {
+    case F1AP_PRS_CP_TYPE_NORMAL:
+      return NRPPA_PRS_CP_TYPE_NORMAL;
+    case F1AP_PRS_CP_TYPE_EXTENDED:
+      return NRPPA_PRS_CP_TYPE_EXTENDED;
+    default:
+      AssertFatal(false, "illegal PRS CP type %d\n", v);
+      return NRPPA_PRS_CP_TYPE_NORMAL;
+  }
+}
+
+static nrppa_prs_resource_set_periodicity_pr f1ap2nrppa_prs_periodicity(const f1ap_prs_resource_set_periodicity_pr v)
+{
+  switch (v) {
+    case F1AP_PRS_PERIODICITY_N4:
+      return NRPPA_PRS_PERIODICITY_N4;
+    case F1AP_PRS_PERIODICITY_N5:
+      return NRPPA_PRS_PERIODICITY_N5;
+    case F1AP_PRS_PERIODICITY_N8:
+      return NRPPA_PRS_PERIODICITY_N8;
+    case F1AP_PRS_PERIODICITY_N10:
+      return NRPPA_PRS_PERIODICITY_N10;
+    case F1AP_PRS_PERIODICITY_N16:
+      return NRPPA_PRS_PERIODICITY_N16;
+    case F1AP_PRS_PERIODICITY_N20:
+      return NRPPA_PRS_PERIODICITY_N20;
+    case F1AP_PRS_PERIODICITY_N32:
+      return NRPPA_PRS_PERIODICITY_N32;
+    case F1AP_PRS_PERIODICITY_N40:
+      return NRPPA_PRS_PERIODICITY_N40;
+    case F1AP_PRS_PERIODICITY_N64:
+      return NRPPA_PRS_PERIODICITY_N64;
+    case F1AP_PRS_PERIODICITY_N80:
+      return NRPPA_PRS_PERIODICITY_N80;
+    case F1AP_PRS_PERIODICITY_N160:
+      return NRPPA_PRS_PERIODICITY_N160;
+    case F1AP_PRS_PERIODICITY_N320:
+      return NRPPA_PRS_PERIODICITY_N320;
+    case F1AP_PRS_PERIODICITY_N640:
+      return NRPPA_PRS_PERIODICITY_N640;
+    case F1AP_PRS_PERIODICITY_N1280:
+      return NRPPA_PRS_PERIODICITY_N1280;
+    case F1AP_PRS_PERIODICITY_N2560:
+      return NRPPA_PRS_PERIODICITY_N2560;
+    case F1AP_PRS_PERIODICITY_N5120:
+      return NRPPA_PRS_PERIODICITY_N5120;
+    case F1AP_PRS_PERIODICITY_N10240:
+      return NRPPA_PRS_PERIODICITY_N10240;
+    case F1AP_PRS_PERIODICITY_N20480:
+      return NRPPA_PRS_PERIODICITY_N20480;
+    case F1AP_PRS_PERIODICITY_N40960:
+      return NRPPA_PRS_PERIODICITY_N40960;
+    case F1AP_PRS_PERIODICITY_N81920:
+      return NRPPA_PRS_PERIODICITY_N81920;
+    default:
+      AssertFatal(false, "illegal PRS resource set periodicity %d\n", v);
+      return NRPPA_PRS_PERIODICITY_N4;
+  }
+}
+
+static nrppa_prs_repetition_factor_pr f1ap2nrppa_prs_repetition_factor(const f1ap_prs_repetition_factor_pr v)
+{
+  switch (v) {
+    case F1AP_PRS_REPETITION_RF1:
+      return NRPPA_PRS_REPETITION_RF1;
+    case F1AP_PRS_REPETITION_RF2:
+      return NRPPA_PRS_REPETITION_RF2;
+    case F1AP_PRS_REPETITION_RF4:
+      return NRPPA_PRS_REPETITION_RF4;
+    case F1AP_PRS_REPETITION_RF6:
+      return NRPPA_PRS_REPETITION_RF6;
+    case F1AP_PRS_REPETITION_RF8:
+      return NRPPA_PRS_REPETITION_RF8;
+    case F1AP_PRS_REPETITION_RF16:
+      return NRPPA_PRS_REPETITION_RF16;
+    case F1AP_PRS_REPETITION_RF32:
+      return NRPPA_PRS_REPETITION_RF32;
+    default:
+      AssertFatal(false, "illegal PRS resource repetition factor %d\n", v);
+      return NRPPA_PRS_REPETITION_RF1;
+  }
+}
+
+static nrppa_prs_time_gap_pr f1ap2nrppa_prs_time_gap(const f1ap_prs_time_gap_pr v)
+{
+  switch (v) {
+    case F1AP_PRS_TIME_GAP_TG1:
+      return NRPPA_PRS_TIME_GAP_TG1;
+    case F1AP_PRS_TIME_GAP_TG2:
+      return NRPPA_PRS_TIME_GAP_TG2;
+    case F1AP_PRS_TIME_GAP_TG4:
+      return NRPPA_PRS_TIME_GAP_TG4;
+    case F1AP_PRS_TIME_GAP_TG8:
+      return NRPPA_PRS_TIME_GAP_TG8;
+    case F1AP_PRS_TIME_GAP_TG16:
+      return NRPPA_PRS_TIME_GAP_TG16;
+    case F1AP_PRS_TIME_GAP_TG32:
+      return NRPPA_PRS_TIME_GAP_TG32;
+    default:
+      AssertFatal(false, "illegal PRS resource time gap %d\n", v);
+      return NRPPA_PRS_TIME_GAP_TG1;
+  }
+}
+
+static nrppa_prs_num_symbols_pr f1ap2nrppa_prs_num_symbols(const f1ap_prs_num_symbols_pr v)
+{
+  switch (v) {
+    case F1AP_PRS_NUM_SYMBOLS_N2:
+      return NRPPA_PRS_NUM_SYMBOLS_N2;
+    case F1AP_PRS_NUM_SYMBOLS_N4:
+      return NRPPA_PRS_NUM_SYMBOLS_N4;
+    case F1AP_PRS_NUM_SYMBOLS_N6:
+      return NRPPA_PRS_NUM_SYMBOLS_N6;
+    case F1AP_PRS_NUM_SYMBOLS_N12:
+      return NRPPA_PRS_NUM_SYMBOLS_N12;
+    default:
+      AssertFatal(false, "illegal PRS resource number of symbols %d\n", v);
+      return NRPPA_PRS_NUM_SYMBOLS_N2;
+  }
+}
+
+static nrppa_prs_configuration_t f1ap2nrppa_prs_configuration(const f1ap_prs_configuration_t *in)
+{
+  nrppa_prs_configuration_t out = {0};
+  out.prs_resource_set_list_length = in->prs_resource_set_list_length;
+  if (in->prs_resource_set_list_length > 0)
+    out.prs_resource_set = calloc_or_fail(in->prs_resource_set_list_length, sizeof(*out.prs_resource_set));
+  for (int i = 0; i < in->prs_resource_set_list_length; i++) {
+    const f1ap_prs_resource_set_t *s_in = &in->prs_resource_set[i];
+    nrppa_prs_resource_set_t *s_out = &out.prs_resource_set[i];
+    s_out->prs_resource_set_id = s_in->prs_resource_set_id;
+    s_out->subcarrier_spacing = f1ap2nrppa_subcarrier_spacing(s_in->subcarrier_spacing);
+    s_out->prs_bandwidth = s_in->prs_bandwidth;
+    s_out->start_prb = s_in->start_prb;
+    s_out->point_a = s_in->point_a;
+    s_out->comb_size = f1ap2nrppa_prs_comb_size(s_in->comb_size);
+    s_out->cp_type = f1ap2nrppa_prs_cp_type(s_in->cp_type);
+    s_out->resource_set_periodicity = f1ap2nrppa_prs_periodicity(s_in->resource_set_periodicity);
+    s_out->resource_set_slot_offset = s_in->resource_set_slot_offset;
+    s_out->resource_repetition_factor = f1ap2nrppa_prs_repetition_factor(s_in->resource_repetition_factor);
+    s_out->resource_time_gap = f1ap2nrppa_prs_time_gap(s_in->resource_time_gap);
+    s_out->resource_number_of_symbols = f1ap2nrppa_prs_num_symbols(s_in->resource_number_of_symbols);
+    s_out->prs_resource_transmit_power = s_in->prs_resource_transmit_power;
+    s_out->prs_resource_list_length = s_in->prs_resource_list_length;
+    if (s_in->prs_resource_list_length > 0)
+      s_out->prs_resource = calloc_or_fail(s_in->prs_resource_list_length, sizeof(*s_out->prs_resource));
+    for (int k = 0; k < s_in->prs_resource_list_length; k++) {
+      s_out->prs_resource[k].prs_resource_id = s_in->prs_resource[k].prs_resource_id;
+      s_out->prs_resource[k].sequence_id = s_in->prs_resource[k].sequence_id;
+      s_out->prs_resource[k].re_offset = s_in->prs_resource[k].re_offset;
+      s_out->prs_resource[k].resource_slot_offset = s_in->prs_resource[k].resource_slot_offset;
+      s_out->prs_resource[k].resource_symbol_offset = s_in->prs_resource[k].resource_symbol_offset;
+    }
+  }
+  return out;
+}
+
 static nrppa_trp_information_type_response_item_t f1ap2nrppa_trp_info_type_response_item(
     const f1ap_trp_information_type_response_item_t *in)
 {
@@ -179,7 +357,7 @@ static nrppa_trp_information_type_response_item_t f1ap2nrppa_trp_info_type_respo
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
       out.present = NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      out.choice.prs_configuration = f1ap2nrppa_prs_configuration(&in->choice.prs_configuration);
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       out.present = NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION;
