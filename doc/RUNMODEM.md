@@ -141,8 +141,7 @@ The `RUs` section describes the radio unit, i.e., either an integrated RF device
   uses a GPS-disciplined oscillator. Applicable only for USRP.
 - `sdr_addrs`: device address string passed to the RF driver. Used notably with
   USRP and BladeRF devices.
-- `ru_thread_core`: CPU core for the RU fronthaul thread. Should
-  be an isolated core (FHI 7.2 only).
+- `ru_thread_core`: CPU core for the RU thread, split 8 only.
 
 ### Frequency and cell configuration
 

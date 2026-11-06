@@ -42,6 +42,25 @@ typedef struct {
 /// @param task task description
 void pushTpool(tpool_t *tpool, task_t task);
 
+/// @brief Push one task of a batch the caller then joins on; the last task runs on the calling
+///        thread instead of waking a worker, saving a wakeup and a context switch per batch.
+///
+/// init_task_ans()/join_task_ans() are used as with pushTpool(): the inline task signals
+/// completion through completed_task_ans() like a worker-run one. With a NULL tpool, all tasks
+/// run inline. Suits batches of similar-sized tasks: otherwise the caller may draw a long one
+/// and finish after the workers.
+///
+/// @param tpool threadpool to use
+/// @param task task description
+/// @param is_last true for the last task of the batch
+static inline void pushTpool_batch(tpool_t *tpool, task_t task, bool is_last)
+{
+  if (tpool == NULL || is_last)
+    task.func(task.args);
+  else
+    pushTpool(tpool, task);
+}
+
 /// @brief Abort tpool, stop all threads and return
 /// @param t 
 void abortTpool(tpool_t *t);

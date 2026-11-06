@@ -178,7 +178,7 @@ int main(int argc, char **argv)
   RC.nb_RU = 1;
   RC.ru = malloc(sizeof(RC.ru));
 
-  init_NR_RU(config_get_if(), NULL);
+  NRRCconfig_RU(config_get_if());
 
   RU_t *ru = RC.ru[0];
   ORU_t oru = {0};
