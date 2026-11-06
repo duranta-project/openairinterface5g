@@ -9,11 +9,14 @@
 #include <string.h>
 
 #include "LOG/log.h"
+#include "common/utils/assertions.h"
+#include "common/utils/ds/hashtable.h"
 
 typedef struct {
   pthread_mutex_t lock;
   nr_rlc_ue_t     **ue_list;
   int             ue_count;
+  hash_table_t ue_by_id; // ue_id -> UE of ue_list: the scheduler looks up every UE in every slot
   nr_rlc_op_mode_t mode;
 } nr_rlc_ue_manager_internal_t;
 
@@ -28,6 +31,7 @@ nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(nr_rlc_op_mode_t mode)
   }
 
   if (pthread_mutex_init(&ret->lock, NULL)) abort();
+  ret->ue_by_id = hashtable_create(1024, NULL);
   ret->mode = mode;
 
   return ret;
@@ -66,13 +70,10 @@ void nr_rlc_manager_unlock(nr_rlc_ue_manager_t *_m)
 /* must be called with lock acquired */
 nr_rlc_ue_t *nr_rlc_manager_get_ue(nr_rlc_ue_manager_t *_m, int ue_id)
 {
-  /* TODO: optimze */
   nr_rlc_ue_manager_internal_t *m = _m;
-  int i;
-
-  for (i = 0; i < m->ue_count; i++)
-    if (m->ue_list[i]->ue_id == ue_id)
-      return m->ue_list[i];
+  void *found;
+  if (hashtable_get(&m->ue_by_id, ue_id, &found) == HASH_TABLE_OK)
+    return found;
 
   LOG_D(RLC, "New UE with ID %d\n", ue_id);
 
@@ -89,6 +90,8 @@ nr_rlc_ue_t *nr_rlc_manager_get_ue(nr_rlc_ue_manager_t *_m, int ue_id)
   }
 
   m->ue_list[m->ue_count-1]->ue_id = ue_id;
+  hashtable_rc_t rc = hashtable_insert(&m->ue_by_id, ue_id, m->ue_list[m->ue_count - 1], NULL);
+  AssertFatal(rc == HASH_TABLE_OK, "cannot index RLC UE %d: %d\n", ue_id, rc);
 
   return m->ue_list[m->ue_count-1];
 }
@@ -111,6 +114,7 @@ void nr_rlc_manager_remove_ue(nr_rlc_ue_manager_t *_m, int ue_id)
   }
 
   ue = m->ue_list[i];
+  hashtable_remove(&m->ue_by_id, ue_id, NULL);
 
   if (ue->srb0 != NULL) {
     /* deliver_sdu_data for srb0 is allocated, needs a free() */
