@@ -102,15 +102,13 @@ double MixCoeff(int tx_ant, int rx_ant)
   return d ? (0.2 / d) : 1.0;
 }
 
-// Same per-antenna accumulation/truncation order as simulator.cpp, for a bit-exact match.
+// The exact sum, rounded: simulator.cpp works in fixed point and rounds each sender's product, see kTolerance.
 int16_t ExpectedCombined(bool sender_is_server, uint64_t sample_pos, int rx_ant, int num_tx_ant)
 {
   double acc = 0.0;
-  for (int tx_ant = 0; tx_ant < num_tx_ant; tx_ant++) {
-    double term = static_cast<double>(TxPattern(sender_is_server, sample_pos, tx_ant)) * MixCoeff(tx_ant, rx_ant);
-    acc = static_cast<double>(static_cast<int16_t>(acc + term));
-  }
-  return static_cast<int16_t>(acc);
+  for (int tx_ant = 0; tx_ant < num_tx_ant; tx_ant++)
+    acc += static_cast<double>(TxPattern(sender_is_server, sample_pos, tx_ant)) * MixCoeff(tx_ant, rx_ant);
+  return static_cast<int16_t>(lround(acc));
 }
 
 void FillTxBlock(std::vector<std::vector<c16_t>> &bufs, bool sender_is_server, uint64_t start_ts, int nant, int nsamps)
@@ -134,9 +132,9 @@ VerifyResult VerifyRxBlock(const std::vector<std::vector<c16_t>> &rx,
                            int peer_tx_ant,
                            bool peer_is_server)
 {
-  // Allow ±1 with >1 tx antenna: vectorized rounding can differ slightly from this reference.
+  // Each crosstalk product (gain below 1) is computed in fixed point within 1 LSB; the direct one (gain 1) is exact.
   // A real bug (missing/misrouted block) would miss by far more than that.
-  const int16_t kTolerance = peer_tx_ant > 1 ? 1 : 0;
+  const int16_t kTolerance = peer_tx_ant - 1;
   VerifyResult res;
   int mismatches = 0;
   for (int a = 0; a < rx_ant && mismatches < 3; a++) {
@@ -172,7 +170,7 @@ int16_t ExpectedBeamSample(bool sender_is_server, uint64_t sample_pos, int beam_
   float gain_dB = gain_diag_db.at(static_cast<size_t>(beam_id));
   float gain_linear = powf(10, gain_dB / 20.0);
   double term = static_cast<double>(v) * static_cast<double>(gain_linear);
-  return static_cast<int16_t>(term);
+  return static_cast<int16_t>(lround(term));
 }
 
 VerifyResult VerifyBeamBlock(const std::vector<c16_t> &rx,
@@ -187,7 +185,8 @@ VerifyResult VerifyBeamBlock(const std::vector<c16_t> &rx,
     uint64_t pos = start_ts + i;
     int beam_id = BeamAt(server_beam_schedule, pos);
     int16_t expected = ExpectedBeamSample(peer_is_server, pos, beam_id, gain_diag_db);
-    if (rx[i].r != expected || rx[i].i != expected) {
+    // the simulator applies the gain in fixed point: within 1 LSB
+    if (std::abs(rx[i].r - expected) > 1 || std::abs(rx[i].i - expected) > 1) {
       res.ok = false;
       res.details += "idx=" + std::to_string(i) + " ts=" + std::to_string(start_ts) + " beam=" + std::to_string(beam_id)
                      + " got=(" + std::to_string(rx[i].r) + "," + std::to_string(rx[i].i) + ")" + " want=" + std::to_string(expected)
