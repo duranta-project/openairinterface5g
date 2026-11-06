@@ -108,6 +108,14 @@ oc-cn5g-00103-ho:
   Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ho"
   LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ho %%log_dir%%"
 
+oc-open5gs-00103-ho:
+  Host: groot
+  NetworkScript: echo "inet 172.21.6.109"
+  RunIperf3Server: False
+  Deploy: "! scripts/oc-open5gs-deploy.sh /opt/open5gs-charts oaicicd-open5gs-core-for-ho"
+  Undeploy: "! scripts/oc-open5gs-undeploy.sh /opt/open5gs-charts oaicicd-open5gs-core-for-ho"
+  LogCollect: "! scripts/oc-open5gs-logcollect.sh /opt/open5gs-charts oaicicd-open5gs-core-for-ho %%log_dir%%"
+
 oc-cn5g-20897-aerial:
   Host: gracehopper1-oai
   NetworkScript: echo "inet 172.21.6.105"
