@@ -374,7 +374,7 @@ check_install_additional_tools (){
         libforms-bin \
         libforms-dev \
         libxft-dev \
-        libpcre3-dev \
+        libpcre2-dev \
         libssh-dev \
         libxml2-dev"
   elif [[ "$OS_DISTRO" == "rhel" ]] || [[ "$OS_DISTRO" == "centos" ]] || [[ "$OS_DISTRO" == "rocky" ]] ||  [[ "$OS_DISTRO" == "fedora" ]]; then
