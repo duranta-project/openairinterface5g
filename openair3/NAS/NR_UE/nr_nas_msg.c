@@ -2614,8 +2614,8 @@ static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
   }
   // Extract timer t3448 in seconds (optional IE)
   nas->t3448 = process_gprs_timer(msg.t3448);
-  // Extract timer t3446 in seconds (optional IE)
-  nas->t3446 = process_gprs_timer(msg.t3446);
+  // Extract timer t3346 in seconds (optional IE)
+  nas->t3346 = process_gprs_timer(msg.t3346);
   LOG_E(NAS, "Received NAS Service Reject message with cause %s\n", print_info(msg.cause, fgmm_cause_s, sizeofArray(fgmm_cause_s)));
   /* Retrying the Service Request would loop forever, and re-registering is not supported:
    * terminate as after a Registration Reject. */

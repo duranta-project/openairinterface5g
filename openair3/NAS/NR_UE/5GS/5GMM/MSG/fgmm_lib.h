@@ -82,7 +82,7 @@ typedef enum { REACTIVATION_SUCCESS = 0, REACTIVATION_FAILED } PSI_reactivation_
   IEI_DEF(IEI_UE_REQUEST_TYPE, 0x29)                      \
   IEI_DEF(IEI_UPLINK_DATA_STATUS, 0x40)                   \
   IEI_DEF(IEI_PDU_SESSION_STATUS, 0x50)                   \
-  IEI_DEF(IEI_T3446_VALUE, 0x5F)                          \
+  IEI_DEF(IEI_T3346_VALUE, 0x5F)                          \
   IEI_DEF(IEI_T3448_VALUE, 0x6B)                          \
   IEI_DEF(IEI_FGS_NAS_MESSAGE_CONTAINER, 0x71)            \
   IEI_DEF(IEI_PDU_SESSION_REACT_RESULT_ERROR_CAUSE, 0x72) \
