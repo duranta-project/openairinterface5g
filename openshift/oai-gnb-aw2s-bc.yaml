@@ -24,7 +24,7 @@ spec:
             destinationDir: libori.so
     strategy:
         dockerStrategy:
-            dockerfilePath: "docker/Dockerfile.gNB.aw2s.rhel9"
+            dockerfilePath: "docker/Dockerfile.gNB.aw2s.centos"
     output:
         to:
             kind: "ImageStreamTag"

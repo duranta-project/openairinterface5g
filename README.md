@@ -13,7 +13,7 @@
     <a href="https://releases.ubuntu.com/22.04/"><img src="https://img.shields.io/badge/Ubuntu-22.04-E95420?logo=ubuntu&logoColor=white" alt="Supported OS Ubuntu 22"></a>
     <a href="https://releases.ubuntu.com/24.04/"><img src="https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white" alt="Supported OS Ubuntu 24"></a>
     <a href="https://releases.ubuntu.com/26.04/"><img src="https://img.shields.io/badge/Ubuntu-26.04-E95420?logo=ubuntu&logoColor=white" alt="Supported OS Ubuntu 26"></a>
-    <a href="https://www.redhat.com/en/technologies/linux-platforms/enterprise-linux"><img src="https://img.shields.io/badge/RHEL-9-EE0000?logo=redhat&logoColor=white" alt="Supported OS RHEL9"></a>
+    <a href="https://www.centos.org/centos-stream/"><img src="https://img.shields.io/badge/CentOS_Stream-10-262577?logo=centos&logoColor=white" alt="Supported OS CentOS Stream 10"></a>
     <a href="https://getfedora.org/en/workstation/"><img src="https://img.shields.io/badge/Fedora-44-51A2DA?logo=fedora&logoColor=white" alt="Supported OS Fedora 44"></a>
 </p>
 
@@ -94,7 +94,7 @@ openairinterface5g
 ├── cmake_targets     : Build and dependency-management utilities
 ├── common            : Common configuration, utilities, and shared infrastructure
 ├── doc               : Documentation
-├── docker            : Dockerfiles for building Ubuntu and RHEL images
+├── docker            : Dockerfiles for building Ubuntu and CentOS Stream images
 ├── executables       : Top-level gNB, eNB, UE, CU, DU, and O-RU entry points
 ├── fronthaul         : Native OAI 7.2x fronthaul implementation
 ├── maketags          : Script to generate Emacs tags

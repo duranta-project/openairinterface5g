@@ -25,7 +25,7 @@ BUILD_TOOL_OPT="-j$(nproc)"
 function print_help() {
   echo_info "
 This script compiles OpenAirInterface Software, and can install dependencies
-for a number of distributions (Ubuntu 22-24, Fedora, RHEL9).
+for a number of distributions (Ubuntu 22-24, Fedora, CentOS Stream 10).
 Options:
 --arch-native
    Passes -march=native to the compiler.
