@@ -285,7 +285,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
 
   int ret_decoder = phy_vars_gNB->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
   // post decode
-  int slot_type = nr_slot_select(&phy_vars_gNB->gNB_config, frame, nr_tti_rx);
+  nr_slot_type_t slot_type = nr_slot_select(&phy_vars_gNB->gNB_config, frame, nr_tti_rx);
   for (uint8_t pusch_id = 0; pusch_id < nb_pusch; pusch_id++) {
     uint8_t ULSCH_id = ULSCH_ids[pusch_id];
     NR_gNB_ULSCH_t *ulsch = &phy_vars_gNB->ulsch[ULSCH_id];

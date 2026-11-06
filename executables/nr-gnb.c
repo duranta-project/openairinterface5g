@@ -92,8 +92,8 @@ static void tx_func(processingData_L1tx_t *info)
   pushNotifiedFIFO(&gNB->resp_L1, res);
 
   RU_t *ru = gNB->RU_list[0];
-  int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
-  if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT) {
+  nr_slot_type_t tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
+  if (tx_slot_type & (NR_DOWNLINK_SLOT | NR_MIXED_SLOT)) {
     START_MEAS_FULL_SLOT(&info->gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
     START_MEAS_FULL_SLOT(&info->gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
     phy_procedures_gNB_TX(info->gNB, &sched_response.DL_req, &sched_response.TX_req, &sched_response.UL_dci_req, frame_tx,slot_tx);
@@ -119,7 +119,7 @@ static void tx_func(processingData_L1tx_t *info)
       ru->fh_south_ctrl(ru, frame_tx, slot_tx, info->timestamp_tx);
   }
 
-  if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM) {
+  if ((tx_slot_type & (NR_DOWNLINK_SLOT | NR_MIXED_SLOT)) || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM) {
     if (ru->fh_south_out)
       ru->fh_south_out(ru, frame_tx, slot_tx, info->timestamp_tx);
   }
@@ -134,7 +134,7 @@ void *L1_rx_thread(void *arg)
      if (res == NULL)
        break;
      processingData_L1_t *info = (processingData_L1_t *)NotifiedFifoData(res);
-     int slot_type = nr_slot_select(&gNB->gNB_config, info->frame_rx, info->slot_rx);
+     nr_slot_type_t slot_type = nr_slot_select(&gNB->gNB_config, info->frame_rx, info->slot_rx);
      START_MEAS_FULL_SLOT(&gNB->l1_rx_proc, slot_type, NR_UPLINK_SLOT);
      rx_func(info);
      STOP_MEAS_FULL_SLOT(&gNB->l1_rx_proc, slot_type, NR_UPLINK_SLOT);
@@ -151,7 +151,7 @@ void *L1_tx_thread(void *arg) {
      if (res == NULL) // stopping condition, happens only when queue is freed
        break;
      processingData_L1tx_t *info = (processingData_L1tx_t *)NotifiedFifoData(res);
-     int slot_type = nr_slot_select(&gNB->gNB_config, info->frame, info->slot);
+     nr_slot_type_t slot_type = nr_slot_select(&gNB->gNB_config, info->frame, info->slot);
      START_MEAS_FULL_SLOT(&gNB->l1_tx_proc, slot_type, NR_DOWNLINK_SLOT);
      tx_func(info);
      STOP_MEAS_FULL_SLOT(&gNB->l1_tx_proc, slot_type, NR_DOWNLINK_SLOT);
@@ -170,8 +170,8 @@ static void rx_func(processingData_L1_t *info)
   T(T_GNB_PHY_UL_TICK, T_INT(gNB->Mod_id), T_INT(frame_rx), T_INT(slot_rx));
 
   // RX processing
-  int rx_slot_type = nr_slot_select(cfg, frame_rx, slot_rx);
-  if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
+  nr_slot_type_t rx_slot_type = nr_slot_select(cfg, frame_rx, slot_rx);
+  if (rx_slot_type & (NR_UPLINK_SLOT | NR_MIXED_SLOT)) {
     LOG_D(NR_PHY, "%d.%d Starting RX processing\n", frame_rx, slot_rx);
 
     // UE-specific RX processing for subframe n
