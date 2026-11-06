@@ -18,13 +18,9 @@ spec:
     runPolicy: "Serial"
     source:
         type: "Binary"
-        secrets:
-          - secret:
-              name: etc-pki-entitlement
-            destinationDir: etc-pki-entitlement
     strategy:
         dockerStrategy:
-            dockerfilePath: "docker/Dockerfile.gNB.fhi72.rhel9"
+            dockerfilePath: "docker/Dockerfile.gNB.fhi72.centos"
     output:
         to:
             kind: "ImageStreamTag"

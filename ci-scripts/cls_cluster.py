@@ -46,15 +46,6 @@ def OC_logout(cmd):
 
 class Cluster:
 
-	def _recreate_entitlements(cmd):
-		# recreating entitlements, don't care if deletion fails
-		cmd.run(f'oc delete secret etc-pki-entitlement')
-		ret = cmd.run(f"oc get secret etc-pki-entitlement -n openshift-config-managed -o json | jq 'del(.metadata.resourceVersion)' | jq 'del(.metadata.creationTimestamp)' | jq 'del(.metadata.uid)' | jq 'del(.metadata.namespace)' | oc create -f -", silent=True)
-		if ret.returncode != 0:
-			logging.error("could not create secret/etc-pki-entitlement")
-			return False
-		return True
-
 	def _recreate_bc(cmd, name, newTag, filename):
 		Cluster._retag_image_statement(cmd, name, name, newTag, filename)
 		cmd.run(f'oc delete -f {filename}')
@@ -178,7 +169,7 @@ class Cluster:
 			branchName = ctx.g.branch.replace('/','-')
 			imageTag = f'{branchName}'
 			if ctx.g.targetBranch == 'develop':
-				ret = cmd.run(f'git diff HEAD..origin/develop -- cmake_targets/build_oai cmake_targets/tools/build_helper docker/Dockerfile.base.rhel9 | grep --colour=never -i INDEX')
+				ret = cmd.run(f'git diff HEAD..origin/develop -- cmake_targets/build_oai cmake_targets/tools/build_helper docker/Dockerfile.base.centos | grep --colour=never -i INDEX')
 				result = re.search('index', ret.stdout)
 				if result is not None:
 					forceBaseImageBuild = True
@@ -207,8 +198,6 @@ class Cluster:
 		response = cmd.run(delete_cmd)
 		logging.debug(f"deleted images:\n{response.stdout}")
 
-		Cluster._recreate_entitlements(cmd)
-
 		status = True # flag to abandon compiling if any image fails
 		log_files = []
 		build_metrics = f"{lSourcePath}/cmake_targets/log/build-metrics.log"
@@ -223,22 +212,22 @@ class Cluster:
 		if status:
 			Cluster._recreate_is_tag(cmd, 'ran-build-fhi72', imageTag, 'openshift/ran-build-fhi72-is.yaml')
 			Cluster._recreate_bc(cmd, 'ran-build-fhi72', imageTag, 'openshift/ran-build-fhi72-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.build.fhi72.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.build.fhi72.centos')
 			ranbuildfhi72_job = Cluster._start_build(cmd, 'ran-build-fhi72', lSourcePath)
 
 			Cluster._recreate_is_tag(cmd, 'oai-physim', imageTag, 'openshift/oai-physim-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-physim', imageTag, 'openshift/oai-physim-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.phySim.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.phySim.centos')
 			physim_job = Cluster._start_build(cmd, 'oai-physim', lSourcePath)
 
 			Cluster._recreate_is_tag(cmd, 'ran-build', imageTag, 'openshift/ran-build-is.yaml')
 			Cluster._recreate_bc(cmd, 'ran-build', imageTag, 'openshift/ran-build-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.build.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.build.centos')
 			ranbuild_job = Cluster._start_build(cmd, 'ran-build', lSourcePath)
 
 			Cluster._recreate_is_tag(cmd, 'oai-clang', imageTag, 'openshift/oai-clang-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-clang', imageTag, 'openshift/oai-clang-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.clang.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.clang.centos')
 			clang_job = Cluster._start_build(cmd, 'oai-clang', lSourcePath)
 
 			wait = ranbuildfhi72_job is not None and ranbuild_job is not None and physim_job is not None and clang_job is not None and Cluster._wait_build_end(cmd, [ranbuildfhi72_job, ranbuild_job, physim_job, clang_job], 1200)
@@ -253,26 +242,26 @@ class Cluster:
 		if status:
 			Cluster._recreate_is_tag(cmd, 'oai-gnb-fhi72', imageTag, 'openshift/oai-gnb-fhi72-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-gnb-fhi72', imageTag, 'openshift/oai-gnb-fhi72-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.gNB.fhi72.rhel9')
-			Cluster._retag_image_statement(cmd, 'ran-build-fhi72', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build-fhi72', imageTag, 'docker/Dockerfile.gNB.fhi72.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.gNB.fhi72.centos')
+			Cluster._retag_image_statement(cmd, 'ran-build-fhi72', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build-fhi72', imageTag, 'docker/Dockerfile.gNB.fhi72.centos')
 			gnb_fhi72_job = Cluster._start_build(cmd, 'oai-gnb-fhi72', lSourcePath)
 
 			Cluster._recreate_is_tag(cmd, 'oai-enb', imageTag, 'openshift/oai-enb-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-enb', imageTag, 'openshift/oai-enb-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.eNB.rhel9')
-			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.eNB.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.eNB.centos')
+			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.eNB.centos')
 			enb_job = Cluster._start_build(cmd, 'oai-enb', lSourcePath)
 
 			Cluster._recreate_is_tag(cmd, 'oai-gnb', imageTag, 'openshift/oai-gnb-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-gnb', imageTag, 'openshift/oai-gnb-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.gNB.rhel9')
-			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.gNB.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.gNB.centos')
+			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.gNB.centos')
 			gnb_job = Cluster._start_build(cmd, 'oai-gnb', lSourcePath)
 
 			Cluster._recreate_is_tag(cmd, 'oai-gnb-aw2s', imageTag, 'openshift/oai-gnb-aw2s-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-gnb-aw2s', imageTag, 'openshift/oai-gnb-aw2s-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.gNB.aw2s.rhel9')
-			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.gNB.aw2s.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.gNB.aw2s.centos')
+			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.gNB.aw2s.centos')
 			gnb_aw2s_job = Cluster._start_build(cmd, 'oai-gnb-aw2s', lSourcePath)
 
 			wait = gnb_fhi72_job is not None and enb_job is not None and gnb_job is not None and gnb_aw2s_job is not None and Cluster._wait_build_end(cmd, [gnb_fhi72_job, enb_job, gnb_job, gnb_aw2s_job], 800)
@@ -287,20 +276,20 @@ class Cluster:
 
 			Cluster._recreate_is_tag(cmd, 'oai-nr-cuup', imageTag, 'openshift/oai-nr-cuup-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-nr-cuup', imageTag, 'openshift/oai-nr-cuup-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.nr-cuup.rhel9')
-			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.nr-cuup.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.nr-cuup.centos')
+			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.nr-cuup.centos')
 			nr_cuup_job = Cluster._start_build(cmd, 'oai-nr-cuup', lSourcePath)
 
 			Cluster._recreate_is_tag(cmd, 'oai-lte-ue', imageTag, 'openshift/oai-lte-ue-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-lte-ue', imageTag, 'openshift/oai-lte-ue-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.lteUE.rhel9')
-			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.lteUE.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.lteUE.centos')
+			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.lteUE.centos')
 			lteue_job = Cluster._start_build(cmd, 'oai-lte-ue', lSourcePath)
 
 			Cluster._recreate_is_tag(cmd, 'oai-nr-ue', imageTag, 'openshift/oai-nr-ue-is.yaml')
 			Cluster._recreate_bc(cmd, 'oai-nr-ue', imageTag, 'openshift/oai-nr-ue-bc.yaml')
-			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.nrUE.rhel9')
-			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.nrUE.rhel9')
+			Cluster._retag_image_statement(cmd, 'ran-base', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-base', baseTag, 'docker/Dockerfile.nrUE.centos')
+			Cluster._retag_image_statement(cmd, 'ran-build', 'image-registry.openshift-image-registry.svc:5000/oaicicd-ran/ran-build', imageTag, 'docker/Dockerfile.nrUE.centos')
 			nrue_job = Cluster._start_build(cmd, 'oai-nr-ue', lSourcePath)
 
 			wait = nr_cuup_job is not None and lteue_job is not None and nrue_job is not None and Cluster._wait_build_end(cmd, [nr_cuup_job, lteue_job, nrue_job], 800)

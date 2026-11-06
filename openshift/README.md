@@ -30,22 +30,6 @@ oc new-project oaicicd-ran
 
 **NOTE**: If you change the project name then you have to change it in all the `yaml` files.
 
-## RHEL9 Entitlements
-
-To build the RAN images, we use the `codeready-builder-for-rhel-9-x86_64-rpms`
-repository with all the proper development libraries. To access the library you
-will need `etc-pki-entitlement` inside the container image.
-
-To import `etc-pki-entitlement` in your project follow this
-[guide](https://docs.openshift.com/container-platform/4.14/cicd/builds/running-entitled-builds.html#builds-source-secrets-entitlements_running-entitled-builds)
-
-You can do it as a kubeadmin/system admin user or you should have the rights 
-to read secrets from `openshift-config-managed` project
-
-```bash
-oc get secret etc-pki-entitlement -n openshift-config-managed -o json |   jq 'del(.metadata.resourceVersion)' | jq 'del(.metadata.creationTimestamp)' |   jq 'del(.metadata.uid)' | jq 'del(.metadata.namespace)' |   oc create -f -
-```
-
 # 2. Build of `base` shared image
 
 Create an image stream and build config that specify image properties and build parameters, then start the build:

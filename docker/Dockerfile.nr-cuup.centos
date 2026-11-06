@@ -3,7 +3,7 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface BUILD service
-#   Valid for RHEL 9
+#   Valid for CentOS Stream 10
 #
 #---------------------------------------------------------------------
 
@@ -14,11 +14,11 @@ FROM ran-build:latest AS gnb-build
 RUN cp /oai-ran/docker/scripts/gnb_entrypoint.sh /oai-ran/docker/scripts/entrypoint.sh
 
 #start from scratch for target executable
-FROM registry.redhat.io/ubi9/ubi:latest AS oai-nr-cuup
+FROM quay.io/centos/centos:stream10 AS oai-nr-cuup
 ENV TZ=Europe/Paris
 
 # Install EPEL 
-RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm
 
 RUN yum repolist --disablerepo=* && \
     yum update -y && \

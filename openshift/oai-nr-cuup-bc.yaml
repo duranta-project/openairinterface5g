@@ -19,7 +19,7 @@ spec:
         type: "Binary"
     strategy:
         dockerStrategy:
-            dockerfilePath: "docker/Dockerfile.nr-cuup.rhel9"
+            dockerfilePath: "docker/Dockerfile.nr-cuup.centos"
     output:
         to:
             kind: "ImageStreamTag"

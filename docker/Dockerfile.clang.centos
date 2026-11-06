@@ -3,7 +3,7 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface BUILD service
-#   Valid for RHEL9
+#   Valid for CentOS Stream 10
 #
 #---------------------------------------------------------------------
 
