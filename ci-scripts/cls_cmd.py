@@ -119,10 +119,6 @@ class LocalCmd(Cmd):
 		return self.cp.stdout
 
 	def copyin(self, src, tgt):
-		if src[0] != '/' or tgt[0] != '/':
-			raise Exception(f'support only absolute file paths (src {src} tgt {tgt})!')
-		if src == tgt:
-			return True # nothing to copy, file is already where it should go
 		return self.run(f'cp {src} {tgt}').returncode == 0
 
 def GetFile(client, src, tgt):
