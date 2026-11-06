@@ -470,6 +470,16 @@ static int generate_tx_pdu(nr_rlc_entity_um_t *entity, char *buffer, int size)
   if (pdu_header_size + 1 > size)
     return 0;
 
+  /* if segmentation is needed, the header of the segment may be bigger (SN
+   * is present), check again before taking the SDU out of the TX list
+   */
+  if (pdu_header_size + sdu->size > size) {
+    nr_rlc_sdu_segment_t segment = *sdu;
+    segment.is_last = 0;
+    if (compute_pdu_header_size(entity, &segment) + 1 > size)
+      return 0;
+  }
+
   entity->tx_list = entity->tx_list->next;
   if (entity->tx_list == NULL)
     entity->tx_end = NULL;
@@ -486,8 +496,11 @@ static int generate_tx_pdu(nr_rlc_entity_um_t *entity, char *buffer, int size)
   if (pdu_size > size) {
     nr_rlc_sdu_segment_t *next_sdu;
     next_sdu = resegment(sdu, entity, size);
-    if (next_sdu == NULL)
-      return 0;
+    if (next_sdu == NULL) {
+      /* not possible: segment header size checked above */
+      LOG_E(RLC, "%s:%d:%s: fatal: cannot segment SDU\n", __FILE__, __LINE__, __FUNCTION__);
+      exit(1);
+    }
     /* put the second SDU back at the head of the TX list */
     next_sdu->next = entity->tx_list;
     entity->tx_list = next_sdu;

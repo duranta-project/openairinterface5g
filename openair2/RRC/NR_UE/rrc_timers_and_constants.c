@@ -107,6 +107,12 @@ void nr_rrc_SI_timers(NR_UE_RRC_SI_INFO *SInfo)
 
 void handle_meas_timers(NR_UE_RRC_INST_t *rrc)
 {
+  // no measurement report during re-establishment: until RRCReestablishment
+  // is received, SRB1 has no security, the gNB (already on the new key) fails
+  // integrity on the report, and RRCReestablishmentComplete is not delivered.
+  // Timers keep running, reports due in the meantime are dropped.
+  const bool reestab = nr_timer_is_active(&rrc->timers_and_constants.T311) || rrc->ra_trigger == RRC_CONNECTION_REESTABLISHMENT;
+
   for (int i = 0; i < NB_CNX_UE; i++) {
     rrcPerNB_t *nb = &rrc->perNB[i];
     l3_measurements_t *l3_measurements = &nb->l3_measurements;
@@ -120,7 +126,7 @@ void handle_meas_timers(NR_UE_RRC_INST_t *rrc)
 
       // Handle Event A2 timer expiry
       bool ta2_expired = nr_timer_tick(&params->TA2);
-      if (ta2_expired && params->trigger_quantity > 0) {
+      if (ta2_expired && params->trigger_quantity > 0 && !reestab) {
         rrc_ue_generate_measurementReport(nb, rrc->ue_id, meas_id);
         params->reports_sent = 1;
 
@@ -132,7 +138,7 @@ void handle_meas_timers(NR_UE_RRC_INST_t *rrc)
 
       // Handle Event A3 timer expiry
       bool ta3_expired = nr_timer_tick(&params->TA3);
-      if (ta3_expired && params->trigger_quantity > 0) {
+      if (ta3_expired && params->trigger_quantity > 0 && !reestab) {
         rrc_ue_generate_measurementReport(nb, rrc->ue_id, meas_id);
         params->reports_sent = 1;
 
@@ -151,7 +157,11 @@ void handle_meas_timers(NR_UE_RRC_INST_t *rrc)
                                && nr_timer_is_active(&params->periodic_report_timer);
       bool periodic_condition =
           nr_timer_tick(&params->periodic_report_timer) && params->reports_sent > 0 && params->reports_sent < params->max_reports;
-      if (initial_condition || periodic_condition) {
+      if (periodic_condition && reestab) {
+        // report dropped, keep the reporting period
+        nr_timer_setup(&params->periodic_report_timer, params->report_interval_ms, 10);
+        nr_timer_start(&params->periodic_report_timer);
+      } else if (!reestab && (initial_condition || periodic_condition)) {
         params->reports_sent++;
         rrc_ue_generate_measurementReport(nb, rrc->ue_id, meas_id);
         if (params->reports_sent < params->max_reports) {

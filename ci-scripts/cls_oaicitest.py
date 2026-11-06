@@ -525,6 +525,10 @@ class OaiCiTest():
 				if ret.returncode == 0:
 					logging.warning(f'Iperf3 server on port {port} detected and terminated')
 				cmd_svr.run(f'{cn.getCmdPrefix()} timeout -vk3 {t} iperf3 -s -B {svrIP} -p {port} -1 {jsonReport} >> /dev/null &', timeout=t)
+				# the server starts in background: wait until it listens, else the client might get "connection refused"
+				ret = cmd_svr.run(f'{cn.getCmdPrefix()} sh -c "for i in \\$(seq 50); do ss -Hltn | grep -qF \'{svrIP}:{port} \' && exit 0; sleep 0.1; done; exit 1"', timeout=10, reportNonZero=False)
+				if ret.returncode != 0:
+					logging.warning(f'Iperf3 server on port {port} not detected as listening after 5s, starting client anyway')
 			client_ret = cmd_ue.run(f'{ue.getCmdPrefix()} timeout -vk3 {t} {iperf_ue} -c {svrIP} {iperf_opt} {jsonReport} {serverReport} -O 5 >> {client_filename}', timeout=t, reportNonZero=False)
 			dest_filename = archiveArtifact(cmd_ue, ctx, client_filename)
 		if udpIperf:
