@@ -66,6 +66,8 @@ typedef struct {
   stream_security_container_t *security_container;
   Guti5GSMobileIdentity_t *guti;
   bool termination_procedure;
+  /// the termination procedure of this UE completed (counted once in the process)
+  bool terminated;
   instance_t UE_id;
   /* RRC Inactive Indication */
   bool is_rrc_inactive;
@@ -91,6 +93,6 @@ void *nas_nrue(void *args_p);
 void nas_init_nrue(int num_ues);
 int nas_itti_kgnb_refresh_req(instance_t instance, const uint8_t kgnb[32]);
 void request_pdusession(nr_ue_nas_t *nas, const pdu_session_config_t *pdu);
-nr_ue_nas_t *get_nr_ue_nas_info(uint8_t ue_inst);
+nr_ue_nas_t *get_nr_ue_nas_info(int ue_inst);
 
 #endif /* __NR_NAS_MSG_SIM_H__*/

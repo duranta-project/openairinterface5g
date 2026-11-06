@@ -330,6 +330,15 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
     idft(idft_size, (int16_t *)prachF, (int16_t *)prach, 1);
   }
 
+  /* The TX slots of a PRACH are not OFDM modulated: clear them, or the samples written in this buffer the last time,
+   * often the previous PRACH of this UE in another occasion of the slot, would be transmitted again */
+  const int prach_slots = prach_fmt_id < 4 ? get_long_prach_dur(prach_fmt_id, fp->numerology_index) : 1;
+  int slots_len = 0;
+  for (int s = 0; s < prach_slots; s++)
+    slots_len += get_samples_per_slot((slot + s) % fp->slots_per_frame, fp);
+  for (int aa = 0; aa < fp->nb_antennas_tx; aa++)
+    memset(txData[aa], 0, slots_len * sizeof(*txData[aa]));
+
   c16_t *out = txData[0] + prach_start;
   memcpy(out, prach + dftlen - Ncp, Ncp * sizeof(*prach));
   out += Ncp;

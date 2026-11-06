@@ -232,10 +232,11 @@ void nr_timer_start(NR_timer_t *timer);
  */
 void nr_timer_stop(NR_timer_t *timer);
 /**
- * @brief To suspend/resume a timer
- * @param timer Timer to be stopped/suspended
+ * @brief To suspend/resume a timer (a suspended timer counts but does not expire)
+ * @param timer Timer to be suspended/resumed
+ * @param suspended true to suspend, false to resume
  */
-void nr_timer_suspension(NR_timer_t *timer);
+void nr_timer_suspension(NR_timer_t *timer, bool suspended);
 
 /**
  * @brief If active, it increases timer counter by an amout of units equal to step. It stops timer if expired

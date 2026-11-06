@@ -507,16 +507,18 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
               *(unsigned long long *)dci_estimation);
         AssertFatal(dci_ind->number_of_dcis < sizeofArray(dci_ind->dci_list), "Fix allocation\n");
         fapi_nr_dci_indication_pdu_t *dci = dci_ind->dci_list + dci_ind->number_of_dcis;
+        int n_rb, cset_start;
+        get_coreset_rballoc(rel15->coreset.frequency_domain_resource, &n_rb, &cset_start);
         *dci = (fapi_nr_dci_indication_pdu_t){
             .rnti = n_rnti,
             .n_CCE = CCEind,
-            .N_CCE = L,
+            // TS 38.213 9.2.1: number of CCEs in the CORESET of the PDCCH reception (not the aggregation level),
+            // used for the PUCCH resource index r_PUCCH = floor(2 n_CCE,0 / N_CCE) + 2 delta_PRI
+            .N_CCE = n_rb * rel15->coreset.duration / NR_NB_REG_PER_CCE,
             .dci_format = rel15->dci_format_options[k],
             .ss_type = rel15->ss_type_options[k],
             .coreset_type = rel15->coreset.CoreSetType,
         };
-        int n_rb, cset_start;
-        get_coreset_rballoc(rel15->coreset.frequency_domain_resource, &n_rb, &cset_start);
         dci->cset_start = rel15->BWPStart + cset_start + rel15->coreset.rb_offset;
         dci->payloadSize = dci_length;
         memcpy(dci->payloadBits, dci_estimation, (dci_length + 7) / 8);
