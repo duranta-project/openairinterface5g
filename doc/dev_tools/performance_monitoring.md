@@ -92,8 +92,8 @@ the [debugging tools section](#debugging-purpose).
 ### Features
 
 * Timer based on Posix real time clocks.
-* Accumulate successive measurements. Merge function enables to merge many
-  timers measuring parallel processes.
+* Accumulate successive measurements. Merge function enables to merge several
+  timers measuring parallel processes (see `time_single_t` below).
 * Provides average time, standard deviation and, optionally, time distribution.
 * May be started and stopped on full DL or UL slots only for clean and relevant
   measurements.
@@ -107,12 +107,12 @@ to provide statistics on the main macroscopic blocks:
 
 * In PHY simulators, option `-P` enables to display the statistics in the log.
 * In the nr-softmodem, the time statistics are displayed in file
-  `nrL1_stats.log` with a refresh every second when option `-q` is provided.
+  `nrL1_stats.log` when option `-q` is provided.
   This option may take an argument to display different statistics:
-  * Option `-q` or `-q 1` displays average, standard deviation and maximum of
-    the measured times from softmodem start.
-  * Option `-q 2` displays average, standard deviation and distribution of the
-    measured times recorded over one second.
+  * Option `-q` without argument displays statistics accumulated from softmodem
+    start with a refresh every second.
+  * Option `-q n`, n being any positive integer, displays statistics
+    accumulated over n seconds with a refresh every n seconds.
 
 The time stats tool is available through the header
 [time_meas.h](../../common/utils/time_meas.h).  It is implemented in this
@@ -121,6 +121,16 @@ timer is a typedef struct `time_stats_t` that can be started with `start_meas`,
 stopped with `stop_meas`, merged in another timer with `merge_meas` and reset
 with `reset_meas`.  The start, stop and merge functions have `_on_dl` and
 `_on_ul` variants to measure only full DL or UL slots.  Tracking the full
-distibution of processing times is optional and requires to enable the sorted
-list of the timer with `init_time_stats_sorted_list`.  Then the list shall be
-released with `free_time_stats_sorted_list` when finishing to use it.
+distribution of processing times is enabled by default using histograms.  The
+histogram is automatically managed when a timer is reset and does not require
+explicit initialization or freeing. Each timer contains a histogram structure
+(`time_hist_t`) that records the distribution of processing times
+in configurable bins.
+
+**Warning**:
+For measuring one function in several parallel threads, one should use several
+`time_single_t` timers. This timer holds only one measurement. It can be
+started with `start_single_meas`, stopped with `stop_single_meas`, merged in a
+`time_stats_t` with `merge_single_meas` and reset with `reset_single_meas`.
+This way, one avoids to create many `time_stats_t` that are rather
+large structures.
