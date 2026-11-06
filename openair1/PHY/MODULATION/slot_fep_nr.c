@@ -48,6 +48,60 @@ void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
   }
 }
 
+/* offset of the samples of an OFDM symbol (after 1/8th of its cyclic prefix, to avoid ISI) from the start of its slot */
+static unsigned int symbol_offset_in_slot(const PHY_VARS_NR_UE *ue,
+                                          const NR_DL_FRAME_PARMS *frame_parms,
+                                          unsigned int slot,
+                                          unsigned int symbol,
+                                          enum nr_Link linktype)
+{
+  bool is_sl = (linktype == link_type_sl);
+  bool is_synchronized = (ue) ? ue->is_synchronized : false;
+  unsigned int nb_prefix_samples = frame_parms->nb_prefix_samples;
+  unsigned int nb_prefix_samples0 = (is_synchronized || is_sl) ? frame_parms->nb_prefix_samples0 : nb_prefix_samples;
+
+  unsigned int offset = 0;
+  const unsigned int abs_symbol = slot * frame_parms->symbols_per_slot + symbol;
+  for (int idx_symb = slot * frame_parms->symbols_per_slot; idx_symb <= abs_symbol; idx_symb++)
+    offset += (idx_symb % (0x7 << frame_parms->numerology_index)) ? nb_prefix_samples : nb_prefix_samples0;
+  offset += frame_parms->ofdm_symbol_size * symbol;
+  // use OFDM symbol from within 1/8th of the CP to avoid ISI
+  return offset - nb_prefix_samples / frame_parms->ofdm_offset_divisor;
+}
+
+/* frequency offset compensation (rx_offset: index of the first sample in the frame, for the phase) and OFDM demodulation
+   of one symbol whose samples start at rxdata_symb_ptr[] */
+static void symbol_fo_fep(PHY_VARS_NR_UE *ue,
+                          const NR_DL_FRAME_PARMS *frame_parms,
+                          unsigned int slot,
+                          unsigned int symbol,
+                          c16_t rxdataF[][frame_parms->samples_per_slot_wCP],
+                          enum nr_Link linktype,
+                          unsigned int rx_offset,
+                          c16_t *rxdata_symb_ptr[frame_parms->nb_antennas_rx],
+                          c16_t tmp_dft_in[][frame_parms->ofdm_symbol_size])
+{
+  c16_t *rxdataF_symb_ptr[frame_parms->nb_antennas_rx];
+  for (unsigned char aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
+    rxdataF_symb_ptr[aa] = &rxdataF[aa][frame_parms->ofdm_symbol_size * symbol];
+    if (ue && ue->cont_fo_comp) {
+      start_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
+      nr_fo_compensation(ue->dl_Doppler_shift + ue->freq_offset,
+                         frame_parms->samples_per_subframe,
+                         rx_offset,
+                         rxdata_symb_ptr[aa],
+                         tmp_dft_in[aa],
+                         frame_parms->ofdm_symbol_size);
+      stop_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
+      rxdata_symb_ptr[aa] = tmp_dft_in[aa];
+    }
+  }
+  time_stats_t *dft_stats = NULL;
+  if (ue)
+    dft_stats = &ue->phy_cpu_stats.cpu_time_stats[RX_DFT_STATS];
+  nr_symbol_fep(frame_parms, slot, symbol, linktype, rxdata_symb_ptr, rxdataF_symb_ptr, dft_stats);
+}
+
 int nr_slot_fep(PHY_VARS_NR_UE *ue,
                 const NR_DL_FRAME_PARMS *frame_parms,
                 unsigned int slot,
@@ -63,38 +117,22 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
   AssertFatal(slot < frame_parms->slots_per_frame, "slot_fep: Ns must be between 0 and %d\n", frame_parms->slots_per_frame - 1);
 
   bool is_sl = (linktype == link_type_sl);
-  bool is_synchronized = (ue) ? ue->is_synchronized : false;
-  unsigned int nb_prefix_samples = frame_parms->nb_prefix_samples;
-  unsigned int nb_prefix_samples0 = (is_synchronized || is_sl) ? frame_parms->nb_prefix_samples0 : nb_prefix_samples;
-
   // For Sidelink 16 frames worth of samples is processed to find SSB, for 5G-NR 2.
   const unsigned int total_samples = (is_sl) ? 16 * frame_parms->samples_per_frame : 2 * frame_parms->samples_per_frame;
 
-  unsigned int rx_offset = get_samples_slot_timestamp(frame_parms, slot);
-  const unsigned int abs_symbol = slot * frame_parms->symbols_per_slot + symbol;
-  for (int idx_symb = slot * frame_parms->symbols_per_slot; idx_symb <= abs_symbol; idx_symb++)
-    rx_offset += (idx_symb % (0x7 << frame_parms->numerology_index)) ? nb_prefix_samples : nb_prefix_samples0;
-  rx_offset += frame_parms->ofdm_symbol_size * symbol;
-
-  rx_offset += sample_offset;
-
-  // use OFDM symbol from within 1/8th of the CP to avoid ISI
-  rx_offset -= (nb_prefix_samples / frame_parms->ofdm_offset_divisor);
+  const unsigned int rx_offset = get_samples_slot_timestamp(frame_parms, slot)
+                                 + symbol_offset_in_slot(ue, frame_parms, slot, symbol, linktype) + sample_offset;
 
   LOG_D(PHY,
-        "slot_fep: slot %d, symbol %d, nb_prefix_samples %u, nb_prefix_samples0 %u, rx_offset %u energy %d\n",
+        "slot_fep: slot %d, symbol %d, rx_offset %u energy %d\n",
         slot,
         symbol,
-        nb_prefix_samples,
-        nb_prefix_samples0,
         rx_offset,
         dB_fixed(signal_energy((int32_t *)&rxdata[0][rx_offset], frame_parms->ofdm_symbol_size)));
 
   c16_t tmp_dft_in[frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
   c16_t *rxdata_symb_ptr[frame_parms->nb_antennas_rx];
-  c16_t *rxdataF_symb_ptr[frame_parms->nb_antennas_rx];
   for (unsigned char aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
-    rxdataF_symb_ptr[aa] = &rxdataF[aa][frame_parms->ofdm_symbol_size * symbol];
     // This happens only during initial sync
     if (rx_offset + frame_parms->ofdm_symbol_size > total_samples) {
       // we have to wrap on the end
@@ -106,22 +144,43 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
     } else {
       rxdata_symb_ptr[aa] = &rxdata[aa][rx_offset];
     }
-
-    if (ue && ue->cont_fo_comp) {
-      start_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
-      nr_fo_compensation(ue->dl_Doppler_shift + ue->freq_offset,
-                         frame_parms->samples_per_subframe,
-                         rx_offset,
-                         rxdata_symb_ptr[aa],
-                         tmp_dft_in[aa],
-                         frame_parms->ofdm_symbol_size);
-      stop_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
-      rxdata_symb_ptr[aa] = tmp_dft_in[aa];
-    }
   }
-  time_stats_t* dft_stats = NULL;
-  if (ue) dft_stats = &ue->phy_cpu_stats.cpu_time_stats[RX_DFT_STATS];
-  nr_symbol_fep(frame_parms, slot, symbol, linktype, rxdata_symb_ptr, rxdataF_symb_ptr, dft_stats);
+  symbol_fo_fep(ue, frame_parms, slot, symbol, rxdataF, linktype, rx_offset, rxdata_symb_ptr, tmp_dft_in);
+  return 0;
+}
+
+int nr_slot_fep_rx(PHY_VARS_NR_UE *ue,
+                   const NR_DL_FRAME_PARMS *frame_parms,
+                   unsigned int slot,
+                   unsigned int symbol,
+                   c16_t rxdataF[][frame_parms->samples_per_slot_wCP])
+{
+  const NR_UE_COMMON *common_vars = &ue->common_vars;
+  if (common_vars->rx_slot_len == 0)
+    return nr_slot_fep(ue, frame_parms, slot, symbol, rxdataF, link_type_dl, 0, common_vars->rxdata);
+
+  AssertFatal(symbol < frame_parms->symbols_per_slot,
+              "slot_fep: symbol must be between 0 and %d\n",
+              frame_parms->symbols_per_slot - 1);
+  const unsigned int offset = symbol_offset_in_slot(ue, frame_parms, slot, symbol, link_type_dl);
+  AssertFatal(offset + frame_parms->ofdm_symbol_size <= common_vars->rx_slot_len,
+              "symbol %u of slot %u beyond the %d samples of the slot\n",
+              symbol,
+              slot,
+              common_vars->rx_slot_len);
+  c16_t tmp_dft_in[frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
+  c16_t *rxdata_symb_ptr[frame_parms->nb_antennas_rx];
+  for (int aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
+    rxdata_symb_ptr[aa] = common_vars->rx_slot[aa] + offset;
+  symbol_fo_fep(ue,
+                frame_parms,
+                slot,
+                symbol,
+                rxdataF,
+                link_type_dl,
+                get_samples_slot_timestamp(frame_parms, slot) + offset,
+                rxdata_symb_ptr,
+                tmp_dft_in);
   return 0;
 }
 
