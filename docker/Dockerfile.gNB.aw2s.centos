@@ -3,7 +3,7 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface BUILD service
-#   Valid for RHEL9
+#   Valid for CentOS Stream 10
 #
 #---------------------------------------------------------------------
 
@@ -20,11 +20,11 @@ RUN /bin/sh oaienv && \
     ./build_oai -w AW2SORI -t Ethernet
 
 #start from scratch for target executable
-FROM registry.redhat.io/ubi9/ubi:latest AS oai-gnb-aw2s
+FROM quay.io/centos/centos:stream10 AS oai-gnb-aw2s
 ENV TZ=Europe/Paris
 
-# Install EPEL for RHEL9
-RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+# Install EPEL for CentOS Stream 10
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm
 
 RUN dnf update -y && \
     dnf install -y \
@@ -60,7 +60,6 @@ COPY --from=gnb-build \
 
 COPY --from=gnb-base \
     /lib64/libconfig.so.11 \
-    /lib64/libforms.so.2 \
     /lib64/
 
 ## Copy E2 SM models
