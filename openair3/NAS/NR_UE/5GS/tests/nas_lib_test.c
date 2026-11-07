@@ -457,6 +457,33 @@ static void test_auth_reject(void)
   AssertFatal(eq_auth_reject(&orig, &dec), "test_auth_reject() failed: original and decoded messages do not match\n");
 }
 
+/** @brief Test the plain 5GMM header enc/dec and the 5GSM header decoder; decoding must fail on a truncated header */
+static void test_msg_headers(void)
+{
+  const fgmm_msg_header_t mm_orig = {
+      .ex_protocol_discriminator = FGS_MOBILITY_MANAGEMENT_MESSAGE,
+      .security_header_type = PLAIN_5GS_MSG,
+      .message_type = FGS_SERVICE_ACCEPT,
+  };
+  const uint8_t mm_expected[] = {FGS_MOBILITY_MANAGEMENT_MESSAGE, PLAIN_5GS_MSG, FGS_SERVICE_ACCEPT};
+  uint8_t mm[sizeof(mm_expected)] = {0};
+  AssertFatal(_nas_mm_msg_encode_header(&mm_orig, mm, sizeof(mm)) == sizeof(mm), "_nas_mm_msg_encode_header() failed\n");
+  AssertFatal(memcmp(mm, mm_expected, sizeof(mm)) == 0, "Encoding mismatch!\n");
+  fgmm_msg_header_t mm_dec = {0};
+  AssertFatal(decode_5gmm_msg_header(&mm_dec, mm, sizeof(mm)) == sizeof(mm), "decode_5gmm_msg_header() failed\n");
+  AssertFatal(mm_dec.ex_protocol_discriminator == mm_orig.ex_protocol_discriminator
+                  && mm_dec.security_header_type == mm_orig.security_header_type && mm_dec.message_type == mm_orig.message_type,
+              "5GMM header: original and decoded headers do not match\n");
+  AssertFatal(decode_5gmm_msg_header(&mm_dec, mm, sizeof(mm) - 1) < 0, "decode_5gmm_msg_header() accepted a truncated header\n");
+
+  const uint8_t sm[] = {FGS_SESSION_MANAGEMENT_MESSAGE, 1, 0, FGS_PDU_SESSION_ESTABLISHMENT_ACC};
+  fgsm_msg_header_t sm_header = {0};
+  AssertFatal(decode_5gsm_msg_header(&sm_header, sm, sizeof(sm)) == sizeof(sm)
+                  && sm_header.message_type == FGS_PDU_SESSION_ESTABLISHMENT_ACC,
+              "decode_5gsm_msg_header() failed\n");
+  AssertFatal(decode_5gsm_msg_header(&sm_header, sm, sizeof(sm) - 1) < 0, "decode_5gsm_msg_header() accepted a truncated header\n");
+}
+
 int main()
 {
   // Initialize logging system
@@ -472,5 +499,6 @@ int main()
   test_auth_failure();
   test_auth_reject();
   test_security_mode_reject();
+  test_msg_headers();
   return 0;
 }
