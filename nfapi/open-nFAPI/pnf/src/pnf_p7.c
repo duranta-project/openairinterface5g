@@ -1108,13 +1108,13 @@ bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const c
  * Will print a warning if the check fails and return false
  * returns true on success
  */
-bool check_nr_nfapi_p7_slot_type(const uint16_t sfn, const uint16_t slot, const char* name, int type)
+bool check_nr_nfapi_p7_slot_type(const uint16_t sfn, const uint16_t slot, const char* name, nr_slot_type_t type)
 {
   DevAssert(RC.gNB != NULL && RC.gNB[0] != NULL);
   PHY_VARS_gNB *gNB = RC.gNB[0];
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
-  const int slot_type = nr_slot_select(cfg, sfn, slot);
-  if(slot_type != type && slot_type != NR_MIXED_SLOT) {
+  const nr_slot_type_t slot_type = nr_slot_select(cfg, sfn, slot);
+  if (!(slot_type & (type | NR_MIXED_SLOT))) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%4d.%2d Slot type is not appropriate for %s\n", sfn, slot, name);
     return false;
   }
