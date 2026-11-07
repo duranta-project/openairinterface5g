@@ -192,7 +192,7 @@ static int8_t handle_pcch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_in
 // Note: sdu should always be processed because data and timing advance updates are transmitted by the UE
 static int8_t handle_dlsch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info, int pdu_id)
 {
-  if (mac->ra.ra_state != nrRA_WAIT_RAR) // no HARQ for MSG2
+  if (dl_info->rx_ind->rx_indication_body[pdu_id].pdu_type != FAPI_NR_RX_PDU_TYPE_RAR) // no HARQ for Msg2
     update_harq_status(mac,
                        dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.harq_pid,
                        dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.cw_idx,
