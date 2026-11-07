@@ -1,0 +1,37 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabName>Test HIP LDPC Offload</htmlTabName>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Disable Sleep States</desc>
+    <node>hafnium</node>
+    <command>sudo cpupower idle-set -D 0</command>
+  </testCase>
+
+  <testCase>
+    <mode>TesteNB</mode>
+    <class>Build_eNB</class>
+    <desc>Build gNB (USRP)</desc>
+    <node>hafnium</node>
+    <Build_eNB_args>--ninja -c -P --build-lib "ldpc_cuda"</Build_eNB_args>
+  </testCase>
+
+  <testCase>
+    <class>Build_Deploy_PhySim</class>
+    <desc>Deploy PhySim Aurora offload tests</desc>
+    <script>scripts/source-deploy-physims.sh</script>
+    <node>hafnium</node>
+    <ctest-opt>-R 'nr_[du]lsim.ldpc_cuda' -j1</ctest-opt>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <always_exec>true</always_exec>
+    <desc>Enable Sleep States</desc>
+    <node>hafnium</node>
+    <command>sudo cpupower idle-set -E</command>
+  </testCase>
+
+</testCaseList>

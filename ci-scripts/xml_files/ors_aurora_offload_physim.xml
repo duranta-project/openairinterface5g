@@ -15,6 +15,7 @@
     <desc>Deploy PhySim Aurora offload tests</desc>
     <script>scripts/source-deploy-physims.sh</script>
     <node>caracal</node>
+    <prefix>numactl --cpunodebind=1 --membind=1</prefix>
     <ctest-opt>-R 5g-offload.*Aurora -j1</ctest-opt>
   </testCase>
 

@@ -118,7 +118,7 @@ def GetServices(ssh, requested, file):
         return requested
 
 def CopyinServiceLog(ssh, lSourcePath, svcName, wd_yaml, ctx):
-	remote_filename = f"{lSourcePath}/cmake_targets/log/{svcName}.logs"
+	remote_filename = f"{lSourcePath}/{svcName}.logs"
 	ssh.run(f'docker compose -f {wd_yaml} logs {svcName} --no-log-prefix &> {remote_filename}')
 	return archiveArtifact(ssh, ctx, remote_filename)
 
@@ -257,7 +257,7 @@ class Containerize():
 		# On when the base image docker file is being modified.
 		if forceBaseImageBuild:
 			cmd.run(f"docker image rm {baseImage}:{baseTag}")
-			logfile = f'{lSourcePath}/cmake_targets/log/{baseImage}.docker.log'
+			logfile = f'{lSourcePath}/{baseImage}.docker.log'
 			option = f" --build-arg UBUNTU_IMAGE={DEFAULT_REGISTRY}/{ubuntuImage}"
 			cmd.run(f"docker build --target {baseImage} --tag {baseImage}:{baseTag} --file docker/Dockerfile.base{dockerfileprefix} {option} . &> {logfile}", timeout=1600)
 			t = (baseImage, archiveArtifact(cmd, ctx, logfile))
@@ -305,7 +305,7 @@ class Containerize():
 				cmd.run('cp -f /opt/t2-patch/AMD-T2-SDFEC_25-03-1.patch .')
 			if name == 'oai-gnb-fhi72-t2':
 				cmd.run(f'sed -i -e "s#ran-build-fhi72-t2:latest#ran-build-fhi72-t2:{imageTag}#" docker/Dockerfile.{pattern}{dockerfileprefix}')
-			logfile = f'{lSourcePath}/cmake_targets/log/{name}.docker.log'
+			logfile = f'{lSourcePath}/{name}.docker.log'
 			option = option + f" --build-arg UBUNTU_IMAGE={DEFAULT_REGISTRY}/{ubuntuImage}"
 			ret = cmd.run(f'docker build --target {image} --tag {name}:{imageTag} --file docker/Dockerfile.{pattern}{dockerfileprefix} {option} . > {logfile} 2>&1', timeout=1200)
 			t = (name, archiveArtifact(cmd, ctx, logfile))
@@ -386,7 +386,7 @@ class Containerize():
 			return False
 
 		# build ran-unittests image
-		logfile = f'{lSourcePath}/cmake_targets/log/unittest-build.log'
+		logfile = f'{lSourcePath}/unittest-build.log'
 		ret = cmd.run(f'docker build --progress=plain --tag ran-unittests:{baseTag} --file ci-scripts/{dockerfile} . &> {logfile}')
 
 		archiveArtifact(cmd, ctx, logfile)
