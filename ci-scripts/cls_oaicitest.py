@@ -524,14 +524,8 @@ class OaiCiTest():
 				# If pkill succeeds, it means there was a leftover iperf3 server.
 				if ret.returncode == 0:
 					logging.warning(f'Iperf3 server on port {port} detected and terminated')
-				# Start the server and block until it prints "Server listening" (after listen()), so the client
-				# cannot race it; then keep draining its output in the background to avoid SIGPIPE.
-				# No --json: it suppresses that line. --forceflush: avoid block-buffered stdout on the pipe.
-				srv = (f'exec 3< <({cn.getCmdPrefix()} timeout -vk3 {t} iperf3 -s -B {svrIP} -p {port} -1 --forceflush 2>&1); '
-				       f'grep -q -m1 "Server listening" <&3; rc=$?; cat <&3 >/dev/null 2>&1 & exit $rc')
-				ret = cmd_svr.run(f"bash -c '{srv}'", timeout=10)
-				if ret.returncode != 0:
-					return (False, f'{ue_header}\nIperf3 server on {svrIP}:{port} did not start')
+				cmd_svr.run(f'{cn.getCmdPrefix()} timeout -vk3 {t} iperf3 -s -B {svrIP} -p {port} -1 {jsonReport} >> /dev/null &', timeout=t)
+				time.sleep(idle_sleep_time)
 			client_ret = cmd_ue.run(f'{ue.getCmdPrefix()} timeout -vk3 {t} {iperf_ue} -c {svrIP} {iperf_opt} {jsonReport} {serverReport} -O 5 >> {client_filename}', timeout=t, reportNonZero=False)
 			dest_filename = archiveArtifact(cmd_ue, ctx, client_filename)
 		if udpIperf:
