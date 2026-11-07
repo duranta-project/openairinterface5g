@@ -36,6 +36,7 @@
 // 3GPP TS 38.331 Section 12 Table 12.1-1: UE performance requirements for RRC procedures for UEs
 #define NR_RRC_RECONFIGURATION_DELAY_MS 10
 #define NR_RRC_BWP_SWITCHING_DELAY_MS   6
+#define RLC_MAX_RETX_RELEASE_THRESHOLD  32
 
 // #define DEBUG_DCI
 //  CQI TABLES (10 times the value in 214 to adequately compare with R)
@@ -3244,6 +3245,34 @@ static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats
   bler_stats->bler = (float)(bler_options->lower + bler_options->upper) / 2.0f;
 }
 
+/* \brief RLF handler called from RLC when max retransmissions reached.
+ * Called from scheduler context (sched_lock held), do NOT take sched_lock. */
+static void gnb_rlf_handler(int rnti)
+{
+  gNB_MAC_INST *mac = RC.nrmac[0];
+  NR_UE_info_t *UE = find_connected_nr_ue(&mac->UE_info, rnti);
+  if (!UE)
+    UE = find_ra_ue(&mac->UE_info, rnti);
+  if (!UE) {
+    LOG_W(NR_MAC, "RLF indication for unknown UE %04x, dropping\n", rnti);
+    return;
+  }
+
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  /* Already triggered UL failure, ignore further events */
+  if (sched_ctrl->rlc_max_retx_cnt >= RLC_MAX_RETX_RELEASE_THRESHOLD)
+    return;
+
+  sched_ctrl->rlc_max_retx_cnt++;
+  LOG_W(NR_MAC, "UE %04x: RLC max RETX reached (%d/%d)\n", rnti, sched_ctrl->rlc_max_retx_cnt, RLC_MAX_RETX_RELEASE_THRESHOLD);
+
+  if (sched_ctrl->rlc_max_retx_cnt >= RLC_MAX_RETX_RELEASE_THRESHOLD) {
+    LOG_W(NR_MAC, "UE %04x: RLF threshold reached, triggering UL failure\n", rnti);
+    // if the UE does not come back, will eventually trigger UE context release request
+    nr_mac_trigger_link_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
+  }
+}
+
 /* @brief returns a new UE allocated instance.
  *
  * It will be typically added to the access_ue_list, but not always (e.g.,
@@ -3276,6 +3305,9 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
 
   // initialize LCID structure
   seq_arr_init(&sched_ctrl->lc_config, sizeof(nr_lc_config_t));
+
+  // Register gNB-side RLF handler for UE context release on persistent link failure
+  nr_rlc_set_rlf_handler(UE->rnti, gnb_rlf_handler);
   return UE;
 }
 
@@ -3319,7 +3351,7 @@ bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE)
   DevAssert(r == UE); /* sanity check: we should have removed the current UE ptr from list */
 
   // The RA completed, so the UE's UL works. Clear any UL-failure state
-  nr_mac_reset_ul_failure(&UE->UE_sched_ctrl);
+  nr_mac_reset_link_failure(&UE->UE_sched_ctrl);
 
   free_and_zero(UE->ra);
 
@@ -3948,8 +3980,8 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
       continue;
     }
 
-    /* check if UL failure and trigger release request if necessary */
-    if (nr_mac_check_ul_failure(mac, UE->rnti, sched_ctrl)) {
+    /* check if link failure and trigger release request if necessary */
+    if (nr_mac_check_link_failure(mac, UE->rnti, sched_ctrl)) {
       to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = false};
       continue;
     }
@@ -3960,8 +3992,8 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
     }
     if (nr_timer_tick(&sched_ctrl->transm_timeout)) {
       nr_timer_stop(&sched_ctrl->transm_timeout);
-      LOG_W(NR_MAC, "UE %04x UL failure after transmission timeout\n", UE->rnti);
-      nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
+      LOG_W(NR_MAC, "UE %04x link failure after transmission timeout\n", UE->rnti);
+      nr_mac_trigger_link_failure(sched_ctrl, UE->current_DL_BWP.scs);
     }
     if (nr_timer_tick(&sched_ctrl->tci_beam_switch)) {
       nr_timer_stop(&sched_ctrl->tci_beam_switch);
@@ -3977,7 +4009,7 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     if (nr_mac_check_release(sched_ctrl)) {
       to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = true};
-    } else if (nr_mac_check_ul_failure(mac, UE->rnti, sched_ctrl)) {
+    } else if (nr_mac_check_link_failure(mac, UE->rnti, sched_ctrl)) {
       to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = false};
     }
   }
@@ -4336,32 +4368,33 @@ bool nr_mac_ue_is_active(const NR_UE_info_t *ue)
 {
   /* pass NR_UE_info_t, so that later we could adapt, e.g., for DRX */
   const NR_UE_sched_ctrl_t *sched_ctrl = &ue->UE_sched_ctrl;
-  if (sched_ctrl->ul_failure)
+  if (sched_ctrl->link_failure)
     return false;
   if (nr_timer_is_active(&sched_ctrl->transm_interrupt))
     return false;
   return true;
 }
 
-#define UL_FAILURE_REQ_GRACE 10000
-#define UL_FAILURE_TIMEOUT 30000
-void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing)
+#define LINK_FAILURE_REQ_GRACE 10000
+#define LINK_FAILURE_TIMEOUT 30000
+void nr_mac_trigger_link_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing)
 {
-  if (sched_ctrl->ul_failure) {
+  if (sched_ctrl->link_failure) {
     /* already running */
     return;
   }
-  sched_ctrl->ul_failure = true;
-  // UL_FAILURE_TIMEOUT ms till triggering release request
-  // UL_FAILURE_REQ_GRACE ms till automatically released after request
-  sched_ctrl->ul_failure_timer = (UL_FAILURE_REQ_GRACE + UL_FAILURE_TIMEOUT) << subcarrier_spacing;
+  sched_ctrl->link_failure = true;
+  // LINK_FAILURE_TIMEOUT ms till triggering release request
+  // LINK_FAILURE_REQ_GRACE ms till automatically released after request
+  sched_ctrl->link_failure_timer = (LINK_FAILURE_REQ_GRACE + LINK_FAILURE_TIMEOUT) << subcarrier_spacing;
 }
 
-void nr_mac_reset_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl)
+void nr_mac_reset_link_failure(NR_UE_sched_ctrl_t *sched_ctrl)
 {
-  sched_ctrl->ul_failure = false;
-  sched_ctrl->ul_failure_timer = 0;
+  sched_ctrl->link_failure = false;
+  sched_ctrl->link_failure_timer = 0;
   sched_ctrl->pusch_consecutive_dtx_cnt = 0;
+  sched_ctrl->rlc_max_retx_cnt = 0;
 }
 
 /* \brief trigger a release request towards the CU.
@@ -4385,22 +4418,22 @@ bool nr_mac_request_release_ue(const gNB_MAC_INST *nrmac, int rnti)
 }
 
 // returns true if the UE must be dropped (nr_mac_release_ue()) by the caller
-bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *sched_ctrl)
+bool nr_mac_check_link_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *sched_ctrl)
 {
-  if (!sched_ctrl->ul_failure)
+  if (!sched_ctrl->link_failure)
     return false;
-  if (sched_ctrl->ul_failure_timer > 0)
-    sched_ctrl->ul_failure_timer--;
-  /* trigger once: trigger when ul_failure_timer == UL_FAILURE_REQ_GRACE( we
+  if (sched_ctrl->link_failure_timer > 0)
+    sched_ctrl->link_failure_timer--;
+  /* trigger once: trigger when link_failure_timer == LINK_FAILURE_REQ_GRACE( we
    * wait for a UE release command from upper layers), and UE is automatically
-   * released when no answer after UL_FAILURE_REQ_GRACE */
-  if (sched_ctrl->ul_failure_timer == UL_FAILURE_REQ_GRACE) {
-    LOG_W(MAC, "UE %04x: request release after UL failure timer expiry\n", rnti);
+   * released when no answer after LINK_FAILURE_REQ_GRACE */
+  if (sched_ctrl->link_failure_timer == LINK_FAILURE_REQ_GRACE) {
+    LOG_W(MAC, "UE %04x: request release after link failure timer expiry\n", rnti);
     bool requested = nr_mac_request_release_ue(nrmac, rnti);
     if (!requested)
-      sched_ctrl->ul_failure_timer = 0; /* force expiry */
+      sched_ctrl->link_failure_timer = 0; /* force expiry */
   }
-  if (sched_ctrl->ul_failure_timer == 0) {
+  if (sched_ctrl->link_failure_timer == 0) {
     LOG_W(NR_MAC, "UE %04x: no answer for release request, dropping UE\n", rnti);
     return true;
   }
