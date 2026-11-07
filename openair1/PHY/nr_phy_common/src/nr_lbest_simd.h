@@ -37,6 +37,7 @@
 #define NR_LBEST_Q_PP1_OVER16_Q16_256 6676 // round(sqrt(170)/8/16 * 2^16)
 
 // Per-width entries, one object per NRLB_W (suffix _w128/_w256/_w512), see nr_lbest_simd.c.
+// lambda: seed regularization in the Pp/rho units (noise variance >> log2_maxh); 0 gives the ZF seed.
 #define NR_LBEST_SIMD_PROTOTYPES(W)                                   \
   void nr_qam64_llr_2layer_lbest_q15_simd_w##W(c16_t *stream0_in,     \
                                                c16_t *stream1_in,     \
@@ -45,7 +46,8 @@
                                                int16_t *stream0_out,  \
                                                c16_t *rho01,          \
                                                uint32_t length,       \
-                                               int pattern);          \
+                                               int pattern,           \
+                                               float lambda);       \
   void nr_qam256_llr_2layer_lbest_q15_simd_w##W(c16_t *stream0_in,    \
                                                 c16_t *stream1_in,    \
                                                 c16_t *ch_mag,        \
@@ -53,7 +55,8 @@
                                                 int16_t *stream0_out, \
                                                 c16_t *rho01,         \
                                                 uint32_t length,      \
-                                                int pattern);
+                                                int pattern,          \
+                                                float lambda);
 NR_LBEST_SIMD_PROTOTYPES(128)
 NR_LBEST_SIMD_PROTOTYPES(256)
 NR_LBEST_SIMD_PROTOTYPES(512)

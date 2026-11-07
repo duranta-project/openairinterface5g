@@ -16,6 +16,7 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
                                              c16_t cpe,
                                              int mod_order,
                                              int lbest,
+                                             float lambda,
                                              int output_shift,
                                              int16_t *llr0,
                                              int16_t *llr1,
@@ -113,7 +114,7 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
       // Codeword-output mode: detector -> L1 per-layer tile scratch, then fold the layer demap
       // (interleave l0,l1 per RE) and optional descramble (+-1 mullo) into the store. Bit-exact
       // with {nr_compute_ML_llr to per-layer + nr_layer_demapping + codeword unscrambling}.
-      nr_compute_ML_llr(rxC0_t, rxC1_t, mag0_t, mag1_t, tl0, tl1, rho01_t, rho10_t, tre, mod_order, lbest);
+      nr_compute_ML_llr(rxC0_t, rxC1_t, mag0_t, mag1_t, tl0, tl1, rho01_t, rho10_t, tre, mod_order, lbest, lambda);
       int16_t *cw = llr_cw + (size_t)base * 2 * mod_order; // 2 layers/RE
       int16_t *lay[2] = {tl0, tl1};
       nr_layer_demapping(2, mod_order, tre, lay, cw);
@@ -129,7 +130,7 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
     } else {
       nr_compute_ML_llr(rxC0_t, rxC1_t, mag0_t, mag1_t,
                         llr0 + (size_t)base * mod_order, llr1 + (size_t)base * mod_order,
-                        rho01_t, rho10_t, tre, mod_order, lbest);
+                        rho01_t, rho10_t, tre, mod_order, lbest, lambda);
     }
   }
 }

@@ -322,6 +322,7 @@ void nr_inner_rx_2layer_ml(uint32_t length,
                            c16_t cpe,
                            int mod_order,
                            int lbest,
+                           float lambda,
                            int output_shift,
                            int16_t *llr0,
                            int16_t *llr1,
@@ -329,12 +330,12 @@ void nr_inner_rx_2layer_ml(uint32_t length,
                            const int16_t *scramble)
 {
 #ifdef NR_COMP_W128_ONLY
-  nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift, llr0, llr1, llr_cw, scramble);
+  nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, lambda, output_shift, llr0, llr1, llr_cw, scramble);
 #else
   if (nr_comp_simd_width_mode() == 1)
-    nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift, llr0, llr1, llr_cw, scramble);
+    nr_inner_rx_2layer_ml_w128(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, lambda, output_shift, llr0, llr1, llr_cw, scramble);
   else
-    nr_inner_rx_2layer_ml_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift, llr0, llr1, llr_cw, scramble);
+    nr_inner_rx_2layer_ml_w256(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, lambda, output_shift, llr0, llr1, llr_cw, scramble);
 #endif
 }
 
@@ -365,7 +366,7 @@ static void nr_demap_descramble(int nb_layer, int mod_order, uint32_t length, in
  * layer_scratch[] for the caller to demap (e.g. the gNB MU-MIMO group path). The non-fused paths
  * need compensation already done (rxComp / mag_a-c per layer, rho01/rho10 for 2 layers); the fused
  * paths (fuse) do MRC inline from rxFext/chFext. ml2 selects the 2-layer near-ML detector, lbest its
- * reduced search. Returns false for the caller-specific paths (2-layer MMSE, 3-layer, >2 layers). */
+ * reduced search, lambda its seed regularization (noise variance >> output_shift; 0: ZF seed). Returns false for the caller-specific paths (2-layer MMSE, 3-layer, >2 layers). */
 bool nr_inner_rx(uint32_t length,
                  uint32_t buffer_length,
                  int nb_rx_ant,
@@ -384,6 +385,7 @@ bool nr_inner_rx(uint32_t length,
                  bool fuse,
                  bool ml2,
                  int lbest,
+                 float lambda,
                  int16_t *layer_scratch[nb_layer],
                  const int16_t *scramble,
                  int16_t *llr_cw)
@@ -405,11 +407,11 @@ bool nr_inner_rx(uint32_t length,
 
   if (nb_layer == 2 && ml2) {
     if (fuse) {
-      nr_inner_rx_2layer_ml(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, output_shift,
+      nr_inner_rx_2layer_ml(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, lambda, output_shift,
                             cw ? NULL : layer_scratch[0], cw ? NULL : layer_scratch[1], llr_cw, cw ? scramble : NULL);
       return true;
     }
-    nr_compute_ML_llr(rxComp[0], rxComp[1], mag_a[0], mag_a[1], layer_scratch[0], layer_scratch[1], rho01, rho10, length, mod_order, lbest);
+    nr_compute_ML_llr(rxComp[0], rxComp[1], mag_a[0], mag_a[1], layer_scratch[0], layer_scratch[1], rho01, rho10, length, mod_order, lbest, lambda);
     if (cw)
       nr_demap_descramble(2, mod_order, length, layer_scratch, scramble, llr_cw);
     return true;

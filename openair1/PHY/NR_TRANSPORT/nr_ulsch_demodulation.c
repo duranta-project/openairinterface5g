@@ -301,6 +301,7 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
                 fuse_1layer || fuse_2layer_ml,
                 ml2,
                 gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST,
+                ml2 ? nr_2layer_seed_lambda(nvar, output_shift) : 0,
                 llr,
                 scramble,
                 llr_cw);
