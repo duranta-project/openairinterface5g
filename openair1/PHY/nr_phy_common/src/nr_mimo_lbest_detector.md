@@ -124,7 +124,7 @@ which kernels are fixed-point/SIMD (production: 2-layer 64QAM and 256QAM) vs sca
 ## 6. Measured gains (channel dependence)
 
 **Methodology (important).** The DL receiver is selected with `nr_dlsim -E mmse|ml|lbest`
-(`nr-uesoftmodem --pdsch-mimo-receiver`); without it the UE runs MMSE. Compare at a **well-scaled tx amplitude** (`-Q30`, ~2× the low `-Q36` default): the MMSE
+(`nr-uesoftmodem --pdsch-mimo-receiver`); without it the UE runs `auto` (§7). Compare at a **well-scaled tx amplitude** (`-Q30`, ~2× the low `-Q36` default): the MMSE
 path is fixed-point (int16) while the ML kernels are float, so at low amplitude MMSE is
 quantization-limited and the comparison is unfair.
 
@@ -165,8 +165,11 @@ hard saturation there would be systematically wrong — this is what the **grade
 
 ## 7. Implementation / gating
 
-Selected per direction: UE `--pdsch-mimo-receiver` / `nr_dlsim -E` (default `mmse`), gNB
-`pusch_mimo_receiver` / `nr_ulsim -D` (default `lbest`). Wired into
+Selected per direction: UE `--pdsch-mimo-receiver` / `nr_dlsim -E`, gNB `pusch_mimo_receiver` /
+`nr_ulsim -D`, each `auto` (default), `mmse`, `ml` or `lbest`. `auto` resolves per PDSCH/PUSCH: `ml` for
+QPSK/16QAM (exact ML costs no more than MMSE there and gains up to 1 dB, more with 2 Rx), `mmse` for
+64/256QAM with ≥ 4 Rx (within ~0.4 dB of ML up to MCS 24 at a third of the L-best cost), `lbest` for
+64/256QAM with 2 Rx (1-4 dB over MMSE). Wired into
 **both** RX directions — UE RX (downlink PDSCH: `nr_dlsch_demodulation.c`, `phy_procedures_nr_ue.c`)
 and gNB RX (uplink PUSCH: `nr_ulsch_demodulation.c`) — via the shared kernels in `nr_compute_llr.c`.
 
