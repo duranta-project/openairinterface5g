@@ -806,10 +806,9 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
                               friI[iQ]);
     }
 
-    // ~35-50% of these LLRs are |.|>=128 and clip at the int8 LDPC input; that is harmless: the
-    // float max-log ML on the same inputs, also clipped, has no BLER floor, and shifting the output
-    // down does not change BLER. The floor this kernel used to show was metric precision (fixed by
-    // the 1/4 scale, exact-ratio operands and the /16 slicer above).
+    // ~35-50% of these LLRs are |.|>=128 and clip at the int8 LDPC input; that is harmless. What is not
+    // is the 1/4-scale metric resolution: small-|LLR| bits take the wrong sign often enough to cost
+    // 0.2-1.4 dB (see nr_compute_ML_llr); nr_qam256_llr_2layer_lbest_f32_simd is the fp32 alternative.
     NRLB_VI res[8];
     for (int p = 0; p < 8; p++) {
       const NRLB_VI diff = NRLB_MM(subs_epi16)(max0[p], max1[p]);
@@ -840,6 +839,161 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
 
 #undef NR_LBEST_METRIC16_256
 #undef NR_LBEST_EVAL16_256
+
+// ============================================================================
+// fp32-metric variant of the 2-layer 256QAM L-best / full-ML kernel. Same seed, candidate set
+// (pattern 1 = 3x3 window, 3 = full 16x16 grid), conditional nuisance slice and graded fallback as the
+// int16 kernel, but the candidate metric and the max-log reduction run in fp32 on half-width vectors,
+// following nr_qam256_llr_2layer_lbest (float reference) term by term. The int16 metric needs the
+// 1/4 scale for its dynamic range, i.e. 4 LLR units per metric unit plus truncations: bits with a
+// small |LLR| (the ones a rate ~0.93 code has to resolve) then take the wrong sign often enough to
+// cost ~1.2-1.4 dB at 70% throughput (MCS 27, 4 RX, TDL-A). 64QAM keeps the int16 kernel (no loss).
+// ============================================================================
+static inline NRLB_VF NRLB_NAME(nrlbw_sel_ps)(NRLB_VI mask, NRLB_VF a, NRLB_VF b) // mask ? a : b (32-bit lanes)
+{
+  return NRLB_CASTSI_PS(NRLB_BLENDV(NRLB_CASTPS_SI(b), NRLB_CASTPS_SI(a), mask));
+}
+
+// 256QAM Gray bits of a float PAM-16 level vector (all-ones 32-bit lanes where the bit is 1)
+static inline void NRLB_NAME(nrlbw_bits256_ps)(NRLB_VF lvl, NRLB_VI b[4])
+{
+  const NRLB_VF nz = NRLB_MM(set1_ps)(-0.0f);
+  const NRLB_VF a = NRLB_MM(andnot_ps)(nz, lvl);
+  const NRLB_VF m2 = NRLB_MM(andnot_ps)(nz, NRLB_MM(sub_ps)(a, NRLB_MM(set1_ps)(8.0f)));
+  const NRLB_VF m3 = NRLB_MM(andnot_ps)(nz, NRLB_MM(sub_ps)(m2, NRLB_MM(set1_ps)(4.0f)));
+  b[0] = NRLB_CMPPS_SI(lvl, NRLB_MM(setzero_ps)(), SIMDE_CMP_LT_OQ);
+  b[1] = NRLB_CMPPS_SI(a, NRLB_MM(set1_ps)(8.0f), SIMDE_CMP_GT_OQ);
+  b[2] = NRLB_CMPPS_SI(m2, NRLB_MM(set1_ps)(4.0f), SIMDE_CMP_GT_OQ);
+  b[3] = NRLB_CMPPS_SI(m3, NRLB_MM(set1_ps)(2.0f), SIMDE_CMP_GT_OQ);
+}
+
+void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
+                                                    c16_t *stream1_in,
+                                                    c16_t *ch_mag,
+                                                    c16_t *ch_mag_i,
+                                                    int16_t *stream0_out,
+                                                    c16_t *rho01,
+                                                    uint32_t length,
+                                                    int pattern,
+                                                    float lambda)
+{
+  const NRLB_VF lam = NRLB_MM(set1_ps)(lambda), epsh = NRLB_MM(set1_ps)(0.5f * NR_2LAYER_CSI_EPS);
+  const NRLB_VF NA = NRLB_MM(set1_ps)(0.07669649888473704f); // 1/sqrt(170)
+  const NRLB_VF S170 = NRLB_MM(set1_ps)(13.038404810405298f);
+  const NRLB_VF PSC = NRLB_MM(set1_ps)(13.038404810405298f / 8.0f); // cm -> ||h||^2
+  const NRLB_VF HALF = NRLB_MM(set1_ps)(0.5f), NEG = NRLB_MM(set1_ps)(-1e30f), ZERO = NRLB_MM(setzero_ps)();
+  const int full = (pattern == 3);
+  const int nI = full ? 16 : 3;
+
+  uint32_t re = 0;
+  for (int last = length < NRLB_N; !last; re += NRLB_N) {
+    if (re + NRLB_N >= length) {
+      re = length - NRLB_N;
+      last = 1;
+    }
+    NRLB_VI z1r16, z1i16, z2r16, z2i16, rr16, ri16, cm0, cm1, dummy;
+    NRLB_NAME(nrlbw_load)(&stream0_in[re], &z1r16, &z1i16);
+    NRLB_NAME(nrlbw_load)(&stream1_in[re], &z2r16, &z2i16);
+    NRLB_NAME(nrlbw_load)(&rho01[re], &rr16, &ri16);
+    NRLB_NAME(nrlbw_load)(&ch_mag[re], &cm0, &dummy);
+    NRLB_NAME(nrlbw_load)(&ch_mag_i[re], &cm1, &dummy);
+
+    NRLB_VI centerI, centerQ, dirImask, dirQmask, axisLLR[8];
+    NRLB_NAME(nrlbw_seed256)(z1r16, z1i16, z2r16, z2i16, rr16, ri16, cm0, cm1, lam, epsh, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
+    (void)dirImask;
+    (void)dirQmask;
+
+    NRLB_VI llr32[8][2], uns32[8][2];
+    for (int h = 0; h < 2; h++) {
+      const NRLB_VF z1r = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(z1r16, h)), z1i = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(z1i16, h));
+      const NRLB_VF z2r = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(z2r16, h)), z2i = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(z2i16, h));
+      const NRLB_VF rr = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(rr16, h)), ri = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(ri16, h));
+      const NRLB_VF P0 = NRLB_MM(mul_ps)(NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(cm0, h)), PSC);
+      const NRLB_VF P1 = NRLB_MM(mul_ps)(NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(cm1, h)), PSC);
+      const NRLB_VF hP0 = NRLB_MM(mul_ps)(HALF, P0), hP1 = NRLB_MM(mul_ps)(HALF, P1);
+      // nuisance slice scale sqrt(170)/P1 (0 where P1 == 0, as the reference)
+      const NRLB_VF sl = NRLB_NAME(nrlbw_sel_ps)(NRLB_CMPPS_SI(P1, ZERO, SIMDE_CMP_NEQ_OQ),
+                                                 NRLB_MM(div_ps)(S170, P1), ZERO);
+      const NRLB_VF cI = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(centerI, h));
+      const NRLB_VF cQ = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(centerQ, h));
+
+      // per-axis candidate levels: the 3x3 window around the seed (clamped as the int16 kernel) or all 16
+      NRLB_VF lvI[16], lvQ[16];
+      NRLB_VI bI[16][4], bQ[16][4];
+      for (int k = 0; k < nI; k++) {
+        if (full) {
+          lvI[k] = lvQ[k] = NRLB_MM(set1_ps)((float)(2 * k - 15));
+        } else {
+          const NRLB_VF o = NRLB_MM(set1_ps)((float)(2 * k - 2));
+          lvI[k] = NRLB_NAME(nrlbw_clamp)(NRLB_MM(add_ps)(cI, o), -15.0f, 15.0f);
+          lvQ[k] = NRLB_NAME(nrlbw_clamp)(NRLB_MM(add_ps)(cQ, o), -15.0f, 15.0f);
+        }
+        NRLB_NAME(nrlbw_bits256_ps)(lvI[k], bI[k]);
+        NRLB_NAME(nrlbw_bits256_ps)(lvQ[k], bQ[k]);
+      }
+
+      // max-log per axis: rows (I level) and columns (Q level) of the candidate grid
+      NRLB_VF rowMax[16], colMax[16];
+      for (int k = 0; k < nI; k++)
+        rowMax[k] = colMax[k] = NEG;
+      for (int a = 0; a < nI; a++) {
+        const NRLB_VF x1r = NRLB_MM(mul_ps)(lvI[a], NA);
+        for (int b = 0; b < nI; b++) {
+          const NRLB_VF x1i = NRLB_MM(mul_ps)(lvQ[b], NA);
+          // Re{x1* z1} - P0 |x1|^2 / 2
+          NRLB_VF m = NRLB_MM(sub_ps)(NRLB_MM(add_ps)(NRLB_MM(mul_ps)(x1r, z1r), NRLB_MM(mul_ps)(x1i, z1i)),
+                                      NRLB_MM(mul_ps)(hP0, NRLB_MM(add_ps)(NRLB_MM(mul_ps)(x1r, x1r), NRLB_MM(mul_ps)(x1i, x1i))));
+          // conditional ML nuisance x2* = Q((z2 - conj(rho) x1) / P1)
+          const NRLB_VF cr = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, x1r), NRLB_MM(mul_ps)(ri, x1i));
+          const NRLB_VF ci = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(rr, x1i), NRLB_MM(mul_ps)(ri, x1r));
+          const NRLB_VF I2 = NRLB_NAME(nrlbw_clamp)(NRLB_NAME(nrlbw_round_odd)(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(z2r, cr), sl)), -15.0f, 15.0f);
+          const NRLB_VF Q2 = NRLB_NAME(nrlbw_clamp)(NRLB_NAME(nrlbw_round_odd)(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(z2i, ci), sl)), -15.0f, 15.0f);
+          const NRLB_VF x2r = NRLB_MM(mul_ps)(I2, NA), x2i = NRLB_MM(mul_ps)(Q2, NA);
+          m = NRLB_MM(add_ps)(m, NRLB_MM(sub_ps)(NRLB_MM(add_ps)(NRLB_MM(mul_ps)(x2r, z2r), NRLB_MM(mul_ps)(x2i, z2i)),
+                                                 NRLB_MM(mul_ps)(hP1, NRLB_MM(add_ps)(NRLB_MM(mul_ps)(x2r, x2r), NRLB_MM(mul_ps)(x2i, x2i)))));
+          // - Re{x1* rho x2}
+          const NRLB_VF cxr = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(x1r, x2r), NRLB_MM(mul_ps)(x1i, x2i));
+          const NRLB_VF cxi = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(x1r, x2i), NRLB_MM(mul_ps)(x1i, x2r));
+          m = NRLB_MM(sub_ps)(m, NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(rr, cxr), NRLB_MM(mul_ps)(ri, cxi)));
+          rowMax[a] = NRLB_MM(max_ps)(rowMax[a], m);
+          colMax[b] = NRLB_MM(max_ps)(colMax[b], m);
+        }
+      }
+      for (int k = 0; k < 4; k++) {
+        NRLB_VF m0I = NEG, m1I = NEG, m0Q = NEG, m1Q = NEG;
+        for (int a = 0; a < nI; a++) {
+          m0I = NRLB_MM(max_ps)(m0I, NRLB_NAME(nrlbw_sel_ps)(bI[a][k], NEG, rowMax[a]));
+          m1I = NRLB_MM(max_ps)(m1I, NRLB_NAME(nrlbw_sel_ps)(bI[a][k], rowMax[a], NEG));
+          m0Q = NRLB_MM(max_ps)(m0Q, NRLB_NAME(nrlbw_sel_ps)(bQ[a][k], NEG, colMax[a]));
+          m1Q = NRLB_MM(max_ps)(m1Q, NRLB_NAME(nrlbw_sel_ps)(bQ[a][k], colMax[a], NEG));
+        }
+        const NRLB_VF lim = NRLB_MM(set1_ps)(-1e29f);
+        llr32[2 * k][h] = NRLB_MM(cvttps_epi32)(NRLB_NAME(nrlbw_clamp)(NRLB_MM(sub_ps)(m0I, m1I), -32768.0f, 32767.0f));
+        llr32[2 * k + 1][h] = NRLB_MM(cvttps_epi32)(NRLB_NAME(nrlbw_clamp)(NRLB_MM(sub_ps)(m0Q, m1Q), -32768.0f, 32767.0f));
+        uns32[2 * k][h] = NRLB_OR(NRLB_CMPPS_SI(m0I, lim, SIMDE_CMP_LT_OQ), NRLB_CMPPS_SI(m1I, lim, SIMDE_CMP_LT_OQ));
+        uns32[2 * k + 1][h] = NRLB_OR(NRLB_CMPPS_SI(m0Q, lim, SIMDE_CMP_LT_OQ), NRLB_CMPPS_SI(m1Q, lim, SIMDE_CMP_LT_OQ));
+      }
+    }
+    NRLB_VI res[8];
+    for (int p = 0; p < 8; p++) {
+      const NRLB_VI r = NRLB_NAME(nrlbw_pack32)(llr32[p][0], llr32[p][1]);
+      // unspanned bit (one side has no candidate): graded per-axis seed LLR, as the int16 kernel
+      res[p] = NRLB_BLENDV(r, axisLLR[p], NRLB_NAME(nrlbw_pack32)(uns32[p][0], uns32[p][1]));
+    }
+    NRLB_NAME(nrlbw_store_llr)(stream0_out, re, res, 8);
+  }
+
+  if (re < length) // fewer than one SIMD block: the float reference (same candidate set)
+    nr_qam256_llr_2layer_lbest(&stream0_in[re],
+                               &stream1_in[re],
+                               &ch_mag[re],
+                               &ch_mag_i[re],
+                               &stream0_out[re * 8],
+                               &rho01[re],
+                               length - re,
+                               pattern == 3 ? 256 : 9,
+                               (float)lambda);
+}
 
 
 #endif

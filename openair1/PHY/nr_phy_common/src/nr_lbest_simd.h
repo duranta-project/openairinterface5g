@@ -48,6 +48,15 @@
                                                uint32_t length,       \
                                                int pattern,           \
                                                float lambda);       \
+  void nr_qam256_llr_2layer_lbest_f32_simd_w##W(c16_t *stream0_in,    \
+                                                c16_t *stream1_in,    \
+                                                c16_t *ch_mag,        \
+                                                c16_t *ch_mag_i,      \
+                                                int16_t *stream0_out, \
+                                                c16_t *rho01,         \
+                                                uint32_t length,      \
+                                                int pattern,          \
+                                                float lambda);      \
   void nr_qam256_llr_2layer_lbest_q15_simd_w##W(c16_t *stream0_in,    \
                                                 c16_t *stream1_in,    \
                                                 c16_t *ch_mag,        \

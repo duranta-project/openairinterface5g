@@ -398,6 +398,7 @@ int main(int argc, char **argv)
 
   int print_perf = 0;
   int pdsch_mimo_rx = NR_PDSCH_RX_MMSE;
+  bool pdsch_mimo_hires = false;
 
   int use_cuda = 0;
 
@@ -410,7 +411,7 @@ int main(int argc, char **argv)
   void *d_channel_coeffs_gpu = NULL;
 #endif
 
-  while ((c = getopt(argc, argv, "--:O:f:hA:p:g:i:n:s:S:t:v:x:y:z:o:H:M:N:F:GR:d:D:PI:L:a:b:e:m:w:T:U:q:X:Y:Z:Q:E:K:")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:f:hA:p:g:i:n:s:S:t:v:x:y:z:o:H:M:N:F:GR:d:D:PI:L:a:b:e:m:w:T:U:q:X:Y:Z:Q:E:K:J")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -548,6 +549,10 @@ int main(int argc, char **argv)
       AssertFatal(pdsch_mimo_rx >= 0, "-E %s: must be mmse, ml or lbest\n", optarg);
       break;
 
+    case 'J':
+      pdsch_mimo_hires = true;
+      break;
+
     case 'K':
       g_retx_rbSize = atoi(optarg);
       break;
@@ -654,6 +659,7 @@ int main(int argc, char **argv)
       printf(
           "-E <mmse|ml|lbest> multi-layer PDSCH receiver: mmse (default), ml (2-layer QPSK..64QAM), lbest (2-layer up to "
           "256QAM)\n");
+      printf("-J 256QAM 2-layer L-best with the fp32 metric (--pdsch-mimo-hires)\n");
       printf("-f <flag> Enable optional feature flag. Available flags:\n");
 #ifdef CHANNEL_SIM_CUDA
       printf("          cuda    Enable CUDA channel simulation\n");
@@ -944,6 +950,7 @@ int main(int argc, char **argv)
   UE->nrLDPC_coding_interface = gNB->nrLDPC_coding_interface;
   UE->max_ldpc_iterations = max_ldpc_iterations;
   UE->pdsch_mimo_rx = pdsch_mimo_rx;
+  UE->pdsch_mimo_hires = pdsch_mimo_hires;
   init_nr_ue_phy_cpu_stats(&UE->phy_cpu_stats);
   UE->is_synchronized = 1;
 

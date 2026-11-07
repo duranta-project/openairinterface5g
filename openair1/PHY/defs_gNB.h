@@ -440,6 +440,8 @@ typedef struct PHY_VARS_gNB_s {
   int pusch_thres;
   /// 2-layer PUSCH receiver (L1 "pusch_mimo_receiver", nr_ulsim -D)
   nr_pusch_mimo_rx_t pusch_mimo_rx;
+  /// 256QAM L-best with the fp32 metric (L1 "pusch_mimo_hires", nr_ulsim -J)
+  bool pusch_mimo_hires;
   int prach_thres;
   int srs_thres;
   uint64_t bad_pucch;

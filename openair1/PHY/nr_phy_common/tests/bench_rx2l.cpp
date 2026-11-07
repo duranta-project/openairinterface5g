@@ -50,12 +50,13 @@ uint8_t nr_compute_MMSE_llr(c16_t **,
 // Per-slot (12 data symbols) cost of the 2-layer PUSCH LLR stage, from the matched-filter output
 // on: ML / L-best = nr_compute_ML_llr (full search / reduced search), MMSE = nr_compute_MMSE_llr
 // (Gram-fed 2x2 equalization + scalar LLR). All consume the same rxdataF_comp/ch_mag/rho that channel
-// compensation produces. usage: bench_rx2l ml|lbest|mmse [Qm]
+// compensation produces. usage: bench_rx2l ml|lbest|lbesthr|mmse [Qm]
 int main(int argc, char **argv)
 {
   logInit();
   const bool mmse = argc > 1 && !strcmp(argv[1], "mmse");
-  const bool lbest = argc > 1 && !strcmp(argv[1], "lbest");
+  // lbesthr: L-best with the fp32 256QAM metric (pusch_mimo_hires)
+  const int lbest = argc > 1 && !strcmp(argv[1], "lbesthr") ? 2 : (argc > 1 && !strcmp(argv[1], "lbest") ? 1 : 0);
   const int qm = argc > 2 ? atoi(argv[2]) : 6, nsym = 12, iters = 300;
   for (uint32_t nb_re : {1272u, 3276u}) {
     const uint32_t B = (nb_re + 64 + 15) & ~15u; // layer-1 slices (base + B) must stay 64-byte aligned
@@ -122,7 +123,7 @@ int main(int argc, char **argv)
     }
     std::sort(t.begin(), t.end());
     printf("%-7s Qm=%d nb_re=%5u  median %8.1f us/slot  min %8.1f\n",
-           mmse ? "MMSE" : (lbest ? "L-best" : "ML"),
+           mmse ? "MMSE" : (lbest == 2 ? "L-best-hr" : (lbest ? "L-best" : "ML")),
            qm,
            nb_re,
            t[t.size() / 2],

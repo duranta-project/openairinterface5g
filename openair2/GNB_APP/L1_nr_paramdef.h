@@ -42,6 +42,8 @@
 /* removed, only kept to reject stale config files */
 #define L1_ANALOG_DAS_REMOVED                "enable_das"
 #define L1_PUSCH_MIMO_RX                     "pusch_mimo_receiver"
+#define L1_PUSCH_MIMO_HIRES                  "pusch_mimo_hires"
+#define HLP_L1_PUSCH_MIMO_HIRES "256QAM 2-layer L-best with the fp32 metric: ~0.2-0.6 dB better at 70% throughput (MCS 20-26), ~1.4 dB at MCS 27, for ~16% more detector cost"
 #define HLP_L1_PUSCH_MIMO_RX "2-layer PUSCH receiver: lbest (default, near-ML), mmse (cheapest, ~1 dB loss), ml (exact max-log ML, most expensive)"
 
 /*----------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -72,6 +74,7 @@
   {L1_NUM_ANTENNAS_PER_THREAD,           HLP_NUM_ARX,0,         .uptr=NULL,           .defintval=1,               TYPE_UINT,     0},         \
   {L1_ANALOG_DAS_REMOVED,                NULL,       0,         .iptr=NULL,           .defintval=-1,              TYPE_INT,      0},         \
   {L1_PUSCH_MIMO_RX,                     HLP_L1_PUSCH_MIMO_RX,0,.strptr=NULL,         .defstrval="lbest",         TYPE_STRING,   0},         \
+  {L1_PUSCH_MIMO_HIRES,                  HLP_L1_PUSCH_MIMO_HIRES,PARAMFLAG_BOOL,.uptr=NULL,.defintval=0,          TYPE_UINT,     0},         \
 }
 // clang-format on
 
