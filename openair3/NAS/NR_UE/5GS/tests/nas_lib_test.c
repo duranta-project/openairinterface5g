@@ -96,6 +96,15 @@ static void test_regression_registration_accept(void)
     AssertFatal(ret < 0, "decode_registration_accept() accepted the message cut to %zu octets\n", len);
     free_fgmm_registration_accept(&truncated);
   }
+
+  // A 5G-GUTI IE carrying another type of identity (here SUCI) is rejected
+  uint8_t not_guti[sizeof(cn5g_msg)];
+  memcpy(not_guti, cn5g_msg, sizeof(not_guti));
+  not_guti[5] = (not_guti[5] & ~0x07) | FGS_MOBILE_IDENTITY_SUCI;
+  registration_accept_msg wrong_type = {0};
+  int dec = decode_registration_accept(&wrong_type, (byte_array_t){.buf = not_guti, .len = sizeof(not_guti)});
+  AssertFatal(dec < 0, "decode_registration_accept() accepted a 5G-GUTI IE with type of identity SUCI\n");
+  free_fgmm_registration_accept(&wrong_type);
 }
 
 /**
