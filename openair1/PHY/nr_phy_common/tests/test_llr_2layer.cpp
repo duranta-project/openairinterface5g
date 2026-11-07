@@ -43,16 +43,21 @@ void nr_qam256_llr_2layer_lbest_q15_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *
 void nr_qam256_llr_2layer_lbest_q15_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f32_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f32_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_llr_2layer_mmse_simd_w128(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
+void nr_llr_2layer_mmse_simd_w256(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
+void nr_llr_2layer_mmse_ref(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 #if defined(__AVX512BW__) && defined(__AVX512VL__) && defined(__AVX512F__)
 void nr_qam64_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f32_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_llr_2layer_mmse_simd_w512(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 #define NRLB_TEST_HAVE_W512 1
 #endif
 }
 
 #include "openair1/PHY/TOOLS/phy_test_tools.hpp"
 #include <random>
+#include <cmath>
 
 namespace {
 
@@ -423,6 +428,58 @@ TEST(test_llr_2layer, fidelity_vs_float_256qam_f32)
     EXPECT_LT(f.signDisagree_pct, 0.01) << "fp32 kernel diverges from the float reference";
     EXPECT_LE(maxd, 1) << "fp32 kernel diverges from the float reference by more than rounding";
   }
+}
+
+// A physically consistent 2x2 Gram (|rho|^2 <= 0.64 P0 P1) for the 2-layer MMSE: mag / magi carry the diagonal
+// (real part), z0 / z1 the matched-filter outputs of random constellation-scale symbols.
+Inputs2L gen_gram_inputs(uint32_t nb_re, unsigned seed)
+{
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> pw(2000, 16000), u(-1, 1), z(-6000, 6000);
+  const uint32_t N = nb_re + 64;
+  Inputs2L in;
+  in.s0.resize(N);
+  in.s1.resize(N);
+  in.mag.resize(N);
+  in.magi.resize(N);
+  in.rho.resize(N);
+  for (uint32_t i = 0; i < N; i++) {
+    const double p0 = pw(rng), p1 = pw(rng), r = 0.8 * sqrt(p0 * p1);
+    in.mag[i] = {(int16_t)p0, 0};
+    in.magi[i] = {(int16_t)p1, 0};
+    in.rho[i] = {(int16_t)(r * u(rng) * 0.7), (int16_t)(r * u(rng) * 0.7)};
+    in.s0[i] = {(int16_t)z(rng), (int16_t)z(rng)};
+    in.s1[i] = {(int16_t)z(rng), (int16_t)z(rng)};
+  }
+  return in;
+}
+
+// 2-layer MMSE (L = 1): all widths bit-identical (any input), and within rounding of the scalar float reference
+// on physical Gram matrices, for every modulation, block-multiple and ragged lengths, with and without the noise
+// term.
+TEST(test_llr_2layer, mmse_widths_and_reference)
+{
+  for (int qm : {2, 4, 6, 8})
+    for (uint32_t n : {33u, 96u, 1272u, 3276u})
+      for (float lambda : {0, 300}) {
+        auto in = gen_gram_inputs(n, 0xA11u + qm * 7 + n + lambda);
+        const size_t nll = (size_t)n * qm;
+        AlignedVector512<int16_t> o128(nll + 64, 0), o256(nll + 64, 0), ref(nll + 64, 0);
+        nr_llr_2layer_mmse_simd_w128(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), in.rho.data(), o128.data(), n, qm, lambda);
+        nr_llr_2layer_mmse_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), in.rho.data(), o256.data(), n, qm, lambda);
+        nr_llr_2layer_mmse_ref(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), in.rho.data(), ref.data(), n, qm, lambda);
+        EXPECT_EQ(0, memcmp(o128.data(), o256.data(), nll * sizeof(int16_t))) << "MMSE w128 != w256, Qm=" << qm << " n=" << n;
+#ifdef NRLB_TEST_HAVE_W512
+        AlignedVector512<int16_t> o512(nll + 64, 0);
+        nr_llr_2layer_mmse_simd_w512(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), in.rho.data(), o512.data(), n, qm, lambda);
+        EXPECT_EQ(0, memcmp(o128.data(), o512.data(), nll * sizeof(int16_t))) << "MMSE w128 != w512, Qm=" << qm << " n=" << n;
+#endif
+        long maxd = 0;
+        for (size_t k = 0; k < nll; k++)
+          maxd = std::max(maxd, labs((long)o256[k] - ref[k]));
+        EXPECT_LE(maxd, 1) << "MMSE SIMD vs reference, Qm=" << qm << " n=" << n << " lambda=" << lambda;
+        EXPECT_EQ(0, o256[nll]) << "MMSE store past the end, Qm=" << qm << " n=" << n;
+      }
 }
 
 int main(int argc, char **argv)

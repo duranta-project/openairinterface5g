@@ -23,26 +23,7 @@ void exit_function(const char *file, const char *function, const int line, const
 void nr_qam64_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_compute_ML_llr(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, c16_t *, c16_t *, uint32_t, uint8_t, int, float);
-uint8_t nr_compute_MMSE_llr(c16_t **,
-                            uint32_t,
-                            uint32_t,
-                            int,
-                            int,
-                            c16_t *,
-                            c16_t *,
-                            c16_t *,
-                            c16_t *,
-                            unsigned short,
-                            unsigned char,
-                            int,
-                            unsigned char,
-                            int,
-                            uint32_t,
-                            c16_t *,
-                            c16_t *,
-                            c16_t *,
-                            c16_t *,
-                            int16_t **);
+void nr_compute_MMSE_llr(c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, uint32_t, uint8_t, float);
 }
 #include "openair1/PHY/TOOLS/phy_test_tools.hpp"
 #include <random>
@@ -79,31 +60,12 @@ int main(int argc, char **argv)
     for (int it = 0; it < iters; it++) {
       double us = 0;
       for (int s = 0; s < nsym; s++) {
-        memcpy(w0.data(), s0.data(), B * sizeof(c16_t)); // MMSE equalizes in place
+        memcpy(w0.data(), s0.data(), B * sizeof(c16_t));
         memcpy(w1.data(), s1.data(), B * sizeof(c16_t));
         c16_t *comp[2] = {w0.data(), w1.data()};
         auto a = std::chrono::steady_clock::now();
         if (mmse)
-          nr_compute_MMSE_llr(comp,
-                              B,
-                              B,
-                              4,
-                              2,
-                              mag.data(),
-                              magb.data(),
-                              magc.data(),
-                              chF.data(),
-                              nb_re / 12,
-                              qm,
-                              12,
-                              0,
-                              nb_re,
-                              100,
-                              r00.data(),
-                              r01.data(),
-                              r10.data(),
-                              r11.data(),
-                              llr);
+          nr_compute_MMSE_llr(comp[0], comp[1], r00.data(), r01.data(), r10.data(), r11.data(), llr[0], llr[1], nb_re, qm, 100);
         else
           nr_compute_ML_llr(w0.data(),
                             w1.data(),

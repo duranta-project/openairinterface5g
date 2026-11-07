@@ -26,7 +26,6 @@ void nr_256qam_llr(const c16_t *rxdataF_comp,
  * lbest: the reduced-search L-best kernel is used (64QAM wants one bit cooler than full ML).
  */
 int nr_ml_llr_maxh_off(int mod_order, int lbest);
-int nr_mmse_llr_maxh_off(int mod_order);
 /// L-best / MMSE seed regularization (noise variance in the compensated Pp/rho units) for log2_maxh = shift
 float nr_2layer_seed_lambda(uint32_t nvar, int shift);
 /// Channel-estimation error relative to the channel power. The 2-layer MMSE seeds and the MMSE receiver regularize
@@ -229,51 +228,28 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                                   // fp32 256QAM metric (high resolution; = 1 for 64QAM)
                        float lambda); // L-best seed regularization: noise variance >> log2_maxh (0: ZF seed)
 
-#ifndef __cplusplus
-// Fused 2-layer linear MMSE + scalar LLR (L=1): Gram-fed per-RE equalization (file-local
-// nr_mmse_2layers, this is its only entry point) + per-layer nr_compute_llr. UE: symbol=0 + pre-offset rxdataF_comp; gNB: symbol
-// offset applied internally.
-uint8_t nr_compute_MMSE_llr(c16_t **rxdataF_comp,
-                            uint32_t buffer_length,
-                            uint32_t pdsch_buf_size_max,
-                            int nb_rx_ant,
-                            int nb_layers,
-                            c16_t ch_mag[nb_layers][pdsch_buf_size_max],
-                            c16_t ch_magb[nb_layers][pdsch_buf_size_max],
-                            c16_t ch_magc[nb_layers][pdsch_buf_size_max],
-                            c16_t ch_estimates_ext[][nb_rx_ant][buffer_length],
-                            unsigned short nb_rb,
-                            unsigned char mod_order,
-                            int shift,
-                            unsigned char symbol,
-                            int length,
-                            uint32_t noise_var,
-                            c16_t *rho00,
-                            c16_t *rho01,
-                            c16_t *rho10,
-                            c16_t *rho11,
-                            int16_t **llr);
-#else
-uint8_t nr_compute_MMSE_llr(c16_t **rxdataF_comp,
-                            uint32_t buffer_length,
-                            uint32_t pdsch_buf_size_max,
-                            int nb_rx_ant,
-                            int nb_layers,
-                            c16_t **ch_mag,
-                            c16_t **ch_magb,
-                            c16_t **ch_magc,
-                            c16_t ***ch_estimates_ext,
-                            unsigned short nb_rb,
-                            unsigned char mod_order,
-                            int shift,
-                            unsigned char symbol,
-                            int length,
-                            uint32_t noise_var,
-                            c16_t *rho00,
-                            c16_t *rho01,
-                            c16_t *rho10,
-                            c16_t *rho11,
-                            int16_t **llr);
-#endif
+/// 2-layer linear MMSE receiver (L = 1 member of the L-best family): per-layer LLRs from the MRC outputs, the
+/// 2x2 Gram (rho_ab = h_a^H h_b, real part of the diagonal used) and lambda = nr_2layer_seed_lambda().
+void nr_compute_MMSE_llr(c16_t *comp0,
+                         c16_t *comp1,
+                         c16_t *rho00,
+                         c16_t *rho01,
+                         c16_t *rho10,
+                         c16_t *rho11,
+                         int16_t *llr_layer0,
+                         int16_t *llr_layer1,
+                         uint32_t nb_re,
+                         uint8_t mod_order,
+                         float lambda);
+/// scalar float reference of the 2-layer MMSE LLR for one target layer (z0 / g00 target, z1 / g11 other)
+void nr_llr_2layer_mmse_ref(const c16_t *z0,
+                            const c16_t *z1,
+                            const c16_t *g00,
+                            const c16_t *g11,
+                            const c16_t *rho01,
+                            int16_t *out,
+                            uint32_t length,
+                            int mod_order,
+                            float lambda);
 
 #endif /* __NR_COMPUTE_LLR__H__ */
