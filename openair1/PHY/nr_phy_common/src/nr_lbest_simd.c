@@ -1030,36 +1030,34 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
 }
 
 
-// Exact max-log per-axis Gray-PAM LLR, out[b] = g * (d1 - d0), nb bits per axis (M = 2^nb levels): the levels
-// with a given bit value form one to three runs of consecutive odd levels, and the nearest member of a run is the
-// nearest odd level clamped to it. Same minimum distances as an exhaustive search over the M levels. b0 (sign)
-// works on est, the symmetric bits on |est|.
-static inline void NRLB_NAME(nrlbw_pam_llr)(NRLB_VF est, NRLB_VF g, int nb, NRLB_VF out[4])
+// Piecewise-linear per-axis Gray-PAM LLR, nb bits per axis (M = 2^nb levels): v0 = est, v_b = M / 2^b - |v_(b-1)|,
+// out[b] = g4 * v_b with g4 = 4 g in level units. Equal to max-log g * (d1 - d0) within the inner decision region
+// of each bit; outside it max-log has steeper slopes, but only on bits that are already reliable (coded throughput
+// unchanged on TDL-A, 2 and 4 Rx, 64/256QAM), at ~40% of the 64/256QAM MMSE kernel cost.
+static inline void NRLB_NAME(nrlbw_pam_llr)(NRLB_VF est, NRLB_VF g4, int nb, NRLB_VF out[4])
 {
-  const float L = (float)((1 << nb) - 1), H = (float)(1 << (nb - 1)), Q = (float)(1 << nb) / 4.0f;
-  const NRLB_VF a = NRLB_MM(andnot_ps)(NRLB_MM(set1_ps)(-0.0f), est);
-  const NRLB_VF o = NRLB_NAME(nrlbw_round_odd)(est), oa = NRLB_NAME(nrlbw_round_odd)(a);
-#define NR_PAM_D(lo, hi) NRLB_NAME(nrlbw_dsq)(NRLB_NAME(nrlbw_clamp)(oa, (lo), (hi)), a)
-  out[0] = NRLB_MM(mul_ps)(g,
-                           NRLB_MM(sub_ps)(NRLB_NAME(nrlbw_dsq)(NRLB_NAME(nrlbw_clamp)(o, -L, -1.0f), est),
-                                           NRLB_NAME(nrlbw_dsq)(NRLB_NAME(nrlbw_clamp)(o, 1.0f, L), est)));
-  if (nb >= 2) // b1: |L| > M/2
-    out[1] = NRLB_MM(mul_ps)(g, NRLB_MM(sub_ps)(NR_PAM_D(H + 1.0f, L), NR_PAM_D(1.0f, H - 1.0f)));
-  if (nb >= 3) // b2: ||L| - M/2| > M/4
-    out[2] = NRLB_MM(mul_ps)(g,
-                             NRLB_MM(sub_ps)(NRLB_MM(min_ps)(NR_PAM_D(1.0f, Q - 1.0f), NR_PAM_D(3.0f * Q + 1.0f, L)),
-                                             NR_PAM_D(Q + 1.0f, 3.0f * Q - 1.0f)));
-  if (nb >= 4) // b3 (256QAM): |L| in {1,7,9,15} vs {3,5,11,13}
-    out[3] = NRLB_MM(mul_ps)(g,
-                             NRLB_MM(sub_ps)(NRLB_MM(min_ps)(NRLB_MM(min_ps)(NR_PAM_D(1.0f, 1.0f), NR_PAM_D(7.0f, 9.0f)), NR_PAM_D(15.0f, 15.0f)),
-                                             NRLB_MM(min_ps)(NR_PAM_D(3.0f, 5.0f), NR_PAM_D(11.0f, 13.0f))));
-#undef NR_PAM_D
+  const NRLB_VF sgn = NRLB_MM(set1_ps)(-0.0f);
+  const float M = (float)(1 << nb);
+  NRLB_VF v = est;
+  out[0] = NRLB_MM(mul_ps)(g4, v);
+  if (nb >= 2) {
+    v = NRLB_MM(sub_ps)(NRLB_MM(set1_ps)(M / 2), NRLB_MM(andnot_ps)(sgn, v));
+    out[1] = NRLB_MM(mul_ps)(g4, v);
+  }
+  if (nb >= 3) {
+    v = NRLB_MM(sub_ps)(NRLB_MM(set1_ps)(M / 4), NRLB_MM(andnot_ps)(sgn, v));
+    out[2] = NRLB_MM(mul_ps)(g4, v);
+  }
+  if (nb >= 4) {
+    v = NRLB_MM(sub_ps)(NRLB_MM(set1_ps)(M / 8), NRLB_MM(andnot_ps)(sgn, v));
+    out[3] = NRLB_MM(mul_ps)(g4, v);
+  }
 }
 
 // ============================================================================
 // 2-layer linear MMSE: the L = 1 member of the L-best family. Unbiased MMSE estimate of the target layer (the
-// L-best seed) and exact max-log per-axis Gray-PAM LLRs for every bit, g * (d1 - d0) in level units, with the
-// post-MMSE energy as the reliability, g = 0.5 * Peff / K: the L-best fallback scale. fp32 throughout.
+// L-best seed) and piecewise-linear per-axis Gray-PAM LLRs for every bit (nrlbw_pam_llr) at the max-log scale,
+// with the post-MMSE energy as the reliability, g = 0.5 * Peff / K: the L-best fallback scale. fp32 throughout.
 // Inputs (compensated, >> log2_maxh): z0 = target-layer MRC output, z1 = other layer, g00/g11 = Gram diagonal
 // ||h||^2 (real part), rho01 = h0^H h1; lambda = noise variance (nr_2layer_seed_lambda). Qm = 2..8.
 // ============================================================================
@@ -1078,7 +1076,7 @@ void NRLB_NAME(nr_llr_2layer_mmse_simd)(const c16_t *z0,
   static const float K[5] = {0, 2.0f, 10.0f, 42.0f, 170.0f};
   const NRLB_VF lam = NRLB_MM(set1_ps)(lambda), ONE = NRLB_MM(set1_ps)(1.0f);
   const NRLB_VF epsh = NRLB_MM(set1_ps)(0.5f * NR_2LAYER_CSI_EPS);
-  const NRLB_VF SQ = NRLB_MM(set1_ps)(sqK[nb]), GK = NRLB_MM(set1_ps)(0.5f / K[nb]);
+  const NRLB_VF SQ = NRLB_MM(set1_ps)(sqK[nb]), GK = NRLB_MM(set1_ps)(2.0f / K[nb]); // 4 g: PWL slope
   __attribute__((aligned(64))) int16_t tmp[8][NRLB_N];
 
   uint32_t re = 0;

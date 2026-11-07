@@ -4048,7 +4048,7 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
   }
 }
 // 2-layer linear MMSE, scalar float reference of nr_llr_2layer_mmse_simd (and its tail below one SIMD block):
-// unbiased MMSE estimate + exact max-log per-axis Gray-PAM LLRs, g * (d1 - d0), g = 0.5 * Peff / K.
+// unbiased MMSE estimate + piecewise-linear per-axis Gray-PAM LLRs, 4 g v_b, g = 0.5 * Peff / K.
 void nr_llr_2layer_mmse_ref(const c16_t *z0,
                             const c16_t *z1,
                             const c16_t *g00,
@@ -4059,21 +4059,9 @@ void nr_llr_2layer_mmse_ref(const c16_t *z0,
                             int mod_order,
                             float lambda)
 {
-  const int nb = mod_order / 2, M = 1 << nb;
+  const int nb = mod_order / 2;
   static const float sqK[5] = {0, 1.4142135623730951f, 3.1622776601683795f, 6.48074069840786f, 13.038404810405298f};
   static const float K[5] = {0, 2.0f, 10.0f, 42.0f, 170.0f};
-  int lvl[16], bit[16][4];
-  for (int i = 0; i < M; i++) {
-    const int L = 2 * i - (M - 1);
-    lvl[i] = L;
-    bit[i][0] = L < 0;
-    int r = L < 0 ? -L : L, t = M / 2;
-    for (int b = 1; b < nb; b++) {
-      bit[i][b] = r > t;
-      r = r > t ? r - t : t - r;
-      t /= 2;
-    }
-  }
   for (uint32_t re = 0; re < length; re++) {
     const float P0 = g00[re].r, P1s = (float)g11[re].r + lambda + 0.5f * NR_2LAYER_CSI_EPS * (P0 + g11[re].r);
     const float rr = rho01[re].r, ri = rho01[re].i;
@@ -4082,22 +4070,15 @@ void nr_llr_2layer_mmse_ref(const c16_t *z0,
     const float numr = P1s * z0[re].r - (rr * z1[re].r - ri * z1[re].i);
     const float numi = P1s * z0[re].i - (rr * z1[re].i + ri * z1[re].r);
     const float est[2] = {numr / det * sqK[nb], numi / det * sqK[nb]};
-    const float g = 0.5f / K[nb] * (det / (P1s > 1.0f ? P1s : 1.0f));
+    const float g4 = 2.0f / K[nb] * (det / (P1s > 1.0f ? P1s : 1.0f));
     for (int ax = 0; ax < 2; ax++) {
-      float d0[4] = {1e30f, 1e30f, 1e30f, 1e30f}, d1[4] = {1e30f, 1e30f, 1e30f, 1e30f};
-      for (int i = 0; i < M; i++) {
-        const float d = (lvl[i] - est[ax]) * (lvl[i] - est[ax]);
-        for (int b = 0; b < nb; b++) {
-          if (bit[i][b])
-            d1[b] = d < d1[b] ? d : d1[b];
-          else
-            d0[b] = d < d0[b] ? d : d0[b];
-        }
-      }
+      float v = est[ax];
       for (int b = 0; b < nb; b++) {
-        float v = g * (d1[b] - d0[b]);
-        v = v > 32767.0f ? 32767.0f : (v < -32768.0f ? -32768.0f : v);
-        out[re * mod_order + 2 * b + ax] = (int16_t)lrintf(v);
+        if (b > 0)
+          v = (float)(1 << (nb - b)) - fabsf(v);
+        float l = g4 * v;
+        l = l > 32767.0f ? 32767.0f : (l < -32768.0f ? -32768.0f : l);
+        out[re * mod_order + 2 * b + ax] = (int16_t)lrintf(l);
       }
     }
   }
@@ -4121,7 +4102,7 @@ static void nr_llr_2layer_mmse(const c16_t *z0,
 }
 
 // 2-layer linear MMSE receiver: the L = 1 member of the L-best detector family (same unbiased MMSE estimate as
-// the L-best seed, exact per-axis max-log LLRs, same LLR scale), for all modulation orders.
+// the L-best seed, piecewise-linear per-axis LLRs at the max-log scale), for all modulation orders.
 void nr_compute_MMSE_llr(c16_t *comp0,
                          c16_t *comp1,
                          c16_t *rho00,
