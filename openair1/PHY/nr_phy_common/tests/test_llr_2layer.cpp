@@ -42,7 +42,9 @@ void nr_qam64_llr_2layer_lbest_q15_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *,
 void nr_qam256_llr_2layer_lbest_q15_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_q15_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f32_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam64_llr_2layer_lbest_f32_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f32_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam64_llr_2layer_lbest_f32_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_simd_w128(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_simd_w256(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_ref(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
@@ -50,6 +52,7 @@ void nr_llr_2layer_mmse_ref(const c16_t *, const c16_t *, const c16_t *, const c
 void nr_qam64_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f32_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam64_llr_2layer_lbest_f32_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_simd_w512(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 #define NRLB_TEST_HAVE_W512 1
 #endif
@@ -329,7 +332,7 @@ TEST(test_llr_2layer, overlapped_tail_matches_aligned)
   EXPECT_EQ(0, memcmp(a.data(), b.data(), (size_t)n * 8 * sizeof(int16_t))) << "256QAM overlapped tail";
 }
 
-// Non-zero seed regularization (MMSE seed) and the fp32-metric 256QAM kernel must be width-exact too.
+// Non-zero seed regularization (MMSE seed) and the fp32-metric 64/256QAM kernels must be width-exact too.
 TEST(test_llr_2layer, width_equiv_mmse_seed_and_f32)
 {
   for (auto n : {32u, 96u, 1272u, 3276u})
@@ -342,6 +345,11 @@ TEST(test_llr_2layer, width_equiv_mmse_seed_and_f32)
                   nr_qam256_llr_2layer_lbest_q15_simd_w256,
                   NRLB_K512(nr_qam256_llr_2layer_lbest_q15_simd),
                   8, n, 1, lambda, "256QAM int16");
+      for (int p : {1, 3})
+        width_equiv(nr_qam64_llr_2layer_lbest_f32_simd_w128,
+                    nr_qam64_llr_2layer_lbest_f32_simd_w256,
+                    NRLB_K512(nr_qam64_llr_2layer_lbest_f32_simd),
+                    6, n, p, lambda, "64QAM fp32");
       for (int p : {1, 3})
         width_equiv(nr_qam256_llr_2layer_lbest_f32_simd_w128,
                     nr_qam256_llr_2layer_lbest_f32_simd_w256,
@@ -408,6 +416,25 @@ TEST(test_llr_2layer, fidelity_vs_float_256qam)
   EXPECT_LT(f.signDisagree_pct, 1.0) << "too many LLR sign flips vs float model";
   EXPECT_GT(f.fitScale, 0.2) << "kernel output not positively correlated with the model";
   EXPECT_LT(f.residFrac, 0.40) << "post-scale residual too large vs float model";
+}
+
+// The fp32-metric 64QAM kernel follows the float reference term by term (full grid vs L = 64).
+TEST(test_llr_2layer, fidelity_vs_float_64qam_f32)
+{
+  const uint32_t nb_re = 3200;
+  for (float lambda : {0.0f, 200.0f}) {
+    auto in = gen_inputs(nb_re, 0x64F3u + (unsigned)lambda);
+    AlignedVector512<int16_t> dut((size_t)nb_re * 6 + 64, 0), ref((size_t)nb_re * 6 + 64, 0);
+    nr_qam64_llr_2layer_lbest_f32_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), dut.data(), in.rho.data(), nb_re, 3, lambda);
+    nr_qam64_llr_2layer_lbest(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), ref.data(), in.rho.data(), nb_re, 64, lambda);
+    long maxd = 0;
+    for (size_t k = 0; k < (size_t)nb_re * 6; k++)
+      maxd = std::max(maxd, labs((long)dut[k] - ref[k]));
+    Fit f = fit_stats(dut.data(), ref.data(), (size_t)nb_re * 6);
+    fprintf(stderr, "[  FIT  ] 64QAM fp32 full, lambda=%.0f: signDisagree=%.4f%% max|diff|=%ld\n", lambda, f.signDisagree_pct, maxd);
+    EXPECT_LT(f.signDisagree_pct, 0.01) << "fp32 64QAM kernel diverges from the float reference";
+    EXPECT_LE(maxd, 1) << "fp32 64QAM kernel diverges from the float reference by more than rounding";
+  }
 }
 
 // The fp32-metric 256QAM kernel follows the float reference term by term: on unconstrained inputs (bits

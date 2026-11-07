@@ -201,9 +201,18 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                            int pattern,
                                            float lambda);
 
-// fp32-metric variant of nr_qam256_llr_2layer_lbest_q15_simd16 (patterns 1 and 3): same seed, candidates
-// and fallback, metric and max-log in fp32 (tracks the float reference; the int16 metric's 1/4 scale
-// flips small-|LLR| bits).
+// fp32-metric variants of the 64QAM and 256QAM L-best kernels (pattern 1 = 3x3, 3 = full grid): same seed,
+// candidates and fallback, metric and max-log in fp32 (tracks the float references; the int16 metrics' coarse
+// scale flips small-|LLR| bits).
+void nr_qam64_llr_2layer_lbest_f32_simd16(c16_t *stream0_in,
+                                          c16_t *stream1_in,
+                                          c16_t *ch_mag,
+                                          c16_t *ch_mag_i,
+                                          int16_t *stream0_out,
+                                          c16_t *rho01,
+                                          uint32_t length,
+                                          int pattern,
+                                          float lambda);
 void nr_qam256_llr_2layer_lbest_f32_simd16(c16_t *stream0_in,
                                            c16_t *stream1_in,
                                            c16_t *ch_mag,
