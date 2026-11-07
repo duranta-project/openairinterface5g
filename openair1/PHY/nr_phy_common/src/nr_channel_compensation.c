@@ -14,6 +14,26 @@
 #define USE_128BIT
 #endif
 
+// (INT16_MAX, 0) is the zero-phase-error CPE passed for symbols without PTRS. The full complex multiply by
+// it reduces to floor(x * 32767 / 32768) per component, i.e. x - 1 for x > 0, x otherwise, -32767 for
+// -32768: the nr_cpe_id_* helpers reproduce that bit-exactly with three cheap ops instead.
+static inline bool nr_cpe_is_identity(c16_t cpe)
+{
+  return cpe.r == INT16_MAX && cpe.i == 0;
+}
+
+static inline simde__m128i nr_cpe_id_128(simde__m128i x)
+{
+  const simde__m128i dec = simde_mm_cmpgt_epi16(x, simde_mm_setzero_si128());
+  return simde_mm_max_epi16(simde_mm_add_epi16(x, dec), simde_mm_set1_epi16(-32767));
+}
+
+static inline simde__m256i nr_cpe_id_256(simde__m256i x)
+{
+  const simde__m256i dec = simde_mm256_cmpgt_epi16(x, simde_mm256_setzero_si256());
+  return simde_mm256_max_epi16(simde_mm256_add_epi16(x, dec), simde_mm256_set1_epi16(-32767));
+}
+
 void nr_channel_compensation(uint32_t buffer_length,
                              uint32_t pdsch_buf_size_max,
                              int nb_rx_ant,
@@ -62,6 +82,7 @@ void nr_channel_compensation(uint32_t buffer_length,
                                                     cpe.r,
                                                     cpe.i,
                                                     cpe.r);
+  const bool rot = !nr_cpe_is_identity(cpe);
   for (int aatx = 0; aatx < nb_layers; aatx++) {
     simde__m256i *rxComp_256 = (simde__m256i *)&rxComp[aatx][symbol * buffer_length];
     simde__m256i *ch_maga_256 = (simde__m256i *)ch_maga[aatx];
@@ -74,7 +95,7 @@ void nr_channel_compensation(uint32_t buffer_length,
       simde__m256i *chF_256 = (simde__m256i *)chFext[aatx][0];
 
       for (uint32_t i = 0; i < buffer_length >> 3; i++) {
-        const simde__m256i chF_cpe256 = oai_mm256_cpx_mult(chF_256[i], cpe256, 15);
+        const simde__m256i chF_cpe256 = rot ? oai_mm256_cpx_mult(chF_256[i], cpe256, 15) : nr_cpe_id_256(chF_256[i]);
         rxComp_256[i] = oai_mm256_cpx_mult_conj(chF_cpe256, rxF_256[i], output_shift);
 
         if (mod_order > 2) {
@@ -107,7 +128,7 @@ void nr_channel_compensation(uint32_t buffer_length,
       simde__m256i *chF_256 = (simde__m256i *)chFext[aatx][aarx];
 
       for (uint32_t i = 0; i < buffer_length >> 3; i++) {
-        const simde__m256i chF_cpe256 = oai_mm256_cpx_mult(chF_256[i], cpe256, 15);
+        const simde__m256i chF_cpe256 = rot ? oai_mm256_cpx_mult(chF_256[i], cpe256, 15) : nr_cpe_id_256(chF_256[i]);
         const simde__m256i comp = oai_mm256_cpx_mult_conj(chF_cpe256, rxF_256[i], output_shift);
         rxComp_256[i] = simde_mm256_add_epi16(rxComp_256[i], comp);
 
@@ -152,6 +173,7 @@ void nr_channel_compensation(uint32_t buffer_length,
   }
 
   const simde__m128i cpe128 = simde_mm_set_epi16(cpe.i, cpe.r, cpe.i, cpe.r, cpe.i, cpe.r, cpe.i, cpe.r);
+  const bool rot = !nr_cpe_is_identity(cpe);
   for (int aatx = 0; aatx < nb_layers; aatx++) {
     simde__m128i *rxComp_128 = (simde__m128i *)&rxComp[aatx][symbol * buffer_length];
     simde__m128i *ch_maga_128 = (simde__m128i *)ch_maga[aatx];
@@ -164,7 +186,7 @@ void nr_channel_compensation(uint32_t buffer_length,
       simde__m128i *chF_128 = (simde__m128i *)chFext[aatx][0];
 
       for (uint32_t i = 0; i < buffer_length >> 2; i++) {
-        const simde__m128i chF_cpe128 = oai_mm_cpx_mult(chF_128[i], cpe128, 15);
+        const simde__m128i chF_cpe128 = rot ? oai_mm_cpx_mult(chF_128[i], cpe128, 15) : nr_cpe_id_128(chF_128[i]);
         rxComp_128[i] = oai_mm_cpx_mult_conj(chF_cpe128, rxF_128[i], output_shift);
 
         if (mod_order > 2) {
@@ -197,7 +219,7 @@ void nr_channel_compensation(uint32_t buffer_length,
       simde__m128i *chF_128 = (simde__m128i *)chFext[aatx][aarx];
 
       for (uint32_t i = 0; i < buffer_length >> 2; i++) {
-        const simde__m128i chF_cpe128 = oai_mm_cpx_mult(chF_128[i], cpe128, 15);
+        const simde__m128i chF_cpe128 = rot ? oai_mm_cpx_mult(chF_128[i], cpe128, 15) : nr_cpe_id_128(chF_128[i]);
         simde__m128i comp = oai_mm_cpx_mult_conj(chF_cpe128, rxF_128[i], output_shift);
         rxComp_128[i] = simde_mm_add_epi16(rxComp_128[i], comp);
 

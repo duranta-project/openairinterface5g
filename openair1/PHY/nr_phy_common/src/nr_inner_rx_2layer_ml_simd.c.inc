@@ -30,8 +30,9 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
   else if (mod_order == 8)
     QAM_ampa = NRLB_MM(set1_epi16)(QAM256_n1);
 
-  // PTRS common phase error, as in nr_channel_compensation ((32767,0) without PTRS).
+  // PTRS common phase error, as in nr_channel_compensation (bit-exact nr_cpe_id_* shortcut without PTRS).
   const NRLB_VI cpe_v = NRLB_MM(set1_epi32)((int32_t)(((uint32_t)(uint16_t)cpe.i << 16) | (uint16_t)cpe.r));
+  const bool rot = !nr_cpe_is_identity(cpe);
 
   enum { TILE = 96 };
   __attribute__((aligned(32))) c16_t rxC0_t[TILE], rxC1_t[TILE];
@@ -63,8 +64,10 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
       NRLB_VI *c0 = (NRLB_VI *)&chFext[0][0][base];
       NRLB_VI *c1 = (NRLB_VI *)&chFext[1][0][base];
       for (uint32_t i = 0; i < nblk; i++) {
-        rxC0[i] = NRLB_OAI(cpx_mult_conj)(NRLB_OAI(cpx_mult)(c0[i], cpe_v, 15), rxF[i], output_shift);
-        rxC1[i] = NRLB_OAI(cpx_mult_conj)(NRLB_OAI(cpx_mult)(c1[i], cpe_v, 15), rxF[i], output_shift);
+        const NRLB_VI c0_cpe = rot ? NRLB_OAI(cpx_mult)(c0[i], cpe_v, 15) : NRLB_CC(nr_cpe_id_, NRLB_W)(c0[i]);
+        const NRLB_VI c1_cpe = rot ? NRLB_OAI(cpx_mult)(c1[i], cpe_v, 15) : NRLB_CC(nr_cpe_id_, NRLB_W)(c1[i]);
+        rxC0[i] = NRLB_OAI(cpx_mult_conj)(c0_cpe, rxF[i], output_shift);
+        rxC1[i] = NRLB_OAI(cpx_mult_conj)(c1_cpe, rxF[i], output_shift);
         rho01[i] = NRLB_OAI(cpx_mult_conj)(c0[i], c1[i], output_shift);
         rho10[i] = NRLB_OAI(cpx_mult_conj)(c1[i], c0[i], output_shift);
         if (mod_order > 2) {
@@ -86,8 +89,8 @@ static void NRLB_NAME(nr_inner_rx_2layer_ml)(uint32_t length,
       NRLB_VI *c0 = (NRLB_VI *)&chFext[0][aarx][base];
       NRLB_VI *c1 = (NRLB_VI *)&chFext[1][aarx][base];
       for (uint32_t i = 0; i < nblk; i++) {
-        const NRLB_VI c0_cpe = NRLB_OAI(cpx_mult)(c0[i], cpe_v, 15);
-        const NRLB_VI c1_cpe = NRLB_OAI(cpx_mult)(c1[i], cpe_v, 15);
+        const NRLB_VI c0_cpe = rot ? NRLB_OAI(cpx_mult)(c0[i], cpe_v, 15) : NRLB_CC(nr_cpe_id_, NRLB_W)(c0[i]);
+        const NRLB_VI c1_cpe = rot ? NRLB_OAI(cpx_mult)(c1[i], cpe_v, 15) : NRLB_CC(nr_cpe_id_, NRLB_W)(c1[i]);
         rxC0[i] = NRLB_MM(add_epi16)(rxC0[i], NRLB_OAI(cpx_mult_conj)(c0_cpe, rxF[i], output_shift));
         rxC1[i] = NRLB_MM(add_epi16)(rxC1[i], NRLB_OAI(cpx_mult_conj)(c1_cpe, rxF[i], output_shift));
         rho01[i] = NRLB_MM(adds_epi16)(rho01[i], NRLB_OAI(cpx_mult_conj)(c0[i], c1[i], output_shift));
