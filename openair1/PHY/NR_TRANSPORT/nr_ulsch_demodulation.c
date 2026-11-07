@@ -706,8 +706,12 @@ static void nr_pusch_symbol_processing(void *arg)
     if (pusch_vars->ul_valid_re_per_slot[symbol] == 0 || (rdata->skip && rdata->skip[symbol]))
       continue;
     int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
-    int buffer_length = ceil_mod(pusch_vars->ul_valid_re_per_slot[symbol] * NR_NB_SC_PER_RB, 16);
-    int16_t llrs[rel15_ul->nrOfLayers][ceil_mod(buffer_length * rel15_ul->qam_mod_order, 64)] __attribute__((aligned(32)));
+    // LLRs per layer: the symbol's REs, rounded up for the SIMD tails, times the largest modulation order of the group
+    int qm_max = rel15_ul->qam_mod_order;
+    for (int u = 0; u < rdata->group_size; u++)
+      qm_max = max(qm_max, rdata->rel15_ul_group[u]->qam_mod_order);
+    const int buffer_length = ceil_mod(ceil_mod(pusch_vars->ul_valid_re_per_slot[symbol], 16) * qm_max, 64);
+    int16_t llrs[rel15_ul->nrOfLayers][buffer_length] __attribute__((aligned(32)));
     int16_t *llrss[rel15_ul->nrOfLayers];
     for (int l = 0; l < rel15_ul->nrOfLayers; l++)
       llrss[l] = llrs[l];
