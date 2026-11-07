@@ -841,49 +841,57 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
 #undef NR_LBEST_EVAL16_256
 
 // ============================================================================
-// fp32-metric variant of the 2-layer 256QAM L-best / full-ML kernel. Same seed, candidate set
-// (pattern 1 = 3x3 window, 3 = full 16x16 grid), conditional nuisance slice and graded fallback as the
-// int16 kernel, but the candidate metric and the max-log reduction run in fp32 on half-width vectors,
-// following nr_qam256_llr_2layer_lbest (float reference) term by term. The int16 metric needs the
-// 1/4 scale for its dynamic range, i.e. 4 LLR units per metric unit plus truncations: bits with a
-// small |LLR| (the ones a rate ~0.93 code has to resolve) then take the wrong sign often enough to
-// cost ~1.2-1.4 dB at 70% throughput (MCS 27, 4 RX, TDL-A). 64QAM keeps the int16 kernel (no loss).
+// fp32-metric variant of the 2-layer 64QAM and 256QAM L-best / full-ML kernels. Same seed, candidate set
+// (pattern 1 = 3x3 window, 3 = full grid), conditional nuisance slice and graded fallback as the int16
+// kernels, but the candidate metric and the max-log reduction run in fp32 on half-width vectors,
+// following nr_qam{64,256}_llr_2layer_lbest (float references) term by term. The int16 metrics need a
+// coarse scale (1/8 for 64QAM, 1/4 for 256QAM) for their dynamic range, plus truncations: bits with a
+// small |LLR| (the ones a high-rate code has to resolve) then take the wrong sign often enough to cost
+// ~1.2-1.4 dB at 70% throughput for 256QAM MCS 27 (4 RX, TDL-A), and for 64QAM with 2 RX at high SNR.
 // ============================================================================
 static inline NRLB_VF NRLB_NAME(nrlbw_sel_ps)(NRLB_VI mask, NRLB_VF a, NRLB_VF b) // mask ? a : b (32-bit lanes)
 {
   return NRLB_CASTSI_PS(NRLB_BLENDV(NRLB_CASTPS_SI(b), NRLB_CASTPS_SI(a), mask));
 }
 
-// 256QAM Gray bits of a float PAM-16 level vector (all-ones 32-bit lanes where the bit is 1)
-static inline void NRLB_NAME(nrlbw_bits256_ps)(NRLB_VF lvl, NRLB_VI b[4])
+// Gray bits (38.211 5.1) of a float PAM level vector, nb bits per axis (all-ones 32-bit lanes where the bit is
+// 1): b0 = sign, then |L| against halving thresholds M/2, M/4, ...
+static inline void NRLB_NAME(nrlbw_bits_ps)(NRLB_VF lvl, int nb, NRLB_VI b[4])
 {
   const NRLB_VF nz = NRLB_MM(set1_ps)(-0.0f);
-  const NRLB_VF a = NRLB_MM(andnot_ps)(nz, lvl);
-  const NRLB_VF m2 = NRLB_MM(andnot_ps)(nz, NRLB_MM(sub_ps)(a, NRLB_MM(set1_ps)(8.0f)));
-  const NRLB_VF m3 = NRLB_MM(andnot_ps)(nz, NRLB_MM(sub_ps)(m2, NRLB_MM(set1_ps)(4.0f)));
   b[0] = NRLB_CMPPS_SI(lvl, NRLB_MM(setzero_ps)(), SIMDE_CMP_LT_OQ);
-  b[1] = NRLB_CMPPS_SI(a, NRLB_MM(set1_ps)(8.0f), SIMDE_CMP_GT_OQ);
-  b[2] = NRLB_CMPPS_SI(m2, NRLB_MM(set1_ps)(4.0f), SIMDE_CMP_GT_OQ);
-  b[3] = NRLB_CMPPS_SI(m3, NRLB_MM(set1_ps)(2.0f), SIMDE_CMP_GT_OQ);
+  NRLB_VF r = NRLB_MM(andnot_ps)(nz, lvl);
+  float t = (float)(1 << (nb - 1));
+  for (int k = 1; k < nb; k++) {
+    const NRLB_VF tv = NRLB_MM(set1_ps)(t);
+    b[k] = NRLB_CMPPS_SI(r, tv, SIMDE_CMP_GT_OQ);
+    r = NRLB_MM(andnot_ps)(nz, NRLB_MM(sub_ps)(r, tv));
+    t *= 0.5f;
+  }
 }
 
-void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
-                                                    c16_t *stream1_in,
-                                                    c16_t *ch_mag,
-                                                    c16_t *ch_mag_i,
-                                                    int16_t *stream0_out,
-                                                    c16_t *rho01,
-                                                    uint32_t length,
-                                                    int pattern,
-                                                    float lambda)
+static inline void NRLB_NAME(nrlbw_lbest_f32)(c16_t *stream0_in,
+                                               c16_t *stream1_in,
+                                               c16_t *ch_mag,
+                                               c16_t *ch_mag_i,
+                                               int16_t *stream0_out,
+                                               c16_t *rho01,
+                                               uint32_t length,
+                                               int pattern,
+                                               float lambda,
+                                               int nb)
 {
+  // nb = 3: 64QAM (PAM-8, cm = ||h||^2 * 4/sqrt(42)); nb = 4: 256QAM (PAM-16, cm = ||h||^2 * 8/sqrt(170))
+  const float sqK = nb == 3 ? 6.48074069840786f : 13.038404810405298f;
+  const int M = 1 << nb, Qm = 2 * nb;
+  const float Lmax = (float)(M - 1);
   const NRLB_VF lam = NRLB_MM(set1_ps)(lambda), epsh = NRLB_MM(set1_ps)(0.5f * NR_2LAYER_CSI_EPS);
-  const NRLB_VF NA = NRLB_MM(set1_ps)(0.07669649888473704f); // 1/sqrt(170)
-  const NRLB_VF S170 = NRLB_MM(set1_ps)(13.038404810405298f);
-  const NRLB_VF PSC = NRLB_MM(set1_ps)(13.038404810405298f / 8.0f); // cm -> ||h||^2
+  const NRLB_VF NA = NRLB_MM(set1_ps)(1.0f / sqK);
+  const NRLB_VF SK = NRLB_MM(set1_ps)(sqK);
+  const NRLB_VF PSC = NRLB_MM(set1_ps)(sqK / (float)(M / 2)); // cm -> ||h||^2
   const NRLB_VF HALF = NRLB_MM(set1_ps)(0.5f), NEG = NRLB_MM(set1_ps)(-1e30f), ZERO = NRLB_MM(setzero_ps)();
   const int full = (pattern == 3);
-  const int nI = full ? 16 : 3;
+  const int nI = full ? M : 3;
 
   uint32_t re = 0;
   for (int last = length < NRLB_N; !last; re += NRLB_N) {
@@ -899,7 +907,10 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
     NRLB_NAME(nrlbw_load)(&ch_mag_i[re], &cm1, &dummy);
 
     NRLB_VI centerI, centerQ, dirImask, dirQmask, axisLLR[8];
-    NRLB_NAME(nrlbw_seed256)(z1r16, z1i16, z2r16, z2i16, rr16, ri16, cm0, cm1, lam, epsh, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
+    if (nb == 4)
+      NRLB_NAME(nrlbw_seed256)(z1r16, z1i16, z2r16, z2i16, rr16, ri16, cm0, cm1, lam, epsh, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
+    else
+      NRLB_NAME(nrlbw_seed)(z1r16, z1i16, z2r16, z2i16, rr16, ri16, cm0, cm1, lam, epsh, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
     (void)dirImask;
     (void)dirQmask;
 
@@ -911,25 +922,24 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
       const NRLB_VF P0 = NRLB_MM(mul_ps)(NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(cm0, h)), PSC);
       const NRLB_VF P1 = NRLB_MM(mul_ps)(NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(cm1, h)), PSC);
       const NRLB_VF hP0 = NRLB_MM(mul_ps)(HALF, P0), hP1 = NRLB_MM(mul_ps)(HALF, P1);
-      // nuisance slice scale sqrt(170)/P1 (0 where P1 == 0, as the reference)
-      const NRLB_VF sl = NRLB_NAME(nrlbw_sel_ps)(NRLB_CMPPS_SI(P1, ZERO, SIMDE_CMP_NEQ_OQ),
-                                                 NRLB_MM(div_ps)(S170, P1), ZERO);
+      // nuisance slice scale sqrt(K)/P1 (0 where P1 == 0, as the references)
+      const NRLB_VF sl = NRLB_NAME(nrlbw_sel_ps)(NRLB_CMPPS_SI(P1, ZERO, SIMDE_CMP_NEQ_OQ), NRLB_MM(div_ps)(SK, P1), ZERO);
       const NRLB_VF cI = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(centerI, h));
       const NRLB_VF cQ = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(centerQ, h));
 
-      // per-axis candidate levels: the 3x3 window around the seed (clamped as the int16 kernel) or all 16
+      // per-axis candidate levels: the 3x3 window around the seed (clamped as the int16 kernels) or all M
       NRLB_VF lvI[16], lvQ[16];
       NRLB_VI bI[16][4], bQ[16][4];
       for (int k = 0; k < nI; k++) {
         if (full) {
-          lvI[k] = lvQ[k] = NRLB_MM(set1_ps)((float)(2 * k - 15));
+          lvI[k] = lvQ[k] = NRLB_MM(set1_ps)((float)(2 * k - (M - 1)));
         } else {
           const NRLB_VF o = NRLB_MM(set1_ps)((float)(2 * k - 2));
-          lvI[k] = NRLB_NAME(nrlbw_clamp)(NRLB_MM(add_ps)(cI, o), -15.0f, 15.0f);
-          lvQ[k] = NRLB_NAME(nrlbw_clamp)(NRLB_MM(add_ps)(cQ, o), -15.0f, 15.0f);
+          lvI[k] = NRLB_NAME(nrlbw_clamp)(NRLB_MM(add_ps)(cI, o), -Lmax, Lmax);
+          lvQ[k] = NRLB_NAME(nrlbw_clamp)(NRLB_MM(add_ps)(cQ, o), -Lmax, Lmax);
         }
-        NRLB_NAME(nrlbw_bits256_ps)(lvI[k], bI[k]);
-        NRLB_NAME(nrlbw_bits256_ps)(lvQ[k], bQ[k]);
+        NRLB_NAME(nrlbw_bits_ps)(lvI[k], nb, bI[k]);
+        NRLB_NAME(nrlbw_bits_ps)(lvQ[k], nb, bQ[k]);
       }
 
       // max-log per axis: rows (I level) and columns (Q level) of the candidate grid
@@ -946,8 +956,8 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
           // conditional ML nuisance x2* = Q((z2 - conj(rho) x1) / P1)
           const NRLB_VF cr = NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, x1r), NRLB_MM(mul_ps)(ri, x1i));
           const NRLB_VF ci = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(rr, x1i), NRLB_MM(mul_ps)(ri, x1r));
-          const NRLB_VF I2 = NRLB_NAME(nrlbw_clamp)(NRLB_NAME(nrlbw_round_odd)(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(z2r, cr), sl)), -15.0f, 15.0f);
-          const NRLB_VF Q2 = NRLB_NAME(nrlbw_clamp)(NRLB_NAME(nrlbw_round_odd)(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(z2i, ci), sl)), -15.0f, 15.0f);
+          const NRLB_VF I2 = NRLB_NAME(nrlbw_clamp)(NRLB_NAME(nrlbw_round_odd)(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(z2r, cr), sl)), -Lmax, Lmax);
+          const NRLB_VF Q2 = NRLB_NAME(nrlbw_clamp)(NRLB_NAME(nrlbw_round_odd)(NRLB_MM(mul_ps)(NRLB_MM(sub_ps)(z2i, ci), sl)), -Lmax, Lmax);
           const NRLB_VF x2r = NRLB_MM(mul_ps)(I2, NA), x2i = NRLB_MM(mul_ps)(Q2, NA);
           m = NRLB_MM(add_ps)(m, NRLB_MM(sub_ps)(NRLB_MM(add_ps)(NRLB_MM(mul_ps)(x2r, z2r), NRLB_MM(mul_ps)(x2i, z2i)),
                                                  NRLB_MM(mul_ps)(hP1, NRLB_MM(add_ps)(NRLB_MM(mul_ps)(x2r, x2r), NRLB_MM(mul_ps)(x2i, x2i)))));
@@ -959,7 +969,7 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
           colMax[b] = NRLB_MM(max_ps)(colMax[b], m);
         }
       }
-      for (int k = 0; k < 4; k++) {
+      for (int k = 0; k < nb; k++) {
         NRLB_VF m0I = NEG, m1I = NEG, m0Q = NEG, m1Q = NEG;
         for (int a = 0; a < nI; a++) {
           m0I = NRLB_MM(max_ps)(m0I, NRLB_NAME(nrlbw_sel_ps)(bI[a][k], NEG, rowMax[a]));
@@ -975,24 +985,48 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
       }
     }
     NRLB_VI res[8];
-    for (int p = 0; p < 8; p++) {
+    for (int p = 0; p < Qm; p++) {
       const NRLB_VI r = NRLB_NAME(nrlbw_pack32)(llr32[p][0], llr32[p][1]);
-      // unspanned bit (one side has no candidate): graded per-axis seed LLR, as the int16 kernel
+      // unspanned bit (one side has no candidate): graded per-axis seed LLR, as the int16 kernels
       res[p] = NRLB_BLENDV(r, axisLLR[p], NRLB_NAME(nrlbw_pack32)(uns32[p][0], uns32[p][1]));
     }
-    NRLB_NAME(nrlbw_store_llr)(stream0_out, re, res, 8);
+    NRLB_NAME(nrlbw_store_llr)(stream0_out, re, res, Qm);
   }
 
-  if (re < length) // fewer than one SIMD block: the float reference (same candidate set)
-    nr_qam256_llr_2layer_lbest(&stream0_in[re],
-                               &stream1_in[re],
-                               &ch_mag[re],
-                               &ch_mag_i[re],
-                               &stream0_out[re * 8],
-                               &rho01[re],
-                               length - re,
-                               pattern == 3 ? 256 : 9,
-                               (float)lambda);
+  if (re < length) { // fewer than one SIMD block: the float reference (same candidate set)
+    if (nb == 4)
+      nr_qam256_llr_2layer_lbest(&stream0_in[re], &stream1_in[re], &ch_mag[re], &ch_mag_i[re], &stream0_out[re * 8], &rho01[re],
+                                 length - re, pattern == 3 ? 256 : 9, lambda);
+    else
+      nr_qam64_llr_2layer_lbest(&stream0_in[re], &stream1_in[re], &ch_mag[re], &ch_mag_i[re], &stream0_out[re * 6], &rho01[re],
+                                length - re, pattern == 3 ? 64 : 9, lambda);
+  }
+}
+
+void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
+                                                    c16_t *stream1_in,
+                                                    c16_t *ch_mag,
+                                                    c16_t *ch_mag_i,
+                                                    int16_t *stream0_out,
+                                                    c16_t *rho01,
+                                                    uint32_t length,
+                                                    int pattern,
+                                                    float lambda)
+{
+  NRLB_NAME(nrlbw_lbest_f32)(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda, 4);
+}
+
+void NRLB_NAME(nr_qam64_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
+                                                   c16_t *stream1_in,
+                                                   c16_t *ch_mag,
+                                                   c16_t *ch_mag_i,
+                                                   int16_t *stream0_out,
+                                                   c16_t *rho01,
+                                                   uint32_t length,
+                                                   int pattern,
+                                                   float lambda)
+{
+  NRLB_NAME(nrlbw_lbest_f32)(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda, 3);
 }
 
 

@@ -3955,6 +3955,23 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
 #endif
 }
 
+void nr_qam64_llr_2layer_lbest_f32_simd16(c16_t *stream0_in,
+                                          c16_t *stream1_in,
+                                          c16_t *ch_mag,
+                                          c16_t *ch_mag_i,
+                                          int16_t *stream0_out,
+                                          c16_t *rho01,
+                                          uint32_t length,
+                                          int pattern,
+                                          float lambda)
+{
+#if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
+  nr_qam64_llr_2layer_lbest_f32_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda);
+#else
+  nr_qam64_llr_2layer_lbest_f32_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda);
+#endif
+}
+
 void nr_qam256_llr_2layer_lbest_f32_simd16(c16_t *stream0_in,
                                            c16_t *stream1_in,
                                            c16_t *ch_mag,
@@ -3996,21 +4013,16 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       nr_qam16_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
       break;
     case 6:
-      // 2-layer 64QAM. lbest (gNB pusch_mimo_receiver = "lbest", the default) runs the reduced-search
-      // kernel (nr_qam64_llr_2layer_lbest_q15_simd16), which tracks full ML on 3GPP TDL at a fraction
-      // of the cost (see nr_mimo_lbest_detector.md sec. 6a); otherwise the full ML search
-      // (nr_qam64_llr_2layer).
-      if (lbest) {
-        // pattern 0: 3x3 candidate window
-        nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, 0, lambda);
-        nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, 0, lambda);
-      } else {
-        nr_qam64_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
-        nr_qam64_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
-      }
-      // 64QAM: the metric runs one bit hotter (nr_ml_llr_maxh_off(6, .) = -2 / -3) to keep int16 precision
-      // in the search (cooler input costs ~1 dB ML / ~2 dB L-best at MCS 27); cool the LLRs back by
-      // one bit for the LDPC int8 input (the hot output clips and loses ~0.5 dB at low SNR, MCS 20).
+      // 2-layer 64QAM. lbest (gNB pusch_mimo_receiver = "lbest", the default) runs the reduced search with the
+      // 3x3 window around the MMSE seed, which tracks full ML on 3GPP TDL at a fraction of the cost (see
+      // nr_mimo_lbest_detector.md sec. 6a); ml the full 8x8 grid. Both use the fp32 metric: the int16 kernels'
+      // 1/8-scale metric flips small-|LLR| bits with 2 Rx at high SNR (UL MCS 27, 15 LDPC iterations: full ML 92%
+      // -> 96% and 3x3 86% -> 88% throughput at 30 dB), at the same cost for the 3x3 search and ~2x for full ML.
+      nr_qam64_llr_2layer_lbest_f32_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, lbest ? 1 : 3, lambda);
+      nr_qam64_llr_2layer_lbest_f32_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, lbest ? 1 : 3, lambda);
+      // 64QAM: the input runs one bit hot (nr_ml_llr_maxh_off(6, .) = -2 / -3, tuned with the former int16
+      // search); cool the LLRs back by one bit for the LDPC int8 input (the hot output clips and loses
+      // ~0.5 dB at low SNR, MCS 20).
       nr_llr_srai((int16_t *)llr_layers0, nb_re * 6, 1);
       nr_llr_srai((int16_t *)llr_layers1, nb_re * 6, 1);
       break;
