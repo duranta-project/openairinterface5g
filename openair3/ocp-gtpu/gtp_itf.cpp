@@ -3,6 +3,7 @@
  */
 
 #include <map>
+#include <random>
 using namespace std;
 
 #ifdef __cplusplus
@@ -167,11 +168,13 @@ class gtpEndPoints {
   // the instance id will be the Linux socket handler, as this is uniq
   map<uint64_t, gtpEndPoint> instances;
   map<uint64_t, ueidData_t> te2ue_mapping;
+  // TEID generator: private state, so that loading GTP does not reseed the process-wide random() / rand()
+  std::mt19937 teidRng;
   gtpEndPoints()
   {
     unsigned int seed;
     fill_random(&seed, sizeof(seed));
-    srandom(seed);
+    teidRng.seed(seed);
   }
 
   ~gtpEndPoints()
@@ -193,7 +196,7 @@ static teid_t gtpv1uNewTeid(void)
   g_gtpv1u_teid = g_gtpv1u_teid + 1;
   return g_gtpv1u_teid;
 #else
-  return random() + random() % (RAND_MAX - 1) + 1;
+  return std::uniform_int_distribution<teid_t>(1, UINT32_MAX)(globGtp.teidRng); // under gtp_lock
 #endif
 }
 
