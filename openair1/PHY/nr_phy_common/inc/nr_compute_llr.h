@@ -202,6 +202,19 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                            int pattern,
                                            float lambda);
 
+// fp32-metric variant of nr_qam256_llr_2layer_lbest_q15_simd16 (patterns 1 and 3): same seed, candidates
+// and fallback, metric and max-log in fp32 (tracks the float reference; the int16 metric's 1/4 scale
+// flips small-|LLR| bits).
+void nr_qam256_llr_2layer_lbest_f32_simd16(c16_t *stream0_in,
+                                           c16_t *stream1_in,
+                                           c16_t *ch_mag,
+                                           c16_t *ch_mag_i,
+                                           int16_t *stream0_out,
+                                           c16_t *rho01,
+                                           uint32_t length,
+                                           int pattern,
+                                           float lambda);
+
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
                        c16_t *ch_mag0,
@@ -212,7 +225,8 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rho1,
                        uint32_t nb_re,
                        uint8_t mod_order,
-                       int lbest, // 64/256QAM: 1 = reduced-search L-best, 0 = full max-log ML
+                       int lbest, // 64/256QAM: 0 = full max-log ML, 1 = reduced-search L-best, 2 = L-best with the
+                                  // fp32 256QAM metric (high resolution; = 1 for 64QAM)
                        float lambda); // L-best seed regularization: noise variance >> log2_maxh (0: ZF seed)
 
 #ifndef __cplusplus

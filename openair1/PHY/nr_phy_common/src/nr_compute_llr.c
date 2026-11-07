@@ -2552,7 +2552,7 @@ void nr_qam64_llr_2layer(c16_t *stream0_in,
  */
 // 2-layer 256QAM direct SIMD full-ML LLR (analogue of nr_qam64_llr_2layer for 64QAM).
 // Exact max-log search over all 256 constellation points, implemented by reusing the
-// verified L-best simd16 machinery on the full 16x16 grid (pattern 3, O(256) per RE via
+// verified L-best machinery (fp32 metric) on the full 16x16 grid (pattern 3, O(256) per RE via
 // the O(1) conditional slice). Replaces an earlier bespoke unrolled kernel that carried an
 // imaginary-axis / magnitude-threshold bug (~46% sign disagreement
 // vs the exact float reference nr_qam256_llr_2layer_lbest).
@@ -2564,7 +2564,7 @@ void nr_qam256_llr_2layer(c16_t *stream0_in,
                           c16_t *rho01,
                           uint32_t length)
 {
-  nr_qam256_llr_2layer_lbest_q15_simd16(stream0_in,
+  nr_qam256_llr_2layer_lbest_f32_simd16(stream0_in,
                                         stream1_in,
                                         ch_mag,
                                         ch_mag_i,
@@ -3965,6 +3965,23 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
 #endif
 }
 
+void nr_qam256_llr_2layer_lbest_f32_simd16(c16_t *stream0_in,
+                                           c16_t *stream1_in,
+                                           c16_t *ch_mag,
+                                           c16_t *ch_mag_i,
+                                           int16_t *stream0_out,
+                                           c16_t *rho01,
+                                           uint32_t length,
+                                           int pattern,
+                                           float lambda)
+{
+#if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
+  nr_qam256_llr_2layer_lbest_f32_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda);
+#else
+  nr_qam256_llr_2layer_lbest_f32_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda);
+#endif
+}
+
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
                        c16_t *ch_mag0,
@@ -4008,13 +4025,20 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       nr_llr_srai((int16_t *)llr_layers1, nb_re * 6, 1);
       break;
     case 8:
-      // 2-layer 256QAM. Default = reduced-search L-best with the 3x3/9-candidate pattern, which
-      // matches the full 256-candidate max-log ML in coded BLER (verified on TDL-A, gNB + UE) at a
-      // ~28x candidate reduction. ml runs the full 16x16 grid (pattern 3) = exact max-log ML.
-      {
-        const int pat256 = lbest ? 1 : 3;
-        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256, lambda);
-        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256, lambda);
+      // 2-layer 256QAM. lbest = reduced search with the 3x3/9-candidate window, which matches the full
+      // 256-candidate max-log ML in coded BLER (TDL-A, gNB + UE) at ~28x fewer candidates; ml = the full
+      // 16x16 grid. The int16 kernel carries the metric at 1/4 scale (4 LLR units per step plus mulhi
+      // truncations), which flips the sign of small-|LLR| bits: 0.2-0.6 dB at 70% throughput for MCS 20-26
+      // and ~1.4 dB at MCS 27 (4 RX), ~1 dB at 2 RX. The fp32-metric kernel tracks the float reference. It
+      // costs ~16% more for the 3x3 search (lbest == 2: pusch_mimo_hires / --pdsch-mimo-hires) and is ~30%
+      // cheaper for the full grid (per-axis max-log), which therefore always uses it.
+      if (lbest == 1) {
+        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, 1, lambda);
+        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, 1, lambda);
+      } else {
+        const int pat = lbest ? 1 : 3;
+        nr_qam256_llr_2layer_lbest_f32_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat, lambda);
+        nr_qam256_llr_2layer_lbest_f32_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat, lambda);
       }
       break;
     default:

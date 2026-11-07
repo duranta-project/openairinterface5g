@@ -438,6 +438,8 @@ typedef struct PHY_VARS_NR_UE_s {
 
   /// multi-layer PDSCH receiver (nr-uesoftmodem --pdsch-mimo-receiver, nr_dlsim -E)
   nr_pdsch_mimo_rx_t pdsch_mimo_rx;
+  /// 256QAM L-best with the fp32 metric (nr-uesoftmodem --pdsch-mimo-hires, nr_dlsim -J)
+  bool pdsch_mimo_hires;
 
   void* scopeData;
   // Pointers to hold PDSCH data only for phy simulators

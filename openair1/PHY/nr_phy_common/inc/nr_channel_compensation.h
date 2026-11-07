@@ -96,7 +96,7 @@ void nr_inner_rx_1layer(uint32_t length,
  * mag_a is built (nr_compute_ML_llr derives the other thresholds).
  *
  * @param cpe        Common Phase Error to be corrected ((32767,0) without PTRS)
- * @param lbest      Passed to nr_compute_ML_llr (64/256QAM: 1 = reduced-search L-best, 0 = full ML)
+ * @param lbest      Passed to nr_compute_ML_llr (0 = full ML, 1 = L-best, 2 = L-best with the fp32 256QAM metric)
  * @param lambda     Passed to nr_compute_ML_llr (L-best seed regularization, noise variance >> output_shift)
  * @param llr0,llr1  Per-layer LLR outputs (per-layer contiguous). Used when llr_cw == NULL.
  * @param llr_cw     Optional codeword output: when non-NULL, the two layers' LLRs are written
@@ -130,7 +130,7 @@ void nr_inner_rx_2layer_ml(uint32_t length,
  * llr_cw == NULL — leaves per-layer LLRs in layer_scratch[] for the caller to demap.
  *
  * @param ml2    use the 2-layer near-ML detector (nr_compute_ML_llr) for nb_layer == 2
- * @param lbest  its reduced-search selector (64/256QAM: 1 = L-best, 0 = full ML)
+ * @param lbest  its search selector (0 = full ML, 1 = L-best, 2 = L-best with the fp32 256QAM metric)
  * @param lambda L-best seed regularization: noise variance >> output_shift (0: ZF seed)
  * @return true if handled; false for caller-specific paths (2-layer MMSE, 3-layer, >2 layers).
  */
