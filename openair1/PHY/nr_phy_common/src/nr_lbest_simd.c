@@ -1030,6 +1030,32 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
 }
 
 
+// Exact max-log per-axis Gray-PAM LLR, out[b] = g * (d1 - d0), nb bits per axis (M = 2^nb levels): the levels
+// with a given bit value form one to three runs of consecutive odd levels, and the nearest member of a run is the
+// nearest odd level clamped to it. Same minimum distances as an exhaustive search over the M levels. b0 (sign)
+// works on est, the symmetric bits on |est|.
+static inline void NRLB_NAME(nrlbw_pam_llr)(NRLB_VF est, NRLB_VF g, int nb, NRLB_VF out[4])
+{
+  const float L = (float)((1 << nb) - 1), H = (float)(1 << (nb - 1)), Q = (float)(1 << nb) / 4.0f;
+  const NRLB_VF a = NRLB_MM(andnot_ps)(NRLB_MM(set1_ps)(-0.0f), est);
+  const NRLB_VF o = NRLB_NAME(nrlbw_round_odd)(est), oa = NRLB_NAME(nrlbw_round_odd)(a);
+#define NR_PAM_D(lo, hi) NRLB_NAME(nrlbw_dsq)(NRLB_NAME(nrlbw_clamp)(oa, (lo), (hi)), a)
+  out[0] = NRLB_MM(mul_ps)(g,
+                           NRLB_MM(sub_ps)(NRLB_NAME(nrlbw_dsq)(NRLB_NAME(nrlbw_clamp)(o, -L, -1.0f), est),
+                                           NRLB_NAME(nrlbw_dsq)(NRLB_NAME(nrlbw_clamp)(o, 1.0f, L), est)));
+  if (nb >= 2) // b1: |L| > M/2
+    out[1] = NRLB_MM(mul_ps)(g, NRLB_MM(sub_ps)(NR_PAM_D(H + 1.0f, L), NR_PAM_D(1.0f, H - 1.0f)));
+  if (nb >= 3) // b2: ||L| - M/2| > M/4
+    out[2] = NRLB_MM(mul_ps)(g,
+                             NRLB_MM(sub_ps)(NRLB_MM(min_ps)(NR_PAM_D(1.0f, Q - 1.0f), NR_PAM_D(3.0f * Q + 1.0f, L)),
+                                             NR_PAM_D(Q + 1.0f, 3.0f * Q - 1.0f)));
+  if (nb >= 4) // b3 (256QAM): |L| in {1,7,9,15} vs {3,5,11,13}
+    out[3] = NRLB_MM(mul_ps)(g,
+                             NRLB_MM(sub_ps)(NRLB_MM(min_ps)(NRLB_MM(min_ps)(NR_PAM_D(1.0f, 1.0f), NR_PAM_D(7.0f, 9.0f)), NR_PAM_D(15.0f, 15.0f)),
+                                             NRLB_MM(min_ps)(NR_PAM_D(3.0f, 5.0f), NR_PAM_D(11.0f, 13.0f))));
+#undef NR_PAM_D
+}
+
 // ============================================================================
 // 2-layer linear MMSE: the L = 1 member of the L-best family. Unbiased MMSE estimate of the target layer (the
 // L-best seed) and exact max-log per-axis Gray-PAM LLRs for every bit, g * (d1 - d0) in level units, with the
@@ -1047,25 +1073,12 @@ void NRLB_NAME(nr_llr_2layer_mmse_simd)(const c16_t *z0,
                                         int mod_order,
                                         float lambda)
 {
-  const int nb = mod_order / 2, M = 1 << nb;
+  const int nb = mod_order / 2;
   static const float sqK[5] = {0, 1.4142135623730951f, 3.1622776601683795f, 6.48074069840786f, 13.038404810405298f};
   static const float K[5] = {0, 2.0f, 10.0f, 42.0f, 170.0f};
-  // per-axis Gray bits of each PAM level (38.211 5.1): b0 = sign, then |L| against halving thresholds
-  int lvl[16], bit[16][4];
-  for (int i = 0; i < M; i++) {
-    const int L = 2 * i - (M - 1);
-    lvl[i] = L;
-    bit[i][0] = L < 0;
-    int r = L < 0 ? -L : L, t = M / 2;
-    for (int b = 1; b < nb; b++) {
-      bit[i][b] = r > t;
-      r = r > t ? r - t : t - r;
-      t /= 2;
-    }
-  }
   const NRLB_VF lam = NRLB_MM(set1_ps)(lambda), ONE = NRLB_MM(set1_ps)(1.0f);
   const NRLB_VF epsh = NRLB_MM(set1_ps)(0.5f * NR_2LAYER_CSI_EPS);
-  const NRLB_VF SQ = NRLB_MM(set1_ps)(sqK[nb]), GK = NRLB_MM(set1_ps)(0.5f / K[nb]), BIG = NRLB_MM(set1_ps)(1e30f);
+  const NRLB_VF SQ = NRLB_MM(set1_ps)(sqK[nb]), GK = NRLB_MM(set1_ps)(0.5f / K[nb]);
   __attribute__((aligned(64))) int16_t tmp[8][NRLB_N];
 
   uint32_t re = 0;
@@ -1096,28 +1109,25 @@ void NRLB_NAME(nr_llr_2layer_mmse_simd)(const c16_t *z0,
       const NRLB_VF est[2] = {NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numr, det), SQ), NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numi, det), SQ)};
       const NRLB_VF g = NRLB_MM(mul_ps)(GK, NRLB_MM(div_ps)(det, NRLB_MM(max_ps)(P1s, ONE)));
       for (int ax = 0; ax < 2; ax++) { // I, Q
-        NRLB_VF d0[4], d1[4];
+        NRLB_VF l[4];
+        NRLB_NAME(nrlbw_pam_llr)(est[ax], g, nb, l);
         for (int b = 0; b < nb; b++)
-          d0[b] = d1[b] = BIG;
-        for (int i = 0; i < M; i++) {
-          const NRLB_VF d = NRLB_NAME(nrlbw_dsq)(NRLB_MM(set1_ps)((float)lvl[i]), est[ax]);
-          for (int b = 0; b < nb; b++) {
-            if (bit[i][b])
-              d1[b] = NRLB_MM(min_ps)(d1[b], d);
-            else
-              d0[b] = NRLB_MM(min_ps)(d0[b], d);
-          }
-        }
-        for (int b = 0; b < nb; b++)
-          llr32[2 * b + ax][h] = NRLB_NAME(nrlbw_cvt_sat)(NRLB_MM(mul_ps)(g, NRLB_MM(sub_ps)(d1[b], d0[b])));
+          llr32[2 * b + ax][h] = NRLB_NAME(nrlbw_cvt_sat)(l[b]);
       }
     }
-    // {I0,Q0,I1,Q1,...} per RE
+    // {I0,Q0,I1,Q1,...} per RE: the vector transpose store for Qm 6/8, a scalar interleave for QPSK/16QAM
+    NRLB_VI res[8];
     for (int p = 0; p < mod_order; p++)
-      NRLB_STOREU(tmp[p], NRLB_NAME(nrlbw_pack32)(llr32[p][0], llr32[p][1]));
-    for (int i = 0; i < NRLB_N; i++)
+      res[p] = NRLB_NAME(nrlbw_pack32)(llr32[p][0], llr32[p][1]);
+    if (mod_order >= 6) {
+      NRLB_NAME(nrlbw_store_llr)(out, re, res, mod_order);
+    } else {
       for (int p = 0; p < mod_order; p++)
-        out[(re + i) * mod_order + p] = tmp[p][i];
+        NRLB_STOREU(tmp[p], res[p]);
+      for (int i = 0; i < NRLB_N; i++)
+        for (int p = 0; p < mod_order; p++)
+          out[(re + i) * mod_order + p] = tmp[p][i];
+    }
   }
   if (re < length)
     nr_llr_2layer_mmse_ref(&z0[re], &z1[re], &g00[re], &g11[re], &rho01[re], &out[re * mod_order], length - re, mod_order, lambda);
