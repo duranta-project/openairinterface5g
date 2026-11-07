@@ -2200,41 +2200,14 @@ static void nr_rrc_ue_prepare_RRCReestablishmentRequest(NR_UE_RRC_INST_t *rrc)
 {
   uint8_t buffer[1024];
 
-  /* Compute shortMAC-I per TS 38.331 §5.3.7.4:
-   * over the ASN.1 encoded as per clause 8 VarShortMAC-Input;
-   * with the KRRCint key and integrity protection algorithm that was used in the source PCell
-   * of the PCell in which the trigger for the re-establishment occurred (other cases);
-   * with all input bits for COUNT, BEARER and DIRECTION set to binary ones */
+  /* shortMAC-I per TS 38.331 §5.3.7.4, with the KRRCint key and integrity protection algorithm
+   * that was used in the source PCell */
   AssertFatal(rrc->as_security_activated, "RRCReestablishmentRequest requires AS security to be activated\n");
-  uint8_t krrcint[16];
-  nr_derive_key(RRC_INT_ALG, rrc->integrityProtAlgorithm, rrc->kgnb, krrcint);
-
-  uint8_t var_input[8] = {0};
-  /* Write 62 bits MSB-first into var_input */
-  uint64_t hi = ((uint64_t)rrc->reestab_source_pci << 54) | (rrc->cell_identity << 18) | ((uint64_t)rrc->reestab_source_crnti << 2);
-  var_input[0] = (hi >> 56) & 0xFF;
-  var_input[1] = (hi >> 48) & 0xFF;
-  var_input[2] = (hi >> 40) & 0xFF;
-  var_input[3] = (hi >> 32) & 0xFF;
-  var_input[4] = (hi >> 24) & 0xFF;
-  var_input[5] = (hi >> 16) & 0xFF;
-  var_input[6] = (hi >> 8) & 0xFF;
-  var_input[7] = hi & 0xFF;
-
-  stream_security_context_t *ctx = stream_integrity_init(rrc->integrityProtAlgorithm, krrcint);
-  AssertFatal(ctx != NULL, "Failed to initialise integrity context for integrityProtAlgorithm %d\n", rrc->integrityProtAlgorithm);
-  nas_stream_cipher_t cipher = {
-      .context = ctx,
-      .count = 0xffffffff,
-      .bearer = 0x1f,
-      .direction = SECU_DIRECTION_DOWNLINK,
-      .message = var_input,
-      .blength = 64, /* 8 bytes: 62 bits content + 2 zero padding bits */
-  };
-  uint8_t mac[4];
-  stream_compute_integrity((eia_alg_id_e)rrc->integrityProtAlgorithm, &cipher, mac);
-  stream_integrity_free(rrc->integrityProtAlgorithm, ctx);
-  uint16_t short_mac_i = ((uint16_t)mac[2] << 8) | mac[3];
+  uint16_t short_mac_i = nr_derive_short_mac_i(rrc->integrityProtAlgorithm,
+                                               rrc->kgnb,
+                                               rrc->reestab_source_pci,
+                                               rrc->cell_identity,
+                                               rrc->reestab_source_crnti);
 
   int buf_size = do_RRCReestablishmentRequest(buffer, rrc->reestablishment_cause, rrc->reestab_source_pci, rrc->reestab_source_crnti, short_mac_i);
   nr_rlc_srb_recv_sdu(rrc->ue_id, 0, buffer, buf_size);
