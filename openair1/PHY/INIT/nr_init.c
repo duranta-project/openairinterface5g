@@ -145,6 +145,8 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
 
   int ret_loader = load_nrLDPC_coding_interface(NULL, &gNB->nrLDPC_coding_interface, 16 * gNB->max_nb_pusch);
   AssertFatal(ret_loader == 0, "error loading LDPC library\n");
+  // optional: one context per PUSCH processed concurrently (up to 8; the others use the CPU)
+  load_nr_irx_interface(&gNB->irx, fp->N_RB_UL * NR_NB_SC_PER_RB, fp->nb_antennas_rx, min(gNB->max_nb_pusch, 8));
 
   init_DLSCH_struct(gNB);
 
@@ -258,6 +260,7 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
   free(gNB->pusch_vars);
 
   free_nrLDPC_coding_interface(&gNB->nrLDPC_coding_interface);
+  free_nr_irx_interface(&gNB->irx);
 }
 
 void nr_phy_config_request_sim(PHY_VARS_gNB *gNB,

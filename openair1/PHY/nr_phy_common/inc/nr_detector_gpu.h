@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include "platform_types.h"
+#include "nr_inner_rx_offload.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,20 +54,11 @@ int nr_gpu_llr_2layer_mmse(const c16_t *z0,
                            float lambda,
                            void *stream);
 
-/// One OFDM symbol of a slot-batched 2-layer inner RX (nr_gpu_inner_rx_2layer); device-accessible pointers.
-typedef struct {
-  const c16_t *rxF; ///< extracted RX [nb_rx][stride]
-  const c16_t *chF; ///< extracted channel estimates [2][nb_rx][stride]
-  const int16_t *scramble; ///< +-1 descrambling sequence of the codeword slice (length * 2 * Qm), or NULL
-  int16_t *llr_cw; ///< codeword slice: layer-demapped LLRs (per RE: layer 0 then layer 1), length * 2 * Qm
-  uint32_t length; ///< REs of this symbol (< 65536)
-  uint32_t stride; ///< row stride of rxF / chF
-  c16_t cpe; ///< PTRS common phase error, (32767, 0) without PTRS
-} nr_gpu_rx_sym_t;
-
-#define NR_GPU_MAX_SYM 14
-/// detector of nr_gpu_inner_rx_2layer: 2-layer MMSE, L-best (fp32, adaptive window) or full ML (fp32)
-enum { NR_GPU_DET_MMSE = 0, NR_GPU_DET_LBEST = 1, NR_GPU_DET_ML = 3 };
+/// One OFDM symbol of a slot-batched 2-layer inner RX (nr_gpu_inner_rx_2layer): the offload interface's descriptor;
+/// device-accessible pointers.
+typedef nr_irx_sym_t nr_gpu_rx_sym_t;
+#define NR_GPU_MAX_SYM NR_IRX_MAX_SYM
+enum { NR_GPU_DET_MMSE = NR_IRX_DET_MMSE, NR_GPU_DET_LBEST = NR_IRX_DET_LBEST, NR_GPU_DET_ML = NR_IRX_DET_ML };
 
 /// Front end of the 2-layer inner RX for one symbol, bit-exact with nr_channel_compensation (nb_layers = 2, rho):
 /// out = {comp0, comp1, mag_a0, mag_a1, rho00, rho01, rho10, rho11}, length REs each (mag as (m, m)).

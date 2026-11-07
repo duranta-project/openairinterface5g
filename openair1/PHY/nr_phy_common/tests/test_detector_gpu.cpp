@@ -79,7 +79,7 @@ bool have_gpu()
   void *p = nullptr;
   if (gpuMalloc(&p, 16) != gpuSuccess)
     return false;
-  gpuFree(p);
+  (void)gpuFree(p);
   return true;
 }
 
@@ -102,7 +102,7 @@ struct DevIn {
   ~DevIn()
   {
     for (void *p : {(void *)s0, (void *)s1, (void *)mag, (void *)magi, (void *)rho, (void *)out})
-      gpuFree(p);
+      (void)gpuFree(p);
   }
 };
 

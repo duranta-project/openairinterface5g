@@ -53,6 +53,16 @@ if (ENABLE_PHY_GPU)
     target_compile_options(nr_phy_gpu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
     target_link_libraries(nr_phy_gpu PUBLIC CUDA::cudart)
   endif()
+
+  # inner-RX offload module (nr_inner_rx_offload.h): --loader.inner_rx.shlibversion _gpu
+  add_library(inner_rx_gpu MODULE gpu/nr_irx_gpu.c)
+  target_link_libraries(inner_rx_gpu PRIVATE nr_phy_gpu)
+  set_target_properties(inner_rx_gpu PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  foreach(t nr-softmodem nr_ulsim)
+    if (TARGET ${t})
+      add_dependencies(${t} inner_rx_gpu)
+    endif()
+  endforeach()
 endif()
 
 add_library(nr_ue_phy_meas src/nr_ue_phy_meas.c)

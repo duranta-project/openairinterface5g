@@ -15,6 +15,7 @@
 #include "CODING/nrPolar_tools/nr_polar_pbch_defs.h"
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
+#include "PHY/nr_phy_common/inc/nr_inner_rx_offload.h"
 #include "PHY/CODING/nrLDPC_extern.h"
 #include "PHY/CODING/nrLDPC_decoder/nrLDPC_types.h"
 #include "nfapi_nr_interface_scf.h"
@@ -441,6 +442,8 @@ typedef struct PHY_VARS_gNB_s {
 
   /// NR LDPC coding related
   nrLDPC_coding_interface_t nrLDPC_coding_interface;
+  /// inner-RX offload module (loader.inner_rx.shlibversion); entry points NULL when none is loaded
+  nr_irx_interface_t irx;
   int max_ldpc_iterations;
 
   /// indicate the channel estimation technique in time domain
