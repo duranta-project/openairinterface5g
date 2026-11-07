@@ -66,7 +66,7 @@ int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer)
   int decoded = 0;
   uint8_t *buf = buffer->buf;
 
-  if (buffer->len < MIN_PDU_SESSION_CONTENTS_LEN + 2) {
+  if (buffer->len < 1 + MIN_PDU_SESSION_CONTENTS_LEN) {
     PRINT_ERROR("%s failed: buffer length is too small", __func__);
     return -1;
   }
