@@ -551,6 +551,7 @@ void add_srb(int is_gnb,
                                   NULL,
                                   ue,
                                   SHORT_SN_SIZE,
+                                  SHORT_SN_SIZE,
                                   t_Reordering,
                                   -1,
                                   security_parameters);
@@ -575,6 +576,15 @@ void nr_pdcp_add_drb(int is_gnb,
   }
 
   struct NR_PDCP_Config__drb *drb = pdcp->drb;
+  if (!drb->pdcp_SN_SizeUL || !drb->pdcp_SN_SizeDL || !drb->discardTimer) {
+    LOG_E(PDCP,
+          "Missing mandatory PDCP DRB parameters (sn_ul=%p, sn_dl=%p, discardTimer=%p). DRB %d not configured.\n",
+          (void *)drb->pdcp_SN_SizeUL,
+          (void *)drb->pdcp_SN_SizeDL,
+          (void *)drb->discardTimer,
+          sdap->drb_id);
+    return;
+  }
   int sn_size_ul = decode_sn_size_ul(*drb->pdcp_SN_SizeUL);
   int sn_size_dl = decode_sn_size_dl(*drb->pdcp_SN_SizeDL);
   int discard_timer = decode_discard_timer(*drb->discardTimer);
@@ -598,12 +608,6 @@ void nr_pdcp_add_drb(int is_gnb,
   if (nr_pdcp_get_rb(ue, sdap->drb_id, false) != NULL) {
     LOG_W(PDCP, "warning DRB %d already exist for UE ID %ld, do nothing\n", sdap->drb_id, UEid);
   } else {
-    // code assumption: same SN size for both DL and UL
-    if (sn_size_ul != sn_size_dl) {
-      LOG_E(PDCP, "fatal, bad SN sizes, must be same. ul=%d, dl=%d\n", sn_size_ul, sn_size_dl);
-      exit(1);
-    }
-
     // add PDCP entity
     nr_pdcp_entity_t *pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM,
                                                     is_gnb,
@@ -615,6 +619,7 @@ void nr_pdcp_add_drb(int is_gnb,
                                                     ue,
                                                     is_gnb ? deliver_pdu_drb_gnb : deliver_pdu_drb_ue,
                                                     ue,
+                                                    sn_size_ul,
                                                     sn_size_dl,
                                                     t_reordering,
                                                     discard_timer,
@@ -834,18 +839,6 @@ void nr_pdcp_reconfigure_drb(ue_id_t ue_id, int drb_id, NR_PDCP_Config_t *pdcp_c
     if (drb_config) {
       if (drb_config->discardTimer)
         drb->discard_timer = decode_discard_timer(*drb_config->discardTimer);
-      bool size_set = false;
-      if (drb_config->pdcp_SN_SizeUL) {
-        drb->sn_size = decode_sn_size_ul(*drb_config->pdcp_SN_SizeUL);
-        size_set = true;
-      }
-      if (drb_config->pdcp_SN_SizeDL) {
-        int size = decode_sn_size_dl(*drb_config->pdcp_SN_SizeDL);
-        AssertFatal(!size_set || (size == drb->sn_size),
-                    "SN sizes must be the same. dl=%d, ul=%d",
-                    size, drb->sn_size);
-        drb->sn_size = size;
-      }
     }
   }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
@@ -1021,7 +1014,8 @@ void nr_pdcp_count_update(ue_id_t ue_id,
                           rb_id_t drb_id,
                           nr_pdcp_count_t dl_count,
                           nr_pdcp_count_t ul_count,
-                          int sn_size)
+                          int sn_size_dl,
+                          int sn_size_ul)
 {
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
 
@@ -1039,8 +1033,8 @@ void nr_pdcp_count_update(ue_id_t ue_id,
     return;
   }
 
-  entity->set_pdcp_count_dl(entity, dl_count, sn_size);
-  entity->set_pdcp_count_ul(entity, ul_count, sn_size);
+  entity->set_pdcp_count_dl(entity, dl_count, sn_size_dl);
+  entity->set_pdcp_count_ul(entity, ul_count, sn_size_ul);
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
