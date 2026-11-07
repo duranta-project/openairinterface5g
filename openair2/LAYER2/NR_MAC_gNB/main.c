@@ -40,18 +40,20 @@
 #include "time_meas.h"
 #include "utils.h"
 
-// room for the statistics of all the UEs (about 420 bytes each)
-#define MACSTATSSTRLEN ((MAX_MOBILES_PER_GNB + 1) * 512)
+// room for the statistics of all the UEs (about 600 bytes each with the CSI/SRS line)
+#define MACSTATSSTRLEN ((MAX_MOBILES_PER_GNB + 1) * 1024)
 
 void *nrmac_stats_thread(void *arg) {
 
   gNB_MAC_INST *gNB = (gNB_MAC_INST *)arg;
 
-  char output[MACSTATSSTRLEN] = {0};
+  char *output = calloc_or_fail(MACSTATSSTRLEN, 1);
   const char *end = output + MACSTATSSTRLEN;
+  bool truncated_warned = false;
   FILE *file = fopen("nrMAC_stats.log","w");
   if (!file) {
     LOG_W(NR_MAC, "Cannot open nrMAC_stats.log: %d, %s\n", errno, strerror(errno));
+    free(output);
     return NULL;
   }
 
@@ -75,6 +77,10 @@ void *nrmac_stats_thread(void *arg) {
     }
     NR_SCHED_UNLOCK(&gNB->sched_lock);
     size_t len = p - output;
+    if (len >= MACSTATSSTRLEN - 1 && !truncated_warned) {
+      LOG_W(NR_MAC, "nrMAC_stats.log truncated at %d bytes: some UEs are missing\n", MACSTATSSTRLEN);
+      truncated_warned = true;
+    }
     // nothing to write before the first cell is configured: fwrite() of 0 bytes returns 0, not an error
     if (len > 0 && (fwrite(output, len, 1, file) != 1 || fflush(file) != 0)) {
       LOG_E(NR_MAC, "error while writing nrMAC_stats.log: %d, %s\n", errno, strerror(errno));
@@ -87,6 +93,7 @@ void *nrmac_stats_thread(void *arg) {
     }
   }
   fclose(file);
+  free(output);
   return NULL;
 }
 
