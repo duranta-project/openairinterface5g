@@ -275,7 +275,7 @@ typedef struct {
 typedef enum {
   NR_PDSCH_RX_MMSE = 0, ///< linear MMSE, all layer counts and modulations
   NR_PDSCH_RX_ML, ///< 2-layer exact max-log ML for QPSK/16QAM/64QAM; MMSE otherwise
-  NR_PDSCH_RX_LBEST, ///< 2-layer reduced-search near-ML up to 256QAM, 3-layer hybrid; MMSE for 4 layers
+  NR_PDSCH_RX_LBEST, ///< 2-layer reduced-search near-ML up to 256QAM; MMSE for 3 and 4 layers
 } nr_pdsch_mimo_rx_t;
 
 /// Parses "mmse" | "ml" | "lbest"; returns -1 if unknown.

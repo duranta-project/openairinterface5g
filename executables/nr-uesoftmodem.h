@@ -33,7 +33,7 @@ extern uint16_t ue_id_g;
   "Comma-separated cores for DL then UL actors (and SYNC if one spare). Must have at least num-dl-actors + num-ul-actors " \
   "entries; omit for no affinity\n"
 #define  CONFIG_HLP_DISABLE_BLIND_SEARCH   "Disable blind search for UE searches by neighboring cells\n"
-#define  CONFIG_HLP_PDSCH_MIMO_RX         "multi-layer PDSCH receiver: mmse (default), ml (2-layer QPSK..64QAM), lbest (2-layer up to 256QAM, 3-layer)\n"
+#define  CONFIG_HLP_PDSCH_MIMO_RX         "multi-layer PDSCH receiver: mmse (default), ml (2-layer QPSK..64QAM), lbest (2-layer up to 256QAM)\n"
 #define  CONFIG_HLP_RX2TX                  "Defines ue capability in slots to produce an UL feedback from its relative DL meassage (DCI->ULSCH or PDSCH->PUCCH)"
 
 /***************************************************************************************************************************************/
