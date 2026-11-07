@@ -4014,8 +4014,9 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       break;
     case 6:
       // 2-layer 64QAM. lbest (gNB pusch_mimo_receiver = "lbest", or "auto" with 2 Rx) runs the reduced search with the
-      // 3x3 window around the MMSE seed, which tracks full ML on 3GPP TDL at a fraction of the cost (see
-      // nr_mimo_lbest_detector.md sec. 6a); ml the full 8x8 grid. Both use the fp32 metric: the int16 kernels'
+      // 3x3 window around the MMSE seed, widened to the full grid on low-SINR REs (NR_LBEST_WIDE_SINR64), which
+      // tracks full ML on 3GPP TDL at a fraction of the cost (see nr_mimo_lbest_detector.md sec. 6a); ml the full
+      // 8x8 grid. Both use the fp32 metric: the int16 kernels'
       // 1/8-scale metric flips small-|LLR| bits with 2 Rx at high SNR (UL MCS 27, 15 LDPC iterations: full ML 92%
       // -> 96% and 3x3 86% -> 88% throughput at 30 dB), at the same cost for the 3x3 search and ~2x for full ML.
       nr_qam64_llr_2layer_lbest_f32_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, lbest ? 1 : 3, lambda);

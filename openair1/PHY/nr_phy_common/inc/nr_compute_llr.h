@@ -32,6 +32,20 @@ float nr_2layer_seed_lambda(uint32_t nvar, int shift);
 /// with lambda + eps * (P0 + P1) / 2 per RE: at high SNR this error, not the thermal noise, limits the linear
 /// estimate (TDL-A, 2 Rx, 64QAM MCS 27: +3-5 points of L-best throughput at 26-30 dB; neutral with 4 Rx).
 #define NR_2LAYER_CSI_EPS 0.003f
+/// 2-layer L-best adaptive window: an RE whose target-layer post-MMSE SINR, det / (lambda_eff (P1 + lambda_eff)) as
+/// in the seed, is below this (linear) searches the full target grid instead of the 3x3 window. On ill-conditioned
+/// 2x2 channels (2 Rx) the seed is too unreliable for the window and the bits it does not span fall back to the seed
+/// LLR. TDL-A, 2 Rx, 15 LDPC iterations: full-ML throughput (64QAM MCS 20/27, 256QAM MCS 20) with ~5% (64QAM) /
+/// ~10% (256QAM) of the REs searched in full, ~0% with 4 Rx; 5x5 to 9x9 windows recover little.
+#define NR_LBEST_WIDE_SINR64 10.0f
+#define NR_LBEST_WIDE_SINR256 20.0f
+/// NR_LBEST_WIDE_SINR* test for one RE (P = ||h||^2 in the rho units); nb = bits per axis (3: 64QAM, 4: 256QAM)
+static inline int nr_lbest_wide_re(float P0, float P1, float rr, float ri, float lambda, int nb)
+{
+  const float lame = lambda + 0.5f * NR_2LAYER_CSI_EPS * (P0 + P1), P1s = P1 + lame;
+  const float det = P0 * P1s - (rr * rr + ri * ri);
+  return det < (nb == 4 ? NR_LBEST_WIDE_SINR256 : NR_LBEST_WIDE_SINR64) * (lame * P1s);
+}
 
 /// log2_approx(avgs) at the input level the 2-layer offsets were tuned at (nr_ulsim default level)
 #define NR_2LAYER_LOG2_AVGS_NOMINAL 18

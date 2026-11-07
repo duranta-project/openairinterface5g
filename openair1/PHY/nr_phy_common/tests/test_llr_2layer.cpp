@@ -30,6 +30,7 @@ void exit_function(const char *file, const char *function, const int line, const
     exit(EXIT_SUCCESS);
 }
 #include "openair1/PHY/TOOLS/tools_defs.h"
+#include "openair1/PHY/nr_phy_common/inc/nr_compute_llr.h" // nr_lbest_wide_re
 
 // Float reference L-best (float internally, int16 out). L = candidate count
 // (L>=full reproduces the exact max-log ML search); seed_lambda unused here.
@@ -507,6 +508,70 @@ TEST(test_llr_2layer, mmse_widths_and_reference)
         EXPECT_LE(maxd, 1) << "MMSE SIMD vs reference, Qm=" << qm << " n=" << n << " lambda=" << lambda;
         EXPECT_EQ(0, o256[nll]) << "MMSE store past the end, Qm=" << qm << " n=" << n;
       }
+}
+
+// 2-layer L-best adaptive window (fp32 kernels, pattern 1): an RE below NR_LBEST_WIDE_SINR* (nr_lbest_wide_re) gets
+// exactly the full-grid LLRs (pattern 3), every other RE exactly the 3x3-window LLRs, per RE whatever its neighbours.
+TEST(test_llr_2layer, lbest_adaptive_window)
+{
+  typedef void (*kern_t)(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+  const struct {
+    int nb;
+    kern_t k[3];
+  } cfg[] = {{3, {nr_qam64_llr_2layer_lbest_f32_simd_w128, nr_qam64_llr_2layer_lbest_f32_simd_w256, NRLB_K512(nr_qam64_llr_2layer_lbest_f32_simd)}},
+             {4, {nr_qam256_llr_2layer_lbest_f32_simd_w128, nr_qam256_llr_2layer_lbest_f32_simd_w256, NRLB_K512(nr_qam256_llr_2layer_lbest_f32_simd)}}};
+  const uint32_t n = 1272;
+  for (const auto &c : cfg)
+    for (float lambda : {0.0f, 300.0f}) {
+      const int qm = 2 * c.nb;
+      const float psc = c.nb == 3 ? 6.48074069840786f / 4 : 13.038404810405298f / 8; // cm -> ||h||^2
+      // ~30% of the REs nearly singular (|rho|^2 ~ 0.99 P0 P1), the others well conditioned (|rho|^2 ~ 0.1 P0 P1)
+      std::mt19937 rng(0xADA9u + c.nb + (unsigned)lambda);
+      std::uniform_real_distribution<double> pw(2000, 16000), ph(0, 2 * M_PI), u(0, 1), z(-12000, 12000);
+      Inputs2L in;
+      for (auto *v : {&in.s0, &in.s1, &in.mag, &in.magi, &in.rho})
+        v->resize(n + 64);
+      for (uint32_t i = 0; i < n + 64; i++) {
+        const double p0 = pw(rng), p1 = pw(rng), a = (u(rng) < 0.3 ? 0.995 : 0.3) * sqrt(p0 * p1) * psc, t = ph(rng);
+        in.mag[i] = {(int16_t)p0, (int16_t)p0};
+        in.magi[i] = {(int16_t)p1, (int16_t)p1};
+        in.rho[i] = {(int16_t)(a * cos(t)), (int16_t)(a * sin(t))};
+        in.s0[i] = {(int16_t)z(rng), (int16_t)z(rng)};
+        in.s1[i] = {(int16_t)z(rng), (int16_t)z(rng)};
+      }
+      auto wide = [&](const Inputs2L &x, uint32_t i) {
+        return nr_lbest_wide_re(x.mag[i].r * psc, x.magi[i].r * psc, x.rho[i].r, x.rho[i].i, lambda, c.nb);
+      };
+      // the same REs with every wide one replaced by a well-conditioned RE: the pure 3x3-window result
+      uint32_t good = 0;
+      while (wide(in, good))
+        good++;
+      Inputs2L nw = in;
+      uint32_t nwide = 0;
+      for (uint32_t i = 0; i < n; i++)
+        if (wide(in, i)) {
+          nwide++;
+          nw.s0[i] = in.s0[good];
+          nw.s1[i] = in.s1[good];
+          nw.mag[i] = in.mag[good];
+          nw.magi[i] = in.magi[good];
+          nw.rho[i] = in.rho[good];
+        }
+      ASSERT_GT(nwide, n / 10) << "test inputs: too few wide REs";
+      ASSERT_LT(nwide, n / 2) << "test inputs: too many wide REs";
+      for (int w = 0; w < 3; w++) {
+        if (!c.k[w])
+          continue;
+        AlignedVector512<int16_t> ad((size_t)n * qm + 64, 0), fu((size_t)n * qm + 64, 0), win((size_t)n * qm + 64, 0);
+        c.k[w](in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), ad.data(), in.rho.data(), n, 1, lambda);
+        c.k[w](in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), fu.data(), in.rho.data(), n, 3, lambda);
+        c.k[w](nw.s0.data(), nw.s1.data(), nw.mag.data(), nw.magi.data(), win.data(), nw.rho.data(), n, 1, lambda);
+        uint32_t bad = 0;
+        for (uint32_t i = 0; i < n; i++)
+          bad += memcmp(&ad[i * qm], wide(in, i) ? &fu[i * qm] : &win[i * qm], qm * sizeof(int16_t)) != 0;
+        EXPECT_EQ(0u, bad) << "adaptive window, Qm=" << qm << " width " << (128 << w) << " lambda=" << lambda;
+      }
+    }
 }
 
 int main(int argc, char **argv)
