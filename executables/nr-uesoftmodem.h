@@ -33,6 +33,7 @@ extern uint16_t ue_id_g;
   "Comma-separated cores for DL then UL actors (and SYNC if one spare). Must have at least num-dl-actors + num-ul-actors " \
   "entries; omit for no affinity\n"
 #define  CONFIG_HLP_DISABLE_BLIND_SEARCH   "Disable blind search for UE searches by neighboring cells\n"
+#define  CONFIG_HLP_PDSCH_MIMO_RX         "multi-layer PDSCH receiver: mmse (default), ml (2-layer QPSK..64QAM), lbest (2-layer up to 256QAM)\n"
 #define  CONFIG_HLP_RX2TX                  "Defines ue capability in slots to produce an UL feedback from its relative DL meassage (DCI->ULSCH or PDSCH->PUCCH)"
 
 /***************************************************************************************************************************************/
@@ -85,6 +86,7 @@ extern uint16_t ue_id_g;
   {"actor-affinity",               CONFIG_HLP_ACTOR_AFFINITY,  0,               .strptr=&nrUE_params.actor_affinity,         .defstrval=NULL,   TYPE_STRING,   0}, \
   {"disable-blind-search",         CONFIG_HLP_DISABLE_BLIND_SEARCH, PARAMFLAG_BOOL, .iptr=&nrUE_params.disable_blind_search, .defintval=0,      TYPE_INT,      0}, \
   {"ue-capability-rx2tx",          CONFIG_HLP_RX2TX,           0,               .iptr=&nrUE_params.ue_capability_rx2tx,      .defintval=3,      TYPE_INT,      0}, \
+  {"pdsch-mimo-receiver",          CONFIG_HLP_PDSCH_MIMO_RX,   0,               .strptr=&nrUE_params.pdsch_mimo_receiver,    .defstrval="mmse", TYPE_STRING,   0}, \
 }
 // clang-format on
 
@@ -98,6 +100,7 @@ typedef struct {
   uint64_t if_freq;
   int if_freq_off;
   int chest_freq;
+  char *pdsch_mimo_receiver;
   int chest_time;
   int no_timing_correction;
   int nb_antennas_rx;

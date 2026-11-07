@@ -69,6 +69,7 @@
 #endif
 
 #include <pthread.h>
+#include <string.h>
 #include "NR_UE_PHY_INTERFACE/NR_IF_Module.h"
 
 /// Context data structure for gNB subframe processing
@@ -270,6 +271,25 @@ typedef struct {
 } nrUE_cell_params_t;
 
 /// Top-level PHY Data Structure for UE
+/// Multi-layer PDSCH detector. MMSE is 0 so an unconfigured UE gets the default.
+typedef enum {
+  NR_PDSCH_RX_MMSE = 0, ///< linear MMSE, all layer counts and modulations
+  NR_PDSCH_RX_ML, ///< 2-layer exact max-log ML for QPSK/16QAM/64QAM; MMSE otherwise
+  NR_PDSCH_RX_LBEST, ///< 2-layer reduced-search near-ML up to 256QAM; MMSE for 3 and 4 layers
+} nr_pdsch_mimo_rx_t;
+
+/// Parses "mmse" | "ml" | "lbest"; returns -1 if unknown.
+static inline int nr_pdsch_mimo_rx_from_str(const char *s)
+{
+  if (!strcmp(s, "mmse"))
+    return NR_PDSCH_RX_MMSE;
+  if (!strcmp(s, "ml"))
+    return NR_PDSCH_RX_ML;
+  if (!strcmp(s, "lbest"))
+    return NR_PDSCH_RX_LBEST;
+  return -1;
+}
+
 typedef struct PHY_VARS_NR_UE_s {
   /// \brief Module ID indicator for this instance
   uint8_t Mod_id;
@@ -416,9 +436,8 @@ typedef struct PHY_VARS_NR_UE_s {
   /// Phase precompensation flag
   bool no_phase_pre_comp;
 
-  /// Enable ML-based LLR computation for 2-layer MIMO (QPSK/16QAM/64QAM).
-  /// When false (default), MMSE equalization is used for all configurations.
-  bool do_ml;
+  /// multi-layer PDSCH receiver (nr-uesoftmodem --pdsch-mimo-receiver, nr_dlsim -E)
+  nr_pdsch_mimo_rx_t pdsch_mimo_rx;
 
   void* scopeData;
   // Pointers to hold PDSCH data only for phy simulators
@@ -451,7 +470,7 @@ typedef struct PHY_VARS_NR_UE_s {
     c16_t   *dl_ch_mag;             // [max_layers][pdsch_buf_size_max]
     c16_t   *dl_ch_magb;            // [max_layers][pdsch_buf_size_max]
     c16_t   *dl_ch_magr;            // [max_layers][pdsch_buf_size_max]
-    c16_t   *rho_dl;                // [max_layers*max_layers][pdsch_buf_size_max], only allocated when do_ml is set
+    c16_t   *rho_dl;                // [max_layers*max_layers][pdsch_buf_size_max], allocated when more than one layer is possible
     int32_t *pdsch_dl_ch_estimates; // [nb_antennas_rx*NR_MAX_NB_LAYERS][pdsch_est_size]
     int16_t *llr[2];               // [2 codewords][llr_buf_max]
 #ifdef LDPC_CUDA
