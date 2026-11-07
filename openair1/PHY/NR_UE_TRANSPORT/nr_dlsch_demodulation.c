@@ -888,13 +888,13 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     }
     // Output shift: half channel energy (log2|h|^2/2) + MRC antenna gain.
     // Single-layer adds +1 guard bit (raw peak); multi-layer uses median so no guard needed.
-    // 2-layer ML / L-best: the input level is capped (nr_2layer_log2_maxh) so a hot input cannot
-    // overflow the quadratic metrics, and the offset is mod-order-dependent (nr_ml_llr_maxh_off) so
-    // the near-ML LLRs don't saturate at low mod orders. The linear MMSE (nr_dlsch_mmse) normalizes
-    // in its matrix inverse and loses precision with the cap, so it keeps the plain level.
+    // 2-layer receivers (ML, L-best and the MMSE = L-best at L = 1): the input level is capped
+    // (nr_2layer_log2_maxh) so a hot input cannot overflow the quadratic metrics, and the offset is
+    // mod-order-dependent (nr_ml_llr_maxh_off) so the LLRs don't saturate at low mod orders. The 3/4-layer
+    // linear MMSE (nr_dlsch_mmse) normalizes in its matrix inverse and keeps the plain level.
     if (nl == 1)
       *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
-    else if (!do_ml)
+    else if (!do_ml && nl > 2)
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
     else
       *log2_maxh = nr_2layer_log2_maxh(avgs) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder, lbest_gate) + log2_approx(nbRx >> 1);
@@ -1021,7 +1021,7 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   const int llr_per_symbol = nb_re_pdsch * qamModOrder;
 
   start_meas_nr_ue_phy(ue, DLSCH_LLR_LAYER_DEMAP_STATS);
-  // Single layer, or 2-layer near-ML (QPSK/16QAM/64QAM, and 256QAM under the OAI_LBEST gate): the
+  // Single layer, or 2-layer near-ML (QPSK/16QAM/64QAM, and 256QAM with the lbest receiver): the
   // detector set shared with the gNB. nr_inner_rx writes this symbol's layer-demapped, descrambled
   // codeword straight into llr (fused kernels under OAI_FUSE, else LLR on the compensated stream).
   // rho_dl is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl (=2) = rho[1][0].
@@ -1063,30 +1063,21 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
   } else if (nl == 2) {
     // 2-layer linear MMSE, every case the ML branch above did not take (mmse receiver, or 256QAM
-    // with the ml receiver): fused Gram-fed per-RE MMSE (L=1) + per-layer LLR, as in the gNB inner_rx.
+    // with the ml receiver): the L = 1 member of the L-best family, as in the gNB inner_rx.
     __attribute__((aligned(32))) int16_t sym_llr[2][llr_per_symbol];
     int16_t *p_symllr[2] = {sym_llr[0], sym_llr[1]};
     start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    nr_compute_MMSE_llr(p_rxComp,
-                        rx_size_symbol,
-                        pdsch_buf_size_max,
-                        nbRx,
-                        nl,
-                        dl_ch_mag,
-                        dl_ch_magb,
-                        dl_ch_magr,
-                        chFext,
-                        freq_alloc->num_rbs,
-                        qamModOrder,
-                        *log2_maxh,
-                        0, // symbol already baked into p_rxComp
-                        nb_re_pdsch,
-                        nvar,
+    nr_compute_MMSE_llr(p_rxComp[0],
+                        p_rxComp[1],
                         rho_dl[0],
                         rho_dl[1],
                         rho_dl[nl],
                         rho_dl[nl + 1],
-                        p_symllr);
+                        sym_llr[0],
+                        sym_llr[1],
+                        nb_re_pdsch,
+                        qamModOrder,
+                        nr_2layer_seed_lambda(nvar, *log2_maxh));
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
     start_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
     nr_layer_demapping(2, qamModOrder, nb_re_pdsch, p_symllr, llr);

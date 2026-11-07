@@ -43,16 +43,6 @@ int nr_ml_llr_maxh_off(int mod_order, int lbest)
   }
 }
 
-// log2_maxh offset for the 2-layer linear MMSE receiver (nr_compute_MMSE_llr), before the
-// antenna-gain term log2(nb_rx/2) the caller adds (as for ML). TDL-A, 2 layers, 200 trials: -3+1
-// is best or tied for QPSK..256QAM at 4 RX, and -3 at 2 RX. The former fixed -3 at 4 RX (no antenna
-// term) left a BLER floor (~0.3 at 64QAM MCS 27 / 256QAM, 25-32 dB); one bit hotter fails outright.
-int nr_mmse_llr_maxh_off(int mod_order)
-{
-  (void)mod_order; // one value fits all orders today; kept per-order like nr_ml_llr_maxh_off
-  return -3;
-}
-
 // Channel-level part of log2_maxh for the 2-layer receivers, from avgs = the largest per-antenna,
 // per-layer channel energy |h|^2. The usual (log2 avgs) / 2 lets rxdataF_comp, ch_mag and rho grow
 // with the channel amplitude; the 2-layer metrics (ML / L-best search, MMSE Gram inverse) are
@@ -4045,336 +4035,102 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       AssertFatal(1 == 0, "nr_compute_ML_llr: invalid mod_order, Qm = %d\n", mod_order);
   }
 }
-// Zero Forcing Rx function: nr_det_HhH()
-static void nr_det_HhH(c16_t *after_mf_00, // a
-                       c16_t *after_mf_01, // b
-                       c16_t *after_mf_10, // c
-                       c16_t *after_mf_11, // d
-                       uint32_t *det_fin, // 1/ad-bc
-                       unsigned short nb_rb)
+// 2-layer linear MMSE, scalar float reference of nr_llr_2layer_mmse_simd (and its tail below one SIMD block):
+// unbiased MMSE estimate + exact max-log per-axis Gray-PAM LLRs, g * (d1 - d0), g = 0.5 * Peff / K.
+void nr_llr_2layer_mmse_ref(const c16_t *z0,
+                            const c16_t *z1,
+                            const c16_t *g00,
+                            const c16_t *g11,
+                            const c16_t *rho01,
+                            int16_t *out,
+                            uint32_t length,
+                            int mod_order,
+                            float lambda)
 {
-  simde__m128i *after_mf_00_128, *after_mf_01_128, *after_mf_10_128, *after_mf_11_128, ad_re_128, bc_re_128; // ad_im_128,
-                                                                                                             // bc_im_128;
-  simde__m128i *det_fin_128, det_re_128; // det_im_128, tmp_det0, tmp_det1;
-
-  after_mf_00_128 = (simde__m128i *)after_mf_00;
-  after_mf_01_128 = (simde__m128i *)after_mf_01;
-  after_mf_10_128 = (simde__m128i *)after_mf_10;
-  after_mf_11_128 = (simde__m128i *)after_mf_11;
-
-  det_fin_128 = (simde__m128i *)det_fin;
-
-  for (unsigned short rb = 0; rb < 3 * nb_rb; rb++) {
-    // complex multiplication (I_a+jQ_a)(I_d+jQ_d) = (I_aI_d - Q_aQ_d) + j(Q_aI_d + I_aQ_d)
-    // The imag part is often zero, we compute only the real part
-    ad_re_128 = simde_mm_madd_epi16(oai_mm_conj(after_mf_00_128[0]), after_mf_11_128[0]); // Re: I_a0*I_d0 - Q_a1*Q_d1
-    // ad_im_128 = simde_mm_madd_epi16(oai_mm_swap(after_mf_00_128[0]),after_mf_11_128[0]);//Im: (Q_aI_d + I_aQ_d)
-
-    // complex multiplication (I_b+jQ_b)(I_c+jQ_c) = (I_bI_c - Q_bQ_c) + j(Q_bI_c + I_bQ_c)
-    // The imag part is often zero, we compute only the real part
-    bc_re_128 = simde_mm_madd_epi16(oai_mm_conj(after_mf_01_128[0]), after_mf_10_128[0]); // Re: I_b0*I_c0 - Q_b1*Q_c1
-    // bc_im_128 = simde_mm_madd_epi16(oai_mm_swap(after_mf_01_128[0]),after_mf_10_128[0]);//Im: (Q_bI_c + I_bQ_c)
-
-    det_re_128 = simde_mm_sub_epi32(ad_re_128, bc_re_128);
-    // det_im_128 = simde_mm_sub_epi32(ad_im_128, bc_im_128);
-
-    // det in Q30 format
-    det_fin_128[0] = simde_mm_abs_epi32(det_re_128);
-
-#ifdef DEBUG_DLSCH_DEMOD
-    printf("\n Computing det_HhH_inv \n");
-    // print_ints("det_re_128:",(int32_t*)&det_re_128);
-    // print_ints("det_im_128:",(int32_t*)&det_im_128);
-    print_ints("det_fin_128:", (int32_t *)&det_fin_128[0]);
-#endif
-    det_fin_128 += 1;
-    after_mf_00_128 += 1;
-    after_mf_01_128 += 1;
-    after_mf_10_128 += 1;
-    after_mf_11_128 += 1;
-  }
-}
-
-static simde__m128i nr_comp_muli_sum(simde__m128i input_x,
-                                     simde__m128i input_y,
-                                     simde__m128i input_w,
-                                     simde__m128i input_z,
-                                     simde__m128i det)
-{
-  // complex multiplication (x_re + jx_im)*(y_re + jy_im) = (x_re*y_re - x_im*y_im) + j(x_im*y_re + x_re*y_im)
-  // complex multiplication (w_re + jw_im)*(z_re + jz_im) = (w_re*z_re - w_im*z_im) + j(w_im*z_re + w_re*z_im)
-  // the real part
-  simde__m128i xy_re_128 = simde_mm_madd_epi16(oai_mm_conj(input_x), input_y); // Re: (x_re*y_re - x_im*y_im)
-  simde__m128i wz_re_128 = simde_mm_madd_epi16(oai_mm_conj(input_w), input_z); // Re: (w_re*z_re - w_im*z_im)
-  xy_re_128 = simde_mm_sub_epi32(xy_re_128, wz_re_128);
-
-  // the imag part
-  simde__m128i xy_im_128 = simde_mm_madd_epi16(oai_mm_swap(input_x), input_y); // Im: (x_im*y_re + x_re*y_im)
-  simde__m128i wz_im_128 = simde_mm_madd_epi16(oai_mm_swap(input_w), input_z); // Im: (w_im*z_re + w_re*z_im)
-  xy_im_128 = simde_mm_sub_epi32(xy_im_128, wz_im_128);
-
-  // print_ints("rx_re:",(int32_t*)&xy_re_128[0]);
-  // print_ints("rx_Img:",(int32_t*)&xy_im_128[0]);
-  // divide by matrix det and convert back to Q15 before packing
-  uint64_t sum_det = 0;
-  for (int k = 0; k < 4; k++) {
-    sum_det += (((uint32_t *)&det)[k]);
-  }
-  // Add bias to reduce rounding error
-  sum_det = (sum_det + 2) >> 2;
-
-  int b = log2_approx(sum_det) - 8;
-  if (b > 0) {
-    xy_re_128 = simde_mm_srai_epi32(xy_re_128, b);
-    xy_im_128 = simde_mm_srai_epi32(xy_im_128, b);
-  } else {
-    // shift count in a register: on Arm, slli maps to vshlq_n, which clang only accepts with a constant count
-    const simde__m128i shift = simde_mm_cvtsi32_si128(-b);
-    xy_re_128 = simde_mm_sll_epi32(xy_re_128, shift);
-    xy_im_128 = simde_mm_sll_epi32(xy_im_128, shift);
-  }
-
-  simde__m128i output = oai_mm_pack(xy_re_128, xy_im_128);
-
-  return (output);
-}
-
-// MMSE Rx function: nr_mmse_2layers(). File-local: the only caller is nr_compute_MMSE_llr below;
-// both the UE and gNB reach the 2-layer MMSE exclusively through that fused entry point.
-static uint8_t nr_mmse_2layers(c16_t **rxdataF_comp,
-                               uint32_t buffer_length,
-                               uint32_t pdsch_buf_size_max,
-                               int nb_rx_ant,
-                               int nb_layers,
-                               c16_t ch_mag[nb_layers][pdsch_buf_size_max],
-                               c16_t ch_magb[nb_layers][pdsch_buf_size_max],
-                               c16_t ch_magc[nb_layers][pdsch_buf_size_max],
-                               c16_t ch_estimates_ext[][nb_rx_ant][buffer_length],
-                               unsigned short nb_rb,
-                               unsigned char mod_order,
-                               int shift,
-                               unsigned char symbol,
-                               int length,
-                               uint32_t noise_var,
-                               c16_t *rho00,
-                               c16_t *rho01,
-                               c16_t *rho10,
-                               c16_t *rho11)
-{
-  uint32_t nb_rb_0 = length / 12 + ((length % 12) ? 1 : 0);
-
-  /* we need at least alignment to 16 bytes, let's put 32 to be sure
-   * (maybe not necessary but doesn't hurt)
-   */
-  c16_t af_mf_00[12 * nb_rb] __attribute__((aligned(32)));
-  c16_t af_mf_01[12 * nb_rb] __attribute__((aligned(32)));
-  c16_t af_mf_10[12 * nb_rb] __attribute__((aligned(32)));
-  c16_t af_mf_11[12 * nb_rb] __attribute__((aligned(32)));
-  uint32_t determ_fin[12 * nb_rb] __attribute__((aligned(32)));
-
-  // H^H H (scaled by 1/2^shift) is the 2x2 Gram already computed by the channel compensation
-  // (rho), for any number of RX antennas.
-  AssertFatal(rho00 && rho01 && rho10 && rho11, "nr_mmse_2layers needs the Gram (rho) from the channel compensation\n");
-  const size_t nbytes = (size_t)(12 * nb_rb_0) * sizeof(c16_t);
-  memcpy(af_mf_00, rho00, nbytes);
-  memcpy(af_mf_01, rho01, nbytes);
-  memcpy(af_mf_10, rho10, nbytes);
-  memcpy(af_mf_11, rho11, nbytes);
-
-  // Add noise_var such that: H^h * H + noise_var * I
-  if (noise_var != 0) {
-    simde__m128i nvar_128i = simde_mm_set1_epi32(noise_var >> shift);
-    simde__m128i *af_mf_00_128i = (simde__m128i *)af_mf_00;
-    simde__m128i *af_mf_11_128i = (simde__m128i *)af_mf_11;
-    for (int k = 0; k < 3 * nb_rb_0; k++) {
-      af_mf_00_128i[0] = simde_mm_add_epi32(af_mf_00_128i[0], nvar_128i);
-      af_mf_11_128i[0] = simde_mm_add_epi32(af_mf_11_128i[0], nvar_128i);
-      af_mf_00_128i++;
-      af_mf_11_128i++;
+  const int nb = mod_order / 2, M = 1 << nb;
+  static const float sqK[5] = {0, 1.4142135623730951f, 3.1622776601683795f, 6.48074069840786f, 13.038404810405298f};
+  static const float K[5] = {0, 2.0f, 10.0f, 42.0f, 170.0f};
+  int lvl[16], bit[16][4];
+  for (int i = 0; i < M; i++) {
+    const int L = 2 * i - (M - 1);
+    lvl[i] = L;
+    bit[i][0] = L < 0;
+    int r = L < 0 ? -L : L, t = M / 2;
+    for (int b = 1; b < nb; b++) {
+      bit[i][b] = r > t;
+      r = r > t ? r - t : t - r;
+      t /= 2;
     }
   }
-
-  // det_HhH = ad -bc
-  nr_det_HhH(af_mf_00, // a
-             af_mf_01, // b
-             af_mf_10, // c
-             af_mf_11, // d
-             determ_fin,
-             nb_rb_0);
-  /* 2- Compute the channel matrix inversion **********************************
-   *
-   *    |(conj_H_00xH_00+conj_H_10xH_10)   (conj_H_00xH_01+conj_H_10xH_11)|
-   * A= |                                                                 |
-   *    |(conj_H_01xH_00+conj_H_11xH_10)   (conj_H_01xH_01+conj_H_11xH_11)|
-   *
-   *
-   *
-   *inv(A) =(1/det)*[d  -b
-   *                 -c  a]
-   *
-   *
-   **************************************************************************/
-  simde__m128i *ch_mag128_0 = NULL, *ch_mag128b_0 = NULL, *ch_mag128c_0 = NULL; // Layer 0
-  simde__m128i *ch_mag128_1 = NULL, *ch_mag128b_1 = NULL, *ch_mag128c_1 = NULL; // Layer 1
-  simde__m128i mmtmpD0, mmtmpD1, mmtmpD2, mmtmpD3;
-  simde__m128i QAM_amp128 = {0}, QAM_amp128b = {0}, QAM_amp128c = {0};
-
-  simde__m128i *determ_fin_128 = (simde__m128i *)&determ_fin[0];
-
-  simde__m128i *after_mf_a_128 = (simde__m128i *)af_mf_00;
-  simde__m128i *after_mf_b_128 = (simde__m128i *)af_mf_01;
-  simde__m128i *after_mf_c_128 = (simde__m128i *)af_mf_10;
-  simde__m128i *after_mf_d_128 = (simde__m128i *)af_mf_11;
-
-  simde__m128i *rxdataF_comp128_0 = (simde__m128i *)&rxdataF_comp[0][symbol * buffer_length];
-  simde__m128i *rxdataF_comp128_1 = (simde__m128i *)&rxdataF_comp[1][symbol * buffer_length];
-
-  if (mod_order > 2) {
-    if (mod_order == 4) {
-      QAM_amp128 = simde_mm_set1_epi16(QAM16_n1); // 2/sqrt(10)
-      QAM_amp128b = simde_mm_setzero_si128();
-      QAM_amp128c = simde_mm_setzero_si128();
-    } else if (mod_order == 6) {
-      QAM_amp128 = simde_mm_set1_epi16(QAM64_n1); // 4/sqrt{42}
-      QAM_amp128b = simde_mm_set1_epi16(QAM64_n2); // 2/sqrt{42}
-      QAM_amp128c = simde_mm_setzero_si128();
-    } else if (mod_order == 8) {
-      QAM_amp128 = simde_mm_set1_epi16(QAM256_n1);
-      QAM_amp128b = simde_mm_set1_epi16(QAM256_n2);
-      QAM_amp128c = simde_mm_set1_epi16(QAM256_n3);
-    }
-    ch_mag128_0 = (simde__m128i *)ch_mag[0];
-    ch_mag128b_0 = (simde__m128i *)ch_magb[0];
-    ch_mag128c_0 = (simde__m128i *)ch_magc[0];
-    ch_mag128_1 = (simde__m128i *)ch_mag[1];
-    ch_mag128b_1 = (simde__m128i *)ch_magb[1];
-    ch_mag128c_1 = (simde__m128i *)ch_magc[1];
-  }
-
-  for (int rb = 0; rb < 3 * nb_rb_0; rb++) {
-    // Magnitude computation
-    if (mod_order > 2) {
-      uint64_t sum_det = 0;
-      for (int k = 0; k < 4; k++) {
-        sum_det += (((uint32_t *)&determ_fin_128[0])[k]);
+  for (uint32_t re = 0; re < length; re++) {
+    const float P0 = g00[re].r, P1s = (float)g11[re].r + lambda + 0.5f * NR_2LAYER_CSI_EPS * (P0 + g11[re].r);
+    const float rr = rho01[re].r, ri = rho01[re].i;
+    float det = P0 * P1s - (rr * rr + ri * ri);
+    det = det > 1.0f ? det : 1.0f;
+    const float numr = P1s * z0[re].r - (rr * z1[re].r - ri * z1[re].i);
+    const float numi = P1s * z0[re].i - (rr * z1[re].i + ri * z1[re].r);
+    const float est[2] = {numr / det * sqK[nb], numi / det * sqK[nb]};
+    const float g = 0.5f / K[nb] * (det / (P1s > 1.0f ? P1s : 1.0f));
+    for (int ax = 0; ax < 2; ax++) {
+      float d0[4] = {1e30f, 1e30f, 1e30f, 1e30f}, d1[4] = {1e30f, 1e30f, 1e30f, 1e30f};
+      for (int i = 0; i < M; i++) {
+        const float d = (lvl[i] - est[ax]) * (lvl[i] - est[ax]);
+        for (int b = 0; b < nb; b++) {
+          if (bit[i][b])
+            d1[b] = d < d1[b] ? d : d1[b];
+          else
+            d0[b] = d < d0[b] ? d : d0[b];
+        }
       }
-      // Add bias to reduce rounding error
-      sum_det = (sum_det + 2) >> 2;
-
-      int b = log2_approx(sum_det) - 8;
-      if (b > 0) {
-        mmtmpD2 = simde_mm_srai_epi32(determ_fin_128[0], b);
-      } else {
-        mmtmpD2 = simde_mm_sll_epi32(determ_fin_128[0], simde_mm_cvtsi32_si128(-b));
+      for (int b = 0; b < nb; b++) {
+        float v = g * (d1[b] - d0[b]);
+        v = v > 32767.0f ? 32767.0f : (v < -32768.0f ? -32768.0f : v);
+        out[re * mod_order + 2 * b + ax] = (int16_t)lrintf(v);
       }
-      mmtmpD3 = simde_mm_unpacklo_epi32(mmtmpD2, mmtmpD2);
-      mmtmpD2 = simde_mm_unpackhi_epi32(mmtmpD2, mmtmpD2);
-      mmtmpD2 = simde_mm_packs_epi32(mmtmpD3, mmtmpD2);
-
-      // Layer 0
-      ch_mag128_0[0] = mmtmpD2;
-      ch_mag128b_0[0] = mmtmpD2;
-      ch_mag128c_0[0] = mmtmpD2;
-      ch_mag128_0[0] = simde_mm_mulhi_epi16(ch_mag128_0[0], QAM_amp128);
-      ch_mag128_0[0] = simde_mm_slli_epi16(ch_mag128_0[0], 1);
-      ch_mag128b_0[0] = simde_mm_mulhi_epi16(ch_mag128b_0[0], QAM_amp128b);
-      ch_mag128b_0[0] = simde_mm_slli_epi16(ch_mag128b_0[0], 1);
-      ch_mag128c_0[0] = simde_mm_mulhi_epi16(ch_mag128c_0[0], QAM_amp128c);
-      ch_mag128c_0[0] = simde_mm_slli_epi16(ch_mag128c_0[0], 1);
-
-      // Layer 1
-      ch_mag128_1[0] = mmtmpD2;
-      ch_mag128b_1[0] = mmtmpD2;
-      ch_mag128c_1[0] = mmtmpD2;
-      ch_mag128_1[0] = simde_mm_mulhi_epi16(ch_mag128_1[0], QAM_amp128);
-      ch_mag128_1[0] = simde_mm_slli_epi16(ch_mag128_1[0], 1);
-      ch_mag128b_1[0] = simde_mm_mulhi_epi16(ch_mag128b_1[0], QAM_amp128b);
-      ch_mag128b_1[0] = simde_mm_slli_epi16(ch_mag128b_1[0], 1);
-      ch_mag128c_1[0] = simde_mm_mulhi_epi16(ch_mag128c_1[0], QAM_amp128c);
-      ch_mag128c_1[0] = simde_mm_slli_epi16(ch_mag128c_1[0], 1);
     }
-
-    // multiply by channel Inv
-    // rxdataF_zf128_0 = rxdataF_comp128_0*d - b*rxdataF_comp128_1
-    // rxdataF_zf128_1 = rxdataF_comp128_1*a - c*rxdataF_comp128_0
-    // printf("layer_1 \n");
-    mmtmpD0 = nr_comp_muli_sum(rxdataF_comp128_0[0], after_mf_d_128[0], rxdataF_comp128_1[0], after_mf_b_128[0], determ_fin_128[0]);
-
-    // printf("layer_2 \n");
-    mmtmpD1 = nr_comp_muli_sum(rxdataF_comp128_1[0], after_mf_a_128[0], rxdataF_comp128_0[0], after_mf_c_128[0], determ_fin_128[0]);
-
-    rxdataF_comp128_0[0] = mmtmpD0;
-    rxdataF_comp128_1[0] = mmtmpD1;
-
-#ifdef DEBUG_DLSCH_DEMOD
-    printf("\n Rx signal after ZF l%d rb%d\n", symbol, rb);
-    print_shorts(" Rx layer 1:", (int16_t *)&rxdataF_comp128_0[0]);
-    print_shorts(" Rx layer 2:", (int16_t *)&rxdataF_comp128_1[0]);
-#endif
-    determ_fin_128 += 1;
-    ch_mag128_0 += 1;
-    ch_mag128_1 += 1;
-    ch_mag128b_0 += 1;
-    ch_mag128b_1 += 1;
-    ch_mag128c_0 += 1;
-    ch_mag128c_1 += 1;
-    rxdataF_comp128_0 += 1;
-    rxdataF_comp128_1 += 1;
-    after_mf_a_128 += 1;
-    after_mf_b_128 += 1;
-    after_mf_c_128 += 1;
-    after_mf_d_128 += 1;
   }
-  return (0);
 }
 
-// Fused 2-layer linear MMSE receiver + scalar LLR (the L=1 case of the unified detector). Does the
-// Gram-fed (rho) 2x2 MMSE equalization (nr_mmse_2layers) followed by the per-layer scalar LLR, in one
-// call. Shared by the UE (pass symbol=0 with pre-offset rxdataF_comp) and the gNB (pass symbol; the
-// symbol*buffer_length offset is applied internally). Replaces the separate {equalize + scalar LLR}.
-uint8_t nr_compute_MMSE_llr(c16_t **rxdataF_comp,
-                            uint32_t buffer_length,
-                            uint32_t pdsch_buf_size_max,
-                            int nb_rx_ant,
-                            int nb_layers,
-                            c16_t ch_mag[nb_layers][pdsch_buf_size_max],
-                            c16_t ch_magb[nb_layers][pdsch_buf_size_max],
-                            c16_t ch_magc[nb_layers][pdsch_buf_size_max],
-                            c16_t ch_estimates_ext[][nb_rx_ant][buffer_length],
-                            unsigned short nb_rb,
-                            unsigned char mod_order,
-                            int shift,
-                            unsigned char symbol,
-                            int length,
-                            uint32_t noise_var,
-                            c16_t *rho00,
-                            c16_t *rho01,
-                            c16_t *rho10,
-                            c16_t *rho11,
-                            int16_t **llr)
+static void nr_llr_2layer_mmse(const c16_t *z0,
+                               const c16_t *z1,
+                               const c16_t *g00,
+                               const c16_t *g11,
+                               const c16_t *rho01,
+                               int16_t *out,
+                               uint32_t length,
+                               int mod_order,
+                               float lambda)
 {
-  const uint8_t ret = nr_mmse_2layers(rxdataF_comp,
-                                      buffer_length,
-                                      pdsch_buf_size_max,
-                                      nb_rx_ant,
-                                      nb_layers,
-                                      ch_mag,
-                                      ch_magb,
-                                      ch_magc,
-                                      ch_estimates_ext,
-                                      nb_rb,
-                                      mod_order,
-                                      shift,
-                                      symbol,
-                                      length,
-                                      noise_var,
-                                      rho00,
-                                      rho01,
-                                      rho10,
-                                      rho11);
-  for (int l = 0; l < nb_layers; l++)
-    nr_compute_llr(&rxdataF_comp[l][symbol * buffer_length], ch_mag[l], ch_magb[l], ch_magc[l], llr[l], length, symbol, mod_order);
-  return ret;
+#if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
+  nr_llr_2layer_mmse_simd_w128(z0, z1, g00, g11, rho01, out, length, mod_order, lambda);
+#else
+  nr_llr_2layer_mmse_simd_w256(z0, z1, g00, g11, rho01, out, length, mod_order, lambda);
+#endif
+}
+
+// 2-layer linear MMSE receiver: the L = 1 member of the L-best detector family (same unbiased MMSE estimate as
+// the L-best seed, exact per-axis max-log LLRs, same LLR scale), for all modulation orders.
+void nr_compute_MMSE_llr(c16_t *comp0,
+                         c16_t *comp1,
+                         c16_t *rho00,
+                         c16_t *rho01,
+                         c16_t *rho10,
+                         c16_t *rho11,
+                         int16_t *llr_layer0,
+                         int16_t *llr_layer1,
+                         uint32_t nb_re,
+                         uint8_t mod_order,
+                         float lambda)
+{
+  nr_llr_2layer_mmse(comp0, comp1, rho00, rho11, rho01, llr_layer0, nb_re, mod_order, lambda);
+  nr_llr_2layer_mmse(comp1, comp0, rho11, rho00, rho10, llr_layer1, nb_re, mod_order, lambda);
+  // the output scaling of nr_compute_ML_llr (its QPSK and 64QAM kernels), so that both receivers share the
+  // nr_ml_llr_maxh_off table
+  const int shift = mod_order == 2 ? 4 : (mod_order == 6 ? 1 : 0);
+  if (shift) {
+    nr_llr_srai(llr_layer0, nb_re * mod_order, shift);
+    nr_llr_srai(llr_layer1, nb_re * mod_order, shift);
+  }
 }
 
 //----------------------------------------------------------------------------------------------

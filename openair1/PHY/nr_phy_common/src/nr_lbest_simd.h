@@ -66,6 +66,13 @@
                                                 uint32_t length,      \
                                                 int pattern,          \
                                                 float lambda);
+#define NR_MMSE2L_SIMD_PROTOTYPES(W)                                                                                  \
+  void nr_llr_2layer_mmse_simd_w##W(const c16_t *z0, const c16_t *z1, const c16_t *g00, const c16_t *g11, const c16_t *rho01, \
+                                    int16_t *out, uint32_t length, int mod_order, float lambda);
+NR_MMSE2L_SIMD_PROTOTYPES(128)
+NR_MMSE2L_SIMD_PROTOTYPES(256)
+NR_MMSE2L_SIMD_PROTOTYPES(512)
+#undef NR_MMSE2L_SIMD_PROTOTYPES
 NR_LBEST_SIMD_PROTOTYPES(128)
 NR_LBEST_SIMD_PROTOTYPES(256)
 NR_LBEST_SIMD_PROTOTYPES(512)

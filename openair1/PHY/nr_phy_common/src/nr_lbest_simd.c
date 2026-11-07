@@ -996,4 +996,97 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_f32_simd)(c16_t *stream0_in,
 }
 
 
+// ============================================================================
+// 2-layer linear MMSE: the L = 1 member of the L-best family. Unbiased MMSE estimate of the target layer (the
+// L-best seed) and exact max-log per-axis Gray-PAM LLRs for every bit, g * (d1 - d0) in level units, with the
+// post-MMSE energy as the reliability, g = 0.5 * Peff / K: the L-best fallback scale. fp32 throughout.
+// Inputs (compensated, >> log2_maxh): z0 = target-layer MRC output, z1 = other layer, g00/g11 = Gram diagonal
+// ||h||^2 (real part), rho01 = h0^H h1; lambda = noise variance (nr_2layer_seed_lambda). Qm = 2..8.
+// ============================================================================
+void NRLB_NAME(nr_llr_2layer_mmse_simd)(const c16_t *z0,
+                                        const c16_t *z1,
+                                        const c16_t *g00,
+                                        const c16_t *g11,
+                                        const c16_t *rho01,
+                                        int16_t *out,
+                                        uint32_t length,
+                                        int mod_order,
+                                        float lambda)
+{
+  const int nb = mod_order / 2, M = 1 << nb;
+  static const float sqK[5] = {0, 1.4142135623730951f, 3.1622776601683795f, 6.48074069840786f, 13.038404810405298f};
+  static const float K[5] = {0, 2.0f, 10.0f, 42.0f, 170.0f};
+  // per-axis Gray bits of each PAM level (38.211 5.1): b0 = sign, then |L| against halving thresholds
+  int lvl[16], bit[16][4];
+  for (int i = 0; i < M; i++) {
+    const int L = 2 * i - (M - 1);
+    lvl[i] = L;
+    bit[i][0] = L < 0;
+    int r = L < 0 ? -L : L, t = M / 2;
+    for (int b = 1; b < nb; b++) {
+      bit[i][b] = r > t;
+      r = r > t ? r - t : t - r;
+      t /= 2;
+    }
+  }
+  const NRLB_VF lam = NRLB_MM(set1_ps)(lambda), ONE = NRLB_MM(set1_ps)(1.0f);
+  const NRLB_VF epsh = NRLB_MM(set1_ps)(0.5f * NR_2LAYER_CSI_EPS);
+  const NRLB_VF SQ = NRLB_MM(set1_ps)(sqK[nb]), GK = NRLB_MM(set1_ps)(0.5f / K[nb]), BIG = NRLB_MM(set1_ps)(1e30f);
+  __attribute__((aligned(64))) int16_t tmp[8][NRLB_N];
+
+  uint32_t re = 0;
+  for (int last = length < NRLB_N; !last; re += NRLB_N) {
+    if (re + NRLB_N >= length) {
+      re = length - NRLB_N;
+      last = 1;
+    }
+    NRLB_VI z0r16, z0i16, z1r16, z1i16, rr16, ri16, p0_16, p1_16, dummy;
+    NRLB_NAME(nrlbw_load)(&z0[re], &z0r16, &z0i16);
+    NRLB_NAME(nrlbw_load)(&z1[re], &z1r16, &z1i16);
+    NRLB_NAME(nrlbw_load)(&rho01[re], &rr16, &ri16);
+    NRLB_NAME(nrlbw_load)(&g00[re], &p0_16, &dummy);
+    NRLB_NAME(nrlbw_load)(&g11[re], &p1_16, &dummy);
+    NRLB_VI llr32[8][2];
+    for (int h = 0; h < 2; h++) {
+      const NRLB_VF z0r = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(z0r16, h)), z0i = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(z0i16, h));
+      const NRLB_VF z1r = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(z1r16, h)), z1i = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(z1i16, h));
+      const NRLB_VF rr = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(rr16, h)), ri = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(ri16, h));
+      const NRLB_VF P0 = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(p0_16, h));
+      const NRLB_VF P1 = NRLB_MM(cvtepi32_ps)(NRLB_NAME(nrlbw_widen)(p1_16, h));
+      const NRLB_VF P1s = NRLB_MM(add_ps)(NRLB_MM(add_ps)(P1, lam), NRLB_MM(mul_ps)(epsh, NRLB_MM(add_ps)(P0, P1)));
+      // unbiased MMSE: x = ((P1 + lambda_eff) z0 - rho z1) / (P0 (P1 + lambda_eff) - |rho|^2), lambda_eff as the seeds
+      const NRLB_VF det = NRLB_MM(max_ps)(
+          NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(P0, P1s), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, rr), NRLB_MM(mul_ps)(ri, ri))), ONE);
+      const NRLB_VF numr = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(P1s, z0r), NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(rr, z1r), NRLB_MM(mul_ps)(ri, z1i)));
+      const NRLB_VF numi = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(P1s, z0i), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, z1i), NRLB_MM(mul_ps)(ri, z1r)));
+      const NRLB_VF est[2] = {NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numr, det), SQ), NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numi, det), SQ)};
+      const NRLB_VF g = NRLB_MM(mul_ps)(GK, NRLB_MM(div_ps)(det, NRLB_MM(max_ps)(P1s, ONE)));
+      for (int ax = 0; ax < 2; ax++) { // I, Q
+        NRLB_VF d0[4], d1[4];
+        for (int b = 0; b < nb; b++)
+          d0[b] = d1[b] = BIG;
+        for (int i = 0; i < M; i++) {
+          const NRLB_VF d = NRLB_NAME(nrlbw_dsq)(NRLB_MM(set1_ps)((float)lvl[i]), est[ax]);
+          for (int b = 0; b < nb; b++) {
+            if (bit[i][b])
+              d1[b] = NRLB_MM(min_ps)(d1[b], d);
+            else
+              d0[b] = NRLB_MM(min_ps)(d0[b], d);
+          }
+        }
+        for (int b = 0; b < nb; b++)
+          llr32[2 * b + ax][h] = NRLB_NAME(nrlbw_cvt_sat)(NRLB_MM(mul_ps)(g, NRLB_MM(sub_ps)(d1[b], d0[b])));
+      }
+    }
+    // {I0,Q0,I1,Q1,...} per RE
+    for (int p = 0; p < mod_order; p++)
+      NRLB_STOREU(tmp[p], NRLB_NAME(nrlbw_pack32)(llr32[p][0], llr32[p][1]));
+    for (int i = 0; i < NRLB_N; i++)
+      for (int p = 0; p < mod_order; p++)
+        out[(re + i) * mod_order + p] = tmp[p][i];
+  }
+  if (re < length)
+    nr_llr_2layer_mmse_ref(&z0[re], &z1[re], &g00[re], &g11[re], &rho01[re], &out[re * mod_order], length - re, mod_order, lambda);
+}
+
 #endif
