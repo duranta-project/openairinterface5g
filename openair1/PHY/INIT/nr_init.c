@@ -249,7 +249,7 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
     free_and_zero(pusch_vars->rxdataF_comp);
 
 #ifdef LDPC_CUDA
-    gpuFreeHost(pusch_vars->llr_dev);
+    gpuFreeHost(pusch_vars->ulsch_llrs); // the host pointer of the mapped allocation, not its device alias
 #else
     free_and_zero(pusch_vars->ulsch_llrs);
 #endif
