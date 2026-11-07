@@ -8,6 +8,28 @@
 #include "log.h"
 #include <string.h>
 
+static int get_beam_index(const oru_codebook_t *cb, int beam_id)
+{
+  if (cb->has_beam_ids) {
+    for (int b = 0; b < cb->nb_beams; b++) {
+      if (cb->beam_ids[b] == beam_id)
+        return b;
+    }
+    LOG_W(PHY,
+          "beam_id %d not found in codebook (nb_beams=%d), falling back to table row 0 (beam_id=%u)\n",
+          beam_id,
+          cb->nb_beams,
+          cb->beam_ids[0]);
+    return 0;
+  }
+
+  if (beam_id < 0 || beam_id >= cb->nb_beams) {
+    LOG_W(PHY, "beam_id %d out of range (nb_beams=%d), falling back to beam 0\n", beam_id, cb->nb_beams);
+    return 0;
+  }
+  return beam_id;
+}
+
 static void combine_passthrough(c16_t **txDataF,
                                 int nb_tx,
                                 int n_sc,
@@ -49,11 +71,7 @@ static void combine_codebook(c16_t **txDataF,
       LOG_W(PHY, "DL stream ant_id %d exceeds nb_fh_streams %d, dropping\n", stream->ant_id, cb->nb_fh_streams);
       continue;
     }
-    int bidx = stream->beam_id;
-    if (bidx >= cb->nb_beams) {
-      LOG_W(PHY, "beam_id %u out of range (nb_beams=%d), falling back to beam 0\n", stream->beam_id, cb->nb_beams);
-      bidx = 0;
-    }
+    const int bidx = get_beam_index(cb, stream->beam_id);
     const c16_t *src = (const c16_t *)stream->iq;
     const int n_re = stream->num_prb * NR_NB_SC_PER_RB;
     const int re_off = stream->start_prb * NR_NB_SC_PER_RB;
@@ -96,11 +114,7 @@ void combine_ul_beam_fd(const c16_t *const fft_data[],
     memset(&out[k0], 0, nk * sizeof(c16_t));
     return;
   }
-  int bidx = beam_id;
-  if (bidx >= cb->nb_beams) {
-    LOG_W(PHY, "beam_id %u out of range (nb_beams=%d), falling back to beam 0\n", beam_id, cb->nb_beams);
-    bidx = 0;
-  }
+  const int bidx = get_beam_index(cb, beam_id);
   memset(&out[k0], 0, nk * sizeof(c16_t));
   if (nb_rx > ORU_CODEBOOK_MAX_NB_TX) {
     LOG_W(PHY, "nb_rx %d exceeds codebook antenna dimension %d, combining first %d antennas\n",

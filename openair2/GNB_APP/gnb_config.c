@@ -34,6 +34,7 @@
 #include "common/openairinterface5g_limits.h"
 #include "common/ran_context.h"
 #include "common/utils/T/T.h"
+#include "common/utils/dbt.h"
 #include "constr_TYPE.h"
 #include "enb_paramdef.h"
 #include "executables/softmodem-common.h"
@@ -1326,102 +1327,7 @@ static void get_bwp_config(nr_mac_config_t *configuration, const int bw, const i
   }
 }
 
-/* sscanf() returns the number of assignments, not whether trailing literals matched, so
- * the imaginary unit has to be checked separately: "0.5" otherwise matches "%lfi" and a
- * purely real weight would be read as a purely imaginary one. */
-static bool parse_complex_token(const char *tok, double complex *out)
-{
-  double re = 0.0;
-  double im = 0.0;
-  int n = 0;
-  if (sscanf(tok, "%lf%lf%n", &re, &im, &n) == 2 && (tok[n] == 'i' || tok[n] == 'j') && tok[n + 1] == '\0') {
-    *out = re + I * im;
-    return true;
-  }
-  n = 0;
-  if (sscanf(tok, "%lf%n", &im, &n) == 1 && (tok[n] == 'i' || tok[n] == 'j') && tok[n + 1] == '\0') {
-    *out = I * im;
-    return true;
-  }
-  n = 0;
-  if (sscanf(tok, "%lf%n", &re, &n) == 1 && tok[n] == '\0') {
-    *out = re;
-    return true;
-  }
-  return false;
-}
 
-static double complex **read_dbt_from_csv(const char *filename,
-                                          int *num_beams,
-                                          int *num_weights_per_beam,
-                                          uint16_t **beam_ids)
-{
-  FILE *fp = fopen(filename, "r");
-  AssertFatal(fp != NULL, "Failed to open DBT CSV file '%s'\n", filename);
-
-  char line[16384];
-  AssertFatal(fgets(line, sizeof(line), fp) != NULL, "Failed to read DBT CSV header from '%s'\n", filename);
-
-  int weights = 1;
-  for (char *p = line; *p; ++p)
-    if (*p == ',')
-      weights++;
-  weights -= 1; // first column is beam ID
-  AssertFatal(weights > 0, "DBT CSV '%s' has no weight columns\n", filename);
-
-  int beams = 0;
-  while (fgets(line, sizeof(line), fp))
-    beams++;
-  AssertFatal(beams > 0, "No DBT beam rows found in CSV file '%s'\n", filename);
-
-  rewind(fp);
-  AssertFatal(fgets(line, sizeof(line), fp) != NULL, "Failed to reread DBT CSV header from '%s'\n", filename);
-
-  double complex **table = calloc_or_fail(beams, sizeof(*table));
-  uint16_t *ids = calloc_or_fail(beams, sizeof(*ids));
-
-  int b = 0;
-  while (fgets(line, sizeof(line), fp)) {
-    line[strcspn(line, "\r\n")] = '\0';
-    char *saveptr = NULL;
-    char *tok = strtok_r(line, ",", &saveptr);
-    AssertFatal(tok != NULL, "Malformed DBT row %d in '%s'\n", b + 1, filename);
-
-    errno = 0;
-    char *endptr = NULL;
-    long beam_id = strtol(tok, &endptr, 10);
-    AssertFatal(endptr != tok && errno != ERANGE && *endptr == '\0' && beam_id >= 0 && beam_id <= UINT16_MAX,
-                "Invalid DBT beam id '%s' in file '%s', beam row %d\n",
-                tok,
-                filename,
-                b + 1);
-    ids[b] = (uint16_t)beam_id;
-
-    table[b] = calloc_or_fail(weights, sizeof(*table[b]));
-    for (int w = 0; w < weights; ++w) {
-      tok = strtok_r(NULL, ",", &saveptr);
-      AssertFatal(tok != NULL, "Missing DBT weight in file '%s', beam row %d column %d\n", filename, b + 1, w + 1);
-      AssertFatal(parse_complex_token(tok, &table[b][w]),
-                  "Invalid DBT complex weight '%s' in file '%s', beam row %d column %d\n",
-                  tok,
-                  filename,
-                  b + 1,
-                  w + 1);
-    }
-    AssertFatal(strtok_r(NULL, ",", &saveptr) == NULL,
-                "Too many DBT columns in file '%s', beam row %d\n",
-                filename,
-                b + 1);
-    b++;
-  }
-  AssertFatal(b == beams, "Parsed %d DBT rows but counted %d in file '%s'\n", b, beams, filename);
-
-  fclose(fp);
-  *num_beams = beams;
-  *num_weights_per_beam = weights;
-  *beam_ids = ids;
-  return table;
-}
 
 #define DBT_PARAMS_DESC { \
   {"", "beam", 0, .strlistptr=NULL, .defstrlistval=NULL, TYPE_STRINGLIST, 0}, \
@@ -1478,7 +1384,7 @@ static double complex **read_dbt_from_config(const char *prefix,
 
     table[b] = calloc_or_fail(weights, sizeof(*table[b]));
     for (int w = 0; w < weights; ++w)
-      AssertFatal(parse_complex_token(row->strlistptr[w + 1], &table[b][w]),
+      AssertFatal(dbt_parse_complex_token(row->strlistptr[w + 1], &table[b][w]),
                   "Invalid dbt complex weight '%s' in section '%s', row %d col %d\n",
                   row->strlistptr[w + 1],
                   prefix,
@@ -1672,13 +1578,17 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
   char **fptr = gpd(macrlc_p, macrlc_np, MACRLC_DBT_FILE)->strptr;
   if (fptr && *fptr && **fptr != '\0') {
     LOG_I(GNB_APP, "loading DBT table from file %s\n", *fptr);
-    config.bt.beam_weights =
-        read_dbt_from_csv(*fptr, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
+    dbt_table_t dbt = dbt_read_csv(*fptr);
+    config.bt.num_beams = dbt.num_beams;
+    config.bt.num_weights_per_beam = dbt.num_weights_per_beam;
+    config.bt.beam_ids = dbt.beam_ids;
+    config.bt.beam_weights = dbt.weights;
   } else {
     char prefix[MAX_OPTNAME_SIZE * 2 + 8];
     snprintf(prefix, sizeof(prefix), MACRLC_LIST ".[%d]", idx);
     config.bt.beam_weights =
         read_dbt_from_config(prefix, &config.bt.num_beams, &config.bt.num_weights_per_beam, &config.bt.beam_ids);
+  }
   }
   const bool have_dbt = config.bt.num_beams > 0;
   if (have_dbt)
