@@ -115,15 +115,19 @@ void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id)
     case NR_MAC_RRC_CONFIG_RESET:
       nr_rrc_mac_config_req_reset(instance_id, msg->payload.config_reset.cause);
       break;
-    case NR_MAC_RRC_CONFIG_CG:
-      nr_rrc_mac_config_req_cg(instance_id,
-                               0,
-                               msg->payload.config_cg.hfn,
-                               msg->payload.config_cg.frame,
-                               msg->payload.config_cg.cellGroupConfig,
-                               msg->payload.config_cg.UE_NR_Capability);
+    case NR_MAC_RRC_CONFIG_CG: {
+      bool res = nr_rrc_mac_config_req_cg(instance_id,
+                                          0,
+                                          msg->payload.config_cg.hfn,
+                                          msg->payload.config_cg.frame,
+                                          msg->payload.config_cg.cellGroupConfig,
+                                          msg->payload.config_cg.UE_NR_Capability);
+      if (!res) {
+        LOG_E(NR_MAC, "Failed to apply CellGroupConfig\n");
+      }
       ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, msg->payload.config_cg.cellGroupConfig);
       break;
+    }
     case NR_MAC_RRC_CONFIG_MIB:
       nr_rrc_mac_config_req_mib(instance_id,
                                 0,
