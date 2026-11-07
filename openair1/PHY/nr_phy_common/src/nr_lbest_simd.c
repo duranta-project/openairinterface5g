@@ -534,13 +534,13 @@ static inline void NRLB_NAME(nrlbw_seed256)(NRLB_VI z1r16,
     const NRLB_VI energy0 = NRLB_MM(adds_epi16)((EI_), (EQ_));                                                                     \
     const NRLB_VI corr1 = NRLB_MM(adds_epi16)(NRLB_MM(mulhi_epi16)(z2rM, NRLB_MM(mullo_epi16)(I2, C13_256)),                       \
                                               NRLB_MM(mulhi_epi16)(z2iM, NRLB_MM(mullo_epi16)(Q2, C13_256)));                      \
-    const NRLB_VI energy1 = NRLB_MM(mulhi_epi16)(                                                                                  \
+    const NRLB_VI energy1 = NRLB_MM(mulhrs_epi16)(                                                                                  \
         cm1M,                                                                                                                      \
         NRLB_MM(mullo_epi16)(NRLB_MM(adds_epi16)(NRLB_MM(mullo_epi16)(I2, I2), NRLB_MM(mullo_epi16)(Q2, Q2)), CE_256));            \
     const NRLB_VI aa = NRLB_MM(adds_epi16)(NRLB_MM(mullo_epi16)((I1_), I2), NRLB_MM(mullo_epi16)((Q1_), Q2));                      \
     const NRLB_VI bb = NRLB_MM(subs_epi16)(NRLB_MM(mullo_epi16)((Q1_), I2), NRLB_MM(mullo_epi16)((I1_), Q2));                      \
-    const NRLB_VI cross = NRLB_MM(adds_epi16)(NRLB_MM(mulhi_epi16)(rrM, NRLB_MM(mullo_epi16)(aa, CX_256)),                         \
-                                              NRLB_MM(mulhi_epi16)(riM, NRLB_MM(mullo_epi16)(bb, CX_256)));                        \
+    const NRLB_VI cross = NRLB_MM(adds_epi16)(NRLB_MM(mulhrs_epi16)(rrM, NRLB_MM(mullo_epi16)(aa, CX_256)),                         \
+                                              NRLB_MM(mulhrs_epi16)(riM, NRLB_MM(mullo_epi16)(bb, CX_256)));                        \
     (MET_) = NRLB_MM(max_epi16)(                                                                                                   \
         NRLB_MM(subs_epi16)(NRLB_MM(adds_epi16)(NRLB_MM(subs_epi16)(corr0, energy0), NRLB_MM(subs_epi16)(corr1, energy1)), cross), \
         FLOORM);                                                                                                                   \
@@ -574,7 +574,8 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
   // 256QAM metric Q-constants. The metric runs at scale 1/4 of the float reference (twice the
   // 64QAM kernel's 1/8): at 1/8 the per-term mulhi truncations (~1 unit = 8 LLR each) add up to an
   // LLR error that floors 256QAM MCS27 BLER above MMSE at high SNR (float ML on the same inputs has
-  // no floor). Headroom: I*C13 <= 18855, |metric| <~ 20000 with cm, rho doubled below.
+  // no floor). Headroom: I*C13 <= 18855, |metric| <~ 20000 with the 2*cm, 2*rho of the
+  // mulhrs products below.
   //   C13_256 = round(2^14/sqrt(170))          => mulhi(z, I*C13) = z*I/(4*sqrt(170))
   //   CE_256  = round(2^16/(8*8*2*sqrt(170)))  => energy = (2cm)*|X|^2/(8*8*2*sqrt(170))
   //   CX_256  = round(2^16/(8*170))            => cross = mulhi(2rho, .)
@@ -613,15 +614,16 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
     const NRLB_VI rr4 = NRLB_MM(srai_epi16)(NRLB_MM(adds_epi16)(rr, V8r), 4),
                   ri4 = NRLB_MM(srai_epi16)(NRLB_MM(adds_epi16)(ri, V8r), 4);
     const NRLB_VI Pp1_4_256 = NRLB_MM(mulhi_epi16)(cm1, NRLB_MM(set1_epi16)(NR_LBEST_Q_PP1_OVER16_Q16_256));
-    // Metric operands: cm and rho doubled (1/4 metric scale, see C13_256), and all of them
+    // Metric operands: cm and rho enter through mulhrs (2*mulhi, rounded) for the 1/4 metric scale
+    // (see C13_256): doubling them in int16 instead saturates for cm/rho > 16383. All of them are
     // pre-scaled by (exact constant / quantized constant), since the int16 constants are off by
     // -0.03/+0.69/+0.39% (C13/CE/CX) -- up to ~7 metric units between inner and corner points.
     // Once per vector, nothing per candidate: x' = x + mulhi(x, round(f*2^16)). The slicer operands
     // (z2r170, rr4/ri4, Pp1_4_256) keep the original values.
 #define NR_FIX(x, f) NRLB_MM(adds_epi16)((x), NRLB_MM(mulhi_epi16)((x), NRLB_MM(set1_epi16)(f)))
     const NRLB_VI z1rM = NR_FIX(z1r, -21), z1iM = NR_FIX(z1i, -21), z2rM = NR_FIX(z2r, -21), z2iM = NR_FIX(z2i, -21);
-    const NRLB_VI cm0M = NR_FIX(NRLB_MM(adds_epi16)(cm0, cm0), 451), cm1M = NR_FIX(NRLB_MM(adds_epi16)(cm1, cm1), 451);
-    const NRLB_VI rrM = NR_FIX(NRLB_MM(adds_epi16)(rr, rr), 257), riM = NR_FIX(NRLB_MM(adds_epi16)(ri, ri), 257);
+    const NRLB_VI cm0M = NR_FIX(cm0, 451), cm1M = NR_FIX(cm1, 451);
+    const NRLB_VI rrM = NR_FIX(rr, 257), riM = NR_FIX(ri, 257);
 #undef NR_FIX
 
     NRLB_VI max0[8], max1[8];
@@ -672,8 +674,8 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
 
       c0I[k] = NRLB_MM(mulhi_epi16)(z1rM, NRLB_MM(mullo_epi16)(I1, C13_256));
       c0Q[k] = NRLB_MM(mulhi_epi16)(z1iM, NRLB_MM(mullo_epi16)(Q1, C13_256));
-      eI[k] = NRLB_MM(mulhi_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE_256));
-      eQ[k] = NRLB_MM(mulhi_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(Q1, Q1), CE_256));
+      eI[k] = NRLB_MM(mulhrs_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE_256));
+      eQ[k] = NRLB_MM(mulhrs_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(Q1, Q1), CE_256));
       rrI[k] = NRLB_MM(mullo_epi16)(rr4, I1);
       riI[k] = NRLB_MM(mullo_epi16)(ri4, I1);
       rrQ[k] = NRLB_MM(mullo_epi16)(rr4, Q1);
@@ -765,7 +767,7 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
         fbI[k][3] = NRLB_CMPGT16(m3I, V2);
         fc0I[k] = NRLB_MM(mulhi_epi16)(z1rM, NRLB_MM(mullo_epi16)(I1, C13_256));
         fc0Q[k] = NRLB_MM(mulhi_epi16)(z1iM, NRLB_MM(mullo_epi16)(I1, C13_256));
-        feI[k] = NRLB_MM(mulhi_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE_256));
+        feI[k] = NRLB_MM(mulhrs_epi16)(cm0M, NRLB_MM(mullo_epi16)(NRLB_MM(mullo_epi16)(I1, I1), CE_256));
         frrI[k] = NRLB_MM(mullo_epi16)(rr4, I1);
         friI[k] = NRLB_MM(mullo_epi16)(ri4, I1);
       }
