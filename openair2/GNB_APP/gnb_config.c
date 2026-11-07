@@ -857,7 +857,7 @@ void RCconfig_NR_L1(void)
         LOG_I(NR_PHY, "L1 configured for a distributed antenna system (DAS)\n");
       const char *mimo_rx = *gpd(params, np, L1_PUSCH_MIMO_RX)->strptr;
       const int rx = nr_pusch_mimo_rx_from_str(mimo_rx);
-      AssertFatal(rx >= 0, "%s = \"%s\": must be lbest, mmse or ml\n", L1_PUSCH_MIMO_RX, mimo_rx);
+      AssertFatal(rx >= 0, "%s = \"%s\": must be auto, lbest, mmse or ml\n", L1_PUSCH_MIMO_RX, mimo_rx);
       gNB->pusch_mimo_rx = rx;
       gNB->pusch_mimo_hires = *gpd(params, np, L1_PUSCH_MIMO_HIRES)->uptr;
       LOG_I(NR_PHY, "2-layer PUSCH receiver: %s%s\n", mimo_rx, gNB->pusch_mimo_hires ? " (256QAM L-best: fp32 metric)" : "");

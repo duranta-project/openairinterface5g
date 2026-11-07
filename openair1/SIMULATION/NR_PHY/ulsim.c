@@ -186,7 +186,7 @@ int main(int argc, char *argv[])
   int params_from_file = 0;
   int threadCnt=0;
   int max_ldpc_iterations = 5;
-  int pusch_mimo_rx = NR_PUSCH_RX_LBEST;
+  int pusch_mimo_rx = NR_PUSCH_RX_AUTO;
   bool pusch_mimo_hires = false;
   double rx_gain_dB = 0; // -K: gain on signal+noise at the gNB input (same SNR, different level)
   int num_antennas_per_thread = 1;
@@ -501,7 +501,7 @@ int main(int argc, char *argv[])
 
     case 'D':
       pusch_mimo_rx = nr_pusch_mimo_rx_from_str(optarg);
-      AssertFatal(pusch_mimo_rx >= 0, "-D %s: must be lbest, mmse or ml\n", optarg);
+      AssertFatal(pusch_mimo_rx >= 0, "-D %s: must be auto, lbest, mmse or ml\n", optarg);
       break;
 
     case 'J':
@@ -531,7 +531,7 @@ int main(int argc, char *argv[])
       printf("-c RNTI\n");
       printf("-C Specify the number of threads for the simulation\n");
       printf("-d Introduce delay in terms of number of samples\n");
-      printf("-D 2-layer PUSCH receiver: lbest (default), mmse, ml\n");
+      printf("-D 2-layer PUSCH receiver: auto (default), lbest, mmse, ml\n");
       printf("-J 256QAM 2-layer L-best with the fp32 metric (pusch_mimo_hires)\n");
       printf("-e To simulate MSG3 configuration\n");
       printf("-E {SRS: [0] Disabled, [1] Enabled} e.g. -E 1\n");

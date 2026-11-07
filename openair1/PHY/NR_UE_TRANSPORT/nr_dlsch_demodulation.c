@@ -741,8 +741,9 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
 
   // ml: joint ML LLR for 2-layer QPSK/16QAM/64QAM. lbest additionally covers 2-layer 256QAM
   // (otherwise MMSE + single-layer LLR). MMSE (default) for everything else, including 3-4 layers.
-  const bool do_ml = ue->pdsch_mimo_rx != NR_PDSCH_RX_MMSE;
-  const bool lbest_gate = ue->pdsch_mimo_rx == NR_PDSCH_RX_LBEST;
+  const nr_pdsch_mimo_rx_t mimo_rx = nr_pdsch_mimo_rx_resolve(ue->pdsch_mimo_rx, dlsch->cw_info.qamModOrder, nbRx);
+  const bool do_ml = mimo_rx != NR_PDSCH_RX_MMSE;
+  const bool lbest_gate = mimo_rx == NR_PDSCH_RX_LBEST;
   const bool ml256 = lbest_gate;
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]

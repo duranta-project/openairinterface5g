@@ -234,7 +234,8 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
   const bool fuse_1layer = fuse_env && (nb_layer == 1) && (rel15_ul->transform_precoding != transformPrecoder_enabled);
   // 2-layer near-ML (pusch_mimo_receiver = lbest | ml) fuses MRC + rho + joint ML-LLR the same way;
   // the 2-layer MMSE receiver is not fused.
-  const bool fuse_2layer_ml = fuse_env && (nb_layer == 2) && (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE);
+  const nr_pusch_mimo_rx_t mimo_rx = nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul->qam_mod_order, nb_rx_ant);
+  const bool fuse_2layer_ml = fuse_env && (nb_layer == 2) && (mimo_rx != NR_PUSCH_RX_MMSE);
 
   if (!fuse_1layer && !fuse_2layer_ml) {
     memset(rho, 0, sizeof(rho));
@@ -272,7 +273,7 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
   /* PTRS processing and start_meas(ulsch_llr) now happen earlier, per upstream's ptrs refactor */
   const uint32_t valid_re = pusch_vars->ul_valid_re_per_slot[symbol];
   const int mod = rel15_ul->qam_mod_order;
-  const bool ml2 = (nb_layer == 2) && (gNB->pusch_mimo_rx != NR_PUSCH_RX_MMSE);
+  const bool ml2 = (nb_layer == 2) && (mimo_rx != NR_PUSCH_RX_MMSE);
   if (nb_layer == 1 || ml2) {
     // Single layer, or 2-layer near-ML (pusch_mimo_receiver = lbest | ml): the detector set shared
     // with the UE. With llr_cw it writes the layer-demapped, descrambled codeword directly.
@@ -300,7 +301,7 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
                 output_shift,
                 fuse_1layer || fuse_2layer_ml,
                 ml2,
-                gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST ? (gNB->pusch_mimo_hires ? 2 : 1) : 0,
+                mimo_rx == NR_PUSCH_RX_LBEST ? (gNB->pusch_mimo_hires ? 2 : 1) : 0,
                 ml2 ? nr_2layer_seed_lambda(nvar, output_shift) : 0,
                 llr,
                 scramble,
@@ -1163,7 +1164,9 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     // gain) plus the antenna-gain term. The MMSE takes the full-ML entry: the one-bit-hotter L-best 64QAM value
     // over-drives its LLRs (2x2 AWGN, MCS 22). Same table as the UE.
     joint_pv->log2_maxh = nr_2layer_log2_maxh(avgs)
-                          + nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order, gNB->pusch_mimo_rx == NR_PUSCH_RX_LBEST)
+                          + nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order,
+                                               nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul_ref->qam_mod_order, num_sp_streams)
+                                                   == NR_PUSCH_RX_LBEST)
                           + log2_approx(num_sp_streams >> 1);
   else
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);

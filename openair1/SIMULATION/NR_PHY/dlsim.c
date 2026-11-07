@@ -397,7 +397,7 @@ int main(int argc, char **argv)
   randominit();
 
   int print_perf = 0;
-  int pdsch_mimo_rx = NR_PDSCH_RX_MMSE;
+  int pdsch_mimo_rx = NR_PDSCH_RX_AUTO;
   bool pdsch_mimo_hires = false;
 
   int use_cuda = 0;
@@ -546,7 +546,7 @@ int main(int argc, char **argv)
 
     case 'E':
       pdsch_mimo_rx = nr_pdsch_mimo_rx_from_str(optarg);
-      AssertFatal(pdsch_mimo_rx >= 0, "-E %s: must be mmse, ml or lbest\n", optarg);
+      AssertFatal(pdsch_mimo_rx >= 0, "-E %s: must be auto, mmse, ml or lbest\n", optarg);
       break;
 
     case 'J':
@@ -657,8 +657,8 @@ int main(int argc, char **argv)
       printf("-d number of dlsch threads, 0: no dlsch parallelization\n");
       printf("-e MSC index\n");
       printf(
-          "-E <mmse|ml|lbest> multi-layer PDSCH receiver: mmse (default), ml (2-layer QPSK..64QAM), lbest (2-layer up to "
-          "256QAM)\n");
+          "-E <auto|mmse|ml|lbest> multi-layer PDSCH receiver: auto (default), mmse, ml (2-layer QPSK..64QAM), lbest (2-layer up "
+          "to 256QAM)\n");
       printf("-J 256QAM 2-layer L-best with the fp32 metric (--pdsch-mimo-hires)\n");
       printf("-f <flag> Enable optional feature flag. Available flags:\n");
 #ifdef CHANNEL_SIM_CUDA

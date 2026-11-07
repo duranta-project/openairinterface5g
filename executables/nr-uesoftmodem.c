@@ -161,7 +161,7 @@ static void set_UE_options(int CC_id, PHY_VARS_NR_UE *UE, int ru_id)
   UE->cont_fo_comp         = nrUE_params.cont_fo_comp;
   UE->disable_blind_search = nrUE_params.disable_blind_search;
   const int pdsch_mimo_rx = nr_pdsch_mimo_rx_from_str(nrUE_params.pdsch_mimo_receiver);
-  AssertFatal(pdsch_mimo_rx >= 0, "--pdsch-mimo-receiver %s: must be mmse, ml or lbest\n", nrUE_params.pdsch_mimo_receiver);
+  AssertFatal(pdsch_mimo_rx >= 0, "--pdsch-mimo-receiver %s: must be auto, mmse, ml or lbest\n", nrUE_params.pdsch_mimo_receiver);
   UE->pdsch_mimo_rx = pdsch_mimo_rx;
   UE->pdsch_mimo_hires = nrUE_params.pdsch_mimo_hires;
 
