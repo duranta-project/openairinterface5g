@@ -39,8 +39,13 @@ float nr_2layer_seed_lambda(uint32_t nvar, int shift);
 /// ~10% (256QAM) of the REs searched in full, ~0% with 4 Rx; 5x5 to 9x9 windows recover little.
 #define NR_LBEST_WIDE_SINR64 10.0f
 #define NR_LBEST_WIDE_SINR256 20.0f
+#if defined(__CUDACC__) || defined(__HIPCC__)
+#define NR_LLR_HD __host__ __device__ // shared with the GPU detectors (nr_detector_gpu.cu)
+#else
+#define NR_LLR_HD
+#endif
 /// NR_LBEST_WIDE_SINR* test for one RE (P = ||h||^2 in the rho units); nb = bits per axis (3: 64QAM, 4: 256QAM)
-static inline int nr_lbest_wide_re(float P0, float P1, float rr, float ri, float lambda, int nb)
+NR_LLR_HD static inline int nr_lbest_wide_re(float P0, float P1, float rr, float ri, float lambda, int nb)
 {
   const float lame = lambda + 0.5f * NR_2LAYER_CSI_EPS * (P0 + P1), P1s = P1 + lame;
   const float det = P0 * P1s - (rr * rr + ri * ri);
