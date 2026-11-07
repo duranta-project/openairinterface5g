@@ -939,12 +939,18 @@ static uint32_t get_lc_bucket_size(long prioritisedBitRate, long bucketSizeDurat
 }
 
 // default configuration as per 38.331 section 9.2.1
-static void set_default_logicalchannelconfig(nr_lcordered_info_t *lc_info, int srb_id)
+static void set_default_logicalchannelconfig(nr_lcordered_info_t *lc_info, int srb_id, NR_LC_SCHEDULING_INFO *lc_sched_info)
 {
   lc_info->lcid = srb_id;
   lc_info->priority = srb_id == 2 ? 3 : 1;
   lc_info->pbr = UINT_MAX;
   lc_info->bucket_size = UINT_MAX;
+
+  // Initialize Bj state for the default SRB logical channel.
+  lc_sched_info->Bj = 0;
+  NR_timer_t *bjt = &lc_sched_info->Bj_timer;
+  nr_timer_setup(bjt, UINT_MAX, 1);
+  nr_timer_start(bjt);
 }
 
 static void nr_configure_lc_config(NR_UE_MAC_INST_t *mac,
@@ -958,7 +964,7 @@ static void nr_configure_lc_config(NR_UE_MAC_INST_t *mac,
   lc_info->rb_suspended = false;
   if (rb.type == NR_LCID_SRB && !mac_lc_config->ul_SpecificParameters) {
     // release configuration and reset to default
-    set_default_logicalchannelconfig(lc_info, rb.choice.srb_id);
+    set_default_logicalchannelconfig(lc_info, rb.choice.srb_id, lc_sched_info);
     // invalid LCGID to signal it is absent in the configuration
     lc_sched_info->LCGID = NR_INVALID_LCGID;
     return;
@@ -1049,7 +1055,7 @@ static void configure_logicalChannelBearer(NR_UE_MAC_INST_t *mac,
           if (mac_lc_config != NULL)
             nr_configure_lc_config(mac, lc_info, mac_lc_config, rb);
           else
-            set_default_logicalchannelconfig(lc_info, srb_id);
+            set_default_logicalchannelconfig(lc_info, srb_id, get_scheduling_info_from_lcid(mac, lc_info->lcid));
         } else { /* DRB */
           AssertFatal(mac_lc_config, "When establishing a DRB, LogicalChannelConfig should be mandatorily present\n");
           nr_configure_lc_config(mac, lc_info, mac_lc_config, rb);
