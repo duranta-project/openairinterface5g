@@ -150,6 +150,62 @@ static int get_nb_re_pusch(NR_DL_FRAME_PARMS *frame_parms,
   return re_pusch;
 }
 
+// RB extraction of one symbol (DMRS / PTRS REs removed) with the channel estimate it uses:
+// rxFext [nb_rx][buffer_length], chFext [nb_layer][nb_rx][buffer_length]
+static void pusch_extract_symbol(PHY_VARS_gNB *gNB,
+                                 NR_DL_FRAME_PARMS *frame_parms,
+                                 NR_gNB_PUSCH *pusch_vars,
+                                 const nfapi_nr_pusch_pdu_t *rel15_ul,
+                                 c16_t **rxF,
+                                 int soffset,
+                                 int symbol,
+                                 uint16_t ptrs_symb_pos,
+                                 int buffer_length,
+                                 c16_t *rxFext,
+                                 c16_t *chFext,
+                                 c16_t *rxFext_slot,
+                                 c16_t *chFext_slot)
+{
+  int nb_layer = rel15_ul->nrOfLayers;
+  int nb_rx_ant = rel15_ul->param_v4.numSpatialStreamIndices;
+  int dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
+  int dmrs_symbol;
+  if (gNB->chest_time == 0)
+    dmrs_symbol = dmrs_symbol_flag ? symbol : get_valid_dmrs_idx_for_channel_est(rel15_ul->ul_dmrs_symb_pos, symbol);
+  else { // average of channel estimates stored in first symbol
+    int end_symbol = rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols;
+    dmrs_symbol = get_next_dmrs_symbol_in_slot(rel15_ul->ul_dmrs_symb_pos, rel15_ul->start_symbol_index, end_symbol);
+  }
+
+  for (int aarx = 0; aarx < nb_rx_ant; aarx++) {
+    for (int aatx = 0; aatx < nb_layer; aatx++) {
+      nr_ulsch_extract_rbs(rxF[aarx] + soffset + symbol * frame_parms->ofdm_symbol_size,
+                           (c16_t *)pusch_vars->ul_ch_estimates[aatx * nb_rx_ant + aarx],
+                           rxFext + (size_t)aarx * buffer_length,
+                           chFext + (size_t)(aatx * nb_rx_ant + aarx) * buffer_length,
+                           dmrs_symbol * frame_parms->ofdm_symbol_size,
+                           dmrs_symbol_flag,
+                           rel15_ul,
+                           frame_parms,
+                           rel15_ul->rnti,
+                           IS_BIT_SET(ptrs_symb_pos, symbol));
+#if T_TRACER
+      // Data Recording application supports only 1 layer and 1 Tx antenna, so only record the first layer and first Tx antenna
+      if (aatx == 0 && aarx == 0) {
+        int nb_re_pusch = NR_NB_SC_PER_RB * rel15_ul->rb_size;
+        // Assume assume Tx and Rx = 1
+        if (T_ACTIVE(T_GNB_PHY_UL_FD_PUSCH_IQ)) {
+          copy_c16_data_to_slot_memory(rxFext, rxFext_slot, nb_re_pusch, symbol);
+        }
+        if (T_ACTIVE(T_GNB_PHY_UL_FD_CHAN_EST_DMRS_INTERPL)) {
+          copy_c16_data_to_slot_memory(chFext, chFext_slot, nb_re_pusch, symbol);
+        }
+      }
+#endif
+    }
+  }
+}
+
 // Returns true iff it wrote the final layer-demapped + descrambled codeword LLRs straight into
 // llr_cw (shared nr_inner_rx detectors); the caller then skips its demap + unscramble/demux pass.
 // llr_cw is this symbol's slice of the UE's ulsch_llrs (or NULL to keep the per-layer path via
@@ -174,48 +230,25 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
 {
   int nb_layer = rel15_ul->nrOfLayers;
   int nb_rx_ant = rel15_ul->param_v4.numSpatialStreamIndices;
-  int dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
   int buffer_length = ceil_mod(rel15_ul->rb_size * NR_NB_SC_PER_RB, 16);
   c16_t rxFext[nb_rx_ant][buffer_length] __attribute__((aligned(64)));
   c16_t chFext[nb_layer][nb_rx_ant][buffer_length] __attribute__((aligned(64)));
 
   memset(rxFext, 0, sizeof(rxFext));
   memset(chFext, 0, sizeof(chFext));
-  int dmrs_symbol;
-  if (gNB->chest_time == 0)
-    dmrs_symbol = dmrs_symbol_flag ? symbol : get_valid_dmrs_idx_for_channel_est(rel15_ul->ul_dmrs_symb_pos, symbol);
-  else { // average of channel estimates stored in first symbol
-    int end_symbol = rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols;
-    dmrs_symbol = get_next_dmrs_symbol_in_slot(rel15_ul->ul_dmrs_symb_pos, rel15_ul->start_symbol_index, end_symbol);
-  }
-
-  for (int aarx = 0; aarx < nb_rx_ant; aarx++) {
-    for (int aatx = 0; aatx < nb_layer; aatx++) {
-      nr_ulsch_extract_rbs(rxF[aarx] + soffset + symbol * frame_parms->ofdm_symbol_size,
-                           (c16_t *)pusch_vars->ul_ch_estimates[aatx * nb_rx_ant + aarx],
-                           rxFext[aarx],
-                           chFext[aatx][aarx],
-                           dmrs_symbol * frame_parms->ofdm_symbol_size,
-                           dmrs_symbol_flag,
-                           rel15_ul,
-                           frame_parms,
-                           rel15_ul->rnti,
-                           IS_BIT_SET(ptrs_symb_pos, symbol));
-#if T_TRACER
-      // Data Recording application supports only 1 layer and 1 Tx antenna, so only record the first layer and first Tx antenna
-      if (aatx == 0 && aarx == 0) {
-        int nb_re_pusch = NR_NB_SC_PER_RB * rel15_ul->rb_size;
-        // Assume assume Tx and Rx = 1
-        if (T_ACTIVE(T_GNB_PHY_UL_FD_PUSCH_IQ)) {
-          copy_c16_data_to_slot_memory(rxFext[aarx], rxFext_slot, nb_re_pusch, symbol);
-        }
-        if (T_ACTIVE(T_GNB_PHY_UL_FD_CHAN_EST_DMRS_INTERPL)) {
-          copy_c16_data_to_slot_memory(chFext[aatx][aarx], chFext_slot, nb_re_pusch, symbol);
-        }
-      }
-#endif
-    }
-  }
+  pusch_extract_symbol(gNB,
+                       frame_parms,
+                       pusch_vars,
+                       rel15_ul,
+                       rxF,
+                       soffset,
+                       symbol,
+                       ptrs_symb_pos,
+                       buffer_length,
+                       &rxFext[0][0],
+                       &chFext[0][0][0],
+                       rxFext_slot,
+                       chFext_slot);
   c16_t rho[nb_layer][nb_layer][buffer_length] __attribute__((aligned(64)));
   c16_t rxF_ch_maga[nb_layer][buffer_length] __attribute__((aligned(64)));
   c16_t rxF_ch_magb[nb_layer][buffer_length] __attribute__((aligned(64)));
@@ -548,6 +581,7 @@ typedef struct puschSymbolProc_s {
   int16_t **scrambling_sequences;
   int *layer_offsets;
   int layers_attenuation;
+  const bool *skip; ///< symbols handled elsewhere (inner-RX offload), or NULL
 } puschSymbolProc_t;
 
 static inline void unscramble_helper(const int16_t *llr_in, const int16_t *seq, int16_t *llr_out, int num_llr)
@@ -669,7 +703,7 @@ static void nr_pusch_symbol_processing(void *arg)
   int slot = rdata->slot;
   NR_gNB_PUSCH *pusch_vars = rdata->pusch_vars;
   for (int symbol = rdata->startSymbol; symbol < rdata->startSymbol + rdata->numSymbols; symbol++) {
-    if (pusch_vars->ul_valid_re_per_slot[symbol] == 0)
+    if (pusch_vars->ul_valid_re_per_slot[symbol] == 0 || (rdata->skip && rdata->skip[symbol]))
       continue;
     int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
     int buffer_length = ceil_mod(pusch_vars->ul_valid_re_per_slot[symbol] * NR_NB_SC_PER_RB, 16);
@@ -729,7 +763,8 @@ static void nr_pusch_symbol_processing(void *arg)
     }
   }
   // Task running in // completed
-  completed_task_ans(rdata->ans);
+  if (rdata->ans) // NULL: run inline (offload fallback)
+    completed_task_ans(rdata->ans);
 }
 
 static uint32_t average_u32(const uint32_t *x, uint16_t size)
@@ -821,6 +856,75 @@ static rate_match_info_uci_t get_uci_on_pusch_info(const nfapi_nr_pusch_pdu_t *p
 
   uci_info.G_ulsch = G - uci_info.E_uci_CSI1 - uci_info.E_uci_CSI2 - (uci_info.O_ack > 2 ? uci_info.E_uci_ACK : 0);
   return uci_info;
+}
+
+static int irx_detector(nr_pusch_mimo_rx_t rx)
+{
+  return rx == NR_PUSCH_RX_MMSE ? NR_IRX_DET_MMSE : rx == NR_PUSCH_RX_ML ? NR_IRX_DET_ML : NR_IRX_DET_LBEST;
+}
+
+// Inner RX of the symbols marked in off[] on the offload module, one batch: extraction into the module's staging, then
+// the module writes the layer-demapped, descrambled LLRs into ulsch_llrs, as the CPU path does for these symbols.
+static int pusch_irx_offload(PHY_VARS_gNB *gNB,
+                             nr_irx_ctx_t *ctx,
+                             const bool *off,
+                             NR_DL_FRAME_PARMS *frame_parms,
+                             NR_gNB_PUSCH *pusch_vars,
+                             const nfapi_nr_pusch_pdu_t *rel15_ul,
+                             const nr_uci_mapping_t *map,
+                             int16_t *ulsch_llrs,
+                             const int16_t *scrambling_sequence,
+                             int slot,
+                             uint16_t ant_port_start,
+                             uint16_t ptrs_symb_pos,
+                             const c16_t *cpe,
+                             uint32_t nvar,
+                             int output_shift,
+                             c16_t *rxFext_slot,
+                             c16_t *chFext_slot)
+{
+  const nr_irx_interface_t *irx = &gNB->irx;
+  const int nl = rel15_ul->nrOfLayers, qm = rel15_ul->qam_mod_order;
+  const int buffer_length = ceil_mod(rel15_ul->rb_size * NR_NB_SC_PER_RB, 16);
+  const int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
+  nr_irx_sym_t sym[NR_IRX_MAX_SYM];
+  int n = 0;
+  for (int symbol = rel15_ul->start_symbol_index; symbol < rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols; symbol++) {
+    if (!off[symbol])
+      continue;
+    c16_t *rx = irx->staging(ctx, n, NR_IRX_STAGING_RX), *ch = irx->staging(ctx, n, NR_IRX_STAGING_CH);
+    int16_t *scr = irx->staging(ctx, n, NR_IRX_STAGING_SCRAMBLE);
+    pusch_extract_symbol(gNB,
+                         frame_parms,
+                         pusch_vars,
+                         rel15_ul,
+                         gNB->common_vars.rxdataF + ant_port_start,
+                         soffset,
+                         symbol,
+                         ptrs_symb_pos,
+                         buffer_length,
+                         rx,
+                         ch,
+                         rxFext_slot,
+                         chFext_slot);
+    const uint32_t len = pusch_vars->ul_valid_re_per_slot[symbol];
+    memcpy(scr, scrambling_sequence + pusch_vars->llr_offset[symbol] * nl, sizeof(*scr) * len * nl * qm);
+    sym[n++] = (nr_irx_sym_t){.rxF = rx,
+                              .chF = ch,
+                              .scramble = scr,
+                              .llr_cw = &ulsch_llrs[map->ulsch_offset[symbol]],
+                              .length = len,
+                              .stride = buffer_length,
+                              .cpe = cpe[symbol]};
+  }
+  const int nb_rx = rel15_ul->param_v4.numSpatialStreamIndices;
+  const nr_irx_params_t p = {.nb_layers = nl,
+                             .nb_rx = nb_rx,
+                             .mod_order = qm,
+                             .detector = irx_detector(nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, qm, nb_rx)),
+                             .output_shift = output_shift,
+                             .lambda = nr_2layer_seed_lambda(nvar, output_shift)};
+  return n ? irx->run(ctx, sym, n, &p) : 0;
 }
 
 int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
@@ -1184,6 +1288,21 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   stop_meas(&gNB->rx_pusch_init_stats);
 
   start_meas(&gNB->rx_pusch_symbol_processing_stats);
+  // Inner-RX offload: the 2-layer data symbols of a single UE that carry no UCI (those whose codeword LLRs the CPU path
+  // also writes directly) go to the module in one batch while the CPU tasks below process the others.
+  const int layers_attenuation = total_layers ? log2_approx(max_ch >> 11) : 0;
+  bool irx_off[NR_SYMBOLS_PER_SLOT] = {false};
+  nr_irx_ctx_t *irx_ctx = NULL;
+  const int nb_rx_ref = rel15_ul_ref->param_v4.numSpatialStreamIndices;
+  if (gNB->irx.run && group_size == 1 && rel15_ul_ref->nrOfLayers == 2
+      && gNB->irx.supported(2,
+                            nb_rx_ref,
+                            rel15_ul_ref->qam_mod_order,
+                            irx_detector(nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul_ref->qam_mod_order, nb_rx_ref)))
+      && (irx_ctx = gNB->irx.acquire())) {
+    for (int s = rel15_ul_ref->start_symbol_index; s < end_symbol; s++)
+      irx_off[s] = joint_pv->ul_valid_re_per_slot[s] && !map_uci[0].d_ack[s] && !map_uci[0].d_csi1[s] && !map_uci[0].d_csi2[s];
+  }
   int numSymbols = gNB->num_pusch_symbols_per_thread;
   int total_res = 0;
   int const loop_iter = CEILIDIV(rel15_ul_ref->nr_of_symbols, numSymbols);
@@ -1233,8 +1352,9 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       rdata->pusch_vars_group = pusch_vars_group;
       rdata->scrambling_sequences = scrambling_sequences_arr;
       rdata->layer_offsets = layer_offset;
-      rdata->layers_attenuation = total_layers ? log2_approx(max_ch >> 11) : 0;
+      rdata->layers_attenuation = layers_attenuation;
       rdata->map_uci = map_uci;
+      rdata->skip = irx_ctx ? irx_off : NULL;
 
       task_t t = {.func = &nr_pusch_symbol_processing, .args = rdata};
       pushTpool(&gNB->threadPool, t);
@@ -1245,6 +1365,38 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     }
   } // symbol loop
 
+  if (irx_ctx) {
+    const int ret = pusch_irx_offload(gNB,
+                                      irx_ctx,
+                                      irx_off,
+                                      frame_parms,
+                                      joint_pv,
+                                      &joint_pdu,
+                                      &map_uci[0],
+                                      pusch_vars_group[0]->ulsch_llrs,
+                                      scrambling_sequences_arr[0],
+                                      slot,
+                                      ant_port_start,
+                                      ptrs_info.ptrs_symbols,
+                                      cpe,
+                                      nvar,
+                                      joint_pv->log2_maxh + layers_attenuation,
+                                      rxFext_slot_mem,
+                                      pusch_ch_est_dmrs_interpl_slot_mem);
+    gNB->irx.release(irx_ctx);
+    if (ret != 0) { // the offloaded symbols on the CPU after all
+      LOG_E(PHY, "%d.%d inner RX offload failed (%d), symbols processed on the CPU\n", frame, slot, ret);
+      bool cpu_only[NR_SYMBOLS_PER_SLOT];
+      for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
+        cpu_only[s] = !irx_off[s];
+      puschSymbolProc_t r = arr[0];
+      r.startSymbol = rel15_ul_ref->start_symbol_index;
+      r.numSymbols = rel15_ul_ref->nr_of_symbols;
+      r.skip = cpu_only;
+      r.ans = NULL;
+      nr_pusch_symbol_processing(&r);
+    }
+  }
   // Complete symbol processing before copying its IQ and interpolated channel estimates.
   join_task_ans(&ans);
 
