@@ -548,7 +548,7 @@ int main(int argc, char *argv[])
         break;
       case 'g':
         gen_code = atoi(optarg);
-        AssertFatal(gen_code <= 4, "gen_code %d is not allowed\n", gen_code);
+        AssertFatal(gen_code <= 5, "gen_code %d is not allowed\n", gen_code);
         n_trials = 0;
         break;
       case 'h':
