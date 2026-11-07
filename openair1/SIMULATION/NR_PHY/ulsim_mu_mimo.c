@@ -802,7 +802,7 @@ int main(int argc, char *argv[])
   for (int u = 0; u < NUM_UE; u++) {
     ulsch_input_buffer[u][0] = 0x31;
     for (i = 1; i < TBS / 8; i++) {
-      ulsch_input_buffer[u][i] = (uint8_t)rand();
+      ulsch_input_buffer[u][i] = (uint8_t)(floor(uniformrandom() * 256)); // OAI_RNGSEED, not rand() (reseeded by GTP)
     }
   }
 

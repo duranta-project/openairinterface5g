@@ -965,6 +965,7 @@ int main(int argc, char *argv[])
   unsigned int available_bits =
       nr_get_G(nb_rb, nb_symb_sch, nb_re_dmrs, number_dmrs_symbols, unav_res, mod_order, precod_nbr_layers);
   printf("[ULSIM]: VALUE OF G: %u, TBS: %u\n", available_bits, TBS);
+  unsigned int ber_bits = available_bits; // bits of the raw error count: G_ulsch with UCI on PUSCH
 
   int frame_length_complex_samples = gNB->frame_parms.samples_per_subframe * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
   for (int aatx = 0; aatx < n_tx; aatx++) {
@@ -1273,11 +1274,13 @@ int main(int argc, char *argv[])
         pusch_config_pdu->pusch_data.harq_process_id = harq_pid;
         if (uci_on_pusch) {
           pusch_config_pdu->pusch_uci.harq_ack_bit_length = ack_bits;
-          pusch_config_pdu->pusch_uci.harq_payload = rand() & ((1 << ack_bits) - 1);
+          // UCI payloads from the OAI_RNGSEED generator as the data: libc rand() shares its state with random(), which
+          // the GTP module reseeds at load time
+          pusch_config_pdu->pusch_uci.harq_payload = (uint64_t)(uniformrandom() * 4294967296.0) & ((1 << ack_bits) - 1);
           pusch_config_pdu->pusch_uci.csi_payload.p1_bits = csi1_bits;
-          pusch_config_pdu->pusch_uci.csi_payload.part1_payload = rand() & ((1 << csi1_bits) - 1);
+          pusch_config_pdu->pusch_uci.csi_payload.part1_payload = (uint64_t)(uniformrandom() * 4294967296.0) & ((1 << csi1_bits) - 1);
           pusch_config_pdu->pusch_uci.csi_payload.p2_bits = csi2_bits;
-          pusch_config_pdu->pusch_uci.csi_payload.part2_payload = rand() & ((1 << csi2_bits) - 1);
+          pusch_config_pdu->pusch_uci.csi_payload.part2_payload = (uint64_t)(uniformrandom() * 4294967296.0) & ((1 << csi2_bits) - 1);
           pusch_config_pdu->pusch_uci.alpha_scaling = 3;
           pusch_config_pdu->pusch_uci.beta_offset_harq_ack = 11;
           pusch_config_pdu->pusch_uci.beta_offset_csi1 = 13;
@@ -1638,7 +1641,9 @@ int main(int argc, char *argv[])
                  available_bits, (ptrsSymbPerSlot * ptrsRePerSymb * mod_order * precod_nbr_layers));
         }
 
-        for (i = 0; i < available_bits; i++) {
+        // ulsch_llrs holds the G_ulsch data LLRs only (UCI LLRs go to their own buffers)
+        ber_bits = uci_on_pusch ? pusch_vars->uci_info.G_ulsch : available_bits;
+        for (i = 0; i < ber_bits; i++) {
           const uint8_t current_bit = (UE->ul_harq_processes[harq_pid].f[i / 8] >> (i & 7)) & 1;
           if (((current_bit == 0) && (pusch_vars->ulsch_llrs[i] <= 0)) || ((current_bit == 1) && (pusch_vars->ulsch_llrs[i] >= 0))) {
             errors_scrambling[round]++;
@@ -1697,9 +1702,9 @@ int main(int argc, char *argv[])
     for (int r = 1; r < max_rounds; r++)
       printf(",%d/%d", n_errors[r], round_trials[r]);
     printf(") (negative CRC), false_positive %d/%d, errors_scrambling (%u/%u",
-           n_false_positive, n_trials, errors_scrambling[0], available_bits * round_trials[0]);
+           n_false_positive, n_trials, errors_scrambling[0], ber_bits * round_trials[0]);
     for (int r = 1; r < max_rounds; r++)
-      printf(",%u/%u", errors_scrambling[r], available_bits * round_trials[r]);
+      printf(",%u/%u", errors_scrambling[r], ber_bits * round_trials[r]);
     if (uci_on_pusch)
       printf(") UCI on PUSCH errors: ACK %d CSIp1 %d CSIp2 %d\n", errors_ack, errors_csi1, errors_csi2);
     else
@@ -1708,7 +1713,7 @@ int main(int argc, char *argv[])
 
     for (int r = 0; r < max_rounds; r++) {
       blerStats[r] = (double)n_errors[r] / round_trials[r];
-      berStats[r] = (double)errors_scrambling[r] / available_bits/round_trials[r];
+      berStats[r] = (double)errors_scrambling[r] / ber_bits / round_trials[r];
     }
     effTP = effRate/(double)TBS * (double)100;
     printf("SNR %f: Channel BLER (%e", SNR, blerStats[0]);
@@ -1735,7 +1740,7 @@ int main(int argc, char *argv[])
     if (filename_csv) { // means we are asked to print stats to CSV
       fprintf(csv_file,"%f,%d/%d,",SNR,n_false_positive,n_trials);
       for (int r = 0; r < max_rounds; r++)
-        fprintf(csv_file,"%d/%d,%u/%u,%f,%e,",n_errors[r], round_trials[r], errors_scrambling[r], available_bits * round_trials[r],blerStats[r],berStats[r]);
+        fprintf(csv_file,"%d/%d,%u/%u,%f,%e,",n_errors[r], round_trials[r], errors_scrambling[r], ber_bits * round_trials[r],blerStats[r],berStats[r]);
       fprintf(csv_file,"%.2f,%.4f,%.2f,%u,(%i,%i,%f)\n", roundStats, effRate, effTP, TBS,min_pusch_delay >> 1, max_pusch_delay >> 1, (double)sum_pusch_delay / (2 * delay_pusch_est_count));
     }
     FILE *fd=fopen("nr_ulsim.log","w");
