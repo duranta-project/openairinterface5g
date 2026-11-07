@@ -134,7 +134,7 @@ def ExecuteActionWithParam(action, test, ctx, node, oc, HTML):
 		ctest_opt = test.findtext('ctest-opt') or ''
 		script = test.findtext('script')
 		prefix = test.findtext('prefix') or ''
-		options = f"{ctx.g.workspace} {ctest_opt} {prefix}"
+		options = f"'{ctx.g.workspace}' '{ctest_opt}' '{prefix}'"
 		workdir = ctx.g.workspace
 		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, options)
 
