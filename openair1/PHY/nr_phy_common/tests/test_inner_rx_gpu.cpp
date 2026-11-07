@@ -57,6 +57,8 @@ bool nr_inner_rx(uint32_t length,
                  int16_t *llr_cw);
 void nr_qam64_llr_2layer_lbest_f32_simd_w128_exact(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f32_simd_w128_exact(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qpsk_llr_2layer(c16_t *, c16_t *, int16_t *, c16_t *, uint32_t);
+void nr_qam16_llr_2layer(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t);
 void nr_llr_2layer_mmse_simd_w128_exact(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 }
 
@@ -128,7 +130,7 @@ Sym gen_sym(uint32_t length, int nb_rx, int qm, double ill, double amp, std::mt1
 
 // CPU front end of one symbol: comp0/1, mag_a0/1, rho[2][2], length REs
 struct CpuFe {
-  std::vector<c16_t> comp[2], mag[2], rho[4];
+  AlignedVector512<c16_t> comp[2], mag[2], rho[4]; // length REs + 64 zero padding (the int16 kernels read whole vectors)
 };
 
 CpuFe cpu_front_end(Sym &s, int nb_rx, c16_t cpe, int qm, int shift)
@@ -144,6 +146,8 @@ CpuFe cpu_front_end(Sym &s, int nb_rx, c16_t cpe, int qm, int shift)
     f.mag[l].assign(maga.begin() + l * bl, maga.begin() + l * bl + s.length);
   for (int k = 0; k < 4; k++)
     f.rho[k].assign(rho.begin() + k * bl, rho.begin() + k * bl + s.length);
+  for (auto *v : {&f.comp[0], &f.comp[1], &f.mag[0], &f.mag[1], &f.rho[0], &f.rho[1], &f.rho[2], &f.rho[3]})
+    v->resize(s.length + 64, c16_t{0, 0});
   return f;
 }
 
@@ -163,7 +167,7 @@ TEST(test_inner_rx_gpu, front_end_bit_exact)
             for (auto &o : out)
               ASSERT_EQ(gpuSuccess, gpuMalloc((void **)&o, s.length * sizeof(c16_t)));
             ASSERT_EQ(0, nr_gpu_compensation_2layer(rx, ch, s.stride, s.length, nb_rx, cpe, qm, shift, out, nullptr));
-            const std::vector<c16_t> *want[8] = {&ref.comp[0], &ref.comp[1], &ref.mag[0], &ref.mag[1], &ref.rho[0], &ref.rho[1], &ref.rho[2], &ref.rho[3]};
+            const AlignedVector512<c16_t> *want[8] = {&ref.comp[0], &ref.comp[1], &ref.mag[0], &ref.mag[1], &ref.rho[0], &ref.rho[1], &ref.rho[2], &ref.rho[3]};
             const char *name[8] = {"comp0", "comp1", "mag0", "mag1", "rho00", "rho01", "rho10", "rho11"};
             for (int k = 0; k < 8; k++) {
               if (qm == 2 && (k == 2 || k == 3)) // no magnitudes for QPSK
@@ -189,12 +193,20 @@ std::vector<int16_t> cpu_chain(Sym &s, int nb_rx, c16_t cpe, int qm, int det, fl
 {
   CpuFe f = cpu_front_end(s, nb_rx, cpe, qm, shift);
   const uint32_t n = s.length;
-  AlignedVector512<int16_t> lay[2] = {AlignedVector512<int16_t>((size_t)n * qm), AlignedVector512<int16_t>((size_t)n * qm)};
+  AlignedVector512<int16_t> lay[2] = {AlignedVector512<int16_t>((size_t)(n + 64) * qm), AlignedVector512<int16_t>((size_t)(n + 64) * qm)};
   int osh;
   if (det == NR_GPU_DET_MMSE) {
     nr_llr_2layer_mmse_simd_w128_exact(f.comp[0].data(), f.comp[1].data(), f.rho[0].data(), f.rho[3].data(), f.rho[1].data(), lay[0].data(), n, qm, lambda);
     nr_llr_2layer_mmse_simd_w128_exact(f.comp[1].data(), f.comp[0].data(), f.rho[3].data(), f.rho[0].data(), f.rho[2].data(), lay[1].data(), n, qm, lambda);
     osh = qm == 2 ? 4 : qm == 6 ? 1 : 0;
+  } else if (qm == 2) { // exact ML for L-best and ML alike, as nr_compute_ML_llr
+    nr_qpsk_llr_2layer(f.comp[0].data(), f.comp[1].data(), lay[0].data(), f.rho[1].data(), n);
+    nr_qpsk_llr_2layer(f.comp[1].data(), f.comp[0].data(), lay[1].data(), f.rho[2].data(), n);
+    osh = 4;
+  } else if (qm == 4) {
+    nr_qam16_llr_2layer(f.comp[0].data(), f.comp[1].data(), f.mag[0].data(), f.mag[1].data(), lay[0].data(), f.rho[1].data(), n);
+    nr_qam16_llr_2layer(f.comp[1].data(), f.comp[0].data(), f.mag[1].data(), f.mag[0].data(), lay[1].data(), f.rho[2].data(), n);
+    osh = 0;
   } else {
     auto *k = qm == 6 ? nr_qam64_llr_2layer_lbest_f32_simd_w128_exact : nr_qam256_llr_2layer_lbest_f32_simd_w128_exact;
     k(f.comp[0].data(), f.comp[1].data(), f.mag[0].data(), f.mag[1].data(), lay[0].data(), f.rho[1].data(), n, det, lambda);
@@ -248,6 +260,10 @@ TEST(test_inner_rx_gpu, fused_chain_bit_exact)
                {NR_GPU_DET_MMSE, 4},
                {NR_GPU_DET_MMSE, 6},
                {NR_GPU_DET_MMSE, 8},
+               {NR_GPU_DET_LBEST, 2},
+               {NR_GPU_DET_LBEST, 4},
+               {NR_GPU_DET_ML, 2},
+               {NR_GPU_DET_ML, 4},
                {NR_GPU_DET_LBEST, 6},
                {NR_GPU_DET_LBEST, 8},
                {NR_GPU_DET_ML, 6},
@@ -281,7 +297,7 @@ TEST(test_inner_rx_gpu, close_to_production_inner_rx)
   nr_gpu_det_ws_t *ws = nr_gpu_det_ws_alloc(1u << 16);
   std::mt19937 rng(0xC10);
   size_t n = 0, ndiff = 0, nsign = 0;
-  for (int qm : {6, 8})
+  for (int qm : {2, 4, 6, 8})
     for (int det : {NR_GPU_DET_LBEST, NR_GPU_DET_ML}) {
       const int nb_rx = 2, shift = 7;
       std::vector<Sym> syms = {gen_sym(1272, nb_rx, qm, 0.15, 1500, rng)};

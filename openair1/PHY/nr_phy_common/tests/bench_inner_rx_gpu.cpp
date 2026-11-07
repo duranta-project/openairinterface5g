@@ -123,6 +123,8 @@ int main(int argc, char **argv)
                {"MMSE 16QAM", 4, NR_GPU_DET_MMSE},
                {"MMSE 64QAM", 6, NR_GPU_DET_MMSE},
                {"MMSE 256QAM", 8, NR_GPU_DET_MMSE},
+               {"ML QPSK", 2, NR_GPU_DET_ML},
+               {"ML 16QAM", 4, NR_GPU_DET_ML},
                {"L-best 64QAM", 6, NR_GPU_DET_LBEST},
                {"L-best 256QAM", 8, NR_GPU_DET_LBEST},
                {"ML 64QAM", 6, NR_GPU_DET_ML},

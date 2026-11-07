@@ -32,10 +32,23 @@ void nr_qam256_llr_2layer_lbest_f32_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *
 void nr_llr_2layer_mmse_simd_w128(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_qam64_llr_2layer_lbest_f32_simd_w128_exact(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f32_simd_w128_exact(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qpsk_llr_2layer(c16_t *, c16_t *, int16_t *, c16_t *, uint32_t);
+void nr_qam16_llr_2layer(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t);
 void nr_llr_2layer_mmse_simd_w128_exact(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 }
 
 namespace {
+
+// zeroed, 64-byte aligned buffer: the int16 CPU kernels load aligned vectors (phy_test_tools.hpp is already linked
+// in from test_inner_rx_gpu.cpp and defines non-inline functions)
+template <typename T>
+struct ABuf {
+  std::vector<T> v;
+  T *p;
+  explicit ABuf(size_t n) : v(n + 64 / sizeof(T)), p((T *)(((uintptr_t)v.data() + 63) & ~(uintptr_t)63)) {}
+  T *data() { return p; }
+  T &operator[](size_t i) { return p[i]; }
+};
 
 struct In {
   std::vector<c16_t> s0, s1, mag, magi, rho;
@@ -173,6 +186,47 @@ TEST(test_detector_gpu, mmse_bit_exact)
   printf("[  INFO  ] MMSE vs FMA-contracted CPU: %.4f%% LLRs differ, %.5f%% opposite sign\n", 100.0 * close.ndiff / close.n,
          100.0 * close.nsign / close.n);
   EXPECT_LT(close.nsign, close.n / 10000) << "rounding-level only";
+}
+
+// QPSK / 16QAM 2-layer ML: integer kernels, bit-exact with the production CPU build (saturating inputs included)
+TEST(test_detector_gpu, ml_qpsk_16qam_bit_exact)
+{
+  if (!have_gpu())
+    GTEST_SKIP() << "no GPU";
+  for (int qm : {2, 4})
+    for (double scale : {0.1, 1.0}) // 1.0: inputs over the full int16 range, saturating the int16 arithmetic
+      for (uint32_t n : {33u, 1272u, 39312u}) {
+        std::mt19937 rng(0x1640u + qm * 13 + n + (unsigned)(scale * 10));
+        std::uniform_int_distribution<int> v(-32768, 32767), m(0, 32767);
+        const uint32_t np = n + 64; // the CPU kernels read whole vectors past n
+        ABuf<c16_t> s0(np), s1(np), mag(np), magi(np), rho(np);
+        auto sc = [&](int x) { return (int16_t)(x * scale); };
+        for (uint32_t i = 0; i < np; i++) {
+          s0[i] = {sc(v(rng)), sc(v(rng))};
+          s1[i] = {sc(v(rng)), sc(v(rng))};
+          const int16_t a = sc(m(rng)), b = sc(m(rng));
+          mag[i] = {a, a};
+          magi[i] = {b, b};
+          rho[i] = {sc(v(rng)), sc(v(rng))};
+        }
+        const size_t nllr = (size_t)n * qm;
+        ABuf<int16_t> cpu(nllr + 64);
+        if (qm == 2)
+          nr_qpsk_llr_2layer(s0.data(), s1.data(), cpu.data(), rho.data(), n);
+        else
+          nr_qam16_llr_2layer(s0.data(), s1.data(), mag.data(), magi.data(), cpu.data(), rho.data(), n);
+        In in;
+        in.s0.assign(s0.p, s0.p + np);
+        in.s1.assign(s1.p, s1.p + np);
+        in.mag.assign(mag.p, mag.p + np);
+        in.magi.assign(magi.p, magi.p + np);
+        in.rho.assign(rho.p, rho.p + np);
+        DevIn d(in, nllr);
+        ASSERT_EQ(0, nr_gpu_llr_2layer_lbest(d.s0, d.s1, d.mag, d.magi, d.out, d.rho, n, qm, 3, 0.0f, nullptr, nullptr));
+        std::vector<int16_t> gpu(nllr), want(cpu.p, cpu.p + nllr);
+        ASSERT_EQ(gpuSuccess, gpuMemcpy(gpu.data(), d.out, nllr * sizeof(int16_t), gpuMemcpyDeviceToHost));
+        EXPECT_EQ(0u, diff_re(want, gpu, n, qm)) << "Qm=" << qm << " scale=" << scale << " n=" << n;
+      }
 }
 
 } // namespace

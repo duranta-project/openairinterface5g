@@ -27,6 +27,7 @@ void nr_gpu_det_ws_free(nr_gpu_det_ws_t *ws);
 /// L-best (pattern 1: 3x3 window, full grid on the REs below NR_LBEST_WIDE_SINR*) or full ML (pattern 3), 64QAM or
 /// 256QAM, for the target layer of nr_qam{64,256}_llr_2layer_lbest_f32_simd: stream0_in / ch_mag target, stream1_in
 /// / ch_mag_i other layer, rho01 = h0^H h1. Two passes: the window on the other REs, then the full grid on the list.
+/// QPSK / 16QAM: the exact ML of nr_qpsk_llr_2layer / nr_qam16_llr_2layer (pattern and ws unused).
 int nr_gpu_llr_2layer_lbest(const c16_t *stream0_in,
                             const c16_t *stream1_in,
                             const c16_t *ch_mag,
@@ -82,8 +83,8 @@ int nr_gpu_compensation_2layer(const c16_t *rxF,
 
 /// Fused 2-layer inner RX of nsym (<= NR_GPU_MAX_SYM) symbols in one launch: front end (MRC with the CPE, magnitudes,
 /// Gram), detector, the output shift of nr_compute_ML_llr / nr_compute_MMSE_llr, layer demap and descrambling into
-/// each symbol's codeword slice. MMSE: Qm 2-8; L-best / ML: 64QAM and 256QAM (fp32 metric). ws must hold
-/// 2 x the REs of the call.
+/// each symbol's codeword slice. MMSE: Qm 2-8; L-best / ML: the exact int16 ML for QPSK / 16QAM, the fp32 metric for
+/// 64QAM / 256QAM. ws must hold 2 x the REs of the call (L-best 64/256QAM).
 int nr_gpu_inner_rx_2layer(const nr_gpu_rx_sym_t *sym,
                            int nsym,
                            int nb_rx,
