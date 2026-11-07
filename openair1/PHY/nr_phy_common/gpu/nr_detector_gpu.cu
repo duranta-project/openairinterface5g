@@ -12,6 +12,21 @@ using namespace nrg;
 
 namespace {
 
+// QPSK / 16QAM: the exact ML of nr_qpsk_llr_2layer / nr_qam16_llr_2layer (raw output, no shift)
+template <int NB>
+__global__ void k_ml_int16(const c16_t *s0, const c16_t *s1, const c16_t *cm0, const c16_t *cm1, int16_t *out, const c16_t *rho, uint32_t length)
+{
+  const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= length)
+    return;
+  int16_t llr[2 * NB];
+  if constexpr (NB == 1)
+    qpsk_2layer_re(s0[i], s1[i], rho[i], llr);
+  else
+    qam16_2layer_re(s0[i], s1[i], cm0[i].r, cm1[i].r, rho[i], llr);
+  store<NB>(out, i, llr);
+}
+
 // pass 1 of the L-best: the 3x3 window, and the list of the REs below NR_LBEST_WIDE_SINR* for the full grid
 template <int NB>
 __global__ void k_lbest(const c16_t *s0,
@@ -172,9 +187,17 @@ extern "C" int nr_gpu_llr_2layer_lbest(const c16_t *stream0_in,
                                        nr_gpu_det_ws_t *ws,
                                        void *stream)
 {
+  gpuStream_t st = (gpuStream_t)stream;
+  if ((mod_order == 2 || mod_order == 4) && length > 0) {
+    const unsigned nb = (length + NRG_THREADS - 1) / NRG_THREADS;
+    if (mod_order == 2)
+      k_ml_int16<1><<<nb, NRG_THREADS, 0, st>>>(stream0_in, stream1_in, ch_mag, ch_mag_i, out, rho01, length);
+    else
+      k_ml_int16<2><<<nb, NRG_THREADS, 0, st>>>(stream0_in, stream1_in, ch_mag, ch_mag_i, out, rho01, length);
+    return launch_ok();
+  }
   if ((mod_order != 6 && mod_order != 8) || length == 0 || (pattern != 3 && (!ws || length > ws->max_re)))
     return -1;
-  gpuStream_t st = (gpuStream_t)stream;
   const unsigned nblk = (length + NRG_THREADS - 1) / NRG_THREADS;
   if (pattern == 3) {
     if (mod_order == 6)

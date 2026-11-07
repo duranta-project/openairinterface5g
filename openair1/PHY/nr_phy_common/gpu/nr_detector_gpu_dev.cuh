@@ -347,6 +347,158 @@ __device__ __forceinline__ void mmse_re(c16_t z0, c16_t z1, int16_t P0i, int16_t
   }
 }
 
+// ---- int16 SIMD lane semantics in int32 (saturating / wrapping as SSE, AVX2 and NEON) ----
+
+__device__ __forceinline__ int16_t sat16(int32_t x)
+{
+  return (int16_t)max(-32768, min(32767, x));
+}
+
+// int16 wrap-around of an int32 value in (-98304, 98304) (paddw, pmullw). Compare-and-adjust: CUDA 13 (sm_121)
+// miscompiles the mask form ((x + 32768) & 0xffff) - 32768 for x = -(-32768), returning 32768.
+__device__ __forceinline__ int32_t wrap16(int32_t x)
+{
+  return x > 32767 ? x - 65536 : (x < -32768 ? x + 65536 : x);
+}
+
+// int16 negation as simde_mm_sign_epi16 / vnegq_s16: -32768 stays -32768
+__device__ __forceinline__ int32_t neg16(int32_t x)
+{
+  return wrap16(-x);
+}
+
+__device__ __forceinline__ int32_t adds16(int32_t a, int32_t b)
+{
+  return sat16(a + b);
+}
+
+__device__ __forceinline__ int32_t subs16(int32_t a, int32_t b)
+{
+  return sat16(a - b);
+}
+
+// pmulhw
+__device__ __forceinline__ int32_t mulhi16(int32_t a, int32_t b)
+{
+  return (a * b) >> 16;
+}
+
+// psllw: wraps
+__device__ __forceinline__ int32_t slli16(int32_t x, int k)
+{
+  return wrap16(x * (1 << k));
+}
+
+// pabsw: |-32768| stays -32768
+__device__ __forceinline__ int32_t abs16(int32_t x)
+{
+  return x == -32768 ? x : (x < 0 ? -x : x);
+}
+
+// 2-layer exact max-log ML for QPSK, target layer (nr_qpsk_llr_2layer, lane by lane): z0 target / z1 other MF output,
+// rho = h0^H h1; llr = {I bit, Q bit}
+__device__ __forceinline__ void qpsk_2layer_re(c16_t z0, c16_t z1, c16_t rho, int16_t llr[2])
+{
+  const int32_t K = 23170; // round(2^16 / (2 sqrt(2)))
+  const int32_t y0r_o2 = slli16(mulhi16(z0.r, K), 1), y0i_o2 = slli16(mulhi16(z0.i, K), 1);
+  const int32_t y1r_o2 = z1.r >> 1, y1i_o2 = z1.i >> 1;
+  const int32_t rho_p = mulhi16(adds16(rho.r, rho.i), K), rho_m = mulhi16(subs16(rho.r, rho.i), K);
+  const int32_t psi_rpm = abs16(subs16(rho_p, y1r_o2)), psi_imm = abs16(subs16(rho_m, y1i_o2));
+  const int32_t psi_rmm = abs16(subs16(rho_m, y1r_o2)), psi_ipm = abs16(subs16(rho_p, y1i_o2));
+  const int32_t psi_rpp = abs16(adds16(rho_p, y1r_o2)), psi_imp = abs16(adds16(rho_m, y1i_o2));
+  const int32_t psi_rmp = abs16(adds16(rho_m, y1r_o2)), psi_ipp = abs16(adds16(rho_p, y1i_o2));
+  const int32_t num_re_p = adds16(adds16(adds16(psi_rpm, psi_imm), y0r_o2), y0i_o2);
+  const int32_t num_re_m = subs16(adds16(adds16(psi_rmm, psi_ipp), y0r_o2), y0i_o2);
+  const int32_t den_re_p = adds16(subs16(adds16(psi_rmp, psi_ipm), y0r_o2), y0i_o2);
+  const int32_t den_re_m = subs16(subs16(adds16(psi_rpp, psi_imp), y0r_o2), y0i_o2);
+  const int32_t num_im_p = num_re_p;
+  const int32_t num_im_m = den_re_p;
+  const int32_t den_im_p = num_re_m;
+  const int32_t den_im_m = den_re_m;
+  llr[0] = (int16_t)subs16(max(num_re_p, num_re_m), max(den_re_p, den_re_m));
+  llr[1] = (int16_t)subs16(max(num_im_p, num_im_m), max(den_im_p, den_im_m));
+}
+
+// 2-layer exact max-log ML for 16QAM, target layer (nr_qam16_llr_2layer, lane by lane): mag0 / mag1 = mag_a of the
+// target / other layer; llr = {b0, b1, b2, b3}
+__device__ __forceinline__ void qam16_2layer_re(c16_t z0, c16_t z1, int16_t mag0, int16_t mag1, c16_t rho, int16_t llr[4])
+{
+  const int32_t ONE_OVER_SQRT_10 = 20724, ONE_OVER_SQRT_10_Q15 = 10362, THREE_OVER_SQRT_10 = 31086;
+  const int32_t SQRT_10_OVER_FOUR = 25905, ONE_OVER_TWO_SQRT_10 = 10362, NINE_OVER_TWO_SQRT_10 = 23315;
+  const int32_t rho_rpi = adds16(rho.r, rho.i), rho_rmi = subs16(rho.r, rho.i);
+  int32_t rho_rs[8];
+  rho_rs[0] = mulhi16(rho_rpi, ONE_OVER_SQRT_10);
+  rho_rs[4] = mulhi16(rho_rmi, ONE_OVER_SQRT_10);
+  rho_rs[3] = slli16(mulhi16(rho_rpi, THREE_OVER_SQRT_10), 1);
+  rho_rs[7] = slli16(mulhi16(rho_rmi, THREE_OVER_SQRT_10), 1);
+  const int32_t x4 = mulhi16(rho.r, ONE_OVER_SQRT_10), x5 = slli16(mulhi16(rho.i, THREE_OVER_SQRT_10), 1);
+  rho_rs[1] = adds16(x4, x5);
+  rho_rs[5] = subs16(x4, x5);
+  const int32_t x6 = slli16(mulhi16(rho.r, THREE_OVER_SQRT_10), 1), x7 = mulhi16(rho.i, ONE_OVER_SQRT_10);
+  rho_rs[2] = adds16(x6, x7);
+  rho_rs[6] = subs16(x6, x7);
+  const int32_t y1r = z1.r, y1i = z1.i;
+  int32_t psi_r[16], psi_i[16];
+#pragma unroll
+  for (int j = 0; j < 8; j++)
+    psi_r[j] = abs16(subs16(rho_rs[j], y1r));
+#pragma unroll
+  for (int j = 8; j < 16; j++)
+    psi_r[j] = abs16(adds16(rho_rs[(j - 4) & 7], y1r));
+  const uint8_t idx[16] = {4, 6, 5, 7, 0, 2, 1, 3, 0, 2, 1, 3, 4, 6, 5, 7};
+#pragma unroll
+  for (int k = 0; k < 16; k += 8)
+#pragma unroll
+    for (int j = k; j < k + 4; j++) {
+      psi_i[j] = abs16(subs16(rho_rs[idx[j]], y1i));
+      psi_i[j + 4] = abs16(adds16(rho_rs[idx[j + 4]], y1i));
+    }
+  const int32_t y0r = z0.r, y0i = z0.i;
+  const int32_t y0r_1 = mulhi16(y0r, ONE_OVER_SQRT_10), y0i_1 = mulhi16(y0i, ONE_OVER_SQRT_10);
+  const int32_t y0r_3 = slli16(mulhi16(y0r, THREE_OVER_SQRT_10), 1), y0i_3 = slli16(mulhi16(y0i, THREE_OVER_SQRT_10), 1);
+  const int32_t y0_s[8] = {adds16(y0r_1, y0i_1),
+                           adds16(y0r_1, y0i_3),
+                           adds16(y0r_3, y0i_1),
+                           adds16(y0r_3, y0i_3),
+                           subs16(y0r_1, y0i_1),
+                           subs16(y0r_1, y0i_3),
+                           subs16(y0r_3, y0i_1),
+                           subs16(y0r_3, y0i_3)};
+  int32_t met[16];
+  const int32_t m10 = mulhi16(mag0, ONE_OVER_TWO_SQRT_10);
+  const int32_t m2 = slli16(mulhi16(mag0, SQRT_10_OVER_FOUR), 1);
+  const int32_t m910 = slli16(mulhi16(mag0, NINE_OVER_TWO_SQRT_10), 2);
+  const int32_t chm[4] = {m10, m2, m2, m910};
+#pragma unroll
+  for (int j = 0; j < 16; j++) {
+    // optimal interfering symbol magnitude (interference_abs_epi16), psi . a (prodsum_psi_a_epi16), |a|^2 power
+    // (square_a_epi16)
+    const int32_t ar = psi_r[j] < mag1 ? ONE_OVER_SQRT_10_Q15 : THREE_OVER_SQRT_10;
+    const int32_t ai = psi_i[j] < mag1 ? ONE_OVER_SQRT_10_Q15 : THREE_OVER_SQRT_10;
+    const int32_t psi_a = adds16(slli16(mulhi16(psi_r[j], ar), 1), slli16(mulhi16(psi_i[j], ai), 1));
+    const int32_t sqr = slli16(mulhi16(slli16(mulhi16(slli16(mulhi16(ar, ar), 1), SQRT_10_OVER_FOUR), 1), mag1), 1);
+    const int32_t sqi = slli16(mulhi16(slli16(mulhi16(slli16(mulhi16(ai, ai), 1), SQRT_10_OVER_FOUR), 1), mag1), 1);
+    const int32_t a_sq = adds16(sqr, sqi);
+    const int32_t y0 = y0_s[j < 8 ? j : (j - 4) & 7];
+    met[j] = j < 8 ? subs16(adds16(subs16(psi_a, a_sq), y0), chm[j & 3]) : subs16(subs16(subs16(psi_a, a_sq), y0), chm[j & 3]);
+  }
+  auto max8 = [](int32_t a, int32_t b, int32_t c, int32_t d, int32_t e, int32_t f, int32_t g, int32_t h) {
+    return max(max(max(a, b), max(c, d)), max(max(e, f), max(g, h)));
+  };
+  const int32_t num_re0 = max8(met[8], met[9], met[10], met[11], met[12], met[13], met[14], met[15]);
+  const int32_t den_re0 = max8(met[0], met[1], met[2], met[3], met[4], met[5], met[6], met[7]);
+  const int32_t num_re1 = max8(met[4], met[5], met[6], met[7], met[12], met[13], met[14], met[15]);
+  const int32_t den_re1 = max8(met[0], met[1], met[3], met[2], met[8], met[9], met[10], met[11]);
+  const int32_t num_im0 = max8(met[2], met[3], met[6], met[7], met[10], met[11], met[14], met[15]);
+  const int32_t den_im0 = max8(met[0], met[1], met[4], met[5], met[8], met[9], met[12], met[13]);
+  const int32_t num_im1 = max8(met[1], met[3], met[5], met[7], met[9], met[11], met[13], met[15]);
+  const int32_t den_im1 = max8(met[0], met[2], met[4], met[6], met[8], met[10], met[12], met[14]);
+  llr[0] = (int16_t)subs16(den_re0, num_re0);
+  llr[1] = (int16_t)subs16(den_re1, num_re1);
+  llr[2] = (int16_t)subs16(den_im0, num_im0);
+  llr[3] = (int16_t)subs16(den_im1, num_im1);
+}
+
 } // namespace nrg
 
 #endif

@@ -26,24 +26,6 @@ struct SymBatch {
   nr_gpu_rx_sym_t s[NR_GPU_MAX_SYM];
 };
 
-__device__ __forceinline__ int16_t sat16(int32_t x)
-{
-  return (int16_t)max(-32768, min(32767, x));
-}
-
-// int16 wrap-around of an int32 value in (-98304, 98304) (paddw, pmullw). Compare-and-adjust: CUDA 13 (sm_121)
-// miscompiles the mask form ((x + 32768) & 0xffff) - 32768 for x = -(-32768), returning 32768.
-__device__ __forceinline__ int32_t wrap16(int32_t x)
-{
-  return x > 32767 ? x - 65536 : (x < -32768 ? x + 65536 : x);
-}
-
-// int16 negation as simde_mm_sign_epi16 / vnegq_s16: -32768 stays -32768
-__device__ __forceinline__ int32_t neg16(int32_t x)
-{
-  return wrap16(-x);
-}
-
 // a0 b0 + a1 b1 (int16 operands) in int32 with the wrap-around of pmaddwd
 __device__ __forceinline__ int32_t madd(int32_t a0, int32_t b0, int32_t a1, int32_t b1)
 {
@@ -169,9 +151,9 @@ __device__ __forceinline__ void store_cw(const nr_gpu_rx_sym_t &s, uint32_t i, i
 }
 
 // output shifts of nr_compute_MMSE_llr / nr_compute_ML_llr (shared nr_ml_llr_maxh_off table)
-__host__ __device__ constexpr int out_shift(int det, int nb)
+__host__ __device__ constexpr int out_shift(int nb)
 {
-  return det == NR_GPU_DET_MMSE ? (nb == 1 ? 4 : nb == 3 ? 1 : 0) : (nb == 3 ? 1 : 0);
+  return nb == 1 ? 4 : nb == 3 ? 1 : 0; // MMSE and ML alike
 }
 
 __host__ __device__ constexpr int16_t qam_amp(int nb)
@@ -210,8 +192,12 @@ __global__ void k_inner_rx(SymBatch b, int nb_rx, int shift, float lam, uint32_t
 #pragma unroll
   for (int t = 0; t < 2; t++) {
     int16_t llr[2 * NB];
-    if (DET == NR_GPU_DET_MMSE) {
+    if constexpr (DET == NR_GPU_DET_MMSE) {
       mmse_re<NB>(f.comp[t], f.comp[1 - t], (t ? f.rho11 : f.rho00).r, (t ? f.rho00 : f.rho11).r, t ? f.rho10 : f.rho01, lam, llr);
+    } else if constexpr (NB == 1) { // QPSK / 16QAM: exact ML for L-best and ML alike, as nr_compute_ML_llr
+      qpsk_2layer_re(f.comp[t], f.comp[1 - t], t ? f.rho10 : f.rho01, llr);
+    } else if constexpr (NB == 2) {
+      qam16_2layer_re(f.comp[t], f.comp[1 - t], f.mag[t], f.mag[1 - t], t ? f.rho10 : f.rho01, llr);
     } else {
       const Re r = re_of(f, t);
       if (DET == NR_GPU_DET_ML) {
@@ -225,7 +211,7 @@ __global__ void k_inner_rx(SymBatch b, int nb_rx, int shift, float lam, uint32_t
     }
 #pragma unroll
     for (int p = 0; p < 2 * NB; p++)
-      store_cw(s, i, t, 2 * NB, p, llr[p], out_shift(DET, NB));
+      store_cw(s, i, t, 2 * NB, p, llr[p], out_shift(NB));
   }
 }
 
@@ -250,17 +236,18 @@ __global__ void k_inner_rx_wide(SymBatch b, int nb_rx, int shift, const uint32_t
 #pragma unroll
     for (int p = 0; p < 2 * NB; p++)
       if (p % L == l)
-        store_cw(s, i, t, 2 * NB, p, llr[p], out_shift(NR_GPU_DET_LBEST, NB));
+        store_cw(s, i, t, 2 * NB, p, llr[p], out_shift(NB));
 }
 
 template <int NB, int DET>
 void launch(const SymBatch &b, int nsym, uint32_t maxlen, uint32_t total, int nb_rx, int shift, float lam, nr_gpu_det_ws_t *ws, gpuStream_t st)
 {
   const dim3 grid((maxlen + NRG_THREADS - 1) / NRG_THREADS, nsym);
-  if (DET == NR_GPU_DET_LBEST)
+  constexpr bool wide = DET == NR_GPU_DET_LBEST && NB >= 3; // QPSK / 16QAM L-best is the exact ML
+  if (wide)
     (void)gpuMemsetAsync(ws->cnt, 0, sizeof(uint32_t), st);
   k_inner_rx<NB, DET><<<grid, NRG_THREADS, 0, st>>>(b, nb_rx, shift, lam, ws ? ws->idx : NULL, ws ? ws->cnt : NULL);
-  if (DET == NR_GPU_DET_LBEST) {
+  if constexpr (wide) {
     constexpr int RPB = NRG_THREADS / NRG_LANES_WIDE;
     k_inner_rx_wide<NB, NRG_LANES_WIDE><<<(2 * total + RPB - 1) / RPB, NRG_THREADS, 0, st>>>(b, nb_rx, shift, ws->idx, ws->cnt);
   }
@@ -308,7 +295,7 @@ extern "C" int nr_gpu_inner_rx_2layer(const nr_gpu_rx_sym_t *sym,
   }
   if (maxlen == 0)
     return 0;
-  if (detector == NR_GPU_DET_LBEST && (!ws || 2 * total > ws->max_re))
+  if (detector == NR_GPU_DET_LBEST && mod_order >= 6 && (!ws || 2 * total > ws->max_re))
     return -1;
   gpuStream_t st = (gpuStream_t)stream;
 #define NRG_L(NB, DET) launch<NB, DET>(b, nsym, maxlen, total, nb_rx, output_shift, lambda, ws, st)
@@ -324,6 +311,14 @@ extern "C" int nr_gpu_inner_rx_2layer(const nr_gpu_rx_sym_t *sym,
       break;
     case NR_GPU_DET_MMSE * 16 + 8:
       NRG_L(4, NR_GPU_DET_MMSE);
+      break;
+    case NR_GPU_DET_LBEST * 16 + 2:
+    case NR_GPU_DET_ML * 16 + 2:
+      NRG_L(1, NR_GPU_DET_ML);
+      break;
+    case NR_GPU_DET_LBEST * 16 + 4:
+    case NR_GPU_DET_ML * 16 + 4:
+      NRG_L(2, NR_GPU_DET_ML);
       break;
     case NR_GPU_DET_LBEST * 16 + 6:
       NRG_L(3, NR_GPU_DET_LBEST);
