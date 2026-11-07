@@ -31,6 +31,8 @@
  *   rx_only=1     receive only: TX amplifiers shut down, TX switches off the connectors, TX samples dropped in the
  *                 driver (nothing is transmitted, e.g. to scan public networks)
  *   tx_lead_stats=1 log once per second how early TX blocks are handed over (block start - board time at commit)
+ *   rx_sleep_us=N when the next RX block is not there yet, sleep until N us before the samples the read still needs
+ *                 are due, then poll (default 60; 0: poll all the time, one core busy)
  */
 
 #include <algorithm>
@@ -39,6 +41,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <mutex>
 #include <thread>
 #include <unistd.h>
@@ -52,6 +55,7 @@ extern "C" {
 #include "common/utils/LOG/log.h"
 #include "ocsdr/ocsdr.h"
 }
+#include "ocsdr_conv.h"
 
 static constexpr unsigned MAX_CHANNELS    = 2;
 static constexpr int      RING_TIMEOUT_US = 100000;
@@ -80,6 +84,7 @@ struct ocsdr_args {
   unsigned    tx_flush_us  = 0;
   bool        tx_lead_stats = false;
   bool        rx_only      = false;
+  unsigned    rx_sleep_us  = 60;
 };
 
 struct ocsdr_state {
@@ -96,6 +101,8 @@ struct ocsdr_state {
   uint64_t       rx_next_ts  = 0;
   bool           rx_first    = true;
   uint64_t       rx_dropped  = 0;
+  uint64_t       rx_sleeps   = 0;
+  double         rx_slept_us = 0;
 
   // transmit
   int16_t *tx_block     = nullptr;
@@ -158,6 +165,8 @@ static bool parse_args(const char *s, ocsdr_args &out)
       out.board = (int)v;
     else if (key == "rx_only")
       out.rx_only = v != 0;
+    else if (key == "rx_sleep_us" && v >= 0 && v <= 10000)
+      out.rx_sleep_us = (unsigned)v;
     else if (key == "tx_lead_stats")
       out.tx_lead_stats = v != 0;
     else if (key == "tx_flush_us" && v >= 0 && v <= 10000)
@@ -196,7 +205,7 @@ static bool parse_args(const char *s, ocsdr_args &out)
       LOG_E(HW,
             "ocsdr: unknown or out-of-range sdr_addrs item '%s' (keys: board, host, tx_shift, ring, skip_init, frontend, "
             "rx_atten, rx1_atten, tx_atten, rx_gain, rx2_gain, tx_advance, tx_gate, tx_gate_lead, tx_gate_lag, "
-            "tx_gate_mode, tx_gate_trx, tx_flush_us, tx_lead_stats, rx_only)\n",
+            "tx_gate_mode, tx_gate_trx, tx_flush_us, tx_lead_stats, rx_only, rx_sleep_us)\n",
             item.c_str());
       return false;
     }
@@ -205,6 +214,23 @@ static bool parse_args(const char *s, ocsdr_args &out)
 }
 
 // ---- receive ----
+
+// Sleeps until rx_sleep_us before the board clock reaches end_ts (the end of the samples the read still needs),
+// so the reader does not poll the ring for most of a slot. The last rx_sleep_us are polled as before: the time
+// from the last sample's arrival to the return of the read does not change.
+static void rx_sleep(ocsdr_state *s, uint64_t end_ts)
+{
+  const uint64_t now = ocsdr_stream_time(s->stream);
+  if (end_ts <= now)
+    return;
+  const double wait_us = (end_ts - now) * 1e6 / SAMPLE_RATE_HZ - s->args.rx_sleep_us;
+  if (wait_us < 20) // not worth a sleep
+    return;
+  struct timespec t = {0, (long)(wait_us * 1e3)};
+  clock_nanosleep(CLOCK_MONOTONIC, 0, &t, nullptr);
+  s->rx_sleeps++;
+  s->rx_slept_us += wait_us;
+}
 
 static int ocsdr_read(openair0_device_t *device, openair0_timestamp_t *ptimestamp, void **buff, int nsamps, int nb_ant)
 {
@@ -237,7 +263,15 @@ static int ocsdr_read(openair0_device_t *device, openair0_timestamp_t *ptimestam
     }
     if (s->rx_block == nullptr) {
       uint32_t dropped = 0;
-      if (ocsdr_stream_rx_acquire(s->stream, &s->rx_block, &s->rx_block_ts, &dropped, RING_TIMEOUT_US) != 0) {
+      int r = -ETIMEDOUT;
+      if (s->args.rx_sleep_us) { // block not there yet: sleep until rx_sleep_us before the end of this read is due
+        r = ocsdr_stream_rx_acquire(s->stream, &s->rx_block, &s->rx_block_ts, &dropped, 0);
+        if (r != 0)
+          rx_sleep(s, s->rx_next_ts + (nsamps - pos));
+      }
+      if (r != 0)
+        r = ocsdr_stream_rx_acquire(s->stream, &s->rx_block, &s->rx_block_ts, &dropped, RING_TIMEOUT_US);
+      if (r != 0) {
         s->rx_block = nullptr;
         LOG_W(HW, "ocsdr: no RX block for %d ms\n", RING_TIMEOUT_US / 1000);
         continue;
@@ -261,20 +295,13 @@ static int ocsdr_read(openair0_device_t *device, openair0_timestamp_t *ptimestam
     }
     unsigned off = (unsigned)(s->rx_next_ts - s->rx_block_ts);
     unsigned n   = std::min(bs - off, nsamps - pos);
-    for (int a = 0; a < nb_ant; a++) {
-      uint32_t *o = (uint32_t *)buff[a] + pos;
-      if ((unsigned)a >= hw) {
-        memset(o, 0, n * sizeof(uint32_t));
-        continue;
-      }
-      const uint32_t *w = (const uint32_t *)s->rx_block + (size_t)off * hw + a;
-      if (hw == 1) {
-        memcpy(o, w, n * sizeof(uint32_t));
-      } else {
-        for (unsigned j = 0; j < n; j++, w += hw)
-          o[j] = *w;
-      }
-    }
+    uint32_t *out[MAX_CHANNELS] = {};
+    const unsigned nout = std::min((unsigned)nb_ant, hw);
+    for (unsigned a = 0; a < nout; a++)
+      out[a] = (uint32_t *)buff[a] + pos;
+    ocsdr_rx_unpack(out, nout, (const uint32_t *)s->rx_block + (size_t)off * hw, hw, n);
+    for (int a = nout; a < nb_ant; a++)
+      memset((uint32_t *)buff[a] + pos, 0, n * sizeof(uint32_t));
     for (unsigned j = 0; j < n; j += LEVEL_STEP) {
       const int16_t *v = (const int16_t *)buff[0] + 2 * (pos + j);
       s->rx_sq += (double)v[0] * v[0] + (double)v[1] * v[1];
@@ -284,7 +311,9 @@ static int ocsdr_read(openair0_device_t *device, openair0_timestamp_t *ptimestam
     s->rx_next_ts += n;
     if (off + n == bs) {
       if (++s->rx_blocks == LEVEL_BLOCKS) {
-        LOG_I(HW, "ocsdr: RX1 %.1f dBFS\n", dbfs(s->rx_sq, s->rx_n));
+        LOG_I(HW, "ocsdr: RX1 %.1f dBFS, %lu sleep(s) for %.0f ms\n", dbfs(s->rx_sq, s->rx_n), s->rx_sleeps, s->rx_slept_us / 1e3);
+        s->rx_sleeps   = 0;
+        s->rx_slept_us = 0;
         s->rx_sq = 0;
         s->rx_n = s->rx_blocks = 0;
       }
@@ -417,24 +446,15 @@ static int ocsdr_write(openair0_device_t *device, openair0_timestamp_t timestamp
       s->tx_fill     = 0;
     }
     unsigned n = std::min(bs - s->tx_fill, nsamps - pos);
-    for (unsigned c = 0; c < hw; c++) {
-      int16_t *dst = s->tx_block + 2 * ((size_t)s->tx_fill * hw + c);
-      if (c >= nch) {
-        for (unsigned i = 0; i < n; i++, dst += 2 * hw)
-          dst[0] = dst[1] = 0;
-        continue;
-      }
-      const int16_t *in = (const int16_t *)buff[c] + 2 * pos;
-      for (unsigned i = 0; i < n; i++, dst += 2 * hw) {
-        int32_t re = (int32_t)in[2 * i] << sh, im = (int32_t)in[2 * i + 1] << sh;
-        dst[0] = (int16_t)std::clamp(re, -lim, lim);
-        dst[1] = (int16_t)std::clamp(im, -lim, lim);
-        if (c == 0 && (i % LEVEL_STEP) == 0) {
-          s->tx_sq += (double)re * re + (double)im * im;
-          s->tx_n++;
-          s->tx_clip += re > lim || re < -lim || im > lim || im < -lim;
-        }
-      }
+    const int16_t *in[MAX_CHANNELS] = {};
+    for (unsigned c = 0; c < nch; c++)
+      in[c] = (const int16_t *)buff[c] + 2 * pos;
+    ocsdr_tx_pack(s->tx_block + 2 * (size_t)s->tx_fill * hw, in, nch, hw, n, sh);
+    for (unsigned i = 0; i < n; i += LEVEL_STEP) { // level and clipping from one channel-0 sample in LEVEL_STEP
+      const int32_t re = (int32_t)in[0][2 * i] * (1 << sh), im = (int32_t)in[0][2 * i + 1] * (1 << sh);
+      s->tx_sq += (double)re * re + (double)im * im;
+      s->tx_n++;
+      s->tx_clip += re > lim || re < -lim || im > lim || im < -lim;
     }
     s->tx_fill += n;
     pos += n;
