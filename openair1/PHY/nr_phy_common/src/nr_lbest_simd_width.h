@@ -34,6 +34,7 @@
 #undef NRLB_CMPEQ16
 #undef NRLB_CMPPS_SI
 #undef NRLB_ROUNDPS
+#undef NRLB_ANY32
 #undef NRLB_CC1
 #undef NRLB_CC
 
@@ -62,6 +63,7 @@
 #define NRLB_CMPEQ16(a, b) simde_mm256_cmpeq_epi16(a, b)
 #define NRLB_CMPPS_SI(a, b, imm) simde_mm256_castps_si256(simde_mm256_cmp_ps(a, b, imm))
 #define NRLB_ROUNDPS(x, imm) simde_mm256_round_ps(x, imm)
+#define NRLB_ANY32(m) (simde_mm256_movemask_ps(simde_mm256_castsi256_ps(m)) != 0) // any 32-bit lane set
 #elif NRLB_W == 128
 #define NRLB_VI simde__m128i
 #define NRLB_VF simde__m128
@@ -84,6 +86,7 @@
 #define NRLB_CMPEQ16(a, b) simde_mm_cmpeq_epi16(a, b)
 #define NRLB_CMPPS_SI(a, b, imm) simde_mm_castps_si128(simde_mm_cmp_ps(a, b, imm))
 #define NRLB_ROUNDPS(x, imm) simde_mm_round_ps(x, imm)
+#define NRLB_ANY32(m) (simde_mm_movemask_ps(simde_mm_castsi128_ps(m)) != 0)
 #elif NRLB_W == 512
 #define NRLB_VI simde__m512i
 #define NRLB_VF simde__m512
@@ -110,6 +113,7 @@
 #define NRLB_CMPEQ16(a, b) simde_mm512_movm_epi16(simde_mm512_cmpeq_epu16_mask(a, b))
 #define NRLB_CMPPS_SI(a, b, imm) simde_mm512_movm_epi32(simde_mm512_cmp_ps_mask(a, b, imm))
 #define NRLB_ROUNDPS(x, imm) simde_mm512_roundscale_ps(x, imm)
+#define NRLB_ANY32(m) (simde_mm512_movepi32_mask(m) != 0)
 #else
 #error "NRLB_W must be 128, 256 or 512"
 #endif
