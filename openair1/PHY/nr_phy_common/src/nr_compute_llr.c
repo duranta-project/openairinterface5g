@@ -4,6 +4,7 @@
 
 #include "nr_compute_llr.h"
 #include <stdlib.h>
+#include <math.h>
 #include "PHY/impl_defs_top.h"
 #include "PHY/TOOLS/tools_defs.h"
 #include "nr_lbest_simd.h"
@@ -15,6 +16,14 @@
 // the caller adds. Empirical optima from nr_ulsim/nr_dlsim offset sweeps (TDL-A, 2 layers, 2 and 4 RX,
 // 200 TBs per point, each Qm at its high MCS): a uniform -2, tuned for 256QAM, over-heats
 // QPSK/16/64QAM and loses the ML gain (QPSK/16QAM ML even fall below linear MMSE).
+// L-best seed regularization in the compensated (Pp, rho) units: the Gram is |h|^2 >> shift and the
+// matched-filter noise is |h|^2 * nvar >> shift, so the MMSE term is nvar / 2^shift (fractional: at high SNR
+// it is below one unit). NR_2LAYER_CSI_EPS adds the channel-estimation error in the kernels.
+float nr_2layer_seed_lambda(uint32_t nvar, int shift)
+{
+  return ldexpf((float)nvar, -shift);
+}
+
 int nr_ml_llr_maxh_off(int mod_order, int lbest)
 {
   switch (mod_order) {
@@ -2562,7 +2571,8 @@ void nr_qam256_llr_2layer(c16_t *stream0_in,
                                         stream0_out,
                                         rho01,
                                         length,
-                                        3 /* full 16x16 ML */);
+                                        3 /* full 16x16 ML */,
+                                        0 /* seed unused by the full search */);
 }
 
 // Arithmetic right shift of n int16 LLRs in place (unaligned-safe, covers the remainder).
@@ -2627,7 +2637,7 @@ static void nr_ml_llr_shift(int16_t *llr_layer0, int16_t *llr_layer1, uint32_t n
 // openair1/PHY/nr_phy_common/src/mimo_llr_continuous_approx.md §9 for the plan.
 //
 // Pipeline (per RE, one target layer):
-//   1. inline ZF/MMSE seed  x_hat1 = (R+lambda I)^{-1} z |_1   from (R,z)
+//   1. inline unbiased MMSE seed  x_hat1 = ((P1+l) z1 - rho z2) / (P0 (P1+l) - |rho|^2)  (l = 0: ZF)
 //   2. candidate set C1 = the L 64QAM points nearest x_hat1
 //   3. for each candidate, the nuisance layer is the exact conditional slice
 //      x2*(x1) = Q_S( (z2 - conj(rho)*x1) / P1 )   (O(1), == conditional ML)
@@ -2709,7 +2719,7 @@ static inline void nr_lbest_pam8_axis_llr(float e, float g, float *llr)
 }
 
 // One target layer of 2-layer 64QAM L-best LLR (scalar float reference).
-//   seed_lambda: 0.0f = ZF seed, = noise_var (float) = MMSE-regularised seed
+//   seed_lambda: 0.0f = ZF seed, = noise_var (Pp units) = unbiased MMSE seed
 //   L:           candidate-set size (1..64); 64 == full search == max-log reference
 static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
                                             const c16_t *stream1_in,
@@ -2735,9 +2745,9 @@ static void nr_qam64_llr_2layer_lbest_layer(const c16_t *stream0_in,
     const float P0 = (float)ch_mag[re].r * (NR_LBEST_SQRT42 / 4.0f);
     const float P1 = (float)ch_mag_i[re].r * (NR_LBEST_SQRT42 / 4.0f);
 
-    // ---- 1. inline ZF/MMSE seed: x_hat1 = ((P1+l) z1 - rho z2) / det ----
-    const float l = seed_lambda;
-    const float det = (P0 + l) * (P1 + l) - (rr * rr + ri * ri);
+    // ---- 1. inline unbiased MMSE seed (l = 0: ZF): x_hat1 = ((P1+l) z1 - rho z2) / (P0 (P1+l) - |rho|^2) ----
+    const float l = seed_lambda + 0.5f * NR_2LAYER_CSI_EPS * (P0 + P1);
+    const float det = P0 * (P1 + l) - (rr * rr + ri * ri);
     const float invdet = det != 0.0f ? 1.0f / det : 0.0f;
     // rho * z2 (complex)
     const float rz2r = rr * z2r - ri * z2i;
@@ -2993,9 +3003,9 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
     const float P0 = (float)ch_mag[re].r * (NR_LBEST_SQRT170 / 8.0f);
     const float P1 = (float)ch_mag_i[re].r * (NR_LBEST_SQRT170 / 8.0f);
 
-    // ---- ZF/MMSE seed: x_hat1 = ((P1+l) z1 - rho z2) / det ----
-    const float l = seed_lambda;
-    const float det = (P0 + l) * (P1 + l) - (rr * rr + ri * ri);
+    // ---- unbiased MMSE seed (l = 0: ZF): x_hat1 = ((P1+l) z1 - rho z2) / (P0 (P1+l) - |rho|^2) ----
+    const float l = seed_lambda + 0.5f * NR_2LAYER_CSI_EPS * (P0 + P1);
+    const float det = P0 * (P1 + l) - (rr * rr + ri * ri);
     const float invdet = det != 0.0f ? 1.0f / det : 0.0f;
     const float rz2r = rr * z2r - ri * z2i;
     const float rz2i = rr * z2i + ri * z2r;
@@ -3134,9 +3144,9 @@ void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
     const float P0 = (float)ch_mag[re].r * (NR_LBEST_SQRT10 / 2.0f);
     const float P1 = (float)ch_mag_i[re].r * (NR_LBEST_SQRT10 / 2.0f);
 
-    // ---- ZF/MMSE seed: x_hat1 = ((P1+l) z1 - rho z2) / det ----
-    const float l = seed_lambda;
-    const float det = (P0 + l) * (P1 + l) - (rr * rr + ri * ri);
+    // ---- unbiased MMSE seed (l = 0: ZF): x_hat1 = ((P1+l) z1 - rho z2) / (P0 (P1+l) - |rho|^2) ----
+    const float l = seed_lambda + 0.5f * NR_2LAYER_CSI_EPS * (P0 + P1);
+    const float det = P0 * (P1 + l) - (rr * rr + ri * ri);
     const float invdet = det != 0.0f ? 1.0f / det : 0.0f;
     const float rz2r = rr * z2r - ri * z2i;
     const float rz2i = rr * z2i + ri * z2r;
@@ -3274,7 +3284,7 @@ static void nr_lbest_2layer_re(double z1r,
   if (L > M)
     L = M;
 
-  const double det = (P0 + lambda) * (P1 + lambda) - (rr * rr + ri * ri);
+  const double det = P0 * (P1 + lambda) - (rr * rr + ri * ri); // unbiased MMSE (lambda = 0: ZF)
   const double invdet = det != 0.0 ? 1.0 / det : 0.0;
   const double estI = ((P1 + lambda) * z1r - (rr * z2r - ri * z2i)) * invdet * sqrtN;
   const double estQ = ((P1 + lambda) * z1i - (rr * z2i + ri * z2r)) * invdet * sqrtN;
@@ -3564,7 +3574,8 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
                                                 int16_t *stream0_out,
                                                 const c16_t *rho01,
                                                 uint32_t length,
-                                                int L)
+                                                int L,
+                                                float lambda)
 {
   if (L < 1)
     L = 1;
@@ -3582,11 +3593,13 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
     // recovered channel powers ||h||^2 (for the seed determinant / thresholds)
     const int64_t Pp0 = ((int64_t)cm0 * NR_LBEST_Q_SQRT42_OVER4_Q14) >> 14;
     const int64_t Pp1 = ((int64_t)cm1 * NR_LBEST_Q_SQRT42_OVER4_Q14) >> 14;
+    // unbiased MMSE seed: ZF with Pp1 -> Pp1 + lambda_eff, lambda_eff = lambda + eps (Pp0 + Pp1) / 2
+    const int64_t Pp1s = Pp1 + (int64_t)lrintf(lambda + 0.5f * NR_2LAYER_CSI_EPS * (float)(Pp0 + Pp1));
 
-    // ---- 1. division-free ZF seed: x_hat1 = ((Pp1) z1 - rho z2) / det --------
-    const int64_t det = Pp0 * Pp1 - ((int64_t)rr * rr + (int64_t)ri * ri); // >= 0
-    const int64_t numr = Pp1 * z1r - ((int64_t)rr * z2r - (int64_t)ri * z2i);
-    const int64_t numi = Pp1 * z1i - ((int64_t)rr * z2i + (int64_t)ri * z2r);
+    // ---- 1. division-free MMSE seed: x_hat1 = ((Pp1 + lambda) z1 - rho z2) / det --------
+    const int64_t det = Pp0 * Pp1s - ((int64_t)rr * rr + (int64_t)ri * ri); // >= 0
+    const int64_t numr = Pp1s * z1r - ((int64_t)rr * z2r - (int64_t)ri * z2i);
+    const int64_t numi = Pp1s * z1i - ((int64_t)rr * z2i + (int64_t)ri * z2r);
     // soft level estimate in Q6 (level units * 64); clamp to the 64QAM range.
     int32_t estI_q6 = 0, estQ_q6 = 0;
     if (det > 0) {
@@ -3601,9 +3614,9 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       else if (estQ_q6 > 512)
         estQ_q6 = 512;
     }
-    // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/42, Peff = det/Pp1
+    // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/42, Peff = det/(Pp1 + lambda)
     float axisI[3], axisQ[3];
-    const float g = Pp1 > 0 ? 0.5f * (float)det / (float)Pp1 / 42.0f : 0.0f;
+    const float g = Pp1s > 0 ? 0.5f * (float)det / (float)Pp1s / 42.0f : 0.0f;
     nr_lbest_pam8_axis_llr(estI_q6 / 64.0f, g, axisI);
     nr_lbest_pam8_axis_llr(estQ_q6 / 64.0f, g, axisQ);
 
@@ -3694,7 +3707,7 @@ static void nr_qam64_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
   }
 }
 
-// Public entry for the fixed-point L-best 64QAM kernel (target layer 0, ZF seed).
+// Public entry for the fixed-point L-best 64QAM kernel (target layer 0, MMSE seed).
 void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
                                    c16_t *stream1_in,
                                    c16_t *ch_mag,
@@ -3702,9 +3715,10 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
                                    int16_t *stream0_out,
                                    c16_t *rho01,
                                    uint32_t length,
-                                   int L)
+                                   int L,
+                                   float lambda)
 {
-  nr_qam64_llr_2layer_lbest_q15_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L);
+  nr_qam64_llr_2layer_lbest_q15_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L, lambda);
 }
 
 // ============================================================================
@@ -3753,7 +3767,8 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
                                                  int16_t *stream0_out,
                                                  const c16_t *rho01,
                                                  uint32_t length,
-                                                 int L)
+                                                 int L,
+                                                 float lambda)
 {
   if (L < 1)
     L = 1;
@@ -3771,11 +3786,13 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
     // recover channel powers ||h||^2 via cm * sqrt(170)/8
     const int64_t Pp0 = ((int64_t)cm0 * NR_LBEST_Q_SQRT170_OVER8_Q14) >> 14;
     const int64_t Pp1 = ((int64_t)cm1 * NR_LBEST_Q_SQRT170_OVER8_Q14) >> 14;
+    // unbiased MMSE seed: ZF with Pp1 -> Pp1 + lambda_eff, lambda_eff = lambda + eps (Pp0 + Pp1) / 2
+    const int64_t Pp1s = Pp1 + (int64_t)lrintf(lambda + 0.5f * NR_2LAYER_CSI_EPS * (float)(Pp0 + Pp1));
 
-    // ---- 1. division-free ZF seed: x_hat1 = ((Pp1) z1 - rho z2) / det ----
-    const int64_t det = Pp0 * Pp1 - ((int64_t)rr * rr + (int64_t)ri * ri);
-    const int64_t numr = Pp1 * z1r - ((int64_t)rr * z2r - (int64_t)ri * z2i);
-    const int64_t numi = Pp1 * z1i - ((int64_t)rr * z2i + (int64_t)ri * z2r);
+    // ---- 1. division-free MMSE seed: x_hat1 = ((Pp1 + lambda) z1 - rho z2) / det ----
+    const int64_t det = Pp0 * Pp1s - ((int64_t)rr * rr + (int64_t)ri * ri);
+    const int64_t numr = Pp1s * z1r - ((int64_t)rr * z2r - (int64_t)ri * z2i);
+    const int64_t numi = Pp1s * z1i - ((int64_t)rr * z2i + (int64_t)ri * z2r);
     // soft level estimate in Q6 (level units * 64); clamp to ±1024 (head-room above ±15*64=±960)
     int32_t estI_q6 = 0, estQ_q6 = 0;
     if (det > 0) {
@@ -3790,9 +3807,9 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
       else if (estQ_q6 > 1024)
         estQ_q6 = 1024;
     }
-    // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/170, Peff = det/Pp1
+    // graded fallback for unspanned bits, in output (float-ref) units: g = 0.5*Peff/170, Peff = det/(Pp1 + lambda)
     float axisI[4], axisQ[4];
-    const float g = Pp1 > 0 ? 0.5f * (float)det / (float)Pp1 / 170.0f : 0.0f;
+    const float g = Pp1s > 0 ? 0.5f * (float)det / (float)Pp1s / 170.0f : 0.0f;
     nr_lbest_pam16_axis_llr(estI_q6 / 64.0f, g, axisI);
     nr_lbest_pam16_axis_llr(estQ_q6 / 64.0f, g, axisQ);
 
@@ -3887,7 +3904,7 @@ static void nr_qam256_llr_2layer_lbest_q15_layer(const c16_t *stream0_in,
   }
 }
 
-// Public entry for the fixed-point L-best 256QAM kernel (target layer 0, ZF seed).
+// Public entry for the fixed-point L-best 256QAM kernel (target layer 0, MMSE seed).
 // pattern: 0 = 5x5 (25 cand, ±{0,2,4} per axis — full-BLER default)
 //          1 = 3x3 ( 9 cand, ±{0,2}   per axis — analogous to 64QAM default)
 //          2 = 5-plus (5 cand, center + ±2 each axis)
@@ -3899,11 +3916,12 @@ void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
                                     int16_t *stream0_out,
                                     c16_t *rho01,
                                     uint32_t length,
-                                    int pattern)
+                                    int pattern,
+                                    float lambda)
 {
   static const int pat_L[3] = {25, 9, 5};
   const int L = (pattern >= 0 && pattern <= 2) ? pat_L[pattern] : 256;
-  nr_qam256_llr_2layer_lbest_q15_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L);
+  nr_qam256_llr_2layer_lbest_q15_layer(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, L, lambda);
 }
 
 // ---- 2-layer 64/256QAM L-best SIMD kernels ----
@@ -3920,12 +3938,13 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                           int16_t *stream0_out,
                                           c16_t *rho01,
                                           uint32_t length,
-                                          int pattern)
+                                          int pattern,
+                                          float lambda)
 {
 #if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
-  nr_qam64_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+  nr_qam64_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda);
 #else
-  nr_qam64_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+  nr_qam64_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda);
 #endif
 }
 
@@ -3936,12 +3955,13 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                            int16_t *stream0_out,
                                            c16_t *rho01,
                                            uint32_t length,
-                                           int pattern)
+                                           int pattern,
+                                           float lambda)
 {
 #if defined(SIMDE_ARM_NEON_A64V8_NATIVE) || defined(__aarch64__)
-  nr_qam256_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+  nr_qam256_llr_2layer_lbest_q15_simd_w128(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda);
 #else
-  nr_qam256_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern);
+  nr_qam256_llr_2layer_lbest_q15_simd_w256(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda);
 #endif
 }
 
@@ -3955,7 +3975,8 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rho1,
                        uint32_t nb_re,
                        uint8_t mod_order,
-                       int lbest)
+                       int lbest,
+                       float lambda)
 {
   switch (mod_order) {
     case 2:
@@ -3974,8 +3995,8 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       // (nr_qam64_llr_2layer).
       if (lbest) {
         // pattern 0: 3x3 candidate window
-        nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, 0);
-        nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, 0);
+        nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, 0, lambda);
+        nr_qam64_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, 0, lambda);
       } else {
         nr_qam64_llr_2layer(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re);
         nr_qam64_llr_2layer(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re);
@@ -3992,8 +4013,8 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       // ~28x candidate reduction. ml runs the full 16x16 grid (pattern 3) = exact max-log ML.
       {
         const int pat256 = lbest ? 1 : 3;
-        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256);
-        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256);
+        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat256, lambda);
+        nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat256, lambda);
       }
       break;
     default:

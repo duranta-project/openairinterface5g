@@ -27,6 +27,12 @@ void nr_256qam_llr(const c16_t *rxdataF_comp,
  */
 int nr_ml_llr_maxh_off(int mod_order, int lbest);
 int nr_mmse_llr_maxh_off(int mod_order);
+/// L-best / MMSE seed regularization (noise variance in the compensated Pp/rho units) for log2_maxh = shift
+float nr_2layer_seed_lambda(uint32_t nvar, int shift);
+/// Channel-estimation error relative to the channel power. The 2-layer MMSE seeds and the MMSE receiver regularize
+/// with lambda + eps * (P0 + P1) / 2 per RE: at high SNR this error, not the thermal noise, limits the linear
+/// estimate (TDL-A, 2 Rx, 64QAM MCS 27: +3-5 points of L-best throughput at 26-30 dB; neutral with 4 Rx).
+#define NR_2LAYER_CSI_EPS 0.003f
 
 /// log2_approx(avgs) at the input level the 2-layer offsets were tuned at (nr_ulsim default level)
 #define NR_2LAYER_LOG2_AVGS_NOMINAL 18
@@ -77,7 +83,7 @@ void nr_qam256_llr_2layer(c16_t *stream0_in,
 
 // L-best (reduced-search) reference kernel for 2-layer 64QAM (one target layer).
 // Floating-point scalar reference; L==64 reproduces the full max-log search.
-// seed_lambda: 0.0f = ZF seed, = noise_var for MMSE-regularised seed.
+// seed_lambda: 0.0f = ZF seed, = noise variance (Pp units) for the unbiased MMSE seed.
 void nr_qam64_llr_2layer_lbest(c16_t *stream0_in,
                                c16_t *stream1_in,
                                c16_t *ch_mag,
@@ -122,7 +128,7 @@ void nr_qam_llr_3layer_ml(c16_t *zt,
                           int Qm);
 
 // Float reference L-best kernel for 2-layer 16QAM (building block for >2-layer hybrid).
-// L==16 == full ML. seed_lambda: 0=ZF.
+// L==16 == full ML. seed_lambda: 0 = ZF, else unbiased MMSE.
 void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
                                c16_t *stream1_in,
                                c16_t *ch_mag,
@@ -134,7 +140,7 @@ void nr_qam16_llr_2layer_lbest(c16_t *stream0_in,
                                float seed_lambda);
 
 // Float reference L-best kernel for 2-layer 256QAM. L==256 == full ML search
-// (analysis vehicle; no SIMD 256QAM full-search kernel exists). seed_lambda: 0=ZF.
+// (analysis vehicle; no SIMD 256QAM full-search kernel exists). seed_lambda: 0 = ZF, else unbiased MMSE.
 void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
                                 c16_t *stream1_in,
                                 c16_t *ch_mag,
@@ -145,7 +151,7 @@ void nr_qam256_llr_2layer_lbest(c16_t *stream0_in,
                                 int L,
                                 float seed_lambda);
 
-// Fixed-point (Q15-input) L-best 2-layer 256QAM kernel (ZF seed). Integer twin of
+// Fixed-point (Q15-input) L-best 2-layer 256QAM kernel (unbiased MMSE seed, lambda = 0: ZF). Integer twin of
 // nr_qam256_llr_2layer_lbest; scale 16*sqrt(170), PAM-16 levels, 8 bits/RE.
 // pattern: 0=5x5/25cand, 1=3x3/9cand, 2=5-plus/5cand, other=full256.
 // Scalar reference for the SIMD kernel (and its short-symbol tail).
@@ -156,9 +162,10 @@ void nr_qam256_llr_2layer_lbest_q15(c16_t *stream0_in,
                                     int16_t *stream0_out,
                                     c16_t *rho01,
                                     uint32_t length,
-                                    int pattern);
+                                    int pattern,
+                                    float lambda);
 
-// Fixed-point (Q15-input) L-best 2-layer 64QAM kernel (ZF seed). Integer twin of
+// Fixed-point (Q15-input) L-best 2-layer 64QAM kernel (unbiased MMSE seed, lambda = 0: ZF). Integer twin of
 // nr_qam64_llr_2layer_lbest; the SIMD-portable form of the reduced search.
 void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
                                    c16_t *stream1_in,
@@ -167,9 +174,10 @@ void nr_qam64_llr_2layer_lbest_q15(c16_t *stream0_in,
                                    int16_t *stream0_out,
                                    c16_t *rho01,
                                    uint32_t length,
-                                   int L);
+                                   int L,
+                                   float lambda);
 
-// int16/16-lane AVX2 L-best 2-layer 64QAM kernel (the optimized form).
+// int16/16-lane AVX2 L-best 2-layer 64QAM kernel (the optimized form). lambda: see nr_compute_ML_llr.
 // pattern: 0 = 3x3 (9 cand, full BLER), 1 = 6-cand (plus + toward-seed diagonal), 2 = 5-plus.
 void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                           c16_t *stream1_in,
@@ -178,7 +186,8 @@ void nr_qam64_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                           int16_t *stream0_out,
                                           c16_t *rho01,
                                           uint32_t length,
-                                          int pattern);
+                                          int pattern,
+                                          float lambda);
 
 // int16/16-lane AVX2 L-best 2-layer 256QAM kernel (PAM-16, 8 bits/RE).
 // pattern: 0 = 5x5 (25 cand), 1 = 3x3 (9 cand, the lbest receiver), 2 = 5-plus (5 cand),
@@ -190,7 +199,8 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
                                            int16_t *stream0_out,
                                            c16_t *rho01,
                                            uint32_t length,
-                                           int pattern);
+                                           int pattern,
+                                           float lambda);
 
 void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rxdataF_comp1,
@@ -202,7 +212,8 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rho1,
                        uint32_t nb_re,
                        uint8_t mod_order,
-                       int lbest); // 64/256QAM: 1 = reduced-search L-best, 0 = full max-log ML
+                       int lbest, // 64/256QAM: 1 = reduced-search L-best, 0 = full max-log ML
+                       float lambda); // L-best seed regularization: noise variance >> log2_maxh (0: ZF seed)
 
 #ifndef __cplusplus
 // Fused 2-layer linear MMSE + scalar LLR (L=1): Gram-fed per-RE equalization (file-local

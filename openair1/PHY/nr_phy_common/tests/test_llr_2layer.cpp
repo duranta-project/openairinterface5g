@@ -37,13 +37,13 @@ void nr_qam64_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c1
 void nr_qam256_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 
 // Width-specific fixed-point SIMD kernels (last arg = candidate pattern).
-void nr_qam64_llr_2layer_lbest_q15_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int);
-void nr_qam64_llr_2layer_lbest_q15_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int);
-void nr_qam256_llr_2layer_lbest_q15_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int);
-void nr_qam256_llr_2layer_lbest_q15_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int);
+void nr_qam64_llr_2layer_lbest_q15_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam64_llr_2layer_lbest_q15_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam256_llr_2layer_lbest_q15_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam256_llr_2layer_lbest_q15_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 #if defined(__AVX512BW__) && defined(__AVX512VL__) && defined(__AVX512F__)
-void nr_qam64_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int);
-void nr_qam256_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int);
+void nr_qam64_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam256_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 #define NRLB_TEST_HAVE_W512 1
 #endif
 }
@@ -152,7 +152,7 @@ void width_equiv_64qam(uint32_t nb_re, int pattern)
                                           o128.data(),
                                           in.rho.data(),
                                           nb_re,
-                                          pattern);
+                                          pattern, 0);
   nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
                                           in.s1.data(),
                                           in.mag.data(),
@@ -160,7 +160,7 @@ void width_equiv_64qam(uint32_t nb_re, int pattern)
                                           o256.data(),
                                           in.rho.data(),
                                           nb_re,
-                                          pattern);
+                                          pattern, 0);
   EXPECT_EQ(0, memcmp(o128.data(), o256.data(), nll * sizeof(int16_t)))
       << "w128 != w256 (64QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
 #ifdef NRLB_TEST_HAVE_W512
@@ -172,7 +172,7 @@ void width_equiv_64qam(uint32_t nb_re, int pattern)
                                           o512.data(),
                                           in.rho.data(),
                                           nb_re,
-                                          pattern);
+                                          pattern, 0);
   EXPECT_EQ(0, memcmp(o128.data(), o512.data(), nll * sizeof(int16_t)))
       << "w128 != w512 (64QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
 #endif
@@ -190,7 +190,7 @@ void width_equiv_256qam(uint32_t nb_re, int pattern)
                                            o128.data(),
                                            in.rho.data(),
                                            nb_re,
-                                           pattern);
+                                           pattern, 0);
   nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
                                            in.s1.data(),
                                            in.mag.data(),
@@ -198,7 +198,7 @@ void width_equiv_256qam(uint32_t nb_re, int pattern)
                                            o256.data(),
                                            in.rho.data(),
                                            nb_re,
-                                           pattern);
+                                           pattern, 0);
   EXPECT_EQ(0, memcmp(o128.data(), o256.data(), nll * sizeof(int16_t)))
       << "w128 != w256 (256QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
 #ifdef NRLB_TEST_HAVE_W512
@@ -210,11 +210,37 @@ void width_equiv_256qam(uint32_t nb_re, int pattern)
                                            o512.data(),
                                            in.rho.data(),
                                            nb_re,
-                                           pattern);
+                                           pattern, 0);
   EXPECT_EQ(0, memcmp(o128.data(), o512.data(), nll * sizeof(int16_t)))
       << "w128 != w512 (256QAM, nb_re=" << nb_re << ", pat=" << pattern << ")";
 #endif
 }
+
+typedef void (*kern2l_t)(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+
+// Width equivalence for one kernel family (w128 / w256 / w512 instantiations), any lambda.
+void width_equiv(kern2l_t k128, kern2l_t k256, kern2l_t k512, int qm, uint32_t nb_re, int pattern, float lambda, const char *what)
+{
+  auto in = gen_inputs(nb_re, 0x5EEDu + nb_re * 7 + pattern * 3 + lambda);
+  const size_t nll = (size_t)nb_re * qm;
+  AlignedVector512<int16_t> o128(nll + 64, 0), o256(nll + 64, 0);
+  k128(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o128.data(), in.rho.data(), nb_re, pattern, lambda);
+  k256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o256.data(), in.rho.data(), nb_re, pattern, lambda);
+  EXPECT_EQ(0, memcmp(o128.data(), o256.data(), nll * sizeof(int16_t)))
+      << what << ": w128 != w256 (nb_re=" << nb_re << ", pat=" << pattern << ", lambda=" << lambda << ")";
+  if (k512) {
+    AlignedVector512<int16_t> o512(nll + 64, 0);
+    k512(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o512.data(), in.rho.data(), nb_re, pattern, lambda);
+    EXPECT_EQ(0, memcmp(o128.data(), o512.data(), nll * sizeof(int16_t)))
+        << what << ": w128 != w512 (nb_re=" << nb_re << ", pat=" << pattern << ", lambda=" << lambda << ")";
+  }
+}
+
+#ifdef NRLB_TEST_HAVE_W512
+#define NRLB_K512(f) f##_w512
+#else
+#define NRLB_K512(f) nullptr
+#endif
 
 // RE counts that are multiples of 32 -> every width runs pure-SIMD (no scalar
 // remainder), so the outputs must be bit-identical.
@@ -273,8 +299,8 @@ TEST(test_llr_2layer, overlapped_tail_matches_aligned)
                                           a.data(),
                                           in.rho.data(),
                                           na,
-                                          0);
-  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), b.data(), in.rho.data(), n, 0);
+                                          0, 0);
+  nr_qam64_llr_2layer_lbest_q15_simd_w256(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), b.data(), in.rho.data(), n, 0, 0);
   EXPECT_EQ(0, memcmp(a.data(), b.data(), (size_t)n * 6 * sizeof(int16_t))) << "64QAM overlapped tail";
   nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
                                            in.s1.data(),
@@ -283,7 +309,7 @@ TEST(test_llr_2layer, overlapped_tail_matches_aligned)
                                            a.data(),
                                            in.rho.data(),
                                            na,
-                                           1);
+                                           1, 0);
   nr_qam256_llr_2layer_lbest_q15_simd_w256(in.s0.data(),
                                            in.s1.data(),
                                            in.mag.data(),
@@ -291,8 +317,24 @@ TEST(test_llr_2layer, overlapped_tail_matches_aligned)
                                            b.data(),
                                            in.rho.data(),
                                            n,
-                                           1);
+                                           1, 0);
   EXPECT_EQ(0, memcmp(a.data(), b.data(), (size_t)n * 8 * sizeof(int16_t))) << "256QAM overlapped tail";
+}
+
+// A non-zero seed regularization (MMSE seed) must be width-exact too.
+TEST(test_llr_2layer, width_equiv_mmse_seed)
+{
+  for (auto n : {32u, 96u, 1272u, 3276u})
+    for (float lambda : {0, 37, 900}) {
+      width_equiv(nr_qam64_llr_2layer_lbest_q15_simd_w128,
+                  nr_qam64_llr_2layer_lbest_q15_simd_w256,
+                  NRLB_K512(nr_qam64_llr_2layer_lbest_q15_simd),
+                  6, n, 0, lambda, "64QAM int16");
+      width_equiv(nr_qam256_llr_2layer_lbest_q15_simd_w128,
+                  nr_qam256_llr_2layer_lbest_q15_simd_w256,
+                  NRLB_K512(nr_qam256_llr_2layer_lbest_q15_simd),
+                  8, n, 1, lambda, "256QAM int16");
+    }
 }
 
 // ---- (B) fidelity vs the float reference model ----------------------------
@@ -309,7 +351,7 @@ TEST(test_llr_2layer, fidelity_vs_float_64qam)
                                           dut.data(),
                                           in.rho.data(),
                                           nb_re,
-                                          0);
+                                          0, 0);
   nr_qam64_llr_2layer_lbest(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), ref.data(), in.rho.data(), nb_re, 64, 0.0f);
   Fit f = fit_stats(dut.data(), ref.data(), (size_t)nb_re * 6);
   fprintf(stderr,
@@ -334,7 +376,7 @@ TEST(test_llr_2layer, fidelity_vs_float_256qam)
                                            dut.data(),
                                            in.rho.data(),
                                            nb_re,
-                                           1);
+                                           1, 0);
   nr_qam256_llr_2layer_lbest(in.s0.data(),
                              in.s1.data(),
                              in.mag.data(),
@@ -361,3 +403,4 @@ int main(int argc, char **argv)
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+

@@ -97,6 +97,7 @@ void nr_inner_rx_1layer(uint32_t length,
  *
  * @param cpe        Common Phase Error to be corrected ((32767,0) without PTRS)
  * @param lbest      Passed to nr_compute_ML_llr (64/256QAM: 1 = reduced-search L-best, 0 = full ML)
+ * @param lambda     Passed to nr_compute_ML_llr (L-best seed regularization, noise variance >> output_shift)
  * @param llr0,llr1  Per-layer LLR outputs (per-layer contiguous). Used when llr_cw == NULL.
  * @param llr_cw     Optional codeword output: when non-NULL, the two layers' LLRs are written
  *                   layer-demapped (interleaved [RE-l0, RE-l1] per RE) directly into it, folding
@@ -113,6 +114,7 @@ void nr_inner_rx_2layer_ml(uint32_t length,
                            c16_t cpe,
                            int mod_order,
                            int lbest,
+                           float lambda,
                            int output_shift,
                            int16_t *llr0,
                            int16_t *llr1,
@@ -129,6 +131,7 @@ void nr_inner_rx_2layer_ml(uint32_t length,
  *
  * @param ml2    use the 2-layer near-ML detector (nr_compute_ML_llr) for nb_layer == 2
  * @param lbest  its reduced-search selector (64/256QAM: 1 = L-best, 0 = full ML)
+ * @param lambda L-best seed regularization: noise variance >> output_shift (0: ZF seed)
  * @return true if handled; false for caller-specific paths (2-layer MMSE, 3-layer, >2 layers).
  */
 bool nr_inner_rx(uint32_t length,
@@ -149,6 +152,7 @@ bool nr_inner_rx(uint32_t length,
                  bool fuse,
                  bool ml2,
                  int lbest,
+                 float lambda,
                  int16_t *layer_scratch[nb_layer],
                  const int16_t *scramble,
                  int16_t *llr_cw);

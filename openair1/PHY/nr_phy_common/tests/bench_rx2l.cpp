@@ -22,7 +22,7 @@ void exit_function(const char *file, const char *function, const int line, const
 // (L>=full reproduces the exact max-log ML search); seed_lambda unused here.
 void nr_qam64_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
-void nr_compute_ML_llr(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, c16_t *, c16_t *, uint32_t, uint8_t, int);
+void nr_compute_ML_llr(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, c16_t *, c16_t *, uint32_t, uint8_t, int, float);
 uint8_t nr_compute_MMSE_llr(c16_t **,
                             uint32_t,
                             uint32_t,
@@ -114,7 +114,7 @@ int main(int argc, char **argv)
                             r10.data(),
                             nb_re,
                             qm,
-                            lbest);
+                            lbest, 0);
         auto b = std::chrono::steady_clock::now();
         us += std::chrono::duration<double, std::micro>(b - a).count();
       }

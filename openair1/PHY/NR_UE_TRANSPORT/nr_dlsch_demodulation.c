@@ -1056,6 +1056,7 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                 fuse_1layer || fuse_2layer_ml,
                 ml2,
                 lbest_gate,
+                ml2 ? nr_2layer_seed_lambda(nvar, *log2_maxh) : 0,
                 p_symllr,
                 scramble,
                 llr);

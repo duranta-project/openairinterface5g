@@ -435,7 +435,7 @@ void test_function_ml_llr(uint8_t mod_order, uint32_t nb_re)
                       rho1.data(),
                       n,
                       mod_order,
-                      0); // full ML kernels (the L-best ones are covered by test_llr_2layer)
+                      0, 0); // full ML kernels (the L-best ones are covered by test_llr_2layer)
   };
 
   // one extra LLR past the padded length for the sentinel

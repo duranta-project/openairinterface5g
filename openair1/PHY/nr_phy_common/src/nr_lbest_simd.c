@@ -83,7 +83,7 @@ static inline NRLB_VI NRLB_NAME(nrlbw_z42d32)(NRLB_VI z16)
   return NRLB_NAME(nrlbw_pack32)(lo, hi);
 }
 
-// ZF-seed nearest-level centers for 16 REs (int16 out). The 2x2 solve is done in
+// MMSE-seed nearest-level centers for 16 REs (int16 out). The 2x2 solve is done in
 // FLOAT, which is robust to the wide per-RE dynamic range of real channels (TDL
 // deep fades) where any fixed int pre-shift either loses precision or underflows.
 // Also emits dirImask/dirQmask: int16 mask, all-ones where the seed lies on the
@@ -117,6 +117,8 @@ static inline void NRLB_NAME(nrlbw_seed)(NRLB_VI z1r16,
                                          NRLB_VI ri16,
                                          NRLB_VI cm0_16,
                                          NRLB_VI cm1_16,
+                                         NRLB_VF lam,
+                                         NRLB_VF epsh,
                                          NRLB_VI *centerI,
                                          NRLB_VI *centerQ,
                                          NRLB_VI *dirImask,
@@ -139,18 +141,20 @@ static inline void NRLB_NAME(nrlbw_seed)(NRLB_VI z1r16,
         NRLB_MM(cvtepi32_ps)(NRLB_MM(srai_epi32)(NRLB_MM(mullo_epi32)(NRLB_NAME(nrlbw_widen)(cm0_16, h), SQRT42_OVER4), 14));
     const NRLB_VF Pp1 =
         NRLB_MM(cvtepi32_ps)(NRLB_MM(srai_epi32)(NRLB_MM(mullo_epi32)(NRLB_NAME(nrlbw_widen)(cm1_16, h), SQRT42_OVER4), 14));
-    // ZF 2x2 solve (float): x_hat1 = ((Pp1) z1 - rho z2) / det,  det = Pp0 Pp1 - |rho|^2
-    NRLB_VF det = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp0, Pp1), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, rr), NRLB_MM(mul_ps)(ri, ri)));
+    // unbiased MMSE seed: ZF with Pp1 -> Pp1 + lambda_eff, lambda_eff = lambda + eps (Pp0 + Pp1) / 2 (noise + CSI error)
+    const NRLB_VF Pp1s = NRLB_MM(add_ps)(NRLB_MM(add_ps)(Pp1, lam), NRLB_MM(mul_ps)(epsh, NRLB_MM(add_ps)(Pp0, Pp1)));
+    // 2x2 solve (float): x_hat1 = ((Pp1 + lambda) z1 - rho z2) / det,  det = Pp0 (Pp1 + lambda) - |rho|^2
+    NRLB_VF det = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp0, Pp1s), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, rr), NRLB_MM(mul_ps)(ri, ri)));
     det = NRLB_MM(max_ps)(det, ONE); // guard near-singular (high correlation)
     const NRLB_VF numr =
-        NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp1, z1r), NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(rr, z2r), NRLB_MM(mul_ps)(ri, z2i)));
+        NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp1s, z1r), NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(rr, z2r), NRLB_MM(mul_ps)(ri, z2i)));
     const NRLB_VF numi =
-        NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp1, z1i), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, z2i), NRLB_MM(mul_ps)(ri, z2r)));
+        NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp1s, z1i), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, z2i), NRLB_MM(mul_ps)(ri, z2r)));
     // soft level estimate est = x_hat1 * sqrt(42)  (~ +-1..7)
     const NRLB_VF estI = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numr, det), SQRT42);
     const NRLB_VF estQ = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numi, det), SQRT42);
-    // graded per-axis PAM-8 LLRs from the soft estimate (g = 0.5*Peff/42, Peff = det/Pp1)
-    const NRLB_VF glin = NRLB_MM(mul_ps)(NRLB_MM(set1_ps)(0.5f / 42.0f), NRLB_MM(div_ps)(det, NRLB_MM(max_ps)(Pp1, ONE)));
+    // graded per-axis PAM-8 LLRs from the soft estimate (g = 0.5*Peff/42, Peff = det/(Pp1 + lambda), the post-MMSE energy)
+    const NRLB_VF glin = NRLB_MM(mul_ps)(NRLB_MM(set1_ps)(0.5f / 42.0f), NRLB_MM(div_ps)(det, NRLB_MM(max_ps)(Pp1s, ONE)));
     NRLB_VF aI3[3], aQ3[3];
     NRLB_NAME(nrlbw_axis_llr64)(estI, glin, aI3);
     NRLB_NAME(nrlbw_axis_llr64)(estQ, glin, aQ3);
@@ -224,8 +228,10 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
                                                    int16_t *stream0_out,
                                                    c16_t *rho01,
                                                    uint32_t length,
-                                                   int pattern)
+                                                   int pattern,
+                                                   float lambda)
 {
+  const NRLB_VF lam = NRLB_MM(set1_ps)(lambda), epsh = NRLB_MM(set1_ps)(0.5f * NR_2LAYER_CSI_EPS);
   const NRLB_VI SENT = NRLB_MM(set1_epi16)(NR_LBEST_SIMD16_SENT);
   const NRLB_VI FLOORM = NRLB_MM(set1_epi16)(-32000); // keep real metrics above SENT
   const NRLB_VI V1 = NRLB_MM(set1_epi16)(1), V4 = NRLB_MM(set1_epi16)(4);
@@ -250,7 +256,7 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
     NRLB_NAME(nrlbw_load)(&ch_mag_i[re], &cm1, &dummy);
 
     NRLB_VI centerI, centerQ, dirImask, dirQmask, axisLLR[6];
-    NRLB_NAME(nrlbw_seed)(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
+    NRLB_NAME(nrlbw_seed)(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, lam, epsh, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
     (void)dirImask;
     (void)dirQmask;
 
@@ -388,7 +394,8 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
                                   &stream0_out[re * 6],
                                   &rho01[re],
                                   length - re,
-                                  9);
+                                  9,
+                                  lambda);
 }
 
 #undef NR_LBEST_METRIC16
@@ -467,6 +474,8 @@ static inline void NRLB_NAME(nrlbw_seed256)(NRLB_VI z1r16,
                                             NRLB_VI ri16,
                                             NRLB_VI cm0_16,
                                             NRLB_VI cm1_16,
+                                            NRLB_VF lam,
+                                            NRLB_VF epsh,
                                             NRLB_VI *centerI,
                                             NRLB_VI *centerQ,
                                             NRLB_VI *dirImask,
@@ -489,18 +498,20 @@ static inline void NRLB_NAME(nrlbw_seed256)(NRLB_VI z1r16,
         NRLB_MM(cvtepi32_ps)(NRLB_MM(srai_epi32)(NRLB_MM(mullo_epi32)(NRLB_NAME(nrlbw_widen)(cm0_16, h), SQRT170_OVER8), 14));
     const NRLB_VF Pp1 =
         NRLB_MM(cvtepi32_ps)(NRLB_MM(srai_epi32)(NRLB_MM(mullo_epi32)(NRLB_NAME(nrlbw_widen)(cm1_16, h), SQRT170_OVER8), 14));
-    // ZF 2x2 solve (float): x_hat1 = (Pp1*z1 - rho*z2) / det
-    NRLB_VF det = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp0, Pp1), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, rr), NRLB_MM(mul_ps)(ri, ri)));
+    // unbiased MMSE seed: ZF with Pp1 -> Pp1 + lambda_eff, lambda_eff = lambda + eps (Pp0 + Pp1) / 2 (noise + CSI error)
+    const NRLB_VF Pp1s = NRLB_MM(add_ps)(NRLB_MM(add_ps)(Pp1, lam), NRLB_MM(mul_ps)(epsh, NRLB_MM(add_ps)(Pp0, Pp1)));
+    // 2x2 solve (float): x_hat1 = ((Pp1 + lambda) z1 - rho z2) / det,  det = Pp0 (Pp1 + lambda) - |rho|^2
+    NRLB_VF det = NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp0, Pp1s), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, rr), NRLB_MM(mul_ps)(ri, ri)));
     det = NRLB_MM(max_ps)(det, ONE);
     const NRLB_VF numr =
-        NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp1, z1r), NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(rr, z2r), NRLB_MM(mul_ps)(ri, z2i)));
+        NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp1s, z1r), NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(rr, z2r), NRLB_MM(mul_ps)(ri, z2i)));
     const NRLB_VF numi =
-        NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp1, z1i), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, z2i), NRLB_MM(mul_ps)(ri, z2r)));
+        NRLB_MM(sub_ps)(NRLB_MM(mul_ps)(Pp1s, z1i), NRLB_MM(add_ps)(NRLB_MM(mul_ps)(rr, z2i), NRLB_MM(mul_ps)(ri, z2r)));
     // soft level estimate ~ +-1..15
     const NRLB_VF estI = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numr, det), SQRT170);
     const NRLB_VF estQ = NRLB_MM(mul_ps)(NRLB_MM(div_ps)(numi, det), SQRT170);
-    // graded per-axis PAM-16 LLRs from the soft estimate (g = 0.5*Peff/170, Peff = det/Pp1)
-    const NRLB_VF glin = NRLB_MM(mul_ps)(NRLB_MM(set1_ps)(0.5f / 170.0f), NRLB_MM(div_ps)(det, NRLB_MM(max_ps)(Pp1, ONE)));
+    // graded per-axis PAM-16 LLRs from the soft estimate (g = 0.5*Peff/170, Peff = det/(Pp1 + lambda), the post-MMSE energy)
+    const NRLB_VF glin = NRLB_MM(mul_ps)(NRLB_MM(set1_ps)(0.5f / 170.0f), NRLB_MM(div_ps)(det, NRLB_MM(max_ps)(Pp1s, ONE)));
     NRLB_VF aI4[4], aQ4[4];
     NRLB_NAME(nrlbw_axis_llr)(estI, glin, aI4);
     NRLB_NAME(nrlbw_axis_llr)(estQ, glin, aQ4);
@@ -564,8 +575,10 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
                                                     int16_t *stream0_out,
                                                     c16_t *rho01,
                                                     uint32_t length,
-                                                    int pattern)
+                                                    int pattern,
+                                                    float lambda)
 {
+  const NRLB_VF lam = NRLB_MM(set1_ps)(lambda), epsh = NRLB_MM(set1_ps)(0.5f * NR_2LAYER_CSI_EPS);
   const NRLB_VI SENT = NRLB_MM(set1_epi16)(NR_LBEST_SIMD16_SENT);
   const NRLB_VI FLOORM = NRLB_MM(set1_epi16)(-32000);
   const NRLB_VI V15 = NRLB_MM(set1_epi16)(15), Vm15 = NRLB_MM(set1_epi16)(-15);
@@ -601,7 +614,7 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
     NRLB_NAME(nrlbw_load)(&ch_mag_i[re], &cm1, &dummy);
 
     NRLB_VI centerI, centerQ, dirImask, dirQmask, axisLLR[8];
-    NRLB_NAME(nrlbw_seed256)(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
+    NRLB_NAME(nrlbw_seed256)(z1r, z1i, z2r, z2i, rr, ri, cm0, cm1, lam, epsh, &centerI, &centerQ, &dirImask, &dirQmask, axisLLR);
     (void)dirImask;
     (void)dirQmask;
 
@@ -821,10 +834,12 @@ void NRLB_NAME(nr_qam256_llr_2layer_lbest_q15_simd)(c16_t *stream0_in,
                                    &stream0_out[re * 8],
                                    &rho01[re],
                                    length - re,
-                                   pattern == 3 ? 3 : 0);
+                                   pattern == 3 ? 3 : 0,
+                                   lambda);
 }
 
 #undef NR_LBEST_METRIC16_256
 #undef NR_LBEST_EVAL16_256
+
 
 #endif
