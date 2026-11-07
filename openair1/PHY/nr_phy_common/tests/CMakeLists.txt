@@ -26,3 +26,20 @@ add_test(NAME test_llr_2layer
 
 add_executable(bench_rx2l bench_rx2l.cpp)
 target_link_libraries(bench_rx2l PRIVATE PHY_NR nr_phy_common minimal_lib)
+
+# GPU detectors: bit-exact against the CPU fp32 kernels (skipped without a device), and slot-level timing
+if (ENABLE_PHY_GPU)
+  # the CPU fp32 kernels without FMA contraction (symbols *_w128_exact): the GPU kernels must match them bit for bit
+  add_library(nr_lbest_simd_exact OBJECT ../src/nr_lbest_simd.c)
+  target_compile_definitions(nr_lbest_simd_exact PRIVATE NRLB_W=128 NRLB_TAG=_exact)
+  target_compile_options(nr_lbest_simd_exact PRIVATE -ffp-contract=off)
+  target_link_libraries(nr_lbest_simd_exact PRIVATE UTIL PHY_COMMON)
+  target_include_directories(nr_lbest_simd_exact PRIVATE ../inc/)
+  add_executable(test_detector_gpu test_detector_gpu.cpp $<TARGET_OBJECTS:nr_lbest_simd_exact>)
+  target_link_libraries(test_detector_gpu PRIVATE nr_phy_gpu PHY_NR nr_phy_common GTest::gtest minimal_lib)
+  add_dependencies(tests test_detector_gpu)
+  add_test(NAME test_detector_gpu COMMAND ./test_detector_gpu)
+
+  add_executable(bench_detector_gpu bench_detector_gpu.cpp)
+  target_link_libraries(bench_detector_gpu PRIVATE nr_phy_gpu minimal_lib)
+endif()

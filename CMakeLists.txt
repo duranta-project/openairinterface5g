@@ -234,12 +234,13 @@ if(CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
   set(commonOpts "${commonOpts} -Wno-unused-command-line-argument -Wno-default-const-init-field-unsafe")
 endif()
 
-if (ENABLE_LDPC_CUDA)
-  # The GPU offload is written against PHY/gpu_compat.h, which maps the CUDA
-  # runtime API onto HIP as well, so the backend follows whichever toolchain is
-  # installed rather than needing a flag of its own. Set LDPC_GPU_BACKEND to
-  # CUDA or HIP to force one when both are present.
-  set(LDPC_GPU_BACKEND "AUTO" CACHE STRING "GPU backend for the LDPC offload (AUTO, CUDA or HIP)")
+if (ENABLE_LDPC_CUDA OR ENABLE_PHY_GPU)
+  # The GPU offloads (LDPC, NR inner-RX detectors) are written against
+  # PHY/gpu_compat.h, which maps the CUDA runtime API onto HIP as well, so the
+  # backend follows whichever toolchain is installed rather than needing a flag
+  # of its own. Set LDPC_GPU_BACKEND to CUDA or HIP to force one when both are
+  # present.
+  set(LDPC_GPU_BACKEND "AUTO" CACHE STRING "GPU backend for the GPU offloads (AUTO, CUDA or HIP)")
   set_property(CACHE LDPC_GPU_BACKEND PROPERTY STRINGS AUTO CUDA HIP)
 
   # CheckLanguage reports CMAKE_HIP_COMPILER without committing to the
@@ -275,8 +276,10 @@ if (ENABLE_LDPC_CUDA)
     message(FATAL_ERROR "LDPC_GPU_BACKEND must be AUTO, CUDA or HIP, got \"${LDPC_GPU_BACKEND}\"")
   endif()
 
-  # TODO only on specific targets!!
-  set(commonOpts "${commonOpts} -DLDPC_CUDA")
+  if (ENABLE_LDPC_CUDA)
+    # TODO only on specific targets!!
+    set(commonOpts "${commonOpts} -DLDPC_CUDA")
+  endif()
 endif()
 
 set(CMAKE_C_FLAGS

@@ -121,6 +121,12 @@ typedef cudaEvent_t    gpuEvent_t;
 #define gpuStreamCaptureModeThreadLocal hipStreamCaptureModeThreadLocal
 
 #define gpuEventRecord         hipEventRecord
+#define gpuEventCreate         hipEventCreate
+#define gpuEventDestroy        hipEventDestroy
+#define gpuEventSynchronize    hipEventSynchronize
+#define gpuEventElapsedTime    hipEventElapsedTime
+#define gpuMallocManaged       hipMallocManaged
+#define gpuMemcpyDeviceToDevice hipMemcpyDeviceToDevice
 
 #define gpuGraph_t             hipGraph_t
 #define gpuGraphExec_t         hipGraphExec_t
@@ -166,6 +172,12 @@ typedef cudaEvent_t    gpuEvent_t;
 #define gpuStreamCaptureModeThreadLocal cudaStreamCaptureModeThreadLocal
 
 #define gpuEventRecord         cudaEventRecord
+#define gpuEventCreate         cudaEventCreate
+#define gpuEventDestroy        cudaEventDestroy
+#define gpuEventSynchronize    cudaEventSynchronize
+#define gpuEventElapsedTime    cudaEventElapsedTime
+#define gpuMallocManaged       cudaMallocManaged
+#define gpuMemcpyDeviceToDevice cudaMemcpyDeviceToDevice
 
 #define gpuGraph_t             cudaGraph_t
 #define gpuGraphExec_t         cudaGraphExec_t

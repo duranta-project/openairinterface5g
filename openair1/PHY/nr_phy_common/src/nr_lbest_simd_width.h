@@ -40,6 +40,11 @@
 
 #define NRLB_CC1(a, b) a##b
 #define NRLB_CC(a, b) NRLB_CC1(a, b)
+// NRLB_TAG: optional symbol suffix, for a second build of the kernels in one binary (the GPU detector test's
+// uncontracted reference)
+#ifndef NRLB_TAG
+#define NRLB_TAG
+#endif
 
 #if NRLB_W == 256
 #define NRLB_VI simde__m256i
@@ -49,7 +54,7 @@
 #define NRLB_MMF(op) NRLB_CC(simde_mm256_, op)
 #define NRLB_OAI(op) NRLB_CC(oai_mm256_, op)
 #define NRLB_N_RE 8
-#define NRLB_NAME(base) NRLB_CC(base, _w256)
+#define NRLB_NAME(base) NRLB_CC(NRLB_CC(base, _w256), NRLB_TAG)
 #define NRLB_SETZERO() simde_mm256_setzero_si256()
 #define NRLB_LOADU(p) simde_mm256_loadu_si256((const simde__m256i *)(p))
 #define NRLB_STOREU(p, v) simde_mm256_storeu_si256((simde__m256i *)(p), (v))
@@ -72,7 +77,7 @@
 #define NRLB_MMF(op) NRLB_CC(simde_mm_, op)
 #define NRLB_OAI(op) NRLB_CC(oai_mm_, op)
 #define NRLB_N_RE 4
-#define NRLB_NAME(base) NRLB_CC(base, _w128)
+#define NRLB_NAME(base) NRLB_CC(NRLB_CC(base, _w128), NRLB_TAG)
 #define NRLB_SETZERO() simde_mm_setzero_si128()
 #define NRLB_LOADU(p) simde_mm_loadu_si128((const simde__m128i *)(p))
 #define NRLB_STOREU(p, v) simde_mm_storeu_si128((simde__m128i *)(p), (v))
@@ -95,7 +100,7 @@
 #define NRLB_MMF(op) NRLB_CC(simde_mm512_, op)
 #define NRLB_OAI(op) NRLB_CC(oai_mm512_, op)
 #define NRLB_N_RE 16
-#define NRLB_NAME(base) NRLB_CC(base, _w512)
+#define NRLB_NAME(base) NRLB_CC(NRLB_CC(base, _w512), NRLB_TAG)
 #define NRLB_SETZERO() simde_mm512_setzero_si512()
 #define NRLB_LOADU(p) simde_mm512_loadu_si512((const void *)(p))
 #define NRLB_STOREU(p, v) simde_mm512_storeu_si512((void *)(p), (v))
