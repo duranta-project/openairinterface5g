@@ -173,12 +173,14 @@ int DU_handle_F1_SETUP_FAILURE(instance_t instance, sctp_assoc_t assoc_id, uint3
   UNUSED(instance);
   UNUSED(assoc_id);
   UNUSED(stream);
-  f1ap_setup_failure_t fail;
+  f1ap_setup_failure_t fail = {0};
   if (!decode_f1ap_setup_failure(pdu, &fail)) {
     LOG_E(F1AP, "Failed to decode F1AP Setup Failure\n");
+    free_f1ap_setup_failure(&fail);
     return -1;
   }
   f1_setup_failure(&fail);
+  free_f1ap_setup_failure(&fail);
   return 0;
 }
 

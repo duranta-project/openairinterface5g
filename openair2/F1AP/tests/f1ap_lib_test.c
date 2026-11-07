@@ -12,6 +12,7 @@
 
 #include "f1ap_messages_types.h"
 #include "F1AP_F1AP-PDU.h"
+#include "F1AP_TimeToWait.h"
 
 #include "f1ap_lib_common.h"
 #include "f1ap_rrc_message_transfer.h"
@@ -398,14 +399,9 @@ static void test_f1ap_setup_response(void)
 /**
  * @brief Test F1AP Setup Failure Encoding/Decoding
  */
-static void test_f1ap_setup_failure(void)
+static void _test_f1ap_setup_failure(const f1ap_setup_failure_t *orig)
 {
-  /* create message */
-  f1ap_setup_failure_t orig = {
-      .transaction_id = 2,
-      .cause = 4,
-  };
-  F1AP_F1AP_PDU_t *f1enc = encode_f1ap_setup_failure(&orig);
+  F1AP_F1AP_PDU_t *f1enc = encode_f1ap_setup_failure(orig);
   F1AP_F1AP_PDU_t *f1dec = f1ap_encode_decode(f1enc);
   f1ap_msg_free(f1enc);
 
@@ -414,12 +410,37 @@ static void test_f1ap_setup_failure(void)
   AssertFatal(ret, "decode_f1ap_setup_failure(): could not decode message\n");
   f1ap_msg_free(f1dec);
 
-  ret = eq_f1ap_setup_failure(&orig, &decoded);
+  ret = eq_f1ap_setup_failure(orig, &decoded);
   AssertFatal(ret, "eq_f1ap_setup_failure(): decoded message doesn't match\n");
+  free_f1ap_setup_failure(&decoded);
 
-  f1ap_setup_failure_t cp = cp_f1ap_setup_failure(&orig);
-  ret = eq_f1ap_setup_failure(&orig, &cp);
+  f1ap_setup_failure_t cp = cp_f1ap_setup_failure(orig);
+  ret = eq_f1ap_setup_failure(orig, &cp);
   AssertFatal(ret, "eq_f1ap_setup_failure(): copied message doesn't match\n");
+  free_f1ap_setup_failure(&cp);
+}
+
+static void test_f1ap_setup_failure(void)
+{
+  /* the Cause CHOICE and a Time To Wait other than v10s must survive the round trip */
+  int time_to_wait = F1AP_TimeToWait_v1s;
+  f1ap_setup_failure_t orig = {
+      .transaction_id = 2,
+      .cause = F1AP_CAUSE_MISC,
+      .cause_value = F1AP_CauseMisc_unspecified,
+      .time_to_wait = &time_to_wait,
+  };
+  _test_f1ap_setup_failure(&orig);
+
+  orig.cause = F1AP_CAUSE_PROTOCOL;
+  orig.cause_value = F1AP_CauseProtocol_semantic_error;
+  time_to_wait = F1AP_TimeToWait_v60s;
+  _test_f1ap_setup_failure(&orig);
+
+  orig.cause = F1AP_CAUSE_RADIO_NETWORK;
+  orig.cause_value = F1AP_CauseRadioNetwork_plmn_not_served_by_the_gNB_CU;
+  orig.time_to_wait = NULL;
+  _test_f1ap_setup_failure(&orig);
 }
 
 static void _test_f1ap_reset_msg(const f1ap_reset_t *orig)

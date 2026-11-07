@@ -210,8 +210,10 @@ void f1_setup_response(const f1ap_setup_resp_t *resp)
 
 void f1_setup_failure(const f1ap_setup_failure_t *failure)
 {
-  UNUSED(failure);
-  LOG_E(MAC, "the CU reported F1AP Setup Failure, is there a configuration mismatch?\n");
+  LOG_E(MAC,
+        "the CU reported F1AP Setup Failure (cause %d/%ld), is there a configuration mismatch?\n",
+        failure->cause,
+        failure->cause_value);
   exit(1);
 }
 
