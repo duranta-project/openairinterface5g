@@ -165,7 +165,7 @@ bool decode_f1ap_cause(F1AP_Cause_t f1_cause, f1ap_Cause_t *cause, long *cause_v
       break;
     case F1AP_Cause_PR_misc:
       *cause = F1AP_CAUSE_MISC;
-      *cause_value = f1_cause.choice.radioNetwork;
+      *cause_value = f1_cause.choice.misc;
       break;
     case F1AP_Cause_PR_NOTHING:
     default:
