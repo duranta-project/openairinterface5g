@@ -33,9 +33,10 @@ static void NRLB_NAME(nr_inner_rx_1layer)(uint32_t length,
     QAM_ampc = NRLB_MM(set1_epi16)(QAM256_n3);
   }
 
-  // PTRS common phase error, applied to the channel as in nr_channel_compensation ((32767,0) when
-  // there is no PTRS: still multiplied, so the result stays bit-exact with the unfused path).
+  // PTRS common phase error, applied to the channel as in nr_channel_compensation (zero-phase-error
+  // CPE: the bit-exact nr_cpe_id_* shortcut, as there).
   const NRLB_VI cpe_v = NRLB_MM(set1_epi32)((int32_t)(((uint32_t)(uint16_t)cpe.i << 16) | (uint16_t)cpe.r));
+  const bool rot = !nr_cpe_is_identity(cpe);
 
   // L1-resident per-tile scratch (TILE multiple of 16 -> whole SIMD blocks at any width).
   enum { TILE = 96 };
@@ -61,7 +62,8 @@ static void NRLB_NAME(nr_inner_rx_1layer)(uint32_t length,
       NRLB_VI *rxF = (NRLB_VI *)&rxFext[0][base];
       NRLB_VI *chF = (NRLB_VI *)&chFext[0][base];
       for (uint32_t i = 0; i < nblk; i++) {
-        rxComp_v[i] = NRLB_OAI(cpx_mult_conj)(NRLB_OAI(cpx_mult)(chF[i], cpe_v, 15), rxF[i], output_shift);
+        const NRLB_VI chF_cpe = rot ? NRLB_OAI(cpx_mult)(chF[i], cpe_v, 15) : NRLB_CC(nr_cpe_id_, NRLB_W)(chF[i]);
+        rxComp_v[i] = NRLB_OAI(cpx_mult_conj)(chF_cpe, rxF[i], output_shift);
         if (mod_order > 2) {
           NRLB_VI mag = NRLB_OAI(smadd)(chF[i], chF[i], output_shift);
           mag = NRLB_MM(packs_epi32)(mag, mag);
@@ -80,7 +82,7 @@ static void NRLB_NAME(nr_inner_rx_1layer)(uint32_t length,
       NRLB_VI *rxF = (NRLB_VI *)&rxFext[aarx][base];
       NRLB_VI *chF = (NRLB_VI *)&chFext[aarx][base];
       for (uint32_t i = 0; i < nblk; i++) {
-        const NRLB_VI chF_cpe = NRLB_OAI(cpx_mult)(chF[i], cpe_v, 15);
+        const NRLB_VI chF_cpe = rot ? NRLB_OAI(cpx_mult)(chF[i], cpe_v, 15) : NRLB_CC(nr_cpe_id_, NRLB_W)(chF[i]);
         rxComp_v[i] = NRLB_MM(add_epi16)(rxComp_v[i], NRLB_OAI(cpx_mult_conj)(chF_cpe, rxF[i], output_shift));
         if (mod_order > 2) {
           NRLB_VI mag = NRLB_OAI(smadd)(chF[i], chF[i], output_shift);

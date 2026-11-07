@@ -31,7 +31,7 @@
  * @param rxComp          Output compensated signal; row [l * nb_rx_ant] holds the MRC result
  *                        for layer l at offset [symbol * buffer_length]
  * @param rho             Tx-correlation matrix [nb_layers][nb_layers][pdsch_buf_size_max], or NULL
- * @param cpe             Common Phase Error to be corrected.
+ * @param cpe             Common Phase Error to be corrected ((32767,0) without PTRS).
  * @param rho             Tx-correlation matrix [nb_layers][nb_layers][buffer_length], or NULL
  * @param mod_order       Modulation order (2=QPSK, 4=16QAM, 6=64QAM, 8=256QAM)
  * @param symbol          OFDM symbol index (used to compute offset into rxComp rows)
