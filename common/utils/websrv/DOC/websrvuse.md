@@ -301,8 +301,8 @@ Some front-end  objects, which usage are less intuitive  provide a tooltip to he
 
 ## some webserver screenshots
 
-- [main page](main.png)
-- [Configuring logs](logscfg.png)
-- [scope interface](scope.png)
+- [main page](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/main.png)
+- [Configuring logs](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/logscfg.png)
+- [scope interface](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/scope.png)
 
 [oai web serverinterface  home](websrv.md)

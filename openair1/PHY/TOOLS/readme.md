@@ -41,7 +41,7 @@ safety being priority. The goal is to never show incorrect data on the screen an
 If correctness cannot be achieved e.g. due to performance issues when using thread safe implementation user should be warned
 clearly on the screen.
 
-![image](./imscope/imscope_screenshot.png)
+![image](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/imscope_screenshot.png)
 
 ## Prerequisites
 

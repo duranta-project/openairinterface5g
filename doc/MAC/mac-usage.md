@@ -399,7 +399,7 @@ Configure the TDD pattern through these options:
 As an example, the below figure shows a single TDD pattern, consisting of 3 DL
 slots, 1 mixed slots (with 10 DL, 2 guard, 2 UL symbols), and 1 UL slot.
 
-![TDD Frame Structure](TDD_Frame_Structure.png)
+![TDD Frame Structure](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/TDD_Frame_Structure.png)
 
 To configure this pattern in the configuration file, use
 

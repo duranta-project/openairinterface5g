@@ -24,7 +24,7 @@ position ("new pos"), it will trigger an event such that the CU triggers a
 handover of the UE from DU0 to DU1. Alternatively, a manual trigger can do the
 same.
 
-![F1 Handover setup](./RRC/ho.png)
+![F1 Handover setup](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/ho.png)
 
 ## What is a gNB neighbor?
 

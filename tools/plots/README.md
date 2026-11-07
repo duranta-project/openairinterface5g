@@ -9,7 +9,7 @@ Assumes your nr_ulsim is in `../../cmake_targets/ran_build/build`. Run with -h f
 
 Example graph:
 
-![image](./example.png)
+![image](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/example.png)
 
 ### Cache usage and modifting `nr_ulsim` command
 
@@ -33,7 +33,7 @@ The plots are saved in three formats: `.png`, `.pdf` and `.svg`.
 
 ### Example graphs:
 #### BER
-![image](./ber_compare.svg)
+![image](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/ber_compare.svg)
 
 
 ## `plot_power_control.sh`

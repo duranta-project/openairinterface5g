@@ -21,7 +21,7 @@ You may not have access to an EPC or you don't want to hassle to deploy one.
 
 Example of L2 nFAPI Simulator testing environment:
 
-![L2-sim-noS1-2-host-deployment](./images/L2-sim-noS1-2-host-deployment.png)
+![L2-sim-noS1-2-host-deployment](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/L2-sim-noS1-2-host-deployment.png)
 
 > Note that the IP addresses are indicative and need to be adapted to your environment.
 
