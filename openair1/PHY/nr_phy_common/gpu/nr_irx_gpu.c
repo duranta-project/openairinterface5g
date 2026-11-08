@@ -3,8 +3,9 @@
  */
 
 // Inner-RX offload module for CUDA/HIP GPUs (libinner_rx_gpu.so, nr_inner_rx_offload.h) around
-// nr_gpu_inner_rx_2layer. Staging is mapped pinned host memory: zero-copy on integrated and coherent GPUs
-// (Ryzen AI, GH200, GB10), read over the bus elsewhere. The codeword LLRs go straight to the caller's buffer when it is
+// nr_gpu_inner_rx_2layer. Staging is mapped pinned host memory (coarse-grained on HIP): zero-copy on integrated and
+// coherent GPUs (Ryzen AI, GH200, GB10), read over the bus elsewhere. Device buffers with copies were ~5x slower on the
+// Radeon 8060S (its copy engines), managed memory ~2x. The codeword LLRs go straight to the caller's buffer when it is
 // mapped pinned memory (ulsch_llrs of an LDPC_CUDA build), else through staging and a copy.
 
 #include <pthread.h>
@@ -36,8 +37,16 @@ static struct {
 static void *mapped_alloc(size_t bytes, void **dev)
 {
   void *h = NULL;
+#if defined(GPU_USE_HIP)
+  // coarse-grained: the GPU caches it, coherent at kernel boundaries (the staging is written before the launch and
+  // the output read after the synchronization). On the Radeon 8060S the fine-grained default makes the inner-RX
+  // kernel ~1.5x slower and its launch ~3x.
+  if (hipHostMalloc(&h, bytes, hipHostMallocMapped | hipHostMallocNonCoherent) != hipSuccess)
+    return NULL;
+#else
   if (gpuHostAlloc(&h, bytes, gpuHostAllocMapped) != gpuSuccess)
     return NULL;
+#endif
   if (gpuHostGetDevicePointer(dev, h, 0) != gpuSuccess) {
     (void)gpuFreeHost(h);
     return NULL;
