@@ -5,6 +5,7 @@
 #include "nr_mac_gNB.h"
 #include "mac_proto.h"
 #include "nr_mac_cell.h"
+#include "ntn_assistance.h"
 #ifdef E3_AGENT
 #include "openair2/E3AP/ran_func_spectrum_extern.h"
 #endif /* E3_AGENT */
@@ -80,6 +81,7 @@ void seq_arr_cell_free(void *cell)
 
 void nr_mac_cell_free(nr_cell_sched_t *cell)
 {
+  nr_ntn_assistance_publisher_destroy(cell);
   free(cell->radio_config.ssb_beams);
   NR_COMMON_channels_t *cc = &cell->common_channels;
   nr_mac_pcch_queue_free(cc);

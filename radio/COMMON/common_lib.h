@@ -36,6 +36,15 @@ typedef enum { RAU_LOCAL_RADIO_HEAD, RAU_REMOTE_RADIO_HEAD, RAU_REMOTE_THIRDPART
 typedef int64_t openair0_timestamp_t;
 typedef volatile int64_t openair0_vtimestamp_t;
 
+/* Optional current-time observation from an already instantiated backend.
+ * timestamp_rate_hz is the configured timestamp unit, not a calibrated rate.
+ * tx_advance_ticks is reported separately from the current hardware timestamp. */
+typedef struct {
+  openair0_timestamp_t timestamp;
+  double timestamp_rate_hz;
+  int64_t tx_advance_ticks;
+} openair0_time_t;
+
 /*!\brief structure holds the parameters to configure USRP devices*/
 typedef struct openair0_device openair0_device_t;
 
@@ -544,6 +553,12 @@ struct openair0_device {
   /* \brief timing statistics for TX fronthaul (ethernet)
    */
   re_order_t reOrder;
+
+  /* Optional control-thread clock read. Returns 0 on success, negative on
+   * unsupported/failure, leaving output unchanged. Must not open another
+   * device, reset time, retune or alter streaming/settings. The caller owns
+   * serialization against device teardown and settings reconfiguration. */
+  int (*trx_get_time_func)(openair0_device_t *device, openair0_time_t *observation);
 };
 
 typedef struct {
@@ -603,4 +618,3 @@ void openair0_write_reorder_clear_context(openair0_device_t *device);
 #endif
 
 #endif // COMMON_LIB_H
-

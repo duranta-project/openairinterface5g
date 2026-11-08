@@ -2745,7 +2745,41 @@ void update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1_bcch, int num_sibs, int si
   }
 }
 
+static int encode_sysinfo_ie_impl(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len, bool checked);
+
 int encode_sysinfo_ie(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len)
+{
+  return encode_sysinfo_ie_impl(sysInfo, buf, len, false);
+}
+
+static int encode_SIB_NR_impl(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size, bool checked)
+{
+  const bool valid_buffer = sib && buffer && max_buffer_size > 0 && max_buffer_size <= NR_MAX_SIB_LENGTH / 8;
+  if (checked && !valid_buffer)
+    return -1;
+  AssertFatal(valid_buffer, "Invalid SIB buffer: 3GPP TS 38.331 section 5.2.1 limits a SIB1 or SI message to 2976 bits.\n");
+  char errbuf[256] = {0};
+  size_t errlen = sizeof(errbuf);
+  const int ret = asn_check_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, sib, errbuf, &errlen);
+  if (checked && ret != 0)
+    return -1;
+  AssertFatal(ret == 0, "BCCH-DL-SCH ASN.1 constraint check failed: %s\n", errbuf);
+  const asn_enc_rval_t enc = uper_encode_to_buffer(&asn_DEF_NR_BCCH_DL_SCH_Message, NULL, sib, buffer, max_buffer_size);
+  if (checked && (enc.encoded <= 0 || enc.encoded > max_buffer_size * 8))
+    return -1;
+  AssertFatal(enc.encoded > 0 && enc.encoded <= max_buffer_size * 8,
+              "ASN1 message encoding failed (%s, %ld)!\n",
+              enc.failed_type ? enc.failed_type->name : "unknown",
+              enc.encoded);
+  return (enc.encoded + 7) / 8;
+}
+
+int encode_sysinfo_ie_checked(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len)
+{
+  return encode_sysinfo_ie_impl(sysInfo, buf, len, true);
+}
+
+static int encode_sysinfo_ie_impl(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len, bool checked)
 {
   if (sysInfo->sib_TypeAndInfo.list.count == 0)
     return 0;
@@ -2756,7 +2790,7 @@ int encode_sysinfo_ie(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len
   NR_BCCH_DL_SCH_MessageType_t message_type = {.present = NR_BCCH_DL_SCH_MessageType_PR_c1};
   message_type.choice.c1 = &c1;
   NR_BCCH_DL_SCH_Message_t sib_message = {.message = message_type};
-  return encode_SIB_NR(&sib_message, buf, len);
+  return encode_SIB_NR_impl(&sib_message, buf, len, checked);
 }
 
 static bool is_ntn_band(int band)
@@ -3110,16 +3144,7 @@ void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1)
 
 int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size)
 {
-  AssertFatal(max_buffer_size <= NR_MAX_SIB_LENGTH / 8,
-              "Maximum buffer size too large: 3GPP TS 38.331 section 5.2.1 - The physical layer imposes a limit to the "
-              "maximum size a SIB can take. The maximum SIB1 or SI message size is 2976 bits.\n");
-  char errbuf[256] = {0};
-  size_t errlen = sizeof(errbuf);
-  const int ret = asn_check_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, sib, errbuf, &errlen);
-  AssertFatal(ret == 0, "BCCH-DL-SCH ASN.1 constraint check failed: %s\n", errbuf);
-  asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_BCCH_DL_SCH_Message, NULL, sib, buffer, max_buffer_size);
-  AssertFatal(enc_rval.encoded > 0 && enc_rval.encoded <= max_buffer_size * 8, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
-  return (enc_rval.encoded + 7) / 8;
+  return encode_SIB_NR_impl(sib, buffer, max_buffer_size, false);
 }
 
 NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc)
