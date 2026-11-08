@@ -921,11 +921,11 @@ static void nr_rrc_signal_maxrtxindication(int ue_id)
  * This is typically used when tearing down all DRBs at UE side,
  * such as after a PDU session release or full reconfiguration.
  * @param rrc Pointer to NR_UE_RRC_INST_t structure
- * @param id Logical Channel ID (must be in range [0, NR_MAX_NUM_LCID-1]) */
+ * @param id Logical Channel ID (must be in range [0, NR_MAX_NUM_LCID]) */
 static void nr_rrc_release_rlc_entity(NR_UE_RRC_INST_t *rrc, int id)
 {
   DevAssert(rrc);
-  DevAssert(id >= 0 && id < NR_MAX_NUM_LCID);
+  DevAssert(id >= 0 && id <= NR_MAX_NUM_LCID);
   if (rrc->active_RLC_entity[id]) {
     rrc->active_RLC_entity[id] = false;
     nr_rlc_release_entity(rrc->ue_id, id);
@@ -939,6 +939,7 @@ static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc, const NR_CellGroupC
     for (int i = 0; i < cellGroupConfig->rlc_BearerToReleaseList->list.count; i++) {
       NR_LogicalChannelIdentity_t *lcid = cellGroupConfig->rlc_BearerToReleaseList->list.array[i];
       AssertFatal(lcid, "LogicalChannelIdentity shouldn't be null here\n");
+      AssertFatal(*lcid >= 1 && *lcid <= NR_MAX_NUM_LCID, "Invalid Logical Channel ID %ld\n", (long)*lcid);
       nr_rrc_release_rlc_entity(rrc, *lcid);
     }
   }
@@ -947,6 +948,7 @@ static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc, const NR_CellGroupC
     for (int i = 0; i < cellGroupConfig->rlc_BearerToAddModList->list.count; i++) {
       NR_RLC_BearerConfig_t *rlc_bearer = cellGroupConfig->rlc_BearerToAddModList->list.array[i];
       NR_LogicalChannelIdentity_t lcid = rlc_bearer->logicalChannelIdentity;
+      AssertFatal(lcid >= 1 && lcid <= NR_MAX_NUM_LCID, "Invalid Logical Channel ID %ld\n", (long)lcid);
       if (rrc->active_RLC_entity[lcid]) {
         if (rlc_bearer->reestablishRLC)
           nr_rlc_reestablish_entity(rrc->ue_id, lcid);
@@ -1969,7 +1971,7 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int instance_id, int num_ant_
     set_DRB_status(rrc, j, RB_NOT_PRESENT);
   // SRB0 activated by default
   rrc->Srb[0] = RB_ESTABLISHED;
-  for (int j = 0; j < NR_MAX_NUM_LCID; j++)
+  for (int j = 0; j <= NR_MAX_NUM_LCID; j++)
     rrc->active_RLC_entity[j] = false;
 
   for (int i = 0; i < NB_CNX_UE; i++) {
@@ -2466,7 +2468,7 @@ static void nr_rrc_rrcsetup_fallback(NR_UE_RRC_INST_t *rrc)
       nr_pdcp_release_srb(rrc->ue_id, i);
     }
   }
-  for (int i = 1; i < NR_MAX_NUM_LCID; i++) {
+  for (int i = 1; i <= NR_MAX_NUM_LCID; i++) {
     nr_rrc_release_rlc_entity(rrc, i);
   }
   // stop UE TUN readers before SDAP delete (connected reader holds entity pointer)
@@ -3918,7 +3920,7 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
       nr_pdcp_release_srb(rrc->ue_id, i);
     }
   }
-  for (int i = 0; i < NR_MAX_NUM_LCID; i++) {
+  for (int i = 0; i <= NR_MAX_NUM_LCID; i++) {
     nr_rrc_release_rlc_entity(rrc, i);
   }
 

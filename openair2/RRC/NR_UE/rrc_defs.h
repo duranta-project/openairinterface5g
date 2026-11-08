@@ -230,7 +230,7 @@ typedef struct NR_UE_RRC_INST_s {
 
   NR_RB_status_t Srb[NR_NUM_SRB];
   NR_RB_status_t status_DRBs[MAX_DRBS_PER_UE];
-  bool active_RLC_entity[NR_MAX_NUM_LCID];
+  bool active_RLC_entity[NR_MAX_NUM_LCID + 1];
 
   /* KgNB as computed from parameters within USIM card */
   uint8_t kgnb[32];
