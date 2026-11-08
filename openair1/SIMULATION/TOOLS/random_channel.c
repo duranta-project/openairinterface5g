@@ -186,7 +186,6 @@ static void fill_channel_desc(channel_desc_t *chan_desc, struct complexd *R_sqrt
   chan_desc->random_aoa = random_aoa;
   chan_desc->first_run = 1;
   chan_desc->ip = 0.0;
-  chan_desc->Doppler_phase_cur = calloc(nb_rx, sizeof(double));
 
   LOG_D(OCM, "[CHANNEL] Doing R_sqrt ...\n");
 
@@ -683,6 +682,8 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
   chan_desc->noise_power_dB             = noise_power_dB;
   chan_desc->normalization_ch_factor    = 1.0;
   chan_desc->channelF_len = 275 * 12;
+  // every model, including those not set up by fill_channel_desc (TDL, SCM): rxAddInput keeps the phase per Rx
+  chan_desc->Doppler_phase_cur = calloc(nb_rx, sizeof(*chan_desc->Doppler_phase_cur));
   LOG_I(OCM, "Channel Model (inside of new_channel_desc_scm)=%d\n\n", channel_model);
 
   /*  Spatial Channel Models (SCM)  channel model from TR 38.901 Section 7.7.2 */
