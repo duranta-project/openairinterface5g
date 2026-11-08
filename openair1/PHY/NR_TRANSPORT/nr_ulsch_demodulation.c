@@ -867,8 +867,50 @@ static int irx_detector(nr_pusch_mimo_rx_t rx)
   return rx == NR_PUSCH_RX_MMSE ? NR_IRX_DET_MMSE : rx == NR_PUSCH_RX_ML ? NR_IRX_DET_ML : NR_IRX_DET_LBEST;
 }
 
-// Inner RX of the symbols marked in off[] on the offload module, one batch: extraction into the module's staging, then
-// the module writes the layer-demapped, descrambled LLRs into ulsch_llrs, as the CPU path does for these symbols.
+// One symbol of the offload batch: RB extraction into the module's staging and the descrambling-sequence slice
+typedef struct {
+  PHY_VARS_gNB *gNB;
+  NR_DL_FRAME_PARMS *frame_parms;
+  NR_gNB_PUSCH *pusch_vars;
+  const nfapi_nr_pusch_pdu_t *rel15_ul;
+  c16_t **rxF;
+  const int16_t *scrambling_sequence;
+  c16_t *rxFext_slot, *chFext_slot;
+  int soffset, symbol, buffer_length;
+  uint16_t ptrs_symb_pos;
+  c16_t *rx, *ch;
+  int16_t *scr;
+  task_ans_t *ans;
+} irx_extract_t;
+
+static void irx_extract_symbol(void *arg)
+{
+  irx_extract_t *e = arg;
+  pusch_extract_symbol(e->gNB,
+                       e->frame_parms,
+                       e->pusch_vars,
+                       e->rel15_ul,
+                       e->rxF,
+                       e->soffset,
+                       e->symbol,
+                       e->ptrs_symb_pos,
+                       e->buffer_length,
+                       e->rx,
+                       e->ch,
+                       e->rxFext_slot,
+                       e->chFext_slot);
+  const int nl = e->rel15_ul->nrOfLayers;
+  const uint32_t len = e->pusch_vars->ul_valid_re_per_slot[e->symbol];
+  memcpy(e->scr,
+         e->scrambling_sequence + e->pusch_vars->llr_offset[e->symbol] * nl,
+         sizeof(*e->scr) * len * nl * e->rel15_ul->qam_mod_order);
+  if (e->ans)
+    completed_task_ans(e->ans);
+}
+
+// Inner RX of the symbols marked in off[] on the offload module, one batch: extraction into the module's staging, one
+// thread-pool task per symbol (the last one inline), then the module writes the layer-demapped, descrambled LLRs into
+// ulsch_llrs, as the CPU path does for these symbols.
 static int pusch_irx_offload(PHY_VARS_gNB *gNB,
                              nr_irx_ctx_t *ctx,
                              const bool *off,
@@ -890,37 +932,50 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
   const nr_irx_interface_t *irx = &gNB->irx;
   const int nl = rel15_ul->nrOfLayers, qm = rel15_ul->qam_mod_order;
   const int buffer_length = ceil_mod(rel15_ul->rb_size * NR_NB_SC_PER_RB, 16);
-  const int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
   nr_irx_sym_t sym[NR_IRX_MAX_SYM];
+  irx_extract_t ext[NR_IRX_MAX_SYM];
   int n = 0;
   for (int symbol = rel15_ul->start_symbol_index; symbol < rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols; symbol++) {
     if (!off[symbol])
       continue;
-    c16_t *rx = irx->staging(ctx, n, NR_IRX_STAGING_RX), *ch = irx->staging(ctx, n, NR_IRX_STAGING_CH);
-    int16_t *scr = irx->staging(ctx, n, NR_IRX_STAGING_SCRAMBLE);
-    pusch_extract_symbol(gNB,
-                         frame_parms,
-                         pusch_vars,
-                         rel15_ul,
-                         gNB->common_vars.rxdataF + ant_port_start,
-                         soffset,
-                         symbol,
-                         ptrs_symb_pos,
-                         buffer_length,
-                         rx,
-                         ch,
-                         rxFext_slot,
-                         chFext_slot);
-    const uint32_t len = pusch_vars->ul_valid_re_per_slot[symbol];
-    memcpy(scr, scrambling_sequence + pusch_vars->llr_offset[symbol] * nl, sizeof(*scr) * len * nl * qm);
-    sym[n++] = (nr_irx_sym_t){.rxF = rx,
-                              .chF = ch,
-                              .scramble = scr,
-                              .llr_cw = &ulsch_llrs[map->ulsch_offset[symbol]],
-                              .length = len,
-                              .stride = buffer_length,
-                              .cpe = cpe[symbol]};
+    ext[n] = (irx_extract_t){.gNB = gNB,
+                             .frame_parms = frame_parms,
+                             .pusch_vars = pusch_vars,
+                             .rel15_ul = rel15_ul,
+                             .rxF = gNB->common_vars.rxdataF + ant_port_start,
+                             .scrambling_sequence = scrambling_sequence,
+                             .rxFext_slot = rxFext_slot,
+                             .chFext_slot = chFext_slot,
+                             .soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size,
+                             .symbol = symbol,
+                             .buffer_length = buffer_length,
+                             .ptrs_symb_pos = ptrs_symb_pos,
+                             .rx = irx->staging(ctx, n, NR_IRX_STAGING_RX),
+                             .ch = irx->staging(ctx, n, NR_IRX_STAGING_CH),
+                             .scr = irx->staging(ctx, n, NR_IRX_STAGING_SCRAMBLE)};
+    sym[n] = (nr_irx_sym_t){.rxF = ext[n].rx,
+                            .chF = ext[n].ch,
+                            .scramble = ext[n].scr,
+                            .llr_cw = &ulsch_llrs[map->ulsch_offset[symbol]],
+                            .length = pusch_vars->ul_valid_re_per_slot[symbol],
+                            .stride = buffer_length,
+                            .cpe = cpe[symbol]};
+    n++;
   }
+  if (n == 0)
+    return 0;
+  task_ans_t ans;
+  if (n > 1) // join_task_ans waits even for zero jobs
+    init_task_ans(&ans, n - 1);
+  for (int k = 0; k < n - 1; k++) {
+    ext[k].ans = &ans;
+    pushTpool(&gNB->threadPool, (task_t){.func = &irx_extract_symbol, .args = &ext[k]});
+  }
+  ext[n - 1].ans = NULL;
+  irx_extract_symbol(&ext[n - 1]);
+  if (n > 1)
+    join_task_ans(&ans);
+
   const int nb_rx = rel15_ul->param_v4.numSpatialStreamIndices;
   const nr_irx_params_t p = {.nb_layers = nl,
                              .nb_rx = nb_rx,
@@ -928,7 +983,7 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
                              .detector = irx_detector(nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, qm, nb_rx)),
                              .output_shift = output_shift,
                              .lambda = nr_2layer_seed_lambda(nvar, output_shift)};
-  return n ? irx->run(ctx, sym, n, &p) : 0;
+  return irx->run(ctx, sym, n, &p);
 }
 
 int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
