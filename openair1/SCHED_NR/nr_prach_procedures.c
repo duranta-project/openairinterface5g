@@ -122,12 +122,23 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
     // under a sustained RACH load I0 follows the preamble energy, the detection threshold rises above it and the gNB stops
     // detecting the preambles.
     // Occasions without any energy (-900, e.g. empty occasions in rfsim without noise) are not noise samples: they would
-    // pull I0 down to -90 dB and make the gNB detect anything.
-    if ((!prach_noise_ready || !prach_above_threshold) && res.max_preamble_energy > -900)
+    // pull I0 down to -90 dB and make the gNB detect anything. They do not count in the first occasions either: else
+    // the estimate is "ready" at its initial value 0 dB, and the threshold is inert.
+    // A preamble just below the threshold is not noise either: counted, it raised I0 by a few tenths of dB, the threshold
+    // with it, more preambles fell below it, until no preamble was detected any more (rfsim, 64 UEs: no attach after the
+    // 29th). Once ready, an occasion updates I0 only if its energy is at most PRACH_I0_MAX_RISE above it: I0 cannot climb
+    // to the preambles, and still follows a rising noise floor by steps.
+#define PRACH_I0_MAX_RISE 60 // dB x10
+    const bool energy = res.max_preamble_energy > -900;
+    const bool noise_sample =
+        energy
+        && (!prach_noise_ready
+            || (!prach_above_threshold && res.max_preamble_energy <= gNB->measurements.prach_I0 + PRACH_I0_MAX_RISE));
+    if (noise_sample)
       gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
     if (frame == 0)
       LOG_I(PHY, "prach_I0 = %.1f dB\n", gNB->measurements.prach_I0 / 10.0);
-    if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
+    if (energy && gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
       gNB->prach_energy_counter++;
   } // if prach_id>0
   LOG_D(NR_PHY_RACH, "Freeing PRACH entry\n");
