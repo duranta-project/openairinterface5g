@@ -1435,10 +1435,31 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   task_ans_t ans;
   init_task_ans(&ans, loop_iter);
 
+  // fields common to the symbol tasks (and to the inline CPU fallback of the offload)
+  const puschSymbolProc_t task_common = {.gNB = gNB,
+                                         .frame_parms = frame_parms,
+                                         .rel15_ul = &joint_pdu,
+                                         .pusch_vars = joint_pv,
+                                         .map_uci = map_uci,
+                                         .slot = slot,
+                                         .nvar = nvar,
+                                         .ptrs_symb_pos = ptrs_info.ptrs_symbols,
+                                         .ptrs_cpe = cpe,
+                                         .ant_port_start = ant_port_start,
+                                         .pusch_ch_est_dmrs_interpl_slot_mem = pusch_ch_est_dmrs_interpl_slot_mem,
+                                         .rxFext_slot_mem = rxFext_slot_mem,
+                                         .group_size = group_size,
+                                         .rel15_ul_group = rel15_ul_group,
+                                         .pusch_vars_group = pusch_vars_group,
+                                         .scrambling_sequences = scrambling_sequences_arr,
+                                         .layer_offsets = layer_offset,
+                                         .layers_attenuation = layers_attenuation,
+                                         .skip = irx_ctx ? irx_off : NULL};
   int sz_arr = 0;
   for (uint8_t task_index = 0; task_index < loop_iter; task_index++) {
     int symbol = task_index * numSymbols + rel15_ul_ref->start_symbol_index;
     int res_per_task = 0;
+    int cpu_res = 0; // REs left to the CPU task (the offloaded symbols are not)
     for (int s = 0; s < numSymbols && s + symbol < end_symbol; s++) {
       int curr_sym = symbol + s;
       if (curr_sym == rel15_ul_ref->start_symbol_index) {
@@ -1451,35 +1472,18 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
         joint_pv->llr_offset[curr_sym] = prev_offset + (prev_re * mod_order);
       }
       res_per_task += joint_pv->ul_valid_re_per_slot[curr_sym];
+      if (!irx_off[curr_sym])
+        cpu_res += joint_pv->ul_valid_re_per_slot[curr_sym];
     }
     total_res += res_per_task;
-    if (res_per_task > 0) {
+    if (cpu_res > 0) {
       puschSymbolProc_t *rdata = &arr[sz_arr];
-      rdata->ans = &ans;
       ++sz_arr;
-
-      rdata->gNB = gNB;
-      rdata->frame_parms = frame_parms;
-      rdata->rel15_ul = &joint_pdu;
-      rdata->slot = slot;
+      *rdata = task_common;
+      rdata->ans = &ans;
       rdata->startSymbol = symbol;
       // Last task processes remainder symbols
       rdata->numSymbols = task_index == loop_iter - 1 ? rel15_ul_ref->nr_of_symbols - (loop_iter - 1) * numSymbols : numSymbols;
-      rdata->pusch_vars = joint_pv;
-      rdata->ptrs_symb_pos = ptrs_info.ptrs_symbols;
-      rdata->ptrs_cpe = cpe;
-      rdata->nvar = nvar;
-      rdata->ant_port_start = ant_port_start;
-      rdata->rxFext_slot_mem = rxFext_slot_mem;
-      rdata->pusch_ch_est_dmrs_interpl_slot_mem = pusch_ch_est_dmrs_interpl_slot_mem;
-      rdata->group_size = group_size;
-      rdata->rel15_ul_group = rel15_ul_group;
-      rdata->pusch_vars_group = pusch_vars_group;
-      rdata->scrambling_sequences = scrambling_sequences_arr;
-      rdata->layer_offsets = layer_offset;
-      rdata->layers_attenuation = layers_attenuation;
-      rdata->map_uci = map_uci;
-      rdata->skip = irx_ctx ? irx_off : NULL;
 
       task_t t = {.func = &nr_pusch_symbol_processing, .args = rdata};
       pushTpool(&gNB->threadPool, t);
@@ -1512,7 +1516,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       bool cpu_only[NR_SYMBOLS_PER_SLOT];
       for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
         cpu_only[s] = !irx_off[s];
-      puschSymbolProc_t r = arr[0];
+      puschSymbolProc_t r = task_common;
       r.startSymbol = rel15_ul_ref->start_symbol_index;
       r.numSymbols = rel15_ul_ref->nr_of_symbols;
       r.skip = cpu_only;
