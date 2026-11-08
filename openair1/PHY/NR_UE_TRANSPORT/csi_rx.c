@@ -263,6 +263,7 @@ static int nr_csi_rs_channel_estimation(const NR_DL_FRAME_PARMS *fp,
                                         int16_t *log2_maxh)
 {
   const int meas_bitmap = csirs_config_pdu->measurement_bitmap;
+  const int num_re_cdm = (csi_mapping->kprime + 1) * (csi_mapping->lprime + 1);
   AssertFatal(meas_bitmap != 1, "No need to do CSI-RS channel estimation for only RSRP measurment\n");
   int maxh = 0;
 
@@ -355,6 +356,11 @@ static int nr_csi_rs_channel_estimation(const NR_DL_FRAME_PARMS *fp,
       uint16_t k = rb * NR_NB_SC_PER_RB;
       for (uint16_t port_tx = 0; port_tx < csi_mapping->ports; port_tx++) {
         c16_t csi_rs_ls_estimated_channel16 = csi_rs_ls_estimated_channel[ant_rx][port_tx][k];
+        if (csirs_config_pdu->csi_type != 0) {
+          // the LS estimate above is the sum over the (k', l') REs of the CDM group: average it
+          csi_rs_ls_estimated_channel16.r /= num_re_cdm;
+          csi_rs_ls_estimated_channel16.i /= num_re_cdm;
+        }
         c16_t *csi_rs_estimated_channel16 = &csi_rs_estimated_channel_freq[ant_rx][port_tx][k];
         if (k == 0) { // Start of OFDM symbol case or first occupied subcarrier case
           multadd_real_vector_complex_scalar(filt24_start, csi_rs_ls_estimated_channel16, csi_rs_estimated_channel16, 24);
@@ -692,7 +698,8 @@ static void nr_csi_rs_pmi_2ports(int nb_antennas_rx,
     // We will choose the rotation that minimises the off-diagonal magnitude (smaller cross-layer interference for sub-MMSE
     // receivers).
     pmi->i_2 = (llabs(R[0][1].i) < llabs(R[0][1].r)) ? 0 : 1;
-    signal_power = trace / (2LL * num_h_vectors);
+    // trace(W^H R W) = trace / 2 for W = (1/2)[[1, 1],[phi, -phi]], shared by the 2 layers: per layer trace / 4
+    signal_power = trace / (4LL * num_h_vectors);
     *precoded_sinr_dB = dB_fixed(signal_power) - dB_fixed(noise);
   }
 
@@ -793,9 +800,10 @@ static void nr_csi_rs_pmi_4ports(int nb_antennas_rx,
         }
       }
   }
-  // Average signal power per RE = best / (4 * Q^2 * num_REs)  [rank 1]
-  // For rank 2 the (1/8) cancels in best, but we keep the (1/4) here for SINR consistency.
-  int64_t signal_power = best_signal / (4LL * PMI_Q * PMI_Q * num_h_vectors);
+  // Average signal power per RE and per layer: rank 1 W^H R W = best / (4 * Q^2),
+  // rank 2 trace(W^H R W) = best / (8 * Q^2) shared by the 2 layers, so best / (16 * Q^2) per layer
+  const int64_t div = rank_indicator == 0 ? 4 : 16;
+  int64_t signal_power = best_signal / (div * PMI_Q * PMI_Q * num_h_vectors);
   *precoded_sinr_dB = dB_fixed(signal_power) - dB_fixed(noise);
 
   LOG_D(NR_PHY,
