@@ -879,7 +879,7 @@ int nr_adapt_mcs_from_bler(int current_mcs, int min_mcs, int max_mcs, float bler
   int mcs = current_mcs;
   if (bler < bler_lower && mcs < max_mcs && num_sched > 3)
     mcs++;
-  else if (bler > bler_upper || num_sched <= 3) // above threshold or no activity
+  else if (bler > bler_upper) // above threshold
     mcs--;
   return max(min_mcs, min(mcs, max_mcs));
 }
@@ -3241,7 +3241,9 @@ void reset_srs_stats(NR_UE_info_t *UE) {
 static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats_t *bler_stats, frame_t frame)
 {
   bler_stats->last_frame = frame;
-  bler_stats->mcs = bler_options->min_mcs;
+  // TODO start at MCS 6 or whatever min/max MCS allow
+  int init_mcs = 6;
+  bler_stats->mcs = min(bler_options->max_mcs, max(bler_options->min_mcs, init_mcs));
   bler_stats->bler = (float)(bler_options->lower + bler_options->upper) / 2.0f;
 }
 
