@@ -121,10 +121,29 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
     // broadcast the MIB before, so they contain only noise), then only from occasions without detected preamble: otherwise
     // under a sustained RACH load I0 follows the preamble energy, the detection threshold rises above it and the gNB stops
     // detecting the preambles.
-    // Occasions without any energy (-900, e.g. empty occasions in rfsim without noise) are not noise samples: they would
-    // pull I0 down to -90 dB and make the gNB detect anything.
-    if ((!prach_noise_ready || !prach_above_threshold) && res.max_preamble_energy > -900)
-      gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
+    // Occasions without any energy (-900, e.g. empty occasions in rfsim or vrtsim without noise) are not noise samples:
+    // they would pull I0 down to -90 dB and make the gNB detect anything. They still count in the first occasions: in a
+    // channel without noise, I0 keeps its initial value 0 dB, as no energy ever comes from noise.
+    // An occasion with a correlation peak standing out of the floor holds a preamble, it is never a noise sample: when
+    // the noise appears after the first occasions (rfsim with the noise added by the UEs), the first occasions with
+    // energy are noise ones, and the first of them sets I0 instead of averaging it with the initial 0 dB; in a channel
+    // without noise, the occasions with energy are the preambles, and I0 must not follow them.
+    // A preamble just below the threshold is not noise either: counted, it raised I0 by a few tenths of dB, the threshold
+    // with it, more preambles fell below it, until no preamble was detected any more (rfsim, 64 UEs: no attach after the
+    // 29th). Once measured, I0 is updated only by an occasion at most PRACH_I0_MAX_RISE above it: I0 cannot climb to the
+    // preambles, and still follows a rising noise floor by steps.
+#define PRACH_I0_MAX_RISE 60 // dB x10
+    const bool energy = res.max_preamble_energy > -900;
+    const bool noise_sample = energy && res.num_detected == 0
+                              && (!prach_noise_ready || gNB->prach_I0_samples == 0
+                                  || res.max_preamble_energy <= gNB->measurements.prach_I0 + PRACH_I0_MAX_RISE);
+    if (noise_sample) {
+      if (gNB->prach_I0_samples == 0) {
+        gNB->measurements.prach_I0 = res.max_preamble_energy;
+        gNB->prach_I0_samples = 1;
+      } else
+        gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
+    }
     if (frame == 0)
       LOG_I(PHY, "prach_I0 = %.1f dB\n", gNB->measurements.prach_I0 / 10.0);
     if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
