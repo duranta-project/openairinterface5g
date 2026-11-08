@@ -810,7 +810,7 @@ int get_mcs_from_bler(const NR_bler_options_t *bler_options,
   int new_mcs = old_mcs;
   if (bler_stats->bler < bler_options->lower && old_mcs < max_mcs && num_dl_sched > 3)
     new_mcs += 1;
-  else if (bler_stats->bler > bler_options->upper || num_dl_sched <= 3) // above threshold or no activity
+  else if (bler_stats->bler > bler_options->upper) // above threshold
     new_mcs -= 1;
   // else we are within threshold boundaries
 
@@ -2962,7 +2962,7 @@ void reset_srs_stats(NR_UE_info_t *UE) {
 static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats_t *bler_stats, frame_t frame)
 {
   bler_stats->last_frame = frame;
-  bler_stats->mcs = bler_options->min_mcs;
+  bler_stats->mcs = min(bler_options->max_mcs, max(bler_options->min_mcs, 20));
   bler_stats->bler = (float)(bler_options->lower + bler_options->upper) / 2.0f;
 }
 
