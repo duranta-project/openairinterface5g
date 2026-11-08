@@ -1795,15 +1795,30 @@ static void configure_common_BWP_ul(NR_UE_MAC_INST_t *mac, int bwp_id, NR_BWP_Up
       HANDLE_SETUPRELEASE_DIRECT(bwp->rach_ConfigCommon, rachcommon, NR_RACH_ConfigCommon_t, asn_DEF_NR_RACH_ConfigCommon);
     }
     if (ul_common->ext1 && ul_common->ext1->msgA_ConfigCommon_r16) {
-      NR_MsgA_ConfigCommon_r16_t *msgacc = ul_common->ext1->msgA_ConfigCommon_r16->choice.setup;
-      if (msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16) {
-        mac->ssb_ro_preambles =
-            get_ssb_ro_preambles_2step(msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
+      NR_SetupRelease_MsgA_ConfigCommon_r16_t *setup_release = ul_common->ext1->msgA_ConfigCommon_r16;
+      if (setup_release->present == NR_SetupRelease_MsgA_ConfigCommon_r16_PR_setup) {
+        NR_MsgA_ConfigCommon_r16_t *msgacc = setup_release->choice.setup;
+        if ((bwp->rach_ConfigCommon || ul_common->rach_ConfigCommon)
+            && !msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_RSRP_Threshold_r16) {
+          LOG_E(NR_MAC,
+                "msgA-RSRP-Threshold-r16 is mandatory when both 2-step and 4-step RA are configured (TS 38.331); "
+                "ignoring msgA-ConfigCommon-r16\n");
+        } else {
+          if (msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16) {
+            mac->ssb_ro_preambles = get_ssb_ro_preambles_2step(
+                msgacc->rach_ConfigCommonTwoStepRA_r16.msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
+          }
+          HANDLE_SETUPRELEASE_DIRECT(bwp->msgA_ConfigCommon_r16,
+                                     setup_release,
+                                     NR_MsgA_ConfigCommon_r16_t,
+                                     asn_DEF_NR_MsgA_ConfigCommon_r16);
+        }
+      } else if (setup_release->present == NR_SetupRelease_MsgA_ConfigCommon_r16_PR_release) {
+        HANDLE_SETUPRELEASE_DIRECT(bwp->msgA_ConfigCommon_r16,
+                                   setup_release,
+                                   NR_MsgA_ConfigCommon_r16_t,
+                                   asn_DEF_NR_MsgA_ConfigCommon_r16);
       }
-      HANDLE_SETUPRELEASE_DIRECT(bwp->msgA_ConfigCommon_r16,
-                                 ul_common->ext1->msgA_ConfigCommon_r16,
-                                 NR_MsgA_ConfigCommon_r16_t,
-                                 asn_DEF_NR_MsgA_ConfigCommon_r16);
     }
     if (ul_common->pucch_ConfigCommon)
       HANDLE_SETUPRELEASE_DIRECT(bwp->pucch_ConfigCommon,

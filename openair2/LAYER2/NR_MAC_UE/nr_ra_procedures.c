@@ -830,12 +830,15 @@ bool init_RA(NR_UE_MAC_INST_t *mac)
         if (nr_rach_ConfigCommon) {
           // if the BWP selected for Random Access procedure is configured with both 2- and 4-step RA type Random Access Resources
           // and the RSRP of the downlink pathloss reference is above msgA-RSRP-Threshold
-          AssertFatal(twostep_conf->msgA_RSRP_Threshold_r16,
-                      "msgA_RSRP_Threshold_r16 is mandatory present if both 2-step and 4-step random access types are configured\n");
-          // For thresholds the RSRP value is (IE value – 156) dBm except for the IE 127 in which case the actual value is infinity
-          int rsrp_msga_thr = *twostep_conf->msgA_RSRP_Threshold_r16 - 156;
-          if (*twostep_conf->msgA_RSRP_Threshold_r16 != 127 && mac->ssb_measurements[mac->mib_ssb].ssb_rsrp_dBm > rsrp_msga_thr)
-            twostep = true;
+          if (!twostep_conf->msgA_RSRP_Threshold_r16) {
+            LOG_E(NR_MAC, "msgA_RSRP_Threshold_r16 missing in mixed 2-step/4-step RA; falling back to 4-step RA\n");
+          } else {
+            // For thresholds the RSRP value is (IE value – 156) dBm except for the IE 127 in which case the actual value is
+            // infinity
+            int rsrp_msga_thr = *twostep_conf->msgA_RSRP_Threshold_r16 - 156;
+            if (*twostep_conf->msgA_RSRP_Threshold_r16 != 127 && mac->ssb_measurements[mac->mib_ssb].ssb_rsrp_dBm > rsrp_msga_thr)
+              twostep = true;
+          }
         } else {
           // if the BWP selected for Random Access procedure is only configured with 2-step RA type Random Access
           twostep = true;
