@@ -22,9 +22,6 @@ using namespace nrg;
 
 namespace {
 
-struct SymBatch {
-  nr_gpu_rx_sym_t s[NR_GPU_MAX_SYM];
-};
 
 // a0 b0 + a1 b1 (int16 operands) in int32 with the wrap-around of pmaddwd
 __device__ __forceinline__ int32_t madd(int32_t a0, int32_t b0, int32_t a1, int32_t b1)
@@ -73,8 +70,10 @@ struct Fe {
 // MRC over the Rx antennas in nr_channel_compensation's order: matched filter with the CPE-rotated channel (wrapping
 // sum), magnitude |h|^2 >> s scaled by the QAM amplitude (wrapping sum), Gram terms from the raw channel (saturating)
 template <bool MAG, bool DIAG>
-// rxF [nb_rx][stride]; chF [2][nb_rx][ch_stride] read at re_map[i] (the identity when NULL)
-__device__ __forceinline__ Fe front_end(const c16_t *rxF,
+// rxF [nb_rx][stride], or rx_ant[aarx] (rxdataF) at re_map[i] when rx_ant; chF [2][nb_rx][ch_stride] at re_map[i]
+// (re_map NULL: the identity)
+__device__ __forceinline__ Fe front_end(const c16_t *const *rx_ant,
+                                        const c16_t *rxF,
                                         const c16_t *chF,
                                         const uint16_t *re_map,
                                         uint32_t stride,
@@ -88,8 +87,8 @@ __device__ __forceinline__ Fe front_end(const c16_t *rxF,
   const bool rot = !(cpe.r == 32767 && cpe.i == 0);
   Fe f;
   for (int aarx = 0; aarx < nb_rx; aarx++) {
-    const c16_t y = rxF[(size_t)aarx * stride + i];
     const uint32_t j = re_map ? re_map[i] : i;
+    const c16_t y = rx_ant ? rx_ant[aarx][j] : rxF[(size_t)aarx * stride + i];
     const c16_t c[2] = {chF[(size_t)aarx * ch_stride + j], chF[(size_t)(nb_rx + aarx) * ch_stride + j]};
     c16_t t[2];
     int16_t m[2];
@@ -181,7 +180,7 @@ __global__ void k_compensation(const c16_t *rxF, const c16_t *chF, uint32_t stri
   const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= length)
     return;
-  const Fe f = front_end<true, true>(rxF, chF, NULL, stride, stride, i, nb_rx, cpe, shift, qam_amp(mod_order / 2));
+  const Fe f = front_end<true, true>(NULL, rxF, chF, NULL, stride, stride, i, nb_rx, cpe, shift, qam_amp(mod_order / 2));
   o0[i] = f.comp[0];
   o1[i] = f.comp[1];
   if (mod_order > 2) {
@@ -197,13 +196,13 @@ __global__ void k_compensation(const c16_t *rxF, const c16_t *chF, uint32_t stri
 // pass 1: front end + detector of both layers; L-best REs below NR_LBEST_WIDE_SINR* go to the list as
 // (symbol << 17 | layer << 16 | RE) for pass 2
 template <int NB, int DET>
-__global__ void k_inner_rx(SymBatch b, int nb_rx, int shift, float lam, uint32_t *idx, uint32_t *cnt)
+__global__ void k_inner_rx(const nr_gpu_rx_sym_t *b, int nb_rx, int shift, float lam, uint32_t *idx, uint32_t *cnt)
 {
-  const nr_gpu_rx_sym_t &s = b.s[blockIdx.y];
+  const nr_gpu_rx_sym_t &s = b[blockIdx.y];
   const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= s.length)
     return;
-  const Fe f = front_end<DET != NR_GPU_DET_MMSE, DET == NR_GPU_DET_MMSE>(s.rxF, s.chF, s.re_map, s.stride, s.ch_stride, i, nb_rx, s.cpe, shift, qam_amp(NB));
+  const Fe f = front_end<DET != NR_GPU_DET_MMSE, DET == NR_GPU_DET_MMSE>(s.rx_ant[0] ? s.rx_ant : NULL, s.rxF, s.chF, s.re_map, s.stride, s.ch_stride, i, nb_rx, s.cpe, shift, qam_amp(NB));
 #pragma unroll
   for (int t = 0; t < 2; t++) {
     int16_t llr[2 * NB];
@@ -232,7 +231,7 @@ __global__ void k_inner_rx(SymBatch b, int nb_rx, int shift, float lam, uint32_t
 
 // pass 2 of the L-best: full grid on the listed (symbol, layer, RE), L lanes per entry, front end recomputed
 template <int NB, int L>
-__global__ void k_inner_rx_wide(SymBatch b, int nb_rx, int shift, const uint32_t *idx, const uint32_t *cnt)
+__global__ void k_inner_rx_wide(const nr_gpu_rx_sym_t *b, int nb_rx, int shift, const uint32_t *idx, const uint32_t *cnt)
 {
   constexpr int RPB = NRG_THREADS / L;
   const uint32_t n = *cnt, j0 = blockIdx.x * RPB;
@@ -241,10 +240,10 @@ __global__ void k_inner_rx_wide(SymBatch b, int nb_rx, int shift, const uint32_t
   const uint32_t j = j0 + threadIdx.x / L;
   const bool valid = j < n;
   const uint32_t e = idx[valid ? j : j0];
-  const nr_gpu_rx_sym_t &s = b.s[e >> 17];
+  const nr_gpu_rx_sym_t &s = b[e >> 17];
   const int t = (e >> 16) & 1, l = threadIdx.x % L;
   const uint32_t i = e & 0xffff;
-  const Fe f = front_end<true, false>(s.rxF, s.chF, s.re_map, s.stride, s.ch_stride, i, nb_rx, s.cpe, shift, qam_amp(NB));
+  const Fe f = front_end<true, false>(s.rx_ant[0] ? s.rx_ant : NULL, s.rxF, s.chF, s.re_map, s.stride, s.ch_stride, i, nb_rx, s.cpe, shift, qam_amp(NB));
   int16_t llr[2 * NB];
   grid_full<NB, L>(re_of(f, t), l, llr);
   if (valid)
@@ -255,7 +254,7 @@ __global__ void k_inner_rx_wide(SymBatch b, int nb_rx, int shift, const uint32_t
 }
 
 template <int NB, int DET>
-void launch(const SymBatch &b, int nsym, uint32_t maxlen, uint32_t total, int nb_rx, int shift, float lam, nr_gpu_det_ws_t *ws, gpuStream_t st)
+void launch(const nr_gpu_rx_sym_t *b, int nsym, uint32_t maxlen, uint32_t total, int nb_rx, int shift, float lam, nr_gpu_det_ws_t *ws, gpuStream_t st)
 {
   const dim3 grid((maxlen + NRG_THREADS - 1) / NRG_THREADS, nsym);
   constexpr bool wide = DET == NR_GPU_DET_LBEST && NB >= 3; // QPSK / 16QAM L-best is the exact ML
@@ -297,22 +296,22 @@ extern "C" int nr_gpu_inner_rx_2layer(const nr_gpu_rx_sym_t *sym,
                                       nr_gpu_det_ws_t *ws,
                                       void *stream)
 {
-  if (nsym < 1 || nsym > NR_GPU_MAX_SYM || nb_rx < 1)
+  if (nsym < 1 || nsym > NR_GPU_MAX_SYM || nb_rx < 1 || nb_rx > NR_IRX_MAX_RX || !ws)
     return -1;
-  SymBatch b;
   uint32_t maxlen = 0, total = 0;
   for (int k = 0; k < nsym; k++) {
     if (sym[k].length >= 65536)
       return -1;
-    b.s[k] = sym[k];
+    ws->desc[k] = sym[k];
     maxlen = sym[k].length > maxlen ? sym[k].length : maxlen;
     total += sym[k].length;
   }
   if (maxlen == 0)
     return 0;
-  if (detector == NR_GPU_DET_LBEST && mod_order >= 6 && (!ws || 2 * total > ws->max_re))
+  if (detector == NR_GPU_DET_LBEST && mod_order >= 6 && 2 * total > ws->max_re)
     return -1;
   gpuStream_t st = (gpuStream_t)stream;
+  const nr_gpu_rx_sym_t *b = ws->desc_d;
 #define NRG_L(NB, DET) launch<NB, DET>(b, nsym, maxlen, total, nb_rx, output_shift, lambda, ws, st)
   switch (detector * 16 + mod_order) {
     case NR_GPU_DET_MMSE * 16 + 2:

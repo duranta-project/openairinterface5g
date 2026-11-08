@@ -23,7 +23,8 @@ int load_nr_irx_interface(nr_irx_interface_t *itf, uint32_t max_re_per_symbol, i
                             {.fname = "nr_irx_acquire"},
                             {.fname = "nr_irx_release"},
                             {.fname = "nr_irx_staging"},
-                            {.fname = "nr_irx_run"}};
+                            {.fname = "nr_irx_run"},
+                            {.fname = "nr_irx_register_host"}};
   if (load_module_version_shlib("inner_rx", version, f, sizeofArray(f), NULL) < 0) {
     LOG_E(PHY, "inner RX offload library inner_rx%s unavailable, inner RX on the CPU\n", version);
     return -1;
@@ -34,7 +35,8 @@ int load_nr_irx_interface(nr_irx_interface_t *itf, uint32_t max_re_per_symbol, i
                           .acquire = (nr_irx_acquire_t *)f[3].fptr,
                           .release = (nr_irx_release_t *)f[4].fptr,
                           .staging = (nr_irx_staging_t *)f[5].fptr,
-                          .run = (nr_irx_run_t *)f[6].fptr};
+                          .run = (nr_irx_run_t *)f[6].fptr,
+                          .register_host = (nr_irx_register_host_t *)f[7].fptr};
   if (l.init(max_re_per_symbol, max_nb_rx, nb_ctx) != 0) {
     LOG_E(PHY, "inner RX offload library inner_rx%s failed to initialize, inner RX on the CPU\n", version);
     return -1;

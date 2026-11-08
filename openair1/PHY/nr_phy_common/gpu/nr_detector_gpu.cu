@@ -157,7 +157,14 @@ extern "C" nr_gpu_det_ws_t *nr_gpu_det_ws_alloc(uint32_t max_re)
   if (!ws)
     return NULL;
   ws->max_re = max_re;
-  if (gpuMalloc((void **)&ws->idx, (size_t)max_re * sizeof(uint32_t)) != gpuSuccess
+  const size_t dbytes = NR_IRX_MAX_SYM * sizeof(*ws->desc);
+#if defined(GPU_USE_HIP)
+  const bool desc_ok = hipHostMalloc((void **)&ws->desc, dbytes, hipHostMallocMapped | hipHostMallocNonCoherent) == hipSuccess;
+#else
+  const bool desc_ok = gpuHostAlloc((void **)&ws->desc, dbytes, gpuHostAllocMapped) == gpuSuccess;
+#endif
+  if (!desc_ok || gpuHostGetDevicePointer((void **)&ws->desc_d, ws->desc, 0) != gpuSuccess
+      || gpuMalloc((void **)&ws->idx, (size_t)max_re * sizeof(uint32_t)) != gpuSuccess
       || gpuMalloc((void **)&ws->cnt, sizeof(uint32_t)) != gpuSuccess) {
     nr_gpu_det_ws_free(ws);
     return NULL;
@@ -171,6 +178,8 @@ extern "C" void nr_gpu_det_ws_free(nr_gpu_det_ws_t *ws)
     return;
   (void)gpuFree(ws->idx);
   (void)gpuFree(ws->cnt);
+  if (ws->desc)
+    (void)gpuFreeHost(ws->desc);
   free(ws);
 }
 

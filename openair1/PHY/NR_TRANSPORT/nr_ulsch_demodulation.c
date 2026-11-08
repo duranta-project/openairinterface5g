@@ -897,46 +897,36 @@ static int pusch_data_re_map(const nfapi_nr_pusch_pdu_t *p, int symbol, uint16_t
   return n;
 }
 
-// One symbol of the offload batch: RX of its data REs and its RE map into the module's staging
+// Data REs of one offloaded symbol gathered from rxdataF into the RX staging, when the module reads staged RX
 typedef struct {
-  const nfapi_nr_pusch_pdu_t *rel15_ul;
-  c16_t **rxF; // rxdataF of the first antenna port of the PUSCH
-  int offset; // first allocation RE of the symbol in rxF
-  int nb_rx, stride, symbol;
-  uint16_t ptrs_symb_pos;
+  c16_t *const *rxF;
+  int offset, nb_rx, stride, nb_re;
+  const uint16_t *map; // NULL: the identity
   c16_t *rx;
-  uint16_t *map;
-  int nb_map; // out: RE map length, 0 = identity
-  c16_t *rxFext_slot; // T tracer
   task_ans_t *ans;
-} irx_extract_t;
+} irx_gather_t;
 
-static void irx_extract_symbol(void *arg)
+static void irx_gather_symbol(void *arg)
 {
-  irx_extract_t *e = arg;
-  const int nb_re = NR_NB_SC_PER_RB * e->rel15_ul->rb_size;
-  e->nb_map = pusch_data_re_map(e->rel15_ul, e->symbol, e->ptrs_symb_pos, e->map);
+  irx_gather_t *e = arg;
   for (int aarx = 0; aarx < e->nb_rx; aarx++) {
     const c16_t *src = e->rxF[aarx] + e->offset;
     c16_t *dst = e->rx + (size_t)aarx * e->stride;
-    if (e->nb_map == 0)
-      memcpy(dst, src, sizeof(*dst) * nb_re);
+    if (!e->map)
+      memcpy(dst, src, sizeof(*dst) * e->nb_re);
     else
-      for (int i = 0; i < e->nb_map; i++)
+      for (int i = 0; i < e->nb_re; i++)
         dst[i] = src[e->map[i]];
   }
-#if T_TRACER
-  if (T_ACTIVE(T_GNB_PHY_UL_FD_PUSCH_IQ))
-    copy_c16_data_to_slot_memory(e->rx, e->rxFext_slot, nb_re, e->symbol);
-#endif
   if (e->ans)
     completed_task_ans(e->ans);
 }
 
-// Inner RX of the symbols marked in off[] on the offload module, one batch. Staging: the data REs of each symbol (one
-// thread-pool task per symbol, the last one inline) with its RE map, the channel estimate of each DMRS symbol once, and
-// the packed descrambling bits once; the module then writes the layer-demapped, descrambled LLRs into ulsch_llrs, as
-// the CPU path does for these symbols.
+// Inner RX of the symbols marked in off[] on the offload module, one batch. The module reads each symbol's data REs
+// through the symbol's RE map, from rxdataF itself (registered once) or, if it reads staged RX faster, from the RX
+// staging gathered here (one thread-pool task per symbol, the last one inline). Staged as well: the RE maps, the channel
+// estimate of each DMRS symbol once, and the packed descrambling bits once. The module then writes the layer-demapped,
+// descrambled LLRs into ulsch_llrs, as the CPU path does for these symbols.
 static int pusch_irx_offload(PHY_VARS_gNB *gNB,
                              nr_irx_ctx_t *ctx,
                              const bool *off,
@@ -960,8 +950,19 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
   const int stride = ceil_mod(nb_re, 16);
   const int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
   const int start_re = (rel15_ul->rb_start + rel15_ul->bwp_start) * NR_NB_SC_PER_RB;
+  c16_t **rxF = gNB->common_vars.rxdataF + ant_port_start;
+  if (nb_rx > NR_IRX_MAX_RX)
+    return -1;
+  // the RU's rxdataF ring (nr_init_ru.c); no-op once registered
+  bool direct = true;
+  for (int aarx = 0; aarx < nb_rx; aarx++) {
+    const int r = irx->register_host(rxF[aarx], sizeof(c16_t) * RU_RX_SLOT_DEPTH * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size);
+    if (r < 0)
+      return -1;
+    direct &= r == 0;
+  }
   nr_irx_sym_t sym[NR_IRX_MAX_SYM];
-  irx_extract_t ext[NR_IRX_MAX_SYM];
+  irx_gather_t gather[NR_IRX_MAX_SYM];
   int ch_symbol[NR_IRX_MAX_CH], nb_ch = 0;
   uint32_t nb_bits = 0;
   int n = 0;
@@ -983,20 +984,21 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
                (c16_t *)pusch_vars->ul_ch_estimates[r] + dmrs * frame_parms->ofdm_symbol_size,
                sizeof(*ch) * nb_re);
     }
+    uint16_t *re_map = irx->staging(ctx, n, NR_IRX_STAGING_REMAP);
+    const int nb_map = pusch_data_re_map(rel15_ul, symbol, ptrs_symb_pos, re_map);
+    const int offset = soffset + symbol * frame_parms->ofdm_symbol_size + start_re;
+#if T_TRACER
+    if (T_ACTIVE(T_GNB_PHY_UL_FD_PUSCH_IQ)) {
+      c16_t rx0[nb_re];
+      for (int i = 0; i < (nb_map ? nb_map : nb_re); i++)
+        rx0[i] = rxF[0][offset + (nb_map ? re_map[i] : i)];
+      copy_c16_data_to_slot_memory(rx0, rxFext_slot, nb_re, symbol);
+    }
+#endif
     const uint32_t len = pusch_vars->ul_valid_re_per_slot[symbol];
     const uint32_t bit0 = pusch_vars->llr_offset[symbol] * nl;
     nb_bits = max(nb_bits, bit0 + len * nl * qm);
-    ext[n] = (irx_extract_t){.rel15_ul = rel15_ul,
-                             .rxF = gNB->common_vars.rxdataF + ant_port_start,
-                             .offset = soffset + symbol * frame_parms->ofdm_symbol_size + start_re,
-                             .nb_rx = nb_rx,
-                             .stride = stride,
-                             .symbol = symbol,
-                             .ptrs_symb_pos = ptrs_symb_pos,
-                             .rx = irx->staging(ctx, n, NR_IRX_STAGING_RX),
-                             .map = irx->staging(ctx, n, NR_IRX_STAGING_REMAP),
-                             .rxFext_slot = rxFext_slot};
-    sym[n] = (nr_irx_sym_t){.rxF = ext[n].rx,
+    sym[n] = (nr_irx_sym_t){.re_map = nb_map ? re_map : NULL,
                             .chF = irx->staging(ctx, c, NR_IRX_STAGING_CH),
                             .scramble = irx->staging(ctx, 0, NR_IRX_STAGING_SCRAMBLE),
                             .scramble_offset = bit0,
@@ -1005,6 +1007,19 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
                             .stride = stride,
                             .ch_stride = stride,
                             .cpe = cpe[symbol]};
+    if (direct) {
+      for (int aarx = 0; aarx < nb_rx; aarx++)
+        sym[n].rx_ant[aarx] = rxF[aarx] + offset;
+    } else {
+      gather[n] = (irx_gather_t){.rxF = rxF,
+                                 .offset = offset,
+                                 .nb_rx = nb_rx,
+                                 .stride = stride,
+                                 .nb_re = nb_map ? nb_map : nb_re,
+                                 .map = nb_map ? re_map : NULL,
+                                 .rx = irx->staging(ctx, n, NR_IRX_STAGING_RX)};
+      sym[n].rxF = gather[n].rx;
+    }
     n++;
   }
   if (n == 0)
@@ -1014,23 +1029,19 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
   memcpy(irx->staging(ctx, 0, NR_IRX_STAGING_SCRAMBLE),
          gold_cache((rel15_ul->rnti << 15) + rel15_ul->data_scrambling_id, nb_words),
          sizeof(uint32_t) * nb_words);
-
-  task_ans_t ans;
-  if (n > 1) // join_task_ans waits even for zero jobs
-    init_task_ans(&ans, n - 1);
-  for (int k = 0; k < n - 1; k++) {
-    ext[k].ans = &ans;
-    pushTpool(&gNB->threadPool, (task_t){.func = &irx_extract_symbol, .args = &ext[k]});
+  if (!direct) {
+    task_ans_t ans;
+    if (n > 1) // join_task_ans waits even for zero jobs
+      init_task_ans(&ans, n - 1);
+    for (int k = 0; k < n - 1; k++) {
+      gather[k].ans = &ans;
+      pushTpool(&gNB->threadPool, (task_t){.func = &irx_gather_symbol, .args = &gather[k]});
+    }
+    gather[n - 1].ans = NULL;
+    irx_gather_symbol(&gather[n - 1]);
+    if (n > 1)
+      join_task_ans(&ans);
   }
-  ext[n - 1].ans = NULL;
-  irx_extract_symbol(&ext[n - 1]);
-  if (n > 1)
-    join_task_ans(&ans);
-  for (int k = 0; k < n; k++)
-    if (ext[k].nb_map == 0)
-      sym[k].re_map = NULL;
-    else
-      sym[k].re_map = ext[k].map;
 
   const nr_irx_params_t p = {.nb_layers = nl,
                              .nb_rx = nb_rx,

@@ -6,6 +6,7 @@
 #define NR_INNER_RX_OFFLOAD_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "common/platform_types.h"
 
@@ -23,10 +24,13 @@ extern "C" {
 
 #define NR_IRX_MAX_SYM 14
 #define NR_IRX_MAX_CH 4 ///< channel estimates (DMRS symbols) per batch
+#define NR_IRX_MAX_RX 8 ///< Rx antennas of rx_ant
 
 /// One OFDM symbol of a batch
 typedef struct {
-  const c16_t *rxF; ///< extracted RX [nb_rx][stride]
+  const c16_t *rx_ant[NR_IRX_MAX_RX]; ///< the symbol's first allocation RE in each antenna's rxdataF, in memory registered with
+                                      ///< register_host: the module gathers its data REs through re_map; rx_ant[0] NULL: rxF
+  const c16_t *rxF; ///< or the extracted RX [nb_rx][stride] in the RX staging
   const c16_t *chF; ///< channel estimates over the allocation [2][nb_rx][ch_stride], shared by the symbols of a DMRS
   const uint16_t *re_map; ///< chF index (allocation RE) of each extracted RE, or NULL: the identity
   const uint32_t *scramble; ///< packed descrambling bits of the codeword (bit n: word n / 32, bit n % 32; 1 negates), or NULL
@@ -68,6 +72,9 @@ typedef void(nr_irx_release_t)(nr_irx_ctx_t *ctx);
 typedef void *(nr_irx_staging_t)(nr_irx_ctx_t *ctx, int k, int which);
 /// synchronous: sym[] point into the context's staging (llr_cw: host pointer into the codeword buffer); 0 on success
 typedef int(nr_irx_run_t)(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_irx_params_t *p);
+/// makes [ptr, ptr + bytes) readable by the module (rxdataF), idempotent for a registered ptr: 0 when registered (rx_ant
+/// may point into it), 1 when the module reads extracted RX in the RX staging faster, < 0 on error
+typedef int(nr_irx_register_host_t)(const void *ptr, size_t bytes);
 
 typedef struct {
   nr_irx_init_t *init;
@@ -77,6 +84,7 @@ typedef struct {
   nr_irx_release_t *release;
   nr_irx_staging_t *staging;
   nr_irx_run_t *run;
+  nr_irx_register_host_t *register_host;
 } nr_irx_interface_t;
 
 /// Loads and initializes the module named by loader.inner_rx.shlibversion; 0 if loaded, -1 (itf zeroed) if none is

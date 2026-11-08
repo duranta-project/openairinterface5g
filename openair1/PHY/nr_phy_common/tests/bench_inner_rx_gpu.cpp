@@ -110,7 +110,8 @@ int main(int argc, char **argv)
     CHECK(gpuMalloc((void **)&dcw, cw[s].size() * sizeof(int16_t)));
     CHECK(gpuMemcpy(drx, rx[s].data(), rx[s].size() * sizeof(c16_t), gpuMemcpyHostToDevice));
     CHECK(gpuMemcpy(dch, ch[s].data(), ch[s].size() * sizeof(c16_t), gpuMemcpyHostToDevice));
-    desc[s] = {.rxF = drx,
+    desc[s] = {.rx_ant = {},
+               .rxF = drx,
                .chF = dch,
                .re_map = NULL,
                .scramble = dbits,
