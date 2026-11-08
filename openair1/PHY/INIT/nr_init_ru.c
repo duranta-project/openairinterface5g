@@ -66,7 +66,8 @@ void nr_phy_init_RU(RU_t *ru)
     for (int i = 0; i < nb_rx_streams; i++) {
       // allocate 4 slots of I/Q signal data (frequency)
       int size = RU_RX_SLOT_DEPTH * fp->symbols_per_slot * fp->ofdm_symbol_size;
-      ru->common.rxdataF[i] = (int32_t*)malloc16_clear(sizeof(**ru->common.rxdataF) * size);
+      // through the inner-RX offload module when it reads its own allocations faster (nr_inner_rx_offload.h)
+      ru->common.rxdataF[i] = (int32_t *)nr_irx_alloc_rx_buffer(sizeof(**ru->common.rxdataF) * size);
       LOG_D(PHY, "rxdataF[%d] %p for RU %d\n", i, ru->common.rxdataF[i], ru->idx);
     }
 
@@ -102,8 +103,10 @@ void nr_phy_free_RU(RU_t *ru)
     free_and_zero(ru->common.txdataF_BF);
 
     // free FFT output buffers (RX)
-    for (int i = 0; i < nb_rx_streams; i++)
-      free_and_zero(ru->common.rxdataF[i]);
+    for (int i = 0; i < nb_rx_streams; i++) {
+      nr_irx_free_rx_buffer(ru->common.rxdataF[i]);
+      ru->common.rxdataF[i] = NULL;
+    }
     free_and_zero(ru->common.rxdataF);
   }
 

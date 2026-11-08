@@ -942,7 +942,6 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_sch_dmrs.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_prach.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_ulsch_demodulation.c
-  ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_inner_rx_offload_load.c
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/ul_ref_seq_nr.c
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/nr_dmrs_rx.c
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/nr_gen_mod_table.c
@@ -1054,6 +1053,12 @@ add_library(PHY_RU ${PHY_SRC_RU})
 target_link_libraries(PHY_RU PRIVATE asn1_lte_rrc_hdrs UTIL)
 
 add_library(NR_PHY_RU ${NR_PHY_SRC_RU})
+# inner-RX offload loader: used by PHY_NR and by NR_PHY_RU (rxdataF), linked after both whatever their order
+add_library(nr_irx_loader ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_inner_rx_offload_load.c)
+target_include_directories(nr_irx_loader PRIVATE ${OPENAIR1_DIR}/PHY/nr_phy_common/inc)
+target_link_libraries(nr_irx_loader PRIVATE UTIL)
+target_link_libraries(NR_PHY_RU PRIVATE nr_irx_loader)
+target_link_libraries(PHY_NR nr_irx_loader)
 
 #Layer 2 library
 #####################

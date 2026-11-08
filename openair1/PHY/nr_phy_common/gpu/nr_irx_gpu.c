@@ -36,7 +36,8 @@ static struct {
     const char *h;
     size_t bytes;
     char *d;
-  } region[NRG_MAX_REGIONS]; // host memory registered with nr_irx_register_host (rxdataF) and its device alias
+    bool owned; // from nr_irx_alloc_host, else registered
+  } region[NRG_MAX_REGIONS]; // host memory the kernels read (rxdataF) and its device alias
   int nb_region;
   nr_irx_ctx_t *ctx;
   int n;
@@ -82,20 +83,67 @@ int nr_irx_shutdown(void)
   free(g.ctx);
   g.ctx = NULL;
   g.n = 0;
+  // registered regions are released; allocations of nr_irx_alloc_host stay valid until nr_irx_free_host
+  int keep = 0;
   for (int r = 0; r < g.nb_region; r++)
-    (void)gpuHostUnregister((void *)g.region[r].h);
-  g.nb_region = 0;
+    if (g.region[r].owned)
+      g.region[keep++] = g.region[r];
+    else
+      (void)gpuHostUnregister((void *)g.region[r].h);
+  g.nb_region = keep;
   return 0;
+}
+
+void *nr_irx_alloc_host(size_t bytes)
+{
+#if defined(GPU_USE_HIP)
+  // hipHostMalloc memory, coarse-grained, read as fast as the staging (registered pageable memory is ~10x slower on the
+  // Radeon 8060S); the CUDA GPUs read registered memory well: no allocation of their own
+  void *h = NULL, *d = NULL;
+  pthread_mutex_lock(&g.lock);
+  if (g.nb_region < NRG_MAX_REGIONS && hipHostMalloc(&h, bytes, hipHostMallocMapped | hipHostMallocNonCoherent) == hipSuccess) {
+    if (hipHostGetDevicePointer(&d, h, 0) == hipSuccess) {
+      memset(h, 0, bytes);
+      g.region[g.nb_region++] = (typeof(g.region[0])){.h = h, .bytes = bytes, .d = d, .owned = true};
+    } else {
+      (void)hipHostFree(h);
+      h = NULL;
+    }
+  }
+  pthread_mutex_unlock(&g.lock);
+  return h;
+#else
+  (void)bytes;
+  return NULL;
+#endif
+}
+
+int nr_irx_free_host(void *ptr)
+{
+  int ret = -1;
+  pthread_mutex_lock(&g.lock);
+  for (int r = 0; r < g.nb_region; r++)
+    if (g.region[r].owned && g.region[r].h == ptr) {
+      (void)gpuFreeHost(ptr);
+      g.region[r] = g.region[--g.nb_region];
+      ret = 0;
+      break;
+    }
+  pthread_mutex_unlock(&g.lock);
+  return ret;
 }
 
 int nr_irx_register_host(const void *ptr, size_t bytes)
 {
 #if defined(GPU_USE_HIP)
-  // On the Radeon 8060S the kernel reads registered pageable memory ~10x slower than the hipHostMalloc staging, whatever
-  // the registration flags: the RX goes through the staging
-  (void)ptr;
-  (void)bytes;
-  return 1;
+  // On the Radeon 8060S the kernel reads registered pageable memory ~10x slower than hipHostMalloc memory, whatever the
+  // registration flags: read directly only the allocations of nr_irx_alloc_host, the rest through the staging
+  int own = 0;
+  pthread_mutex_lock(&g.lock);
+  for (int r = 0; r < g.nb_region && !own; r++)
+    own = g.region[r].owned && (const char *)ptr >= g.region[r].h && (const char *)ptr + bytes <= g.region[r].h + g.region[r].bytes;
+  pthread_mutex_unlock(&g.lock);
+  return own ? 0 : 1;
 #endif
   int ret = 0;
   pthread_mutex_lock(&g.lock);
