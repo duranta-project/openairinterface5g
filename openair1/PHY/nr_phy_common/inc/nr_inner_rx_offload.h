@@ -22,22 +22,28 @@ extern "C" {
  */
 
 #define NR_IRX_MAX_SYM 14
+#define NR_IRX_MAX_CH 4 ///< channel estimates (DMRS symbols) per batch
 
 /// One OFDM symbol of a batch
 typedef struct {
   const c16_t *rxF; ///< extracted RX [nb_rx][stride]
-  const c16_t *chF; ///< extracted channel estimates [2][nb_rx][stride]
-  const int16_t *scramble; ///< +-1 descrambling sequence of the codeword slice (length * 2 * Qm), or NULL
+  const c16_t *chF; ///< channel estimates over the allocation [2][nb_rx][ch_stride], shared by the symbols of a DMRS
+  const uint16_t *re_map; ///< chF index (allocation RE) of each extracted RE, or NULL: the identity
+  const uint32_t *scramble; ///< packed descrambling bits of the codeword (bit n: word n / 32, bit n % 32; 1 negates), or NULL
+  uint32_t scramble_offset; ///< codeword bit of this symbol's first LLR
   int16_t *llr_cw; ///< codeword slice: layer-demapped LLRs (per RE: layer 0 then layer 1), length * 2 * Qm
   uint32_t length; ///< REs of this symbol (< 65536)
-  uint32_t stride; ///< row stride of rxF / chF
+  uint32_t stride; ///< row stride of rxF
+  uint32_t ch_stride; ///< row stride of chF
   c16_t cpe; ///< PTRS common phase error, (32767, 0) without PTRS
 } nr_irx_sym_t;
 
 /// detector: 2-layer MMSE, L-best, full ML (the LLR units of nr_compute_MMSE_llr / nr_compute_ML_llr)
 enum { NR_IRX_DET_MMSE = 0, NR_IRX_DET_LBEST = 1, NR_IRX_DET_ML = 3 };
-/// staging buffers of symbol k of a batch: rxF [nb_rx][stride], chF [2][nb_rx][stride], scramble [length * 2 * Qm]
-enum { NR_IRX_STAGING_RX = 0, NR_IRX_STAGING_CH, NR_IRX_STAGING_SCRAMBLE };
+/// staging buffers, index k: RX of batch symbol k [nb_rx][stride] (k < NR_IRX_MAX_SYM), CH estimate k
+/// [2][nb_rx][stride] (k < NR_IRX_MAX_CH), REMAP of symbol k [stride] uint16, SCRAMBLE packed bits of the batch (k = 0,
+/// NR_IRX_MAX_SYM * stride * 16 bits)
+enum { NR_IRX_STAGING_RX = 0, NR_IRX_STAGING_CH, NR_IRX_STAGING_REMAP, NR_IRX_STAGING_SCRAMBLE };
 
 typedef struct {
   int nb_layers;
@@ -58,9 +64,9 @@ typedef bool(nr_irx_supported_t)(int nb_layers, int nb_rx, int mod_order, int de
 /// NULL if all contexts are busy (the PHY then stays on the CPU)
 typedef nr_irx_ctx_t *(nr_irx_acquire_t)(void);
 typedef void(nr_irx_release_t)(nr_irx_ctx_t *ctx);
-/// host-writable staging buffer `which` of batch symbol k (k < NR_IRX_MAX_SYM)
+/// host-writable staging buffer `which`, index k (see NR_IRX_STAGING_*)
 typedef void *(nr_irx_staging_t)(nr_irx_ctx_t *ctx, int k, int which);
-/// synchronous: sym[k] point to the staging of symbol k (llr_cw: host pointer into the codeword buffer); 0 on success
+/// synchronous: sym[] point into the context's staging (llr_cw: host pointer into the codeword buffer); 0 on success
 typedef int(nr_irx_run_t)(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_irx_params_t *p);
 
 typedef struct {

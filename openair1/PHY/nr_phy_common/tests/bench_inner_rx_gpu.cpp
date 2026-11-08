@@ -91,19 +91,35 @@ int main(int argc, char **argv)
         }
   }
 
-  // GPU buffers and symbol descriptors
+  // GPU buffers and symbol descriptors: channel estimates per symbol read directly (no RE map), descrambling bits
+  // packed for the slot (bit 1 where the CPU sequence is -1)
+  std::vector<uint32_t> bits((size_t)nsym * len * 16 / 32 + 1, 0);
+  for (int s = 0; s < nsym; s++)
+    for (uint32_t k = 0; k < len * 16; k++)
+      if (scr[s][k] < 0)
+        bits[((size_t)s * len * 16 + k) / 32] |= 1u << (((size_t)s * len * 16 + k) % 32);
+  uint32_t *dbits;
+  CHECK(gpuMalloc((void **)&dbits, bits.size() * sizeof(uint32_t)));
+  CHECK(gpuMemcpy(dbits, bits.data(), bits.size() * sizeof(uint32_t), gpuMemcpyHostToDevice));
   std::vector<nr_gpu_rx_sym_t> desc(nsym);
   for (int s = 0; s < nsym; s++) {
     c16_t *drx, *dch;
-    int16_t *dscr, *dcw;
+    int16_t *dcw;
     CHECK(gpuMalloc((void **)&drx, rx[s].size() * sizeof(c16_t)));
     CHECK(gpuMalloc((void **)&dch, ch[s].size() * sizeof(c16_t)));
-    CHECK(gpuMalloc((void **)&dscr, scr[s].size() * sizeof(int16_t)));
     CHECK(gpuMalloc((void **)&dcw, cw[s].size() * sizeof(int16_t)));
     CHECK(gpuMemcpy(drx, rx[s].data(), rx[s].size() * sizeof(c16_t), gpuMemcpyHostToDevice));
     CHECK(gpuMemcpy(dch, ch[s].data(), ch[s].size() * sizeof(c16_t), gpuMemcpyHostToDevice));
-    CHECK(gpuMemcpy(dscr, scr[s].data(), scr[s].size() * sizeof(int16_t), gpuMemcpyHostToDevice));
-    desc[s] = {drx, dch, dscr, dcw, len, stride, {32767, 0}};
+    desc[s] = {.rxF = drx,
+               .chF = dch,
+               .re_map = NULL,
+               .scramble = dbits,
+               .scramble_offset = (uint32_t)s * len * 16,
+               .llr_cw = dcw,
+               .length = len,
+               .stride = stride,
+               .ch_stride = stride,
+               .cpe = {32767, 0}};
   }
   nr_gpu_det_ws_t *ws = nr_gpu_det_ws_alloc(2 * nsym * len);
   gpuStream_t st;

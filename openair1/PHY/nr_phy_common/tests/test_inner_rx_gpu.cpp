@@ -12,6 +12,7 @@
 #include <random>
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 
 #include "PHY/gpu_compat.h" // C++ runtime headers: outside extern "C"
 #include "openair1/PHY/TOOLS/phy_test_tools.hpp" // AlignedVector512: the CPU kernels load aligned vectors
@@ -223,26 +224,74 @@ std::vector<int16_t> cpu_chain(Sym &s, int nb_rx, c16_t cpe, int qm, int det, fl
   return cw;
 }
 
+// GPU layout of a batch: odd symbols read their channel through a random RE map into a larger estimate (as DMRS / PTRS
+// symbols do), even ones directly; the descrambling bits are packed for the whole batch, the symbols at odd offsets
 struct Slot {
   std::vector<Sym> sym;
   std::vector<c16_t *> drx, dch;
-  std::vector<int16_t *> dscr, dcw;
+  std::vector<uint16_t *> dmap;
+  std::vector<int16_t *> dcw;
+  uint32_t *dscr = nullptr;
   std::vector<nr_gpu_rx_sym_t> desc;
-  Slot(std::vector<Sym> s, int qm, const std::vector<c16_t> &cpe) : sym(std::move(s))
+  Slot(std::vector<Sym> s, int qm, const std::vector<c16_t> &cpe, std::mt19937 &rng) : sym(std::move(s))
   {
+    std::vector<uint32_t> bits;
+    uint32_t bit0 = 13;
+    std::vector<uint32_t> off;
+    for (auto &y : sym) {
+      off.push_back(bit0);
+      const uint32_t nb = y.length * 2 * qm;
+      bits.resize((bit0 + nb + 31) / 32 + 1, 0);
+      for (uint32_t k = 0; k < nb; k++)
+        if (y.scr[k] < 0)
+          bits[(bit0 + k) / 32] |= 1u << ((bit0 + k) % 32);
+      bit0 += nb + 7;
+    }
+    dscr = to_dev(bits);
     for (size_t k = 0; k < sym.size(); k++) {
-      drx.push_back(to_dev(sym[k].rxF));
-      dch.push_back(to_dev(sym[k].chF));
-      dscr.push_back(to_dev(sym[k].scr));
-      dcw.push_back(to_dev(AlignedVector512<int16_t>((size_t)sym[k].length * 2 * qm, 0x5a5a)));
-      desc.push_back({drx[k], dch[k], dscr[k], dcw[k], sym[k].length, sym[k].stride, cpe[k]});
+      const Sym &y = sym[k];
+      const int nb_rx = y.rxF.size() / y.stride;
+      uint32_t ch_stride = y.stride;
+      AlignedVector512<c16_t> full = y.chF;
+      uint16_t *map = nullptr;
+      if (k & 1) { // the REs of the symbol are a sorted random subset of a 1.25x larger allocation
+        const uint32_t nfull = y.length + y.length / 4;
+        ch_stride = (nfull + 15) & ~15u;
+        std::vector<uint16_t> all(nfull), m(y.length);
+        for (uint32_t i = 0; i < nfull; i++)
+          all[i] = i;
+        std::shuffle(all.begin(), all.end(), rng);
+        std::copy(all.begin(), all.begin() + y.length, m.begin());
+        std::sort(m.begin(), m.end());
+        full.assign((size_t)2 * nb_rx * ch_stride, c16_t{12345, -2345}); // REs the map skips
+        for (int r = 0; r < 2 * nb_rx; r++)
+          for (uint32_t i = 0; i < y.length; i++)
+            full[(size_t)r * ch_stride + m[i]] = y.chF[(size_t)r * y.stride + i];
+        map = to_dev(m);
+      }
+      drx.push_back(to_dev(y.rxF));
+      dch.push_back(to_dev(full));
+      dmap.push_back(map);
+      dcw.push_back(to_dev(AlignedVector512<int16_t>((size_t)y.length * 2 * qm, 0x5a5a)));
+      desc.push_back({.rxF = drx[k],
+                      .chF = dch[k],
+                      .re_map = map,
+                      .scramble = dscr,
+                      .scramble_offset = off[k],
+                      .llr_cw = dcw[k],
+                      .length = y.length,
+                      .stride = y.stride,
+                      .ch_stride = ch_stride,
+                      .cpe = cpe[k]});
     }
   }
   ~Slot()
   {
     for (size_t k = 0; k < sym.size(); k++)
-      for (void *p : {(void *)drx[k], (void *)dch[k], (void *)dscr[k], (void *)dcw[k]})
-        (void)gpuFree(p);
+      for (void *p : {(void *)drx[k], (void *)dch[k], (void *)dmap[k], (void *)dcw[k]})
+        if (p)
+          (void)gpuFree(p);
+    (void)gpuFree(dscr);
   }
 };
 
@@ -275,7 +324,7 @@ TEST(test_inner_rx_gpu, fused_chain_bit_exact)
         std::vector<Sym> syms;
         for (uint32_t len : {1272u, 1000u, 636u})
           syms.push_back(gen_sym(len, nb_rx, c.qm, 0.15, 1500, rng));
-        Slot slot(syms, c.qm, cpe);
+        Slot slot(syms, c.qm, cpe, rng);
         ASSERT_EQ(0, nr_gpu_inner_rx_2layer(slot.desc.data(), (int)syms.size(), nb_rx, c.qm, c.det, lambda, shift, ws, nullptr));
         for (size_t k = 0; k < syms.size(); k++) {
           auto want = cpu_chain(slot.sym[k], nb_rx, cpe[k], c.qm, c.det, lambda, shift);
@@ -301,7 +350,7 @@ TEST(test_inner_rx_gpu, close_to_production_inner_rx)
     for (int det : {NR_GPU_DET_LBEST, NR_GPU_DET_ML}) {
       const int nb_rx = 2, shift = 7;
       std::vector<Sym> syms = {gen_sym(1272, nb_rx, qm, 0.15, 1500, rng)};
-      Slot slot(syms, qm, {c16_t{32767, 0}});
+      Slot slot(syms, qm, {c16_t{32767, 0}}, rng);
       ASSERT_EQ(0, nr_gpu_inner_rx_2layer(slot.desc.data(), 1, nb_rx, qm, det, 20.0f, shift, ws, nullptr));
       auto got = from_dev(slot.dcw[0], (size_t)1272 * 2 * qm);
       Sym &s = slot.sym[0];
