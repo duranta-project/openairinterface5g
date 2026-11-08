@@ -150,6 +150,17 @@ static int get_nb_re_pusch(NR_DL_FRAME_PARMS *frame_parms,
   return re_pusch;
 }
 
+// DMRS symbol whose channel estimate a symbol uses
+static int pusch_chest_symbol(const PHY_VARS_gNB *gNB, const nfapi_nr_pusch_pdu_t *rel15_ul, int symbol)
+{
+  if (gNB->chest_time == 0)
+    return (rel15_ul->ul_dmrs_symb_pos >> symbol) & 1 ? symbol : get_valid_dmrs_idx_for_channel_est(rel15_ul->ul_dmrs_symb_pos, symbol);
+  // average of channel estimates stored in first symbol
+  return get_next_dmrs_symbol_in_slot(rel15_ul->ul_dmrs_symb_pos,
+                                      rel15_ul->start_symbol_index,
+                                      rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols);
+}
+
 // RB extraction of one symbol (DMRS / PTRS REs removed) with the channel estimate it uses:
 // rxFext [nb_rx][buffer_length], chFext [nb_layer][nb_rx][buffer_length]
 static void pusch_extract_symbol(PHY_VARS_gNB *gNB,
@@ -169,13 +180,7 @@ static void pusch_extract_symbol(PHY_VARS_gNB *gNB,
   int nb_layer = rel15_ul->nrOfLayers;
   int nb_rx_ant = rel15_ul->param_v4.numSpatialStreamIndices;
   int dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
-  int dmrs_symbol;
-  if (gNB->chest_time == 0)
-    dmrs_symbol = dmrs_symbol_flag ? symbol : get_valid_dmrs_idx_for_channel_est(rel15_ul->ul_dmrs_symb_pos, symbol);
-  else { // average of channel estimates stored in first symbol
-    int end_symbol = rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols;
-    dmrs_symbol = get_next_dmrs_symbol_in_slot(rel15_ul->ul_dmrs_symb_pos, rel15_ul->start_symbol_index, end_symbol);
-  }
+  int dmrs_symbol = pusch_chest_symbol(gNB, rel15_ul, symbol);
 
   for (int aarx = 0; aarx < nb_rx_ant; aarx++) {
     for (int aatx = 0; aatx < nb_layer; aatx++) {
@@ -867,50 +872,71 @@ static int irx_detector(nr_pusch_mimo_rx_t rx)
   return rx == NR_PUSCH_RX_MMSE ? NR_IRX_DET_MMSE : rx == NR_PUSCH_RX_ML ? NR_IRX_DET_ML : NR_IRX_DET_LBEST;
 }
 
-// One symbol of the offload batch: RB extraction into the module's staging and the descrambling-sequence slice
+// Allocation REs (channel-estimate indices) that nr_ulsch_extract_rbs keeps on a symbol, in its order; returns their
+// count, or 0 when it keeps them all (the identity)
+static int pusch_data_re_map(const nfapi_nr_pusch_pdu_t *p, int symbol, uint16_t ptrs_symb_pos, uint16_t *map)
+{
+  const int nb_re = NR_NB_SC_PER_RB * p->rb_size;
+  int n = 0;
+  if (IS_BIT_SET(ptrs_symb_pos, symbol)) {
+    const uint k_ptrs = p->pusch_ptrs.ptrs_freq_density;
+    const uint k_rb_ref = get_ptrs_k_RB(p->rb_size, k_ptrs, p->rnti);
+    const uint k_re_ref = p->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset;
+    for (uint rb = 0; rb < p->rb_size; rb++)
+      for (uint k = 0; k < NR_NB_SC_PER_RB; k++)
+        if ((rb - k_rb_ref) % k_ptrs || k != k_re_ref)
+          map[n++] = rb * NR_NB_SC_PER_RB + k;
+    return n;
+  }
+  if (!((p->ul_dmrs_symb_pos >> symbol) & 1))
+    return 0;
+  const int delta = get_delta(get_dmrs_port(0, p->dmrs_ports), p->dmrs_config_type);
+  for (int idx = 0; idx < nb_re; idx++)
+    if (p->dmrs_config_type == pusch_dmrs_type1 ? (idx & 1) == 1 - delta : (idx % 6 != 2 * delta && idx % 6 != 2 * delta + 1))
+      map[n++] = idx;
+  return n;
+}
+
+// One symbol of the offload batch: RX of its data REs and its RE map into the module's staging
 typedef struct {
-  PHY_VARS_gNB *gNB;
-  NR_DL_FRAME_PARMS *frame_parms;
-  NR_gNB_PUSCH *pusch_vars;
   const nfapi_nr_pusch_pdu_t *rel15_ul;
-  c16_t **rxF;
-  const int16_t *scrambling_sequence;
-  c16_t *rxFext_slot, *chFext_slot;
-  int soffset, symbol, buffer_length;
+  c16_t **rxF; // rxdataF of the first antenna port of the PUSCH
+  int offset; // first allocation RE of the symbol in rxF
+  int nb_rx, stride, symbol;
   uint16_t ptrs_symb_pos;
-  c16_t *rx, *ch;
-  int16_t *scr;
+  c16_t *rx;
+  uint16_t *map;
+  int nb_map; // out: RE map length, 0 = identity
+  c16_t *rxFext_slot; // T tracer
   task_ans_t *ans;
 } irx_extract_t;
 
 static void irx_extract_symbol(void *arg)
 {
   irx_extract_t *e = arg;
-  pusch_extract_symbol(e->gNB,
-                       e->frame_parms,
-                       e->pusch_vars,
-                       e->rel15_ul,
-                       e->rxF,
-                       e->soffset,
-                       e->symbol,
-                       e->ptrs_symb_pos,
-                       e->buffer_length,
-                       e->rx,
-                       e->ch,
-                       e->rxFext_slot,
-                       e->chFext_slot);
-  const int nl = e->rel15_ul->nrOfLayers;
-  const uint32_t len = e->pusch_vars->ul_valid_re_per_slot[e->symbol];
-  memcpy(e->scr,
-         e->scrambling_sequence + e->pusch_vars->llr_offset[e->symbol] * nl,
-         sizeof(*e->scr) * len * nl * e->rel15_ul->qam_mod_order);
+  const int nb_re = NR_NB_SC_PER_RB * e->rel15_ul->rb_size;
+  e->nb_map = pusch_data_re_map(e->rel15_ul, e->symbol, e->ptrs_symb_pos, e->map);
+  for (int aarx = 0; aarx < e->nb_rx; aarx++) {
+    const c16_t *src = e->rxF[aarx] + e->offset;
+    c16_t *dst = e->rx + (size_t)aarx * e->stride;
+    if (e->nb_map == 0)
+      memcpy(dst, src, sizeof(*dst) * nb_re);
+    else
+      for (int i = 0; i < e->nb_map; i++)
+        dst[i] = src[e->map[i]];
+  }
+#if T_TRACER
+  if (T_ACTIVE(T_GNB_PHY_UL_FD_PUSCH_IQ))
+    copy_c16_data_to_slot_memory(e->rx, e->rxFext_slot, nb_re, e->symbol);
+#endif
   if (e->ans)
     completed_task_ans(e->ans);
 }
 
-// Inner RX of the symbols marked in off[] on the offload module, one batch: extraction into the module's staging, one
-// thread-pool task per symbol (the last one inline), then the module writes the layer-demapped, descrambled LLRs into
-// ulsch_llrs, as the CPU path does for these symbols.
+// Inner RX of the symbols marked in off[] on the offload module, one batch. Staging: the data REs of each symbol (one
+// thread-pool task per symbol, the last one inline) with its RE map, the channel estimate of each DMRS symbol once, and
+// the packed descrambling bits once; the module then writes the layer-demapped, descrambled LLRs into ulsch_llrs, as
+// the CPU path does for these symbols.
 static int pusch_irx_offload(PHY_VARS_gNB *gNB,
                              nr_irx_ctx_t *ctx,
                              const bool *off,
@@ -919,51 +945,76 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
                              const nfapi_nr_pusch_pdu_t *rel15_ul,
                              const nr_uci_mapping_t *map,
                              int16_t *ulsch_llrs,
-                             const int16_t *scrambling_sequence,
                              int slot,
                              uint16_t ant_port_start,
                              uint16_t ptrs_symb_pos,
                              const c16_t *cpe,
                              uint32_t nvar,
                              int output_shift,
-                             c16_t *rxFext_slot,
-                             c16_t *chFext_slot)
+                             c16_t *rxFext_slot)
 {
   const nr_irx_interface_t *irx = &gNB->irx;
   const int nl = rel15_ul->nrOfLayers, qm = rel15_ul->qam_mod_order;
-  const int buffer_length = ceil_mod(rel15_ul->rb_size * NR_NB_SC_PER_RB, 16);
+  const int nb_rx = rel15_ul->param_v4.numSpatialStreamIndices;
+  const int nb_re = NR_NB_SC_PER_RB * rel15_ul->rb_size;
+  const int stride = ceil_mod(nb_re, 16);
+  const int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
+  const int start_re = (rel15_ul->rb_start + rel15_ul->bwp_start) * NR_NB_SC_PER_RB;
   nr_irx_sym_t sym[NR_IRX_MAX_SYM];
   irx_extract_t ext[NR_IRX_MAX_SYM];
+  int ch_symbol[NR_IRX_MAX_CH], nb_ch = 0;
+  uint32_t nb_bits = 0;
   int n = 0;
   for (int symbol = rel15_ul->start_symbol_index; symbol < rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols; symbol++) {
     if (!off[symbol])
       continue;
-    ext[n] = (irx_extract_t){.gNB = gNB,
-                             .frame_parms = frame_parms,
-                             .pusch_vars = pusch_vars,
-                             .rel15_ul = rel15_ul,
+    // channel estimate of the symbol: staged once per DMRS symbol
+    const int dmrs = pusch_chest_symbol(gNB, rel15_ul, symbol);
+    int c = 0;
+    while (c < nb_ch && ch_symbol[c] != dmrs)
+      c++;
+    if (c == nb_ch) {
+      if (nb_ch == NR_IRX_MAX_CH)
+        return -1;
+      ch_symbol[nb_ch++] = dmrs;
+      c16_t *ch = irx->staging(ctx, c, NR_IRX_STAGING_CH);
+      for (int r = 0; r < nl * nb_rx; r++) // [layer][rx]
+        memcpy(ch + (size_t)r * stride,
+               (c16_t *)pusch_vars->ul_ch_estimates[r] + dmrs * frame_parms->ofdm_symbol_size,
+               sizeof(*ch) * nb_re);
+    }
+    const uint32_t len = pusch_vars->ul_valid_re_per_slot[symbol];
+    const uint32_t bit0 = pusch_vars->llr_offset[symbol] * nl;
+    nb_bits = max(nb_bits, bit0 + len * nl * qm);
+    ext[n] = (irx_extract_t){.rel15_ul = rel15_ul,
                              .rxF = gNB->common_vars.rxdataF + ant_port_start,
-                             .scrambling_sequence = scrambling_sequence,
-                             .rxFext_slot = rxFext_slot,
-                             .chFext_slot = chFext_slot,
-                             .soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size,
+                             .offset = soffset + symbol * frame_parms->ofdm_symbol_size + start_re,
+                             .nb_rx = nb_rx,
+                             .stride = stride,
                              .symbol = symbol,
-                             .buffer_length = buffer_length,
                              .ptrs_symb_pos = ptrs_symb_pos,
                              .rx = irx->staging(ctx, n, NR_IRX_STAGING_RX),
-                             .ch = irx->staging(ctx, n, NR_IRX_STAGING_CH),
-                             .scr = irx->staging(ctx, n, NR_IRX_STAGING_SCRAMBLE)};
+                             .map = irx->staging(ctx, n, NR_IRX_STAGING_REMAP),
+                             .rxFext_slot = rxFext_slot};
     sym[n] = (nr_irx_sym_t){.rxF = ext[n].rx,
-                            .chF = ext[n].ch,
-                            .scramble = ext[n].scr,
+                            .chF = irx->staging(ctx, c, NR_IRX_STAGING_CH),
+                            .scramble = irx->staging(ctx, 0, NR_IRX_STAGING_SCRAMBLE),
+                            .scramble_offset = bit0,
                             .llr_cw = &ulsch_llrs[map->ulsch_offset[symbol]],
-                            .length = pusch_vars->ul_valid_re_per_slot[symbol],
-                            .stride = buffer_length,
+                            .length = len,
+                            .stride = stride,
+                            .ch_stride = stride,
                             .cpe = cpe[symbol]};
     n++;
   }
   if (n == 0)
     return 0;
+  // packed Gold sequence of the codeword (nr_codeword_unscrambling_init), bit n = codeword bit n
+  const uint32_t nb_words = (nb_bits + 31) / 32;
+  memcpy(irx->staging(ctx, 0, NR_IRX_STAGING_SCRAMBLE),
+         gold_cache((rel15_ul->rnti << 15) + rel15_ul->data_scrambling_id, nb_words),
+         sizeof(uint32_t) * nb_words);
+
   task_ans_t ans;
   if (n > 1) // join_task_ans waits even for zero jobs
     init_task_ans(&ans, n - 1);
@@ -975,8 +1026,12 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
   irx_extract_symbol(&ext[n - 1]);
   if (n > 1)
     join_task_ans(&ans);
+  for (int k = 0; k < n; k++)
+    if (ext[k].nb_map == 0)
+      sym[k].re_map = NULL;
+    else
+      sym[k].re_map = ext[k].map;
 
-  const int nb_rx = rel15_ul->param_v4.numSpatialStreamIndices;
   const nr_irx_params_t p = {.nb_layers = nl,
                              .nb_rx = nb_rx,
                              .mod_order = qm,
@@ -1433,15 +1488,13 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                                       &joint_pdu,
                                       &map_uci[0],
                                       pusch_vars_group[0]->ulsch_llrs,
-                                      scrambling_sequences_arr[0],
                                       slot,
                                       ant_port_start,
                                       ptrs_info.ptrs_symbols,
                                       cpe,
                                       nvar,
                                       joint_pv->log2_maxh + layers_attenuation,
-                                      rxFext_slot_mem,
-                                      pusch_ch_est_dmrs_interpl_slot_mem);
+                                      rxFext_slot_mem);
     gNB->irx.release(irx_ctx);
     if (ret != 0) { // the offloaded symbols on the CPU after all
       LOG_E(PHY, "%d.%d inner RX offload failed (%d), symbols processed on the CPU\n", frame, slot, ret);

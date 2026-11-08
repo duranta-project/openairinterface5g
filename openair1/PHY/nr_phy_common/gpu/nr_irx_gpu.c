@@ -17,10 +17,14 @@
 
 struct nr_irx_ctx {
   gpuStream_t st;
-  c16_t *rx, *ch; // staging of NR_IRX_MAX_SYM symbols, host side
-  int16_t *scr, *out;
+  c16_t *rx, *ch; // staging: RX of NR_IRX_MAX_SYM symbols, NR_IRX_MAX_CH channel estimates (host side)
+  uint16_t *map; // RE maps of NR_IRX_MAX_SYM symbols
+  uint32_t *scr; // packed descrambling bits of the batch
+  int16_t *out; // LLR output staging of NR_IRX_MAX_SYM symbols
   c16_t *rx_d, *ch_d; // device aliases
-  int16_t *scr_d, *out_d;
+  uint16_t *map_d;
+  uint32_t *scr_d;
+  int16_t *out_d;
   nr_gpu_det_ws_t *ws;
   bool busy;
 };
@@ -30,7 +34,7 @@ static struct {
   int n;
   int max_nb_rx;
   uint32_t stride; // REs per staging row
-  size_t rx_sz, ch_sz, llr_sz; // elements per symbol
+  size_t rx_sz, ch_sz, llr_sz, scr_sz; // elements per symbol (RX, LLRs), per estimate (CH), per batch (SCRAMBLE words)
   pthread_mutex_t lock;
 } g = {.lock = PTHREAD_MUTEX_INITIALIZER};
 
@@ -59,8 +63,8 @@ int nr_irx_shutdown(void)
 {
   for (int c = 0; c < g.n; c++) {
     nr_irx_ctx_t *x = &g.ctx[c];
-    void *h[4] = {x->rx, x->ch, x->scr, x->out};
-    for (int k = 0; k < 4; k++)
+    void *h[5] = {x->rx, x->ch, x->map, x->scr, x->out};
+    for (int k = 0; k < 5; k++)
       if (h[k])
         (void)gpuFreeHost(h[k]);
     nr_gpu_det_ws_free(x->ws);
@@ -82,6 +86,7 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
   g.rx_sz = (size_t)max_nb_rx * g.stride;
   g.ch_sz = 2 * g.rx_sz;
   g.llr_sz = (size_t)g.stride * 2 * 8;
+  g.scr_sz = NR_IRX_MAX_SYM * g.llr_sz / 32 + 1;
   g.ctx = calloc(nb_ctx, sizeof(*g.ctx));
   if (!g.ctx)
     return -1;
@@ -89,11 +94,12 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
   for (int c = 0; c < nb_ctx; c++) {
     nr_irx_ctx_t *x = &g.ctx[c];
     x->rx = mapped_alloc(NR_IRX_MAX_SYM * g.rx_sz * sizeof(c16_t), (void **)&x->rx_d);
-    x->ch = mapped_alloc(NR_IRX_MAX_SYM * g.ch_sz * sizeof(c16_t), (void **)&x->ch_d);
-    x->scr = mapped_alloc(NR_IRX_MAX_SYM * g.llr_sz * sizeof(int16_t), (void **)&x->scr_d);
+    x->ch = mapped_alloc(NR_IRX_MAX_CH * g.ch_sz * sizeof(c16_t), (void **)&x->ch_d);
+    x->map = mapped_alloc(NR_IRX_MAX_SYM * g.stride * sizeof(uint16_t), (void **)&x->map_d);
+    x->scr = mapped_alloc(g.scr_sz * sizeof(uint32_t), (void **)&x->scr_d);
     x->out = mapped_alloc(NR_IRX_MAX_SYM * g.llr_sz * sizeof(int16_t), (void **)&x->out_d);
     x->ws = nr_gpu_det_ws_alloc(2 * NR_IRX_MAX_SYM * g.stride);
-    if (!x->rx || !x->ch || !x->scr || !x->out || !x->ws || gpuStreamCreateWithFlags(&x->st, gpuStreamNonBlocking) != gpuSuccess) {
+    if (!x->rx || !x->ch || !x->map || !x->scr || !x->out || !x->ws || gpuStreamCreateWithFlags(&x->st, gpuStreamNonBlocking) != gpuSuccess) {
       nr_irx_shutdown();
       return -1;
     }
@@ -130,15 +136,15 @@ void nr_irx_release(nr_irx_ctx_t *ctx)
 
 void *nr_irx_staging(nr_irx_ctx_t *ctx, int k, int which)
 {
-  if (k < 0 || k >= NR_IRX_MAX_SYM)
-    return NULL;
   switch (which) {
     case NR_IRX_STAGING_RX:
-      return ctx->rx + k * g.rx_sz;
+      return k >= 0 && k < NR_IRX_MAX_SYM ? ctx->rx + k * g.rx_sz : NULL;
     case NR_IRX_STAGING_CH:
-      return ctx->ch + k * g.ch_sz;
+      return k >= 0 && k < NR_IRX_MAX_CH ? ctx->ch + k * g.ch_sz : NULL;
+    case NR_IRX_STAGING_REMAP:
+      return k >= 0 && k < NR_IRX_MAX_SYM ? ctx->map + k * g.stride : NULL;
     case NR_IRX_STAGING_SCRAMBLE:
-      return ctx->scr + k * g.llr_sz;
+      return k == 0 ? ctx->scr : NULL;
     default:
       return NULL;
   }
@@ -159,13 +165,15 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
   bool staged[NR_IRX_MAX_SYM];
   for (int k = 0; k < nsym; k++) {
     const nr_irx_sym_t *s = &sym[k];
-    if (s->stride > g.stride || s->length > s->stride)
+    if (s->stride > g.stride || s->ch_stride > g.stride || s->length > s->stride
+        || (s->scramble && s->scramble_offset + s->length * 2 * p->mod_order > g.scr_sz * 32))
       return -1;
     d[k] = *s;
     d[k].rxF = dev_alias(s->rxF, ctx->rx, ctx->rx_d, NR_IRX_MAX_SYM * g.rx_sz * sizeof(c16_t));
-    d[k].chF = dev_alias(s->chF, ctx->ch, ctx->ch_d, NR_IRX_MAX_SYM * g.ch_sz * sizeof(c16_t));
-    d[k].scramble = s->scramble ? dev_alias(s->scramble, ctx->scr, ctx->scr_d, NR_IRX_MAX_SYM * g.llr_sz * sizeof(int16_t)) : NULL;
-    if (!d[k].rxF || !d[k].chF || (s->scramble && !d[k].scramble))
+    d[k].chF = dev_alias(s->chF, ctx->ch, ctx->ch_d, NR_IRX_MAX_CH * g.ch_sz * sizeof(c16_t));
+    d[k].re_map = s->re_map ? dev_alias(s->re_map, ctx->map, ctx->map_d, NR_IRX_MAX_SYM * g.stride * sizeof(uint16_t)) : NULL;
+    d[k].scramble = s->scramble ? dev_alias(s->scramble, ctx->scr, ctx->scr_d, g.scr_sz * sizeof(uint32_t)) : NULL;
+    if (!d[k].rxF || !d[k].chF || (s->re_map && !d[k].re_map) || (s->scramble && !d[k].scramble))
       return -1; // inputs must be in this context's staging
     // the codeword slice directly if it is mapped pinned memory, else this symbol's output staging
     void *cw = NULL;
