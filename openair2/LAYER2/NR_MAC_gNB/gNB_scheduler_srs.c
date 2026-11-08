@@ -526,6 +526,7 @@ static void nr_fill_nfapi_srs(gNB_MAC_INST *nrmac,
 void nr_schedule_srs(int module_id, frame_t frame, int slot)
  {
   gNB_MAC_INST *nrmac = RC.nrmac[module_id];
+  return;
 
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
   NR_SCHED_ENSURE_LOCKED(&nrmac->sched_lock);
