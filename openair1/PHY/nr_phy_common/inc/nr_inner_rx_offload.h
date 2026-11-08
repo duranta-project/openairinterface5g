@@ -42,7 +42,10 @@ typedef struct {
   c16_t cpe; ///< PTRS common phase error, (32767, 0) without PTRS
 } nr_irx_sym_t;
 
-/// detector: 2-layer MMSE, L-best, full ML (the LLR units of nr_compute_MMSE_llr / nr_compute_ML_llr)
+/// detector: 2-layer MMSE, L-best, full ML (the LLR units of nr_compute_MMSE_llr / nr_compute_ML_llr). A module picks
+/// its own metric precision within these units: the _gpu module runs the 256QAM L-best with the fp32 metric (the CPU
+/// receiver with pusch_mimo_hires) whatever pusch_mimo_hires says, as fp32 costs it nothing extra, so it decodes 256QAM
+/// ~0.2-0.6 dB better than the default CPU receiver.
 enum { NR_IRX_DET_MMSE = 0, NR_IRX_DET_LBEST = 1, NR_IRX_DET_ML = 3 };
 /// staging buffers, index k: RX of batch symbol k [nb_rx][stride] (k < NR_IRX_MAX_SYM), CH estimate k
 /// [2][nb_rx][stride] (k < NR_IRX_MAX_CH), REMAP of symbol k [stride] uint16, SCRAMBLE packed bits of the batch (k = 0,
