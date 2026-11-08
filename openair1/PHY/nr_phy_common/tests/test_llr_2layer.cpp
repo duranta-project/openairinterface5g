@@ -49,6 +49,7 @@ void nr_qam64_llr_2layer_lbest_f32_simd_w256(c16_t *, c16_t *, c16_t *, c16_t *,
 void nr_llr_2layer_mmse_simd_w128(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_simd_w256(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_ref(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
+void nr_channel_compensation(uint32_t, uint32_t, int, int, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t **, c16_t *, c16_t, int, uint32_t, uint32_t);
 #if defined(__AVX512BW__) && defined(__AVX512VL__) && defined(__AVX512F__)
 void nr_qam64_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
@@ -572,6 +573,84 @@ TEST(test_llr_2layer, lbest_adaptive_window)
         EXPECT_EQ(0u, bad) << "adaptive window, Qm=" << qm << " width " << (128 << w) << " lambda=" << lambda;
       }
     }
+}
+
+// End to end from the transmitted QPSK symbols on noiseless flat 2x2 i.i.d. Rayleigh channels: production channel
+// compensation (MRC + Gram) at the gNB's 2-layer input level (nr_2layer_log2_maxh of the strongest antenna / layer
+// energy), then the MMSE and ML receivers; every LLR sign must match its transmitted bit (positive LLR: positive axis).
+// Near-singular draws are skipped: there the MMSE is legitimately wrong. A layer far weaker than the one that sets the
+// input level is quantized to a few LSBs, so LLRs within +-2 of zero count as erasures, not errors.
+TEST(test_llr_2layer, flat_2x2_qpsk_signs)
+{
+  const uint32_t n = 256;
+  const int nb_rx = 2;
+  std::mt19937 rng(0xF1A7u);
+  std::normal_distribution<double> g(0, 1500);
+  std::uniform_int_distribution<int> bit(0, 1);
+  AlignedVector512<c16_t> rxF(nb_rx * n), chF(2 * nb_rx * n), mag(2 * n), magb(2 * n), magc(2 * n), comp(2 * n), rho(4 * n);
+  AlignedVector512<int16_t> llr0(n * 2 + 64), llr1(n * 2 + 64);
+  std::vector<c16_t> x[2] = {std::vector<c16_t>(n), std::vector<c16_t>(n)};
+  uint32_t err_mmse = 0, err_ml = 0, zero_mmse = 0, zero_ml = 0, ntrials = 0;
+  for (int trial = 0; trial < 200; trial++) {
+    double h[2][2][2]; // [rx][layer][re/im]
+    for (auto &r : h)
+      for (auto &l : r)
+        for (auto &c : l)
+          c = g(rng);
+    double p[2] = {0, 0}, cr = 0, ci = 0;
+    int avgs = 0;
+    for (int a = 0; a < nb_rx; a++) {
+      for (int l = 0; l < 2; l++) {
+        const double e = h[a][l][0] * h[a][l][0] + h[a][l][1] * h[a][l][1];
+        p[l] += e;
+        avgs = std::max(avgs, (int)e);
+      }
+      cr += h[a][0][0] * h[a][1][0] + h[a][0][1] * h[a][1][1];
+      ci += h[a][0][0] * h[a][1][1] - h[a][0][1] * h[a][1][0];
+    }
+    if ((cr * cr + ci * ci) / (p[0] * p[1]) > 0.9)
+      continue;
+    ntrials++;
+    const int shift = nr_2layer_log2_maxh(avgs) + nr_ml_llr_maxh_off(2, 0);
+    for (uint32_t i = 0; i < n; i++)
+      for (int l = 0; l < 2; l++)
+        x[l][i] = {(int16_t)(bit(rng) ? -1 : 1), (int16_t)(bit(rng) ? -1 : 1)};
+    for (int a = 0; a < nb_rx; a++)
+      for (uint32_t i = 0; i < n; i++) {
+        double yr = 0, yi = 0;
+        for (int l = 0; l < 2; l++) {
+          chF[(l * nb_rx + a) * n + i] = {(int16_t)lrint(h[a][l][0]), (int16_t)lrint(h[a][l][1])};
+          yr += M_SQRT1_2 * (h[a][l][0] * x[l][i].r - h[a][l][1] * x[l][i].i);
+          yi += M_SQRT1_2 * (h[a][l][0] * x[l][i].i + h[a][l][1] * x[l][i].r);
+        }
+        rxF[a * n + i] = {(int16_t)lrint(yr), (int16_t)lrint(yi)};
+      }
+    c16_t *rxComp[2] = {comp.data(), comp.data() + n};
+    nr_channel_compensation(n, n, nb_rx, 2, rxF.data(), chF.data(), mag.data(), magb.data(), magc.data(), rxComp, rho.data(),
+                            (c16_t){32767, 0}, 2, 0, shift);
+    c16_t *r00 = rho.data(), *r01 = rho.data() + n, *r10 = rho.data() + 2 * n, *r11 = rho.data() + 3 * n;
+    const float lambda = nr_2layer_seed_lambda(100, shift);
+    // |LLR| <= 2: erasure (quantization level), not an error
+    auto count = [&](uint32_t &err, uint32_t &zero) {
+      for (uint32_t i = 0; i < n; i++)
+        for (int l = 0; l < 2; l++) {
+          const int16_t *o = (l ? llr1.data() : llr0.data()) + 2 * i;
+          const int16_t tx[2] = {x[l][i].r, x[l][i].i};
+          for (int k = 0; k < 2; k++) {
+            zero += abs(o[k]) <= 2;
+            err += abs(o[k]) > 2 && (o[k] > 0) != (tx[k] > 0);
+          }
+        }
+    };
+    nr_compute_MMSE_llr(rxComp[0], rxComp[1], r00, r01, r10, r11, llr0.data(), llr1.data(), n, 2, lambda);
+    count(err_mmse, zero_mmse);
+    nr_compute_ML_llr(rxComp[0], rxComp[1], mag.data(), mag.data() + n, llr0.data(), llr1.data(), r01, r10, n, 2, 0, lambda);
+    count(err_ml, zero_ml);
+  }
+  ASSERT_GT(ntrials, 150u);
+  fprintf(stderr, "[  FLAT ] %u channels: erasures ML %u MMSE %u of %u LLRs\n", ntrials, zero_ml, zero_mmse, ntrials * n * 4);
+  EXPECT_EQ(0u, err_ml) << "ML";
+  EXPECT_EQ(0u, err_mmse) << "MMSE";
 }
 
 int main(int argc, char **argv)

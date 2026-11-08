@@ -278,6 +278,11 @@ int main(int argc, char *argv[])
           DS_TDL = 0.300; // 300 ns
           printf("Channel model: TDLC300\n");
           break;
+        case 'R':
+          // Rayleigh1 itself is a line-of-sight (rank 1) channel: Rayleigh1_800 is the flat i.i.d. Rayleigh one
+          channel_model = Rayleigh1_800;
+          printf("Channel model: flat i.i.d. Rayleigh\n");
+          break;
         default:
           printf("Unsupported channel model!\n");
           exit(-1);
@@ -542,7 +547,7 @@ int main(int argc, char *argv[])
       printf("          (none)  No optional features were compiled into this executable\n");
 #endif
       printf("-F Input filename (.txt format) for RX conformance testing\n");
-      printf("-g Channel model configuration. Arguments list: Number of arguments = 3, {Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300}, {Correlation: [l] Low, [m] Medium, [h] High}, {Maximum Doppler shift} e.g. -g A,l,10\n");
+      printf("-g Channel model configuration. Arguments list: Number of arguments = 3, {Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300, [R] flat Rayleigh}, {Correlation: [l] Low, [m] Medium, [h] High}, {Maximum Doppler shift} e.g. -g A,l,10\n");
       printf("-G Offset of samples to read from file (0 default)\n");
       printf("-h This message\n");
       printf("-H Slot number\n");
