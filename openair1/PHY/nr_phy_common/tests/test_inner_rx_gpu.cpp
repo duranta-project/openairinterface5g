@@ -224,8 +224,9 @@ std::vector<int16_t> cpu_chain(Sym &s, int nb_rx, c16_t cpe, int qm, int det, fl
   return cw;
 }
 
-// GPU layout of a batch: odd symbols read their channel through a random RE map into a larger estimate (as DMRS / PTRS
-// symbols do), even ones directly; the descrambling bits are packed for the whole batch, the symbols at odd offsets
+// GPU layout of a batch: odd symbols gather their RX (rx_ant, as from rxdataF) and channel through a random RE map into
+// a larger allocation (as DMRS / PTRS symbols do), even ones read the extracted RX and the channel directly; the
+// descrambling bits are packed for the whole batch, the symbols at odd offsets
 struct Slot {
   std::vector<Sym> sym;
   std::vector<c16_t *> drx, dch;
@@ -252,7 +253,7 @@ struct Slot {
       const Sym &y = sym[k];
       const int nb_rx = y.rxF.size() / y.stride;
       uint32_t ch_stride = y.stride;
-      AlignedVector512<c16_t> full = y.chF;
+      AlignedVector512<c16_t> full = y.chF, rx_full;
       uint16_t *map = nullptr;
       if (k & 1) { // the REs of the symbol are a sorted random subset of a 1.25x larger allocation
         const uint32_t nfull = y.length + y.length / 4;
@@ -267,13 +268,18 @@ struct Slot {
         for (int r = 0; r < 2 * nb_rx; r++)
           for (uint32_t i = 0; i < y.length; i++)
             full[(size_t)r * ch_stride + m[i]] = y.chF[(size_t)r * y.stride + i];
+        rx_full.assign((size_t)nb_rx * ch_stride, c16_t{-777, 555});
+        for (int a = 0; a < nb_rx; a++)
+          for (uint32_t i = 0; i < y.length; i++)
+            rx_full[(size_t)a * ch_stride + m[i]] = y.rxF[(size_t)a * y.stride + i];
         map = to_dev(m);
       }
-      drx.push_back(to_dev(y.rxF));
+      drx.push_back(to_dev(map ? rx_full : y.rxF));
       dch.push_back(to_dev(full));
       dmap.push_back(map);
       dcw.push_back(to_dev(AlignedVector512<int16_t>((size_t)y.length * 2 * qm, 0x5a5a)));
-      desc.push_back({.rxF = drx[k],
+      desc.push_back({.rx_ant = {},
+                      .rxF = map ? nullptr : drx[k],
                       .chF = dch[k],
                       .re_map = map,
                       .scramble = dscr,
@@ -283,6 +289,9 @@ struct Slot {
                       .stride = y.stride,
                       .ch_stride = ch_stride,
                       .cpe = cpe[k]});
+      if (map)
+        for (int a = 0; a < nb_rx; a++)
+          desc.back().rx_ant[a] = drx[k] + (size_t)a * ch_stride;
     }
   }
   ~Slot()

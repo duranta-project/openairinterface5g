@@ -29,7 +29,15 @@ struct nr_irx_ctx {
   bool busy;
 };
 
+#define NRG_MAX_REGIONS 32
+
 static struct {
+  struct {
+    const char *h;
+    size_t bytes;
+    char *d;
+  } region[NRG_MAX_REGIONS]; // host memory registered with nr_irx_register_host (rxdataF) and its device alias
+  int nb_region;
   nr_irx_ctx_t *ctx;
   int n;
   int max_nb_rx;
@@ -74,7 +82,56 @@ int nr_irx_shutdown(void)
   free(g.ctx);
   g.ctx = NULL;
   g.n = 0;
+  for (int r = 0; r < g.nb_region; r++)
+    (void)gpuHostUnregister((void *)g.region[r].h);
+  g.nb_region = 0;
   return 0;
+}
+
+int nr_irx_register_host(const void *ptr, size_t bytes)
+{
+#if defined(GPU_USE_HIP)
+  // On the Radeon 8060S the kernel reads registered pageable memory ~10x slower than the hipHostMalloc staging, whatever
+  // the registration flags: the RX goes through the staging
+  (void)ptr;
+  (void)bytes;
+  return 1;
+#endif
+  int ret = 0;
+  pthread_mutex_lock(&g.lock);
+  int r = 0;
+  while (r < g.nb_region && g.region[r].h != ptr)
+    r++;
+  if (r == g.nb_region) {
+    void *d = NULL;
+    if (r == NRG_MAX_REGIONS || gpuHostRegister((void *)ptr, bytes, gpuHostRegisterMapped) != gpuSuccess)
+      ret = -1;
+    else if (gpuHostGetDevicePointer(&d, (void *)ptr, 0) != gpuSuccess) {
+      (void)gpuHostUnregister((void *)ptr);
+      ret = -1;
+    } else {
+      g.region[r].h = ptr;
+      g.region[r].bytes = bytes;
+      g.region[r].d = d;
+      g.nb_region++;
+    }
+  } else if (g.region[r].bytes < bytes) {
+    ret = -1; // registered smaller
+  }
+  pthread_mutex_unlock(&g.lock);
+  return ret;
+}
+
+// device alias of a pointer into registered host memory, NULL if outside
+static const void *region_alias(const void *h)
+{
+  const void *d = NULL;
+  pthread_mutex_lock(&g.lock);
+  for (int r = 0; r < g.nb_region && !d; r++)
+    if ((const char *)h >= g.region[r].h && (const char *)h < g.region[r].h + g.region[r].bytes)
+      d = g.region[r].d + ((const char *)h - g.region[r].h);
+  pthread_mutex_unlock(&g.lock);
+  return d;
 }
 
 int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
@@ -169,11 +226,20 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
         || (s->scramble && s->scramble_offset + s->length * 2 * p->mod_order > g.scr_sz * 32))
       return -1;
     d[k] = *s;
-    d[k].rxF = dev_alias(s->rxF, ctx->rx, ctx->rx_d, NR_IRX_MAX_SYM * g.rx_sz * sizeof(c16_t));
+    if (s->rx_ant[0]) { // RX gathered on the device from registered rxdataF
+      if (p->nb_rx > NR_IRX_MAX_RX)
+        return -1;
+      for (int a = 0; a < p->nb_rx; a++)
+        if (!(d[k].rx_ant[a] = region_alias(s->rx_ant[a])))
+          return -1;
+      d[k].rxF = NULL;
+    } else if (!(d[k].rxF = dev_alias(s->rxF, ctx->rx, ctx->rx_d, NR_IRX_MAX_SYM * g.rx_sz * sizeof(c16_t)))) {
+      return -1;
+    }
     d[k].chF = dev_alias(s->chF, ctx->ch, ctx->ch_d, NR_IRX_MAX_CH * g.ch_sz * sizeof(c16_t));
     d[k].re_map = s->re_map ? dev_alias(s->re_map, ctx->map, ctx->map_d, NR_IRX_MAX_SYM * g.stride * sizeof(uint16_t)) : NULL;
     d[k].scramble = s->scramble ? dev_alias(s->scramble, ctx->scr, ctx->scr_d, g.scr_sz * sizeof(uint32_t)) : NULL;
-    if (!d[k].rxF || !d[k].chF || (s->re_map && !d[k].re_map) || (s->scramble && !d[k].scramble))
+    if (!d[k].chF || (s->re_map && !d[k].re_map) || (s->scramble && !d[k].scramble))
       return -1; // inputs must be in this context's staging
     // the codeword slice directly if it is mapped pinned memory, else this symbol's output staging
     void *cw = NULL;

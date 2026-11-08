@@ -126,6 +126,9 @@ typedef cudaEvent_t    gpuEvent_t;
 #define gpuEventSynchronize    hipEventSynchronize
 #define gpuEventElapsedTime    hipEventElapsedTime
 #define gpuMallocManaged       hipMallocManaged
+#define gpuHostRegister        hipHostRegister
+#define gpuHostUnregister      hipHostUnregister
+#define gpuHostRegisterMapped  hipHostRegisterMapped
 #define gpuMemcpyDeviceToDevice hipMemcpyDeviceToDevice
 
 #define gpuGraph_t             hipGraph_t
@@ -177,6 +180,9 @@ typedef cudaEvent_t    gpuEvent_t;
 #define gpuEventSynchronize    cudaEventSynchronize
 #define gpuEventElapsedTime    cudaEventElapsedTime
 #define gpuMallocManaged       cudaMallocManaged
+#define gpuHostRegister        cudaHostRegister
+#define gpuHostUnregister      cudaHostUnregister
+#define gpuHostRegisterMapped  cudaHostRegisterMapped
 #define gpuMemcpyDeviceToDevice cudaMemcpyDeviceToDevice
 
 #define gpuGraph_t             cudaGraph_t
