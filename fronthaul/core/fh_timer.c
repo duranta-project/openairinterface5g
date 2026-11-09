@@ -39,7 +39,7 @@ static void fh_timer_seed_from_now(fh_timer_t *timer)
 {
   uint64_t total_syms_per_ms = 14 << timer->numerology;
   uint64_t gps_now = timer->get_gps_ns();
-  typedef __int128_t int128;
+  typedef unsigned __int128 int128;
   uint64_t s_abs = (uint64_t)((int128)gps_now * total_syms_per_ms / NS_PER_MS);
   rte_atomic64_set(&timer->s_abs, s_abs);
   timer->next_s_abs = s_abs + 1;
@@ -53,7 +53,7 @@ void fh_timer_tick(fh_timer_t *timer)
 
   uint64_t now = timer->get_gps_ns();
   if (now >= timer->target_gps_ns) {
-    typedef __int128_t int128;
+    typedef unsigned __int128 int128;
     uint64_t total_syms_per_ms = 14 << timer->numerology;
 
     // 1. Calculate how many symbols *should* have elapsed up to 'now'
@@ -130,7 +130,7 @@ uint64_t fh_timer_get_current_symbol(fh_timer_t *timer)
 {
   uint64_t gps_now = timer->get_gps_ns();
 
-  typedef __int128_t int128;
+  typedef unsigned __int128 int128;
   uint64_t total_syms_per_ms = 14 << timer->numerology;
 
   uint64_t cur_s_abs = (uint64_t)((int128)gps_now * total_syms_per_ms / NS_PER_MS);

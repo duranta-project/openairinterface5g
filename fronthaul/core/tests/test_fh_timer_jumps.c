@@ -165,7 +165,7 @@ int main(int argc, char **argv)
   mock_time.tv_sec = 1718000000;
   mock_time.tv_nsec = 500000; // 0.5 ms
   uint64_t cur_sym = fh_timer_get_current_symbol(&timer);
-  typedef __int128_t int128;
+  typedef unsigned __int128 int128;
   uint64_t expected_sym =
       (uint64_t)((((int128)1718000000 - GPS_EPOCH_OFFSET_UNIX + GPS_LEAP_SECONDS) * NS_PER_SEC + 500000) * 28 / 1000000);
   if (cur_sym != expected_sym) {
