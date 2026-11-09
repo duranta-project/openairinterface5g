@@ -1413,14 +1413,16 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   stop_meas(&gNB->rx_pusch_init_stats);
 
   start_meas(&gNB->rx_pusch_symbol_processing_stats);
-  // Inner-RX offload: the 2-layer data symbols of a single UE that carry no UCI (those whose codeword LLRs the CPU path
-  // also writes directly) go to the module in one batch while the CPU tasks below process the others.
+  // Inner-RX offload: the 1- or 2-layer data symbols of a single UE that carry no UCI (those whose codeword LLRs the CPU
+  // path also writes directly) go to the module in one batch while the CPU tasks below process the others. Transform
+  // precoding stays on the CPU (frequency equalization and IDFT between compensation and LLRs).
   const int layers_attenuation = total_layers ? log2_approx(max_ch >> 11) : 0;
   bool irx_off[NR_SYMBOLS_PER_SLOT] = {false};
   nr_irx_ctx_t *irx_ctx = NULL;
   const int nb_rx_ref = rel15_ul_ref->param_v4.numSpatialStreamIndices;
-  if (gNB->irx.run && group_size == 1 && rel15_ul_ref->nrOfLayers == 2
-      && gNB->irx.supported(2,
+  const int irx_nl = rel15_ul_ref->nrOfLayers;
+  if (gNB->irx.run && group_size == 1 && (irx_nl == 2 || (irx_nl == 1 && rel15_ul_ref->transform_precoding != transformPrecoder_enabled))
+      && gNB->irx.supported(irx_nl,
                             nb_rx_ref,
                             rel15_ul_ref->qam_mod_order,
                             irx_detector(nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul_ref->qam_mod_order, nb_rx_ref)))

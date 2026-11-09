@@ -16,9 +16,9 @@ extern "C" {
 
 /**
  * Inner-RX offload modules: lib inner_rx<version>.so, selected with --loader.inner_rx.shlibversion <version> (_gpu:
- * CUDA/HIP; other accelerators implement the same entry points). A module runs the 2-layer PUSCH inner RX of a batch of
- * symbols: matched filter with the PTRS common phase error, Gram, detector, layer demap and descrambling into the
- * codeword LLRs. The PHY extracts each symbol into staging buffers the module hands out, so the module chooses their
+ * CUDA/HIP; other accelerators implement the same entry points). A module runs the single-layer or 2-layer PUSCH inner
+ * RX of a batch of symbols: matched filter with the PTRS common phase error, then the single-layer LLRs or the Gram,
+ * detector and layer demap, and descrambling into the codeword LLRs. The PHY extracts each symbol into staging buffers the module hands out, so the module chooses their
  * memory (pinned, buffer objects, ...); what supported() declines stays on the CPU.
  */
 
@@ -31,11 +31,11 @@ typedef struct {
   const c16_t *rx_ant[NR_IRX_MAX_RX]; ///< the symbol's first allocation RE in each antenna's rxdataF, in memory registered with
                                       ///< register_host: the module gathers its data REs through re_map; rx_ant[0] NULL: rxF
   const c16_t *rxF; ///< or the extracted RX [nb_rx][stride] in the RX staging
-  const c16_t *chF; ///< channel estimates over the allocation [2][nb_rx][ch_stride], shared by the symbols of a DMRS
+  const c16_t *chF; ///< channel estimates over the allocation [nb_layers][nb_rx][ch_stride], shared by the symbols of a DMRS
   const uint16_t *re_map; ///< chF index (allocation RE) of each extracted RE, or NULL: the identity
   const uint32_t *scramble; ///< packed descrambling bits of the codeword (bit n: word n / 32, bit n % 32; 1 negates), or NULL
   uint32_t scramble_offset; ///< codeword bit of this symbol's first LLR
-  int16_t *llr_cw; ///< codeword slice: layer-demapped LLRs (per RE: layer 0 then layer 1), length * 2 * Qm
+  int16_t *llr_cw; ///< codeword slice: layer-demapped LLRs (per RE: layer 0 then layer 1), length * nb_layers * Qm
   uint32_t length; ///< REs of this symbol (< 65536)
   uint32_t stride; ///< row stride of rxF
   uint32_t ch_stride; ///< row stride of chF
@@ -48,7 +48,7 @@ typedef struct {
 /// ~0.2-0.6 dB better than the default CPU receiver.
 enum { NR_IRX_DET_MMSE = 0, NR_IRX_DET_LBEST = 1, NR_IRX_DET_ML = 3 };
 /// staging buffers, index k: RX of batch symbol k [nb_rx][stride] (k < NR_IRX_MAX_SYM), CH estimate k
-/// [2][nb_rx][stride] (k < NR_IRX_MAX_CH), REMAP of symbol k [stride] uint16, SCRAMBLE packed bits of the batch (k = 0,
+/// [nb_layers][nb_rx][stride] (k < NR_IRX_MAX_CH), REMAP of symbol k [stride] uint16, SCRAMBLE packed bits of the batch (k = 0,
 /// NR_IRX_MAX_SYM * stride * 16 bits)
 enum { NR_IRX_STAGING_RX = 0, NR_IRX_STAGING_CH, NR_IRX_STAGING_REMAP, NR_IRX_STAGING_SCRAMBLE };
 
@@ -56,7 +56,7 @@ typedef struct {
   int nb_layers;
   int nb_rx;
   int mod_order;
-  int detector;
+  int detector; ///< 2 layers only
   int output_shift; ///< log2_maxh of the matched filter
   float lambda; ///< noise variance >> output_shift (nr_2layer_seed_lambda)
 } nr_irx_params_t;

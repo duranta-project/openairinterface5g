@@ -214,9 +214,10 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
 
 bool nr_irx_supported(int nb_layers, int nb_rx, int mod_order, int detector)
 {
-  return nb_layers == 2 && nb_rx >= 1 && nb_rx <= g.max_nb_rx
+  // single layer: the detector is not used
+  return (nb_layers == 1 || nb_layers == 2) && nb_rx >= 1 && nb_rx <= g.max_nb_rx
          && (mod_order == 2 || mod_order == 4 || mod_order == 6 || mod_order == 8)
-         && (detector == NR_IRX_DET_MMSE || detector == NR_IRX_DET_LBEST || detector == NR_IRX_DET_ML);
+         && (nb_layers == 1 || detector == NR_IRX_DET_MMSE || detector == NR_IRX_DET_LBEST || detector == NR_IRX_DET_ML);
 }
 
 nr_irx_ctx_t *nr_irx_acquire(void)
@@ -271,7 +272,7 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
   for (int k = 0; k < nsym; k++) {
     const nr_irx_sym_t *s = &sym[k];
     if (s->stride > g.stride || s->ch_stride > g.stride || s->length > s->stride
-        || (s->scramble && s->scramble_offset + s->length * 2 * p->mod_order > g.scr_sz * 32))
+        || (s->scramble && s->scramble_offset + s->length * p->nb_layers * p->mod_order > g.scr_sz * 32))
       return -1;
     d[k] = *s;
     if (s->rx_ant[0]) { // RX gathered on the device from registered rxdataF
@@ -298,11 +299,12 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
     }
     d[k].llr_cw = cw;
   }
-  int ret = nr_gpu_inner_rx_2layer(d, nsym, p->nb_rx, p->mod_order, p->detector, p->lambda, p->output_shift, ctx->ws, ctx->st);
+  int ret = p->nb_layers == 1 ? nr_gpu_inner_rx_1layer(d, nsym, p->nb_rx, p->mod_order, p->output_shift, ctx->ws, ctx->st)
+                              : nr_gpu_inner_rx_2layer(d, nsym, p->nb_rx, p->mod_order, p->detector, p->lambda, p->output_shift, ctx->ws, ctx->st);
   if (gpuStreamSynchronize(ctx->st) != gpuSuccess)
     ret = -1;
   for (int k = 0; k < nsym && ret == 0; k++)
     if (staged[k])
-      memcpy(sym[k].llr_cw, ctx->out + k * g.llr_sz, (size_t)sym[k].length * 2 * p->mod_order * sizeof(int16_t));
+      memcpy(sym[k].llr_cw, ctx->out + k * g.llr_sz, (size_t)sym[k].length * p->nb_layers * p->mod_order * sizeof(int16_t));
   return ret;
 }
