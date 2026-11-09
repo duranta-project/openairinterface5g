@@ -53,7 +53,6 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
   mac->msg3_C_RNTI = false;
   mac->sr_fallback_ra_triggered = false;
   mac->phy_config.config_req.ntn_config.params_changed = false;
-  initNotifiedFIFO(&mac->input_nf);
   reset_mac_inst(mac);
 
   // need to inizialize because might not been setup (optional timer)
@@ -123,6 +122,7 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int instance_id, int numerology, int rx2tx_capab
   mac->ue_id = instance_id;
   mac->numerology = numerology;
   mac->rx2tx_capability = rx2tx_capability;
+  initNotifiedFIFO(&mac->input_nf);
   nr_ue_init_mac(mac);
   int ret = pthread_mutex_init(&mac->if_mutex, NULL);
   AssertFatal(ret == 0, "Mutex init failed\n");
