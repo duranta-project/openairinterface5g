@@ -55,6 +55,7 @@ static unsigned int max_chan = 0;
 static channel_desc_t **defined_channels = NULL;
 static char *modellist_name = NULL;
 static int noise_power_dBFS = INVALID_DBFS_VALUE;
+static int use_orbital = 0;
 
 static const double default_amps_lin[] = {0.3868472, 0.3094778, 0.1547389, 0.0773694, 0.0386847, 0.0193424, 0.0096712, 0.0038685};
 static const double default_amp_lin[] = {1};
@@ -1683,6 +1684,11 @@ int load_channellist(uint8_t nb_tx, uint8_t nb_rx, double sampling_rate, uint64_
 
 int get_noise_power_dBFS(void) {
   return noise_power_dBFS;
+}
+
+int get_use_orbital(void)
+{
+  return use_orbital;
 }
 
 #ifdef RANDOM_CHANNEL_MAIN

@@ -119,7 +119,7 @@ void update_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t T
 
       if (TS / (unsigned int)channelDesc->sampling_rate != (TS + nbSamples) / (unsigned int)channelDesc->sampling_rate) {
         LOG_I(HW,
-              "Satellite orbit: time %f s, Position = (%f, %f, %f), Velocity = (%f, %f, %f)\n",
+              "Satellite orbits: time %f s, Position = (%f, %f, %f), Velocity = (%f, %f, %f)\n",
               t,
               pos_sat_x,
               pos_sat_y,
@@ -146,7 +146,18 @@ void update_channel_model(channel_desc_t *channelDesc, int nbSamples, uint64_t T
             .velocity.X = vel_sat_x / 0.06,
             .velocity.Y = vel_sat_y / 0.06,
             .velocity.Z = vel_sat_z / 0.06,
+
+			// Initial Keplerian angles chosen so that the standard orbit-to-ECI
+			// transformation reduces to the Cartesian trajectory y = r*sin(M), z = r*cos(M).
+            .use_orbital = get_use_orbital(),
+            .semi_major_axis = radius_sat,
+            .eccentricity = 0.0,
+            .periapsis = M_PI / 2.0,
+            .longitude = 3.0 * M_PI / 2.0,
+            .inclination = M_PI / 2.0,
+            .mean_anomaly = fmod(w_sat * t, 2.0 * M_PI),
         };
+
         // Here we update the SIB19 information directly in the gNB MAC layer.
         // Without rf-simulaor, in a real system or with an external channel emulator, the SIB19 updates would
         // be provided via an external interface (e.g. O-RAN E2 interface) to the MAC layer (in the O-DU).
