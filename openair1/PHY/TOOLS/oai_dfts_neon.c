@@ -7150,10 +7150,9 @@ FOREACH_IDFTSZ(DEFINE_MIXED_IDFT)
 
 /* OAI initialization entry point. Common NEON tables are prepared once;
  * SVE2 tables and per-size mixed-radix plans remain lazy. */
-int dfts_autoinit(void)
+void dfts_autoinit(void *arg)
 {
   ensure_backend_prepared();
-  return 0;
 }
 
 /* OAI indexed DFT/IDFT entry points. */

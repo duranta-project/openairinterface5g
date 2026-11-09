@@ -71,7 +71,7 @@ static void *scope_thread_eNB(void *arg) {
 }
 
 
-int enbscope_autoinit(void) {
+void enbscope_autoinit(void *arg) {
   int UE_id;
   printf("XFORMS\n");
   int argc=config_get_if()->argc;
@@ -104,7 +104,6 @@ int enbscope_autoinit(void) {
     pthread_setname_np( forms_thread, "xforms" );
 
   printf("Scope thread created, ret=%d\n",ret);
-  return 0;
 } // start_forms_eNB
 
 
