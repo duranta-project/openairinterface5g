@@ -507,12 +507,16 @@ static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
 
       case UL_SCH_LCID_SRB1:
       case UL_SCH_LCID_SRB2:
-        AssertFatal(UE->CellGroup,
-                    "UE %04x %d.%d: Received LCID %d which is not configured (UE has no CellGroup)\n",
-                    UE->rnti,
-                    frameP,
-                    slot,
-                    lcid);
+        if (!UE->CellGroup) {
+          LOG_W(NR_MAC,
+                "UE %04x %d.%d: Received LCID %d which is not configured (UE has no CellGroup), ignoring %d bytes\n",
+                UE->rnti,
+                frameP,
+                slot,
+                lcid,
+                mac_len);
+          break;
+        }
 
         const nr_lc_config_t *srbc = nr_mac_get_lc_config(sched_ctrl, lcid);
         if (!srbc || srbc->suspended) {
