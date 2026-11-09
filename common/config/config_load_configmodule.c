@@ -113,9 +113,14 @@ static int load_config_sharedlib(configmodule_interface_t *cfgptr)
 }
 /*-----------------------------------------------------------------------------------*/
 /* from here: interface implementtion of the configuration module */
-int nooptfunc(void) {
+static int config_cmdlineonly_init(configmodule_interface_t *cfg)
+{
   return 0;
-};
+}
+
+static void config_cmdlineonly_end(configmodule_interface_t *cfg)
+{
+}
 
 int config_cmdlineonly_getlist(configmodule_interface_t *cfg,
                                paramlist_def_t *ParamList,
@@ -363,10 +368,10 @@ configmodule_interface_t *load_configmodule(int argc,
       cfgptr->rtflags = cfgptr->rtflags | CONFIG_HELP | CONFIG_ABORT;
     }
   } else {
-    cfgptr->init = (configmodule_initfunc_t)nooptfunc;
+    cfgptr->init = config_cmdlineonly_init;
     cfgptr->get = config_cmdlineonly_get;
     cfgptr->getlist = config_cmdlineonly_getlist;
-    cfgptr->end = (configmodule_endfunc_t)nooptfunc;
+    cfgptr->end = config_cmdlineonly_end;
   }
 
   printf_params(cfgptr, "[CONFIG] debug flags: 0x%08x\n", cfgptr->rtflags);

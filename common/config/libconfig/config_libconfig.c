@@ -80,14 +80,14 @@ int config_libconfig_setparams(configmodule_interface_t *cfg,
                                paramdef_t *cfgoptions,
                                int numoptions,
                                config_setting_t *asetting,
-                               char *prefix)
+                               const char *prefix)
 {
   int status;
   int errors = 0;
   int notused = 0;
   int emptyla = 0;
 #define LIBCONFIG_NOTUSED_PARAMS "Not used? (NULL value ptr)"
-  char *secprefix = (prefix == NULL) ? "" : prefix;
+  const char *secprefix = (prefix == NULL) ? "" : prefix;
 
   for (int i = 0; i < numoptions; i++) {
     if (cfgoptions[i].paramflags & PARAMFLAG_CMDLINEONLY) {
@@ -225,7 +225,7 @@ int config_libconfig_setparams(configmodule_interface_t *cfg,
   return errors;
 }
 
-int config_libconfig_set(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int numoptions, char *prefix)
+int config_libconfig_set(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int numoptions, const char *prefix)
 {
   char *tokctx1 = NULL;
   int listidx = -1;
@@ -323,7 +323,7 @@ static const char *config_type_to_name(int type)
   }
 }
 
-int config_libconfig_get(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int numoptions, char *prefix)
+int config_libconfig_get(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int numoptions, const char *prefix)
 {
   config_setting_t *setting;
   char *str = NULL;
@@ -512,7 +512,7 @@ int config_libconfig_getlist(configmodule_interface_t *cfg,
                              paramlist_def_t *ParamList,
                              paramdef_t *params,
                              int numparams,
-                             char *prefix)
+                             const char *prefix)
 {
   config_setting_t *setting;
   int i,j,status;
