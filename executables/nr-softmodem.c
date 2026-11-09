@@ -297,19 +297,6 @@ static void get_options(configmodule_interface_t *cfg)
   CONFIG_CLEARRTFLAG(CONFIG_NOEXITONHELP);
 }
 
-void wait_RUs(void) {
-  LOG_D(PHY, "Waiting for RUs to be configured ... RC.ru_mask:%02lx\n", RC.ru_mask);
-  // wait for all RUs to be configured over fronthaul
-  pthread_mutex_lock(&RC.ru_mutex);
-
-  while (RC.ru_mask>0) {
-    pthread_cond_wait(&RC.ru_cond,&RC.ru_mutex);
-  }
-
-  pthread_mutex_unlock(&RC.ru_mutex);
-  LOG_D(PHY, "RUs configured\n");
-}
-
 void wait_gNBs(void) {
   int i;
   int waiting=1;
@@ -425,8 +412,6 @@ int start_L1L2(module_id_t gnb_id, nr_cell_sched_t *cell)
 
   init_NR_RU(config_get_if(), NULL);
 
-  start_NR_RU();
-  wait_RUs();
   init_eNB_afterRU();
   LOG_I(GNB_APP, "Sending sync to all threads\n");
   pthread_mutex_lock(&sync_mutex);
@@ -605,18 +590,6 @@ int main( int argc, char **argv ) {
   // start the main threads
 
   wait_gNBs();
-  int sl_ahead = NFAPI_MODE == NFAPI_MODE_AERIAL ? 0 : 6;
-  if (RC.nb_RU >0) {
-    init_NR_RU(uniqCfg, get_softmodem_params()->rf_config_file);
-
-    for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
-      RC.ru[ru_id]->rf_map.card=0;
-      RC.ru[ru_id]->rf_map.chain = CC_id;
-      if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;	
-      else AssertFatal(RC.ru[ru_id]->sl_ahead != RC.ru[0]->sl_ahead,"RU %d has different sl_ahead %d than RU 0 %d\n",ru_id,RC.ru[ru_id]->sl_ahead,RC.ru[0]->sl_ahead);
-    }
-    
-  }
 
   if (NFAPI_MODE != NFAPI_MODE_PNF)
     config_sync_var = 0;
@@ -636,17 +609,25 @@ int main( int argc, char **argv ) {
 
 #endif // E2_AGENT
 
-  // wait for F1 Setup Response before starting L1 for real
+  // wait F1 Setup Response before starting radio
+  // especially important when using 7.2 M-plane (carriers should not be activated before DU initialized the cell)
   if (NFAPI_MODE != NFAPI_MODE_PNF && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)))
     wait_f1_setup_response();
 
-  if (RC.nb_RU > 0)
-    start_NR_RU();
+  int sl_ahead = NFAPI_MODE == NFAPI_MODE_AERIAL ? 0 : 6;
+  if (RC.nb_RU >0) {
+    init_NR_RU(uniqCfg, get_softmodem_params()->rf_config_file);
 
-  if (NFAPI_MODE == NFAPI_MODE_PNF) {
-    wait_RUs();
-    config_sync_var = 0;
+    for (ru_id=0; ru_id<RC.nb_RU; ru_id++) {
+      RC.ru[ru_id]->rf_map.card=0;
+      RC.ru[ru_id]->rf_map.chain = CC_id;
+      if (ru_id==0) sl_ahead = RC.ru[ru_id]->sl_ahead;
+      else AssertFatal(RC.ru[ru_id]->sl_ahead != RC.ru[0]->sl_ahead,"RU %d has different sl_ahead %d than RU 0 %d\n",ru_id,RC.ru[ru_id]->sl_ahead,RC.ru[0]->sl_ahead);
+    }
   }
+
+  if (NFAPI_MODE == NFAPI_MODE_PNF)
+    config_sync_var = 0;
 
 #ifdef ENABLE_AERIAL
   if (NFAPI_MODE == NFAPI_MODE_AERIAL && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type))) {
@@ -680,9 +661,6 @@ int main( int argc, char **argv ) {
   }
 
   if (RC.nb_nr_L1_inst > 0) {
-    wait_RUs();
-    // once all RUs are ready initialize the rest of the gNBs ((dependence on final RU parameters after configuration)
-
     if (IS_SOFTMODEM_DOSCOPE) {
       sleep(1);
       scopeParms_t p;

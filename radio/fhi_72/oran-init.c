@@ -13,7 +13,6 @@
 
 #include "common/utils/assertions.h"
 #include "common/utils/LOG/log.h"
-#include "common_lib.h"
 
 /* PRACH data samples are 32 bits wide (16bits for I/Q). Each packet contains
  * 840 samples for long sequence or 144 for short sequence. The payload length
@@ -423,7 +422,7 @@ void *oai_oran_initialize(struct xran_fh_init *xran_fh_init, struct xran_fh_conf
     pi->pusch_tag = tag;
 
     oran_allocate_buffers(gxran_handle[0], o_xu_id, 1, pi, xran_fh_init->mtu, &xran_fh_config[o_xu_id]);
-    if ((xret = xran_timingsource_reg_tticb(NULL, oai_physide_dl_tti_call_back, NULL, 10, XRAN_CB_TTI)) != XRAN_STATUS_SUCCESS) {
+    if ((xret = xran_timingsource_reg_tticb(NULL, oai_physide_dl_tti_call_back, NULL, 0, XRAN_CB_TTI)) != XRAN_STATUS_SUCCESS) {
       printf("xran_timingsource_reg_tticb failed %d\n", xret);
       exit(-1);
     }
