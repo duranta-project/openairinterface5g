@@ -1645,6 +1645,18 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
 
       pdu->prach_config_pdu.ra_PreambleIndex = ra->ra_PreambleIndex;
       pdu->prach_config_pdu.prach_tx_power = get_prach_tx_power(mac);
+      const bool is_long_format = (pdu->prach_config_pdu.prach_format <= 3);
+      const bool is_long_seq = (prach_config->prach_sequence_length == 0);
+      if (is_long_format != is_long_seq) {
+        LOG_E(NR_MAC,
+              "PRACH format %d (%s) does not match prach_sequence_length %d (%s); dropping PRACH occasion\n",
+              pdu->prach_config_pdu.prach_format,
+              is_long_format ? "long" : "short",
+              prach_config->prach_sequence_length,
+              is_long_seq ? "839" : "139");
+        release_ul_config(pdu, false);
+        return;
+      }
       release_ul_config(pdu, false);
       nr_scheduled_response_t scheduled_response = {.ul_config = mac->ul_config_request + slotP,
                                                     .mac = mac,
@@ -2624,9 +2636,9 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
   RA_config_t *ra = &mac->ra;
 
   if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_UE_IDLE) {
-    init_RA(mac);
-    // perform the Random Access Resource selection procedure (see clause 5.1.2 and .2a)
-    ra_resource_selection(mac);
+    if (init_RA(mac))
+      // perform the Random Access Resource selection procedure (see clause 5.1.2 and .2a)
+      ra_resource_selection(mac);
   }
 
   if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_GENERATE_PREAMBLE)

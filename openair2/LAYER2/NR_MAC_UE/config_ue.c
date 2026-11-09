@@ -89,6 +89,52 @@ static void set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table, const frame_str
   }
 }
 
+void configure_prach(NR_UE_MAC_INST_t *mac, const NR_RACH_ConfigCommon_t *rach_ConfigCommon, int bwp_start, int ul_carrier_scs)
+{
+  fapi_nr_config_request_t *cfg = &mac->phy_config.config_req;
+  frame_type_t frame_type = mac->frame_structure.frame_type;
+  uint8_t nb_preambles = 64;
+  if (rach_ConfigCommon->totalNumberOfRA_Preambles != NULL)
+    nb_preambles = *rach_ConfigCommon->totalNumberOfRA_Preambles;
+
+  cfg->prach_config.prach_sequence_length = rach_ConfigCommon->prach_RootSequenceIndex.present - 1;
+
+  if (rach_ConfigCommon->msg1_SubcarrierSpacing) {
+    cfg->prach_config.prach_sub_c_spacing = *rach_ConfigCommon->msg1_SubcarrierSpacing;
+  } else {
+    // If absent, the UE applies the SCS as derived from the prach-ConfigurationIndex (for 839)
+    int config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
+    int format = get_format0(config_index, frame_type, mac->frequency_range);
+    cfg->prach_config.prach_sub_c_spacing = get_delta_f_RA_long(format);
+  }
+
+  cfg->prach_config.restricted_set_config = rach_ConfigCommon->restrictedSetConfig;
+
+  AssertFatal(rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM < 4,
+              "msg1 FDM identifier %ld undefined (0,1,2,3)\n",
+              rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM);
+  cfg->prach_config.num_prach_fd_occasions = 1 << rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM;
+
+  free(cfg->prach_config.num_prach_fd_occasions_list);
+  cfg->prach_config.num_prach_fd_occasions_list = (fapi_nr_num_prach_fd_occasions_t *)malloc(
+      cfg->prach_config.num_prach_fd_occasions * sizeof(fapi_nr_num_prach_fd_occasions_t));
+
+  for (int i = 0; i < cfg->prach_config.num_prach_fd_occasions; i++) {
+    fapi_nr_num_prach_fd_occasions_t *prach_fd_occasion = &cfg->prach_config.num_prach_fd_occasions_list[i];
+    prach_fd_occasion->num_prach_fd_occasions = i;
+    if (cfg->prach_config.prach_sequence_length)
+      prach_fd_occasion->prach_root_sequence_index = rach_ConfigCommon->prach_RootSequenceIndex.choice.l139;
+    else
+      prach_fd_occasion->prach_root_sequence_index = rach_ConfigCommon->prach_RootSequenceIndex.choice.l839;
+
+    prach_fd_occasion->k1 = bwp_start + rach_ConfigCommon->rach_ConfigGeneric.msg1_FrequencyStart
+                            + (get_N_RA_RB(cfg->prach_config.prach_sub_c_spacing, ul_carrier_scs) * i);
+    prach_fd_occasion->prach_zero_corr_conf = rach_ConfigCommon->rach_ConfigGeneric.zeroCorrelationZoneConfig;
+    prach_fd_occasion->num_root_sequences = compute_nr_root_seq(rach_ConfigCommon, nb_preambles, frame_type, mac->frequency_range);
+  }
+  cfg->prach_config.root_seq_computed = 0;
+}
+
 static void config_common_ue_sa(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommonSIB_t *scc, int cc_idP)
 {
   fapi_nr_config_request_t *cfg = &mac->phy_config.config_req;
@@ -219,47 +265,10 @@ static void config_common_ue_sa(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommo
     set_tdd_config_nr_ue(&cfg->tdd_table, &mac->frame_structure);
 
   // PRACH configuration
-  uint8_t nb_preambles = 64;
   NR_RACH_ConfigCommon_t *rach_ConfigCommon = scc->uplinkConfigCommon->initialUplinkBWP.rach_ConfigCommon->choice.setup;
-  if(rach_ConfigCommon->totalNumberOfRA_Preambles != NULL)
-     nb_preambles = *rach_ConfigCommon->totalNumberOfRA_Preambles;
-
-  cfg->prach_config.prach_sequence_length = rach_ConfigCommon->prach_RootSequenceIndex.present-1;
-
-  if (rach_ConfigCommon->msg1_SubcarrierSpacing)
-    cfg->prach_config.prach_sub_c_spacing = *rach_ConfigCommon->msg1_SubcarrierSpacing;
-  else {
-    // If absent, the UE applies the SCS as derived from the prach-ConfigurationIndex (for 839)
-    int config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
-    int format = get_format0(config_index, frame_type, mac->frequency_range);
-    cfg->prach_config.prach_sub_c_spacing = get_delta_f_RA_long(format);
-  }
-
-  cfg->prach_config.restricted_set_config = rach_ConfigCommon->restrictedSetConfig;
-
-  AssertFatal(rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM < 4,
-              "msg1 FDM identifier %ld undefined (0,1,2,3)\n", rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM);
-  cfg->prach_config.num_prach_fd_occasions = 1 << rach_ConfigCommon->rach_ConfigGeneric.msg1_FDM;
-
-
-  cfg->prach_config.num_prach_fd_occasions_list = (fapi_nr_num_prach_fd_occasions_t *) malloc(cfg->prach_config.num_prach_fd_occasions*sizeof(fapi_nr_num_prach_fd_occasions_t));
-  for (int i=0; i<cfg->prach_config.num_prach_fd_occasions; i++) {
-    fapi_nr_num_prach_fd_occasions_t *prach_fd_occasion = &cfg->prach_config.num_prach_fd_occasions_list[i];
-    prach_fd_occasion->num_prach_fd_occasions = i;
-    if (cfg->prach_config.prach_sequence_length)
-      prach_fd_occasion->prach_root_sequence_index = rach_ConfigCommon->prach_RootSequenceIndex.choice.l139;
-    else
-      prach_fd_occasion->prach_root_sequence_index = rach_ConfigCommon->prach_RootSequenceIndex.choice.l839;
-    prach_fd_occasion->k1 = NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP.genericParameters.locationAndBandwidth, MAX_BWP_SIZE) +
-                                            rach_ConfigCommon->rach_ConfigGeneric.msg1_FrequencyStart +
-                                            (get_N_RA_RB(cfg->prach_config.prach_sub_c_spacing, frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing ) * i);
-    prach_fd_occasion->prach_zero_corr_conf = rach_ConfigCommon->rach_ConfigGeneric.zeroCorrelationZoneConfig;
-    prach_fd_occasion->num_root_sequences = compute_nr_root_seq(rach_ConfigCommon,
-                                                                nb_preambles,
-                                                                frame_type,
-                                                                mac->frequency_range);
-    //prach_fd_occasion->num_unused_root_sequences = ???
-  }
+  int bwp_start = NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP.genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
+  int ul_carrier_scs = frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
+  configure_prach(mac, rach_ConfigCommon, bwp_start, ul_carrier_scs);
 }
 
 // prepare data for orbit propagation based on SIB19 ephemeris data to be able to compute the round-trip-time between ue and sat
@@ -1789,10 +1798,29 @@ static void configure_common_BWP_ul(NR_UE_MAC_INST_t *mac, int bwp_id, NR_BWP_Up
       // ssb_perRACH_OccasionAndCB_PreamblesPerSSB is need M
       // if NULL we need to maintain the information
       NR_SetupRelease_RACH_ConfigCommon_t *rachcommon = ul_common->rach_ConfigCommon;
-      if (rachcommon->present == NR_SetupRelease_RACH_ConfigCommon_PR_setup
-          && rachcommon->choice.setup->ssb_perRACH_OccasionAndCB_PreamblesPerSSB)
-        mac->ssb_ro_preambles = get_ssb_ro_preambles_4step(rachcommon->choice.setup->ssb_perRACH_OccasionAndCB_PreamblesPerSSB);
-      HANDLE_SETUPRELEASE_DIRECT(bwp->rach_ConfigCommon, rachcommon, NR_RACH_ConfigCommon_t, asn_DEF_NR_RACH_ConfigCommon);
+      if (rachcommon->present == NR_SetupRelease_RACH_ConfigCommon_PR_setup) {
+        NR_RACH_ConfigCommon_t *setup = rachcommon->choice.setup;
+        int config_index = setup->rach_ConfigGeneric.prach_ConfigurationIndex;
+        int format = get_format0(config_index, mac->frame_structure.frame_type, mac->frequency_range);
+        int seq_len = setup->prach_RootSequenceIndex.present - 1;
+        bool is_long_format = (format <= 3);
+        bool is_long_seq = (seq_len == 0);
+        if (is_long_format != is_long_seq) {
+          LOG_E(NR_MAC,
+                "Rejecting BWP %d rach-ConfigCommon: format %d (%s) does not match prach_RootSequenceIndex %s\n",
+                bwp_id,
+                format,
+                is_long_format ? "long" : "short",
+                is_long_seq ? "l839" : "l139");
+        } else {
+          if (setup->ssb_perRACH_OccasionAndCB_PreamblesPerSSB)
+            mac->ssb_ro_preambles = get_ssb_ro_preambles_4step(setup->ssb_perRACH_OccasionAndCB_PreamblesPerSSB);
+          HANDLE_SETUPRELEASE_DIRECT(bwp->rach_ConfigCommon, rachcommon, NR_RACH_ConfigCommon_t, asn_DEF_NR_RACH_ConfigCommon);
+          configure_prach(mac, setup, bwp->BWPStart, bwp->scs);
+        }
+      } else if (rachcommon->present == NR_SetupRelease_RACH_ConfigCommon_PR_release) {
+        HANDLE_SETUPRELEASE_DIRECT(bwp->rach_ConfigCommon, rachcommon, NR_RACH_ConfigCommon_t, asn_DEF_NR_RACH_ConfigCommon);
+      }
     }
     if (ul_common->ext1 && ul_common->ext1->msgA_ConfigCommon_r16) {
       NR_MsgA_ConfigCommon_r16_t *msgacc = ul_common->ext1->msgA_ConfigCommon_r16->choice.setup;
@@ -3037,6 +3065,8 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
 
   if (!mac->dl_config_request || !mac->ul_config_request)
     ue_init_config_request(mac, mac->frame_structure.numb_slots_frame);
+  if (mac->if_module != NULL && mac->if_module->phy_config_request != NULL)
+    mac->if_module->phy_config_request(&mac->phy_config);
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }

@@ -216,6 +216,7 @@ void ul_ports_config(NR_UE_MAC_INST_t *mac,
                      dci_pdu_rel15_t *dci);
 
 bool init_RA(NR_UE_MAC_INST_t *mac);
+void configure_prach(NR_UE_MAC_INST_t *mac, const NR_RACH_ConfigCommon_t *rach_ConfigCommon, int bwp_start, int ul_carrier_scs);
 
 /* Random Access */
 /* \brief This function schedules the PRACH according to prach_ConfigurationIndex and TS 38.211 tables 6.3.3.2.x
