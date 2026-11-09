@@ -41,12 +41,15 @@ The single parameter `bf_method` selects the beamforming method:
 - `straight-wire` (default): no beamforming is applied, each logical antenna
   port maps straight onto a physical one.
 - `das`: distributed antenna system, where each beam corresponds to one antenna
-  (or a set of antennas) of the system. The beam index is the logical antenna
-  port index, so `ssb_beams` must not be set and the number of concurrent beams
-  equals `beams_per_period`. The scheduler constraint above is alleviated,
-  because the number of concurrent beams allowed normally equals the total
-  number of beams. This is OAI-specific and is expected to be removed once the
-  digital beam table is fully supported. The reference configuration file is
+  (or a set of antennas) of the system. Each transmitted SSB gets the next beam
+  index, counting only the SSBs set in `ssb_PositionsInBurst` (e.g. SSB 0 and
+  SSB 2 get beams 0 and 1), so `ssb_beams` must not be set. L1 uses the beam
+  index to select the antenna group the logical ports map onto, in both DL and
+  UL. The scheduler constraint above is alleviated, because the number of
+  concurrent beams allowed normally equals the total number of beams. This is
+  OAI-specific and is expected to be removed once the digital beam table also
+  covers the UL, since the table only weights the TX side for now. The reference
+  configuration file is
   [`gnb-du.sa.band77.273prb.fhi72.4x4-das-benetel650_650.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-du.sa.band77.273prb.fhi72.4x4-das-benetel650_650.conf).
 - `predefined`: the beam IDs allocated by L2 are signalled to L1 over FAPI.
   `ssb_beams` gives the beam ID to use for each transmitted SSB, and what L1
@@ -319,7 +322,8 @@ allocated:
 
 - MSB set: the remaining 15 bits are the beam ID itself, which L1 does not
   resolve and forwards to the radio or to the fronthaul. This is the case for
-  `das`, and for `predefined` without a digital beam table.
+  `das`, where L1 also uses it to select the antenna group, and for
+  `predefined` without a digital beam table.
 - MSB clear: the ID points to a vector of weights pre-stored at L1, i.e. a row
   of the digital beam table.
 
@@ -330,22 +334,14 @@ Aerial does not implement this part of the beam-ID definition and expects a
 plain index into the beam table it was configured with, so the MSB is masked
 off when packing towards it.
 
-A native L1 decides per PDU, from its precoding and beamforming PDU
-(`nr_dbt_pdu()`):
-
-- MSB clear, with a digital beam table: L1 applies the weights of the table
-  entry onto every TXRU. The spatial stream indices are not used, since the
-  weights already span all TXRUs.
-- MSB set: L1 applies no weights. Each logical port of the PDU goes onto the
-  TXRU of its spatial stream index, and the beam ID is forwarded to the radio
-  or the fronthaul for its symbols.
-- No digital BF interface (`digBFInterfaces` = 0): straight wire, as with the
-  MSB set but without a beam ID.
-
-All digital BF interfaces of one PDU must agree on the MSB. MSB clear without a
-table is also a straight wire, as before the table existed. An RU beam ID
-applies to a whole symbol of its TXRU, so a PDU beamformed with the table
-should not share symbols with a PDU whose beam ID goes to the RU.
+A native L1 applies this per PDU (per DCI for PDCCH) in `nr_dbt_pdu()`. With
+the MSB clear and a table configured, each logical port is weighted by the
+table entry of its beam ID (combined with the precoding matrix for PDSCH) onto
+every TXRU, and the spatial stream indices are not used. Otherwise L1 applies
+no weights: each logical port goes onto the baseband port of its spatial stream
+index (with `das`, of its beam's antenna group). With a table, all digital BF
+interfaces of a PDU must agree on the MSB. PRS is not beamformed and goes to
+the first TXRU.
 
 ## L1 implementation
 
