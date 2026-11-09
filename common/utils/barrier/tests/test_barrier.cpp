@@ -10,14 +10,6 @@
 
 extern "C" {
 #include "barrier.h"
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (assert) {
-    abort();
-  } else {
-    exit(EXIT_SUCCESS);
-  }
-}
 }
 
 static int trigger_count = 0;

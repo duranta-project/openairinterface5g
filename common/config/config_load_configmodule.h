@@ -32,7 +32,6 @@ extern "C" {
 #define CONFIG_PRINTPARAMS    1                 // print parameters values while processing
 #define CONFIG_DEBUGPTR       (1<<1)            // print memory allocation/free debug messages
 #define CONFIG_DEBUGCMDLINE   (1<<2)            // print command line processing messages
-#define CONFIG_NOABORTONCHKF  (1<<4)            // disable abort execution when parameter checking function fails
 #define CONFIG_SAVERUNCFG (1 << 5) // create config file with running values, as after cfg file + command line processing
 #define CONFIG_NOEXITONHELP   (1<<19)           // do not exit after printing help
 #define CONFIG_HELP           (1<<20)           // print help message
@@ -116,7 +115,7 @@ void write_parsedcfg(configmodule_interface_t *cfg);
 /* free all config module memory, to be used at end of program as
  * it will free parameters values even those specified with the PARAMFLAG_NOFREE flag */
 extern void free_configmodule(void);
-#define CONFIG_PRINTF_ERROR(f, x... ) if (isLogInitDone ()) { LOG_E(UTIL,f,x);} else {printf(f,x);}; if ( !CONFIG_ISFLAGSET(CONFIG_NOABORTONCHKF) ) exit_fun("exit because configuration failed\n");
+#define CONFIG_PRINTF_ERROR(f, x... ) {fprintf(stderr, f, x); fprintf(stderr, "configuration failed\n"); exit(1); }
 
 #ifdef __cplusplus
 }

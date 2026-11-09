@@ -63,41 +63,6 @@ int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 
 
 void nfapi_setmode(nfapi_mode_t nfapi_mode) { return; }
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert) {
-
-  if (s != NULL) {
-    printf("%s:%d %s() Exiting OAI softmodem: %s\n",file,line, function, s);
-  }
-  close_log_mem();
-  oai_exit = 1;
-
-  if (ru_m.rfdevice.trx_end_func) {
-    if (ru_m.rfdevice.trx_get_stats_func) {
-      ru_m.rfdevice.trx_get_stats_func(&ru_m.rfdevice);
-      ru_m.rfdevice.trx_get_stats_func = NULL;
-    }
-    ru_m.rfdevice.trx_end_func(&ru_m.rfdevice);
-    ru_m.rfdevice.trx_end_func = NULL;
-  }
-
-  if (ru_m.ifdevice.trx_end_func) {
-    if (ru_m.ifdevice.trx_get_stats_func) {
-      ru_m.ifdevice.trx_get_stats_func(&ru_m.ifdevice);
-      ru_m.ifdevice.trx_get_stats_func = NULL;
-    }
-    ru_m.ifdevice.trx_end_func(&ru_m.ifdevice);
-    ru_m.ifdevice.trx_end_func = NULL;
-  }
-
-  pthread_mutex_destroy(ru_m.ru_mutex);
-  pthread_cond_destroy(ru_m.ru_cond);
-  if (assert) {
-    abort();
-  } else {
-    sleep(1); // allow lte-softmodem threads to exit first
-    exit(EXIT_SUCCESS);
-  }
-}
 
 static void get_options(configmodule_interface_t *cfg)
 {
@@ -129,7 +94,8 @@ configmodule_interface_t *uniqCfg = NULL;
 int main ( int argc, char **argv )
 {
   if ((uniqCfg = load_configmodule(argc, argv, 0)) == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return 1;
   }
 
   logInit();

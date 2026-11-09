@@ -18,13 +18,6 @@
 #include "config/config_load_configmodule.h" // configmodule_interface_t
 #include "common/utils/LOG/log.h" // log_init
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  printf("detected error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 static NGAP_NGAP_PDU_t *ngap_encode_decode(const NGAP_NGAP_PDU_t *enc_pdu)
 {
   DevAssert(enc_pdu != NULL);

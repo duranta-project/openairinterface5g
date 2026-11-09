@@ -94,7 +94,8 @@ int main(int argc, char **argv)
   int Tbslbrm = 950984;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
-    exit_fun("[NR_DLSCHSIM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
 
   randominit();

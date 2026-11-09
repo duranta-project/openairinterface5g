@@ -21,7 +21,7 @@ set_tests_properties(nr_fapi_p7_phy_id_test PROPERTIES LABELS "${Test_Labels}")
 
 add_executable(nr_fapi_p7_bounds_test nr_fapi_p7_bounds_test.c)
 target_link_libraries(nr_fapi_p7_bounds_test PUBLIC nr_fapi_p7)
-target_link_libraries(nr_fapi_p7_bounds_test PRIVATE pthread UTIL ${T_LIB} minimal_lib)
+target_link_libraries(nr_fapi_p7_bounds_test PRIVATE pthread UTIL ${T_LIB})
 add_dependencies(tests nr_fapi_p7_bounds_test)
 
 add_test(nr_fapi_p7_bounds_test nr_fapi_p7_bounds_test)

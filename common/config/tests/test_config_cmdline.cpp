@@ -6,14 +6,6 @@
 extern "C" {
 #include "common/config/config_userapi.h"
 #include "common/utils/LOG/log.h"
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (assert) {
-    abort();
-  } else {
-    exit(EXIT_SUCCESS);
-  }
-}
 }
 
 configmodule_interface_t *uniqCfg = nullptr;

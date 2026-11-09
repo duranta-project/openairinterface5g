@@ -48,13 +48,6 @@ softmodem_params_t *get_softmodem_params(void)
   return NULL;
 }
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  printf("detected error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 // Helper function to create a test cell container
 static nr_rrc_cell_container_t *create_test_cell(uint64_t cell_id, uint16_t pci, sctp_assoc_t assoc_id)
 {

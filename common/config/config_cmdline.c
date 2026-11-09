@@ -214,7 +214,7 @@ int config_process_cmdline(configmodule_interface_t *cfg, paramdef_t *cfgoptions
           config_printhelp(cfgoptions,numoptions,"(root section)");
 
           if ( ! ( CONFIG_ISFLAGSET(CONFIG_NOEXITONHELP)))
-            exit_fun("[CONFIG] Exiting after displaying help\n");
+            exit(0);
         }
       } else {
         pp=strtok_r(NULL, " ",&tokctx);
@@ -224,7 +224,7 @@ int config_process_cmdline(configmodule_interface_t *cfg, paramdef_t *cfgoptions
 
           if ( ! (CONFIG_ISFLAGSET(CONFIG_NOEXITONHELP))) {
             fprintf(stderr,"[CONFIG] %s %i section %s:", __FILE__, __LINE__, prefix);
-            exit_fun(" Exiting after displaying help\n");
+            exit(0);
           }
         }
       }

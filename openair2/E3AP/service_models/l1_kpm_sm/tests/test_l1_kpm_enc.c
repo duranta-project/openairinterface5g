@@ -46,11 +46,6 @@ int e3_get_encoding(void)
  * linking minimal_lib keeps the link free of static-archive ordering. */
 struct configmodule_interface_s *uniqCfg = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  abort();
-}
-
 /* ---- harness ---- */
 
 static int g_failures = 0;

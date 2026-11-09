@@ -15,7 +15,6 @@
 #include "assertions.h"
 #define OAIDFTS_MAIN
 #include "tools_defs.h"
-#include "LOG/log.h"
 #include <pthread.h>
 
 static pthread_mutex_t sr_twiddle_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -1437,7 +1436,7 @@ static void dft_split_radix_pure_simd(c16_t *x, c16_t *y, int N, dft_dir_t dir)
   c16_t *work = (c16_t *)aligned_malloc64(sizeof(c16_t) * work_len);
 
   if (!work) {
-    LOG_E(PHY, "dft_split_radix_pure_simd: allocation failed N=%d work_len=%zu\n", N, work_len);
+    fprintf(stderr, "dft_split_radix_pure_simd: allocation failed N=%d work_len=%zu\n", N, work_len);
     return;
   }
 
@@ -1500,7 +1499,7 @@ static void dft_split_radix_pure_simd_strided(const c16_t *x, int stride, c16_t 
   c16_t *work = (c16_t *)aligned_malloc64(sizeof(c16_t) * work_len);
 
   if (!work) {
-    LOG_E(PHY, "dft_split_radix_pure_simd_strided: allocation failed N=%d work_len=%zu\n", N, work_len);
+    fprintf(stderr, "dft_split_radix_pure_simd_strided: allocation failed N=%d work_len=%zu\n", N, work_len);
     return;
   }
 
@@ -2765,14 +2764,14 @@ static inline void radix3_combine4_q15_128_fast(__m128i A,
 static void radix_3_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *dst, int N, dft_dir_t dir)
 {
   if ((N % 3) != 0) {
-    LOG_E(PHY, "radix_3_fft_c16_scaled_strided: invalid N=%d\n", N);
+    fprintf(stderr, "radix_3_fft_c16_scaled_strided: invalid N=%d\n", N);
     return;
   }
 
   const int size = N / 3;
 
   if ((size & 3) != 0) {
-    LOG_E(PHY, "radix_3_fft_c16_scaled_strided: scalar tail not implemented, size=%d\n", size);
+    fprintf(stderr, "radix_3_fft_c16_scaled_strided: scalar tail not implemented, size=%d\n", size);
     return;
   }
 
@@ -2780,7 +2779,7 @@ static void radix_3_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *
 
   if (!tw || !tw->r3_q15_w1_re || !tw->r3_q15_w1_im || !tw->r3_q15_w2_re || !tw->r3_q15_w2_im || !tw->r3_q15_w1_re_inv
       || !tw->r3_q15_w1_im_inv || !tw->r3_q15_w2_re_inv || !tw->r3_q15_w2_im_inv) {
-    LOG_E(PHY, "radix_3_fft_c16_scaled_strided: missing radix-3 twiddles\n");
+    fprintf(stderr, "radix_3_fft_c16_scaled_strided: missing radix-3 twiddles\n");
     return;
   }
 
@@ -2793,7 +2792,7 @@ static void radix_3_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *
   } else {
     tmp_heap = aligned_malloc64(sizeof(c16_t) * (size_t)N);
     if (!tmp_heap) {
-      LOG_E(PHY, "radix_3_fft_c16_scaled_strided: allocation failed\n");
+      fprintf(stderr, "radix_3_fft_c16_scaled_strided: allocation failed\n");
       return;
     }
     tmp = tmp_heap;
@@ -2908,14 +2907,14 @@ static inline void radix5_combine4_q15_128_fast(__m128i A,
 static void radix_5_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *dst, int N, dft_dir_t dir)
 {
   if ((N % 5) != 0) {
-    LOG_E(PHY, "radix_5_fft_c16_scaled_strided: invalid N=%d\n", N);
+    fprintf(stderr, "radix_5_fft_c16_scaled_strided: invalid N=%d\n", N);
     return;
   }
 
   const int size = N / 5;
 
   if ((size & 3) != 0) {
-    LOG_E(PHY, "radix_5_fft_c16_scaled_strided: scalar tail not implemented, size=%d\n", size);
+    fprintf(stderr, "radix_5_fft_c16_scaled_strided: scalar tail not implemented, size=%d\n", size);
     return;
   }
 
@@ -2925,7 +2924,7 @@ static void radix_5_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *
       || !tw->r5_q15_w3_im || !tw->r5_q15_w4_re || !tw->r5_q15_w4_im || !tw->r5_q15_w1_re_inv || !tw->r5_q15_w1_im_inv
       || !tw->r5_q15_w2_re_inv || !tw->r5_q15_w2_im_inv || !tw->r5_q15_w3_re_inv || !tw->r5_q15_w3_im_inv || !tw->r5_q15_w4_re_inv
       || !tw->r5_q15_w4_im_inv) {
-    LOG_E(PHY, "radix_5_fft_c16_scaled_strided: missing radix-5 twiddles\n");
+    fprintf(stderr, "radix_5_fft_c16_scaled_strided: missing radix-5 twiddles\n");
     return;
   }
 
@@ -2938,7 +2937,7 @@ static void radix_5_fft_c16_scaled_strided(const c16_t *src, int stride, c16_t *
   } else {
     tmp_heap = aligned_malloc64(sizeof(c16_t) * (size_t)N);
     if (!tmp_heap) {
-      LOG_E(PHY, "radix_5_fft_c16_scaled_strided: allocation failed\n");
+      fprintf(stderr, "radix_5_fft_c16_scaled_strided: allocation failed\n");
       return;
     }
     tmp = tmp_heap;

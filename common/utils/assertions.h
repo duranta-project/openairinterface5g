@@ -24,8 +24,7 @@
   fprintf(stderr, "\nExiting execution\n");				\
   fflush(stdout);							\
   fflush(stderr);							\
-  exit_function(__FILE__, __FUNCTION__, __LINE__, "_Assert_Exit_", OAI_EXIT_ASSERT); \
-  abort(); // to avoid gcc warnings - never executed unless app-specific exit_function() does not exit() nor abort()
+  abort();
 
 #define _Assert_(cOND, aCTION, fORMAT, aRGS...)             \
 do {                                                        \
@@ -56,17 +55,5 @@ _Assert_(cOND, _Assert_Exit_, #vALUE1": %" PRIdMAX "\n" #vALUE2 ": %" PRIdMAX "\
 #define DevAssert(cOND)                     _Assert_(cOND, _Assert_Exit_, "")
 
 #define DevMessage(mESSAGE)                 _Assert_(0, _Assert_Exit_, #mESSAGE)
-
-#define CHECK_INIT_RETURN(fCT)                                  \
-do {                                                            \
-    int fct_ret;                                                \
-    if ((fct_ret = (fCT)) != 0) {                               \
-        fprintf(stderr, "Function "#fCT" has failed\n"          \
-        "returning %d\n", fct_ret);                             \
-        fflush(stdout);                                         \
-        fflush(stderr);                                         \
-        exit(EXIT_FAILURE);                                     \
-    }                                                           \
-} while(0)
 
 #endif /* __COMMON_UTILS_ASSERTIONS__H__ */

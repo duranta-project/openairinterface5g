@@ -488,7 +488,8 @@ int main(int argc, char *argv[])
   short BG = 0, Zc;
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
-    exit_fun("[LDPCTEST] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return -1;
   }
   logInit();
 

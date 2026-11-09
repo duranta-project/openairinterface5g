@@ -214,12 +214,6 @@ int wake_eNB_rxtx(PHY_VARS_eNB *eNB, uint16_t sfn, uint16_t sf) {
 
   // wake up TX for subframe n+sf_ahead
   // lock the TX mutex and make sure the thread is ready
-  //if (pthread_mutex_timedlock(&L1_proc->mutex,&wait) != 0) {
-  //  LOG_E( PHY, "[eNB] ERROR pthread_mutex_lock for eNB RXTX thread %d (IC %d)\n", L1_proc->subframe_rx&1,L1_proc->instance_cnt );
-  //  exit_fun( "error locking mutex_rxtx" );
-  //  return(-1);
-  //}
-
   {
     static uint16_t old_sf = 0;
     static uint16_t old_sfn = 0;
@@ -243,7 +237,6 @@ int wake_eNB_rxtx(PHY_VARS_eNB *eNB, uint16_t sfn, uint16_t sf) {
   // lock the TX mutex and make sure the thread is ready
   if (pthread_mutex_timedlock(&L1_proc->mutex,&wait) != 0) {
       LOG_E( PHY, "[eNB] ERROR pthread_mutex_lock for eNB RXTX thread %d (IC %d)\n", L1_proc->subframe_rx&1,L1_proc->instance_cnt );
-      //exit_fun( "error locking mutex_rxtx" );
       return(-1);
   }
   static int busy_log_cnt=0;
@@ -280,11 +273,8 @@ int wake_eNB_rxtx(PHY_VARS_eNB *eNB, uint16_t sfn, uint16_t sf) {
   //LOG_D(PHY, "sfn/sf:%d%d proc[rx:%d%d] L1_proc[instance_cnt_rxtx:%d rx:%d%d] About to wake rxtx thread\n\n", sfn, sf, proc->frame_rx, proc->subframe_rx, L1_proc->instance_cnt_rxtx, L1_proc->frame_rx, L1_proc->subframe_rx);
 
   // the thread can now be woken up
-  if (pthread_cond_signal(&L1_proc->cond) != 0) {
-    LOG_E( PHY, "[eNB] ERROR pthread_cond_signal for eNB RXn-TXnp4 thread\n");
-    exit_fun( "ERROR pthread_cond_signal" );
-    return(-1);
-  }
+  int ret = pthread_cond_signal(&L1_proc->cond);
+  AssertFatal(ret == 0, "pthread_cond_signal() for eNB RXn-TXnp4 thread: ret %d %s\n", ret, strerror(ret));
 
   return(0);
 }

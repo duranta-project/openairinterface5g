@@ -1676,9 +1676,7 @@ target_link_libraries(oai_iqplayer PRIVATE log_headers)
 #################################
 # add executables for operation
 #################################
-add_library(minimal_lib
-  ${OPENAIR_DIR}/common/utils/minimal_stub.c
-  )
+add_library(minimal_lib OBJECT ${OPENAIR_DIR}/common/utils/minimal_stub.c)
 target_link_libraries(minimal_lib PUBLIC pthread dl ${T_LIB} LOG)
 
 add_executable(measurement_display

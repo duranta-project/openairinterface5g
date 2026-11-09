@@ -20,12 +20,6 @@ extern "C" {
 }
 configmodule_interface_t *uniqCfg = NULL;
 
-extern "C" void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  fprintf(stderr, "FATAL: %s at %s:%s:%d\n", s, file, function, line);
-  exit(EXIT_FAILURE);
-}
-
 #define MAX_SAMPLE_LENGTH (65536)
 
 #ifdef CHANNEL_SIM_CUDA

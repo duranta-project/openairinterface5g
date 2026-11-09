@@ -40,40 +40,6 @@ void nfapi_setmode(nfapi_mode_t nfapi_mode)
 {
   return;
 }
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  if (s != NULL) {
-    printf("%s:%d %s() Exiting OAI softmodem: %s\n", file, line, function, s);
-  }
-  close_log_mem();
-  oai_exit = 1;
-  RU_t *ru = RC.ru ? RC.ru[0] : NULL;
-
-  if (ru) {
-    if (ru->threadPool) {
-      abortTpool(ru->threadPool);
-    }
-
-    if (ru->rfdevice.trx_end_func) {
-      ru->rfdevice.trx_end_func(&ru->rfdevice);
-      ru->rfdevice.trx_end_func = NULL;
-    }
-
-    if (ru->ifdevice.trx_end_func) {
-      ru->ifdevice.trx_end_func(&ru->ifdevice);
-      ru->ifdevice.trx_end_func = NULL;
-    }
-
-    pthread_mutex_destroy(ru->ru_mutex);
-    pthread_cond_destroy(ru->ru_cond);
-  }
-  if (assert) {
-    abort();
-  } else {
-    sleep(1); // allow lte-softmodem threads to exit first
-    exit(EXIT_SUCCESS);
-  }
-}
 
 static void get_options(configmodule_interface_t *cfg)
 {
@@ -148,7 +114,8 @@ int main(int argc, char **argv)
 {
   memset(&RC, 0, sizeof(RC));
   if ((uniqCfg = load_configmodule(argc, argv, 0)) == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "configuration module init failed\n");
+    return 1;
   }
 
   logInit();

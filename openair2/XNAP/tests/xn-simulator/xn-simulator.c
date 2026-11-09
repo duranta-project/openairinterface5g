@@ -34,13 +34,6 @@ uint8_t mnc_len = 2;
 
 char *gnb_ipv4_address_for_NGU = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  UNUSED(assert);
-  LOG_E(GNB_APP, "error at %s:%d:%s: %s\n", file, line, function, s);
-  abort();
-}
-
 nfapi_mode_t nfapi_mod = -1;
 void nfapi_setmode(nfapi_mode_t nfapi_mode)
 {
@@ -221,7 +214,8 @@ int main(int argc, char **argv)
 
   uniqCfg = load_configmodule(nOfiles > 0 ? synth_argc : argc, nOfiles > 0 ? synth_argv : argv, CONFIG_ENABLECMDLINEONLY);
   if (uniqCfg == NULL) {
-    exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+    fprintf(stderr, "[SOFTMODEM] Error, configuration module init failed\n");
+    return 1;
   }
 
   logInit();
@@ -255,7 +249,8 @@ int main(int argc, char **argv)
       this_argv[2] = Ofiles[i];
       uniqCfg = load_configmodule(3, this_argv, CONFIG_ENABLECMDLINEONLY);
       if (uniqCfg == NULL) {
-        exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
+        fprintf(stderr, "[SOFTMODEM] Error, configuration module init failed\n");
+        return 1;
       }
     }
 

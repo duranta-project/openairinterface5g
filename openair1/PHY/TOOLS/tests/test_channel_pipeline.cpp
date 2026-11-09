@@ -21,12 +21,6 @@ extern "C" {
 }
 configmodule_interface_t *uniqCfg = NULL;
 
-extern "C" void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  fprintf(stderr, "FATAL: %s at %s:%s:%d\n", s, file, function, line);
-  exit(EXIT_FAILURE);
-}
-
 // Taps scaled as K/sqrt(nb_tx * channel_length) so the output std stays ~2800 regardless of the
 // antenna/tap count (see accuracy_test_gpu_optimized_pipeline.cpp): far from int16 saturation, so
 // the comparison checks the convolution rather than clipping.

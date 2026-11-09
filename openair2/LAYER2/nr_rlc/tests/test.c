@@ -210,15 +210,6 @@ void max_retx_reached_ue(void *max_retx_reached_data,
   exit(1);
 }
 
-#ifdef _STANDALONE_TESTING_
-
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  exit(1);
-}
-
-#endif
-
 int test_main(void)
 {
   nr_rlc_entity_t *gnb = NULL;

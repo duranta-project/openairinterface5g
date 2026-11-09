@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "dmrs_nr.h"
+#include "common/utils/LOG/log.h"
 #include "PHY/NR_REFSIG/ptrs_nr.h"
 #include "PHY/TOOLS/tools_defs.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"

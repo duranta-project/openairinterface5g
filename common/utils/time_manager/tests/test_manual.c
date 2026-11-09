@@ -21,13 +21,6 @@
 
 configmodule_interface_t *uniqCfg = NULL;
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  printf("%s:%d:%s: %s\n", file, line, function, s);
-  fflush(stdout);
-  exit(1);
-}
-
 _Atomic bool test_exit;
 
 static void *iq_generate_thread(void *ts)

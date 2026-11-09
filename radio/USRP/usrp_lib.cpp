@@ -747,8 +747,11 @@ static int trx_usrp_read(openair0_device_t *device, openair0_timestamp_t *ptimes
       recPlay->currentPtr+=sizeof(iqrec_t)+BELL_LABS_IQ_BYTES_PER_SF; // record size is constant (BELL_LABS_IQ_BYTES_PER_SF)
       recPlay->nbSamplesBlocks++;
       LOG_D(HW,"recorded %d samples, for TS %lu, shift in buffer %ld nbBytes %d nbSamplesBlocks %d\n", nsamps, hdr->ts, recPlay->currentPtr-(uint8_t *)recPlay->ms_sample, (int)hdr->nbBytes, (int)recPlay->nbSamplesBlocks);
-    } else
-      exit_function(__FILE__, __FUNCTION__, __LINE__, "Recording reaches max iq limit\n", OAI_EXIT_NORMAL);
+    } else {
+      LOG_I(HW, "Recording reaches max iq limit\n");
+      iqrecorder_end(device);
+      exit(0); // considered "normal exit"
+    }
   }
   read_count++;
   LOG_D(HW,"usrp_lib: returning %d samples at ts %lu read_count %d\n", samples_received, *ptimestamp, read_count); 

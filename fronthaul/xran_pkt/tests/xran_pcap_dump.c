@@ -18,12 +18,6 @@
 #define MAX_BF_WEIGHTS 64
 #define MAX_EXT11_BUNDLES (255 + 63) // numPrbc (up to 255) + bundleOffset (up to 63)
 
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assertflag)
-{
-  fprintf(stderr, "Error at %s:%s:%d - %s\n", file, function, line, s ? s : "None");
-  exit(1);
-}
-
 const char *fft_size_to_string(enum xran_cp_fftsize fft_size)
 {
   switch (fft_size) {
