@@ -3423,6 +3423,7 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
   uint8_t n_subPDUs  = 0;  // number of RAR payloads
   uint8_t n_subheaders = 0;  // number of MAC RAR subheaders
   uint8_t *dlsch_buffer = dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.pdu;
+  const uint8_t *dlsch_end = dlsch_buffer + dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.pdu_length;
   NR_RA_HEADER_RAPID *rarh = (NR_RA_HEADER_RAPID *) dlsch_buffer; // RAR subheader pointer
   NR_MAC_RAR *rar = (NR_MAC_RAR *) (dlsch_buffer + 1);   // RAR subPDU pointer
   uint8_t preamble_index = ra->ra_PreambleIndex;
@@ -3434,7 +3435,13 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
   ra->RA_backoff_limit = 0;
   LOG_D(NR_MAC, "[%d.%d]: [UE %d][RAPROC] MAC received RAR (current preamble %d)\n", frame, slot, mac->ue_id, preamble_index);
 
+  bool rar_found = false;
   while (1) {
+    // the last subPDU has E == 0 (TS 38.321 §6.1.5): a PDU that ends before it is truncated
+    if ((const uint8_t *)rarh >= dlsch_end) {
+      LOG_W(NR_MAC, "[UE %d][RAPROC][%d.%d] RAR truncated: no last subheader\n", mac->ue_id, frame, slot);
+      break;
+    }
     n_subheaders++;
     if (rarh->T == 1) {
       n_subPDUs++;
@@ -3452,12 +3459,22 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
       }
     }
     if (rarh->RAPID == preamble_index) {
+      rar = (NR_MAC_RAR *) (dlsch_buffer + n_subheaders + (n_subPDUs - 1) * sizeof(NR_MAC_RAR));
+      if ((const uint8_t *)(rar + 1) > dlsch_end) {
+        LOG_W(NR_MAC,
+              "[UE %d][RAPROC][%d.%d] RAR truncated: MAC RAR for RAPID %d incomplete\n",
+              mac->ue_id,
+              frame,
+              slot,
+              rarh->RAPID);
+        break;
+      }
+      rar_found = true;
       // The MAC entity may stop ra-ResponseWindow (and hence monitoring for Random Access Response(s)) after
       // successful reception of a Random Access Response containing Random Access Preamble identifiers
       // that matches the transmitted PREAMBLE_INDEX.
       nr_timer_stop(&ra->response_window_timer);
       LOG_A(NR_MAC, "[UE %d][RAPROC][%d.%d] Found RAR with the intended RAPID %d\n", mac->ue_id, frame, slot, rarh->RAPID);
-      rar = (NR_MAC_RAR *) (dlsch_buffer + n_subheaders + (n_subPDUs - 1) * sizeof(NR_MAC_RAR));
       handle_rar_reception(mac, rar, frame, slot);
       if (ra->cfra)
         nr_ra_succeeded(mac, frame, slot);
@@ -3470,13 +3487,16 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
             slot,
             rarh->RAPID,
             preamble_index);
-      // resume RAR response window timer if MSG2 decoding failed
-      nr_timer_suspension(&mac->ra.response_window_timer);
       break;
     } else {
       rarh += sizeof(NR_MAC_RAR) + 1;
     }
   }
+
+  // No MAC RAR for the transmitted preamble: resume the RAR window that handle_dci() suspended when the
+  // RA-RNTI DCI was received, so that the UE keeps monitoring and the window can expire (TS 38.321 §5.1.4)
+  if (!rar_found)
+    nr_timer_suspension(&mac->ra.response_window_timer);
 
 #ifdef DEBUG_RAR
   LOG_D(NR_MAC,
