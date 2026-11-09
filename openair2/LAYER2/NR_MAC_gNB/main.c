@@ -337,13 +337,6 @@ void mac_top_init_gNB(ngran_node_t node_type,
         RC.nrmac[i]->pre_processor_dl = nr_init_dlsch_preprocessor(0);
         RC.nrmac[i]->pre_processor_ul = nr_init_ulsch_preprocessor(0);
       }
-      if (!IS_SOFTMODEM_NOSTATS)
-        threadCreate(&RC.nrmac[i]->stats_thread,
-                     nrmac_stats_thread,
-                     (void *)RC.nrmac[i],
-                     "MAC_STATS",
-                     -1,
-                     sched_get_priority_min(SCHED_OAI) + 1);
       mac_rrc_init(RC.nrmac[i], node_type);
     }//END for (i = 0; i < RC.nb_nr_macrlc_inst; i++)
 
