@@ -6,7 +6,7 @@
   <testCase>
     <class>Custom_Command</class>
     <desc>Disable Sleep States</desc>
-    <node>hafnium</node>
+    <node>localhost</node>
     <command>sudo cpupower idle-set -D 0</command>
   </testCase>
 
@@ -14,7 +14,7 @@
     <mode>TesteNB</mode>
     <class>Build_eNB</class>
     <desc>Build gNB (USRP)</desc>
-    <node>hafnium</node>
+    <node>localhost</node>
     <Build_eNB_args>--ninja -c -P --build-lib "ldpc_cuda"</Build_eNB_args>
   </testCase>
 
@@ -22,7 +22,7 @@
     <class>Build_Deploy_PhySim</class>
     <desc>Deploy PhySim Aurora offload tests</desc>
     <script>scripts/source-deploy-physims.sh</script>
-    <node>hafnium</node>
+    <node>localhost</node>
     <ctest-opt>-R 'nr_[du]lsim.ldpc_cuda' -j1</ctest-opt>
   </testCase>
 
@@ -30,7 +30,7 @@
     <class>Custom_Command</class>
     <always_exec>true</always_exec>
     <desc>Enable Sleep States</desc>
-    <node>hafnium</node>
+    <node>localhost</node>
     <command>sudo cpupower idle-set -E</command>
   </testCase>
 
