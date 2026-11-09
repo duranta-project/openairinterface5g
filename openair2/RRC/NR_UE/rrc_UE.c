@@ -188,7 +188,12 @@ static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *
 
   *frame += (slot_end_sib19_window / N);
   int slot = slot_end_sib19_window % N;
-  *subframe = ceil(slot / slots_per_subframe);
+  *subframe = (slot + slots_per_subframe - 1) / slots_per_subframe;
+  if (*subframe >= 10) {
+    *frame += *subframe / 10;
+    *subframe %= 10;
+  }
+  *frame %= 1024;
 
   LOG_I(NR_RRC,
         "Get EPOCHTIME: x:%d, N:%d, slot_endw:%d, frame:%d, subframe:%d , slot:%d\n",
