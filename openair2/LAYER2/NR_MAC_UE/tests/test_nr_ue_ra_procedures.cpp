@@ -155,8 +155,8 @@ TEST(test_init_ra, four_step_cbra)
   NR_RACH_ConfigCommon_t nr_rach_ConfigCommon = {0};
   NR_RACH_ConfigGeneric_t rach_ConfigGeneric = {0};
   NR_RACH_ConfigDedicated_t rach_ConfigDedicated = {0};
-  NR_UE_UL_BWP_t current_bwp;
-  NR_UE_DL_BWP_t dl_bwp;
+  NR_UE_UL_BWP_t current_bwp = {0};
+  NR_UE_DL_BWP_t dl_bwp = {0};
   mac.current_UL_BWP = &current_bwp;
   mac.current_DL_BWP = &dl_bwp;
   mac.mib_ssb = 0;
@@ -189,8 +189,8 @@ TEST(test_init_ra, four_step_cfra)
   RA_config_t *ra = &mac.ra;
   NR_RACH_ConfigCommon_t nr_rach_ConfigCommon = {0};
   NR_RACH_ConfigGeneric_t rach_ConfigGeneric = {0};
-  NR_UE_UL_BWP_t current_bwp;
-  NR_UE_DL_BWP_t dl_bwp;
+  NR_UE_UL_BWP_t current_bwp = {0};
+  NR_UE_DL_BWP_t dl_bwp = {0};
   mac.current_UL_BWP = &current_bwp;
   mac.current_DL_BWP = &dl_bwp;
   mac.mib_ssb = 0;
@@ -209,7 +209,7 @@ TEST(test_init_ra, four_step_cfra)
   mac.frequency_range = FR1;
 
   NR_RACH_ConfigDedicated_t rach_ConfigDedicated = {0};
-  NR_CFRA_t cfra;
+  NR_CFRA_t cfra = {0};
   rach_ConfigDedicated.cfra = &cfra;
   ra->rach_ConfigDedicated = &rach_ConfigDedicated;
 
