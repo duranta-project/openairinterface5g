@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "executables/nr-softmodem-common.h"
 #include "nr_transport_proto_ue.h"
@@ -636,79 +637,112 @@ static void nr_csi_rs_pmi_1port(int nb_antennas_rx,
 }
 
 // Rank 1 or 2;  2 ports (TS 38.214 - Table 5.2.2.2.1-1)
+// *rank_indicator is the highest rank allowed on input, the rank with the highest estimated throughput on output.
 static void nr_csi_rs_pmi_2ports(int nb_antennas_rx,
                                  int N_ports,
                                  int osz,
                                  const c16_t ch_freq[][N_ports][osz],
                                  const fapi_nr_dl_config_csirs_pdu_rel15_t *cfg,
                                  uint32_t noise,
-                                 uint8_t rank_indicator,
+                                 uint8_t *rank_indicator,
                                  csi_rs_pmi_t *pmi,
                                  int32_t *precoded_sinr_dB)
 {
-  if (rank_indicator > 1) {
-    LOG_W(NR_PHY, "PMI not implemented for 2 ports and rank %d\n", rank_indicator + 1);
+  if (*rank_indicator > 1) {
+    LOG_W(NR_PHY, "PMI not implemented for 2 ports and rank %d\n", *rank_indicator + 1);
     return;
   }
-  // R = sum H^H H, 2x2 Hermitian (only R[0][0], R[0][1], R[1][1] needed)
+  // R = sum over the RX antennas of H^H H per RB, 2x2 Hermitian (only R[0][0], R[0][1], R[1][1] needed)
+  c64_t R_rb[cfg->nr_of_rbs][2][2];
   c64_t R[2][2] = {{{0}}};
   int num_h_vectors = 0;
   for (int rb = cfg->start_rb; rb < cfg->start_rb + cfg->nr_of_rbs; rb++) {
     if (cfg->freq_density <= 1 && cfg->freq_density != (rb % 2))
       continue;
     int k = rb * NR_NB_SC_PER_RB;
+    c64_t (*Rb)[2] = R_rb[num_h_vectors];
+    memset(Rb, 0, sizeof(R_rb[0]));
     for (int ant_rx = 0; ant_rx < nb_antennas_rx; ant_rx++) {
       c16_t h0 = ch_freq[ant_rx][0][k], h1 = ch_freq[ant_rx][1][k];
-      R[0][0].r += (int64_t)h0.r * h0.r + (int64_t)h0.i * h0.i; // |h0|^2 (real)
-      R[1][1].r += (int64_t)h1.r * h1.r + (int64_t)h1.i * h1.i; // |h1|^2 (real)
-      R[0][1].r += (int64_t)h0.r * h1.r + (int64_t)h0.i * h1.i; // Re(conj(h0)*h1)
-      R[0][1].i += (int64_t)h0.r * h1.i - (int64_t)h0.i * h1.r; // Im(conj(h0)*h1)
+      Rb[0][0].r += (int64_t)h0.r * h0.r + (int64_t)h0.i * h0.i; // |h0|^2 (real)
+      Rb[1][1].r += (int64_t)h1.r * h1.r + (int64_t)h1.i * h1.i; // |h1|^2 (real)
+      Rb[0][1].r += (int64_t)h0.r * h1.r + (int64_t)h0.i * h1.i; // Re(conj(h0)*h1)
+      Rb[0][1].i += (int64_t)h0.r * h1.i - (int64_t)h0.i * h1.r; // Im(conj(h0)*h1)
     }
+    R[0][0].r += Rb[0][0].r;
+    R[1][1].r += Rb[1][1].r;
+    R[0][1].r += Rb[0][1].r;
+    R[0][1].i += Rb[0][1].i;
     num_h_vectors++;
   }
   if (num_h_vectors == 0)
     return;
 
-  // total power, constant for all n
+  // Rank 1 (Table 5.2.2.2.1-1): 4 hypotheses, W_n = (1/sqrt(2))*[1; phi_n]
+  // W^H R W = (1/2) * (trace + 2*Re(phi_n * R[0][1])), the best n on the sum over the RBs
   const int64_t trace = R[0][0].r + R[1][1].r;
-  int64_t signal_power = 0;
-
-  if (rank_indicator == 0) {
-    // Rank 1 (Table 5.2.2.2.1-1): 4 hypotheses, W_n = (1/sqrt(2))*[1; phi_n]
-    // W^H R W = (1/2) * (trace + 2*Re(phi_n * R[0][1]))
-    int64_t best = INT64_MIN, best_signal = 0;
-    for (int n = 0; n < 4; n++) {
-      int64_t cross = (int64_t)phi_r[n] * R[0][1].r - (int64_t)phi_i[n] * R[0][1].i;
-      int64_t m = trace + 2 * cross;
-      if (m > best) {
-        best = m;
-        pmi->i_2 = n;
-        best_signal = m;
-      }
+  int64_t best = INT64_MIN;
+  for (int n = 0; n < 4; n++) {
+    int64_t cross = (int64_t)phi_r[n] * R[0][1].r - (int64_t)phi_i[n] * R[0][1].i;
+    int64_t m = trace + 2 * cross;
+    if (m > best) {
+      best = m;
+      pmi->i_2 = n;
     }
-    // Average signal power per RE = best / (2 * num_REs)  (1/2 of W^H R W)
-    signal_power = best_signal / (2LL * num_h_vectors);
-    *precoded_sinr_dB = dB_fixed(signal_power) - dB_fixed(noise);
-  } else {
-    // Rank 2 (Table 5.2.2.2.1-1): 2 hypotheses.
-    // The two PMI hypotheses span the same 2D subspace, giving identical trace, determinant and eigenvalues of W^H R W.
-    // They differ only in how the basis is rotated:
-    //   - i_2=0  uses W = (1/2)[[1, 1],[1, -1]]   -> off-diag picks up Im(R_01)
-    //   - i_2=1  uses W = (1/2)[[1, 1],[j, -j]]   -> off-diag picks up Re(R_01)
-    // We will choose the rotation that minimises the off-diagonal magnitude (smaller cross-layer interference for sub-MMSE
-    // receivers).
-    pmi->i_2 = (llabs(R[0][1].i) < llabs(R[0][1].r)) ? 0 : 1;
-    // trace(W^H R W) = trace / 2 for W = (1/2)[[1, 1],[phi, -phi]], shared by the 2 layers: per layer trace / 4
-    signal_power = trace / (4LL * num_h_vectors);
-    *precoded_sinr_dB = dB_fixed(signal_power) - dB_fixed(noise);
+  }
+  // the throughput is estimated per RB: Shannon capacity with the SINR per layer of a linear MMSE receiver
+  const double n0 = noise;
+  double cap1 = 0;
+  for (int i = 0; i < num_h_vectors; i++) {
+    const c64_t(*Rb)[2] = R_rb[i];
+    const int n = pmi->i_2;
+    const double s = (Rb[0][0].r + Rb[1][1].r + 2.0 * (phi_r[n] * Rb[0][1].r - phi_i[n] * Rb[0][1].i)) / (2 * n0);
+    cap1 += log2(1 + s);
   }
 
+  // Rank 2 (Table 5.2.2.2.1-1): W = (1/2)[[1, 1],[phi, -phi]], phi = 1 (i_2 = 0) or j (i_2 = 1).
+  // G = W^H R W / N0: G11, G22 = (a + b +/- 2 Re(phi c)) / 4, G12 = (a - b - 2j Im(phi c)) / 4 with a = R00, b = R11, c = R01.
+  // MMSE SINR of layer 1: 1 / [(I + G)^-1]_11 - 1 = det(I + G) / (1 + G22) - 1, and the same for layer 2.
+  double cap2 = 0;
+  int i_2_rank2 = 0;
+  if (*rank_indicator == 1) {
+    cap2 = -1;
+    for (int n = 0; n < 2; n++) {
+      double cap = 0;
+      for (int i = 0; i < num_h_vectors; i++) {
+        const c64_t(*Rb)[2] = R_rb[i];
+        const double a = Rb[0][0].r, b = Rb[1][1].r;
+        const double re = phi_r[n] * Rb[0][1].r - phi_i[n] * Rb[0][1].i;
+        const double im = phi_r[n] * Rb[0][1].i + phi_i[n] * Rb[0][1].r;
+        const double g11 = (a + b + 2 * re) / (4 * n0);
+        const double g22 = (a + b - 2 * re) / (4 * n0);
+        const double g12_2 = ((a - b) * (a - b) + 4 * im * im) / (16 * n0 * n0);
+        const double det = (1 + g11) * (1 + g22) - g12_2;
+        cap += log2(det / (1 + g22)) + log2(det / (1 + g11));
+      }
+      if (cap > cap2) {
+        cap2 = cap;
+        i_2_rank2 = n;
+      }
+    }
+  }
+
+  double sinr;
+  if (cap2 > cap1) {
+    pmi->i_2 = i_2_rank2;
+    sinr = exp2(cap2 / (2 * num_h_vectors)) - 1; // effective SINR per layer
+  } else {
+    *rank_indicator = 0;
+    sinr = exp2(cap1 / num_h_vectors) - 1;
+  }
+  *precoded_sinr_dB = sinr > 0 ? lround(10 * log10(sinr)) : -100;
+
   LOG_D(NR_PHY,
-        "[nr_csi_rs_pmi_2ports] signal_power = %li (%i dB), noise = %u (%i dB)\n  --> precoded_sinr_dB = %i dB\n",
-        signal_power,
-        (int)(10 * log10(signal_power)),
-        noise,
-        (int)(10 * log10(noise)),
+        "[nr_csi_rs_pmi_2ports] capacity rank 1 %.2f rank 2 %.2f bit/RE -> RI %d i_2 %d, precoded_sinr_dB = %i dB\n",
+        cap1 / num_h_vectors,
+        cap2 / num_h_vectors,
+        *rank_indicator + 1,
+        pmi->i_2,
         *precoded_sinr_dB);
 }
 
@@ -928,7 +962,7 @@ static void nr_csi_rs_pmi_estimation(const PHY_VARS_NR_UE *ue,
                                      const uint8_t N_ports,
                                      const c16_t csi_rs_estimated_channel_freq[][N_ports][ue->frame_parms.ofdm_symbol_size],
                                      const uint32_t interference_plus_noise_power,
-                                     const uint8_t rank_indicator,
+                                     uint8_t *rank_indicator,
                                      csi_rs_pmi_t *pmi,
                                      int32_t *precoded_sinr_dB)
 {
@@ -960,7 +994,7 @@ static void nr_csi_rs_pmi_estimation(const PHY_VARS_NR_UE *ue,
                            csi_rs_estimated_channel_freq,
                            csirs_config_pdu,
                            noise,
-                           rank_indicator,
+                           *rank_indicator,
                            pmi,
                            precoded_sinr_dB);
       break;
@@ -971,7 +1005,7 @@ static void nr_csi_rs_pmi_estimation(const PHY_VARS_NR_UE *ue,
                            csi_rs_estimated_channel_freq,
                            csirs_config_pdu,
                            noise,
-                           rank_indicator,
+                           *rank_indicator,
                            pmi,
                            precoded_sinr_dB);
       break;
@@ -1269,7 +1303,7 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                              mapping_parms.ports,
                              csi_rs_estimated_channel_freq,
                              csi_info->csi_im_meas_computed ? csi_info->interference_plus_noise_power : noise_power,
-                             rank_indicator,
+                             &rank_indicator,
                              &pmi,
                              &precoded_sinr_dB);
 
