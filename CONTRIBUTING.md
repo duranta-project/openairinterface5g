@@ -18,7 +18,7 @@ We want to make contributing to this project as easy and transparent as possible
 
 ## Commit Guidelines
 
-Every pull request must pass two CI checks before it can be merged:
+Every pull request must pass these CI checks before it can be merged:
 
 1. **[Developer Certificate of Origin (DCO)](https://developercertificate.org/)**:
    Each commit must include a `Signed-off-by:` trailer in the commit message.
@@ -27,6 +27,25 @@ Every pull request must pass two CI checks before it can be merged:
 2. **[Verified commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification)**:
    Each commit must be cryptographically signed using SSH or GPG keys to confirm
    its origin.
+
+3. **[Valid trailer emails](doc/code-style-contrib.md#use-of-git-commit-trailers)**: The commit author, `Signed-off-by:` and
+   `Co-authored-by:` must use the email address used to sign the CLA. Do not
+   use noreply or private emails (e.g. `12345678+user@users.noreply.github.com`,
+   `noreply@anthropic.com`), or AI tool emails (e.g. `cursoragent@cursor.com`,
+   `copilot@github.com`). Commits with such an email in `Signed-off-by:` or
+   `Co-authored-by:` are rejected.
+
+### AI-assisted contributions
+
+AI agents must not add `Signed-off-by:` or `Co-authored-by:` trailers. Disclose
+AI assistance with an `Assisted-by:` trailer instead:
+
+```
+Assisted-by: AGENT_NAME:MODEL_VERSION
+```
+
+See [AI and Coding Assistants](doc/code-style-contrib.md#ai-and-coding-assistants)
+for details.
 
 ### Signing Commits
 
