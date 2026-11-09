@@ -911,7 +911,7 @@ void handle_prach_cplane_packet(oru_packet_processor_context_t *ctx,
       break;
     }
     struct xran_cp_radioapp_section3 *section = (struct xran_cp_radioapp_section3 *)sect;
-    *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
+    xran_swap_be64_inplace(section);
     const uint8_t *next = skip_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s3.ef);
     const uint16_t section_id = section->hdr.u1.common.sectionId;
     if (section_id != SECTION_ID_UNCOUPLED && test_bit(cited, section_id)) {
@@ -1123,7 +1123,7 @@ static void handle_section1_message(oru_packet_processor_context_t *ctx,
       break;
     }
     struct xran_cp_radioapp_section1 *section = (struct xran_cp_radioapp_section1 *)sect;
-    *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
+    xran_swap_be64_inplace(section);
     // Validates ext1/ext11 formatting; weights are extracted in a later stage
     int num_prb = section->hdr.u1.common.numPrbc == 0 ? ctx->num_prb : section->hdr.u1.common.numPrbc;
     const uint8_t *next = parse_section_extensions(ctx, sect + sizeof(*section), end, section->hdr.u.s1.ef, num_prb);
