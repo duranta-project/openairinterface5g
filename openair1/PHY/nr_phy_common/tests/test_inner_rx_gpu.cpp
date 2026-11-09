@@ -380,4 +380,47 @@ TEST(test_inner_rx_gpu, close_to_production_inner_rx)
   nr_gpu_det_ws_free(ws);
 }
 
+// single layer against the production CPU nr_inner_rx, unfused (nr_channel_compensation + nr_compute_llr) and fused:
+// bit-exact, including the scalar tail of the last length % 4 REs and saturating channel amplitudes (layer 0 of the
+// generated symbols)
+TEST(test_inner_rx_gpu, single_layer_bit_exact)
+{
+  if (!have_gpu())
+    GTEST_SKIP() << "no GPU";
+  nr_gpu_det_ws_t *ws = nr_gpu_det_ws_alloc(1u << 16);
+  ASSERT_NE(nullptr, ws);
+  std::mt19937 rng(0x1A7);
+  const std::vector<c16_t> cpe = {{32767, 0}, {32610, 3200}, {32767, 0}, {31000, -10600}};
+  for (int qm : {2, 4, 6, 8})
+    for (int nb_rx : {1, 2, 4})
+      for (double amp : {1500.0, 12000.0}) {
+        const int shift = nb_rx == 1 ? 7 : 8;
+        std::vector<Sym> syms;
+        for (uint32_t len : {1272u, 1001u, 637u, 3u})
+          syms.push_back(gen_sym(len, nb_rx, qm, 0, amp, rng));
+        Slot slot(syms, qm, cpe, rng);
+        ASSERT_EQ(0, nr_gpu_inner_rx_1layer(slot.desc.data(), (int)syms.size(), nb_rx, qm, shift, ws, nullptr));
+        for (size_t k = 0; k < syms.size(); k++) {
+          Sym &s = slot.sym[k];
+          const uint32_t n = s.length * qm;
+          auto got = from_dev(slot.dcw[k], n);
+          for (bool fuse : {false, true}) {
+            const uint32_t bl = s.stride;
+            AlignedVector512<c16_t> comp(bl), maga(bl), magb(bl), magc(bl), unused(bl);
+            AlignedVector512<int16_t> scratch((size_t)(bl + 32) * qm), cw((size_t)n + 64);
+            c16_t *rxComp[1] = {comp.data()}, *ma[1] = {maga.data()}, *mb[1] = {magb.data()}, *mc[1] = {magc.data()};
+            int16_t *ls[1] = {scratch.data()};
+            if (!fuse)
+              nr_channel_compensation(bl, bl, nb_rx, 1, s.rxF.data(), s.chF.data(), maga.data(), magb.data(), magc.data(), rxComp, nullptr, cpe[k], qm, 0, shift);
+            ASSERT_TRUE(nr_inner_rx(s.length, bl, nb_rx, 1, qm, s.rxF.data(), s.chF.data(), cpe[k], rxComp, ma, mb, mc, nullptr, nullptr, shift, fuse, false, 0, 0.0f, ls, s.scr.data(), cw.data()));
+            uint32_t bad = 0;
+            for (uint32_t i = 0; i < s.length; i++)
+              bad += memcmp(&got[(size_t)i * qm], &cw[(size_t)i * qm], qm * sizeof(int16_t)) != 0;
+            EXPECT_EQ(0u, bad) << "Qm=" << qm << " nb_rx=" << nb_rx << " amp=" << amp << " symbol " << k << " length " << s.length << (fuse ? " fused" : " unfused");
+          }
+        }
+      }
+  nr_gpu_det_ws_free(ws);
+}
+
 } // namespace

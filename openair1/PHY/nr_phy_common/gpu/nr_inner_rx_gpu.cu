@@ -13,10 +13,13 @@
 #include "nr_detector_gpu_dev.cuh"
 #include "nr_detector_gpu_ws.h"
 
-// QAM16_n1, QAM64_n1, QAM256_n1 of PHY/impl_defs_top.h (magnitude scaling of nr_channel_compensation)
+// QAM16_n1, QAM64_n1/n2, QAM256_n1/n2/n3 of PHY/impl_defs_top.h (magnitude scaling of nr_channel_compensation)
 #define NRG_QAM16_N1 20724
 #define NRG_QAM64_N1 20225
+#define NRG_QAM64_N2 10112
 #define NRG_QAM256_N1 20106
+#define NRG_QAM256_N2 10053
+#define NRG_QAM256_N3 5026
 
 using namespace nrg;
 
@@ -253,6 +256,79 @@ __global__ void k_inner_rx_wide(const nr_gpu_rx_sym_t *b, int nb_rx, int shift, 
         store_cw(s, i, t, 2 * NB, p, llr[p], out_shift(NB));
 }
 
+// Single layer: MRC of nr_channel_compensation (nb_layers = 1) with the magnitudes |h|^2 >> s of the NB - 1 QAM
+// thresholds (a, b, c), wrapping sums over the Rx antennas
+template <int NB>
+__device__ __forceinline__ void front_end_1layer(const nr_gpu_rx_sym_t &s, uint32_t i, int nb_rx, int sh, c16_t &comp, int16_t mag[3])
+{
+  constexpr int16_t amp[3] = {NB == 2 ? NRG_QAM16_N1 : NB == 3 ? NRG_QAM64_N1 : NRG_QAM256_N1,
+                              NB == 3 ? NRG_QAM64_N2 : NRG_QAM256_N2,
+                              NRG_QAM256_N3};
+  const bool rot = !(s.cpe.r == 32767 && s.cpe.i == 0);
+  const uint32_t j = s.re_map ? s.re_map[i] : i;
+  for (int aarx = 0; aarx < nb_rx; aarx++) {
+    const c16_t y = s.rx_ant[0] ? s.rx_ant[aarx][j] : s.rxF[(size_t)aarx * s.stride + i];
+    const c16_t c = s.chF[(size_t)aarx * s.ch_stride + j];
+    const c16_t cc = rot ? cmul(c, s.cpe, 15) : (c16_t){cpe_id(c.r), cpe_id(c.i)};
+    const c16_t t = cmul_conj(cc, y, sh);
+    comp = aarx ? add16(comp, t) : t;
+    if (NB > 1) {
+      const int16_t m = sat16(madd(c.r, c.r, c.i, c.i) >> sh);
+#pragma unroll
+      for (int k = 0; k < NB - 1; k++)
+        mag[k] = aarx ? (int16_t)wrap16(mag[k] + mulhrs(m, amp[k])) : mulhrs(m, amp[k]);
+    }
+  }
+}
+
+// one PAM level of nr_{16,64,256}qam_llr: m - |x|; tail REs (the scalar loop after the 4-RE blocks) take
+// saturating_sub's |-32768| = 32768 and +-32767 clamp, the vector blocks protected_abs and the int16 saturation
+__device__ __forceinline__ int16_t pam_level(int16_t m, int16_t x, bool tail)
+{
+  if (tail) {
+    const int32_t v = (int32_t)m - abs((int32_t)x);
+    return (int16_t)max(min(v, 32767), -32767);
+  }
+  return sat16((int32_t)m - abs(max((int32_t)x, -32767)));
+}
+
+// single-layer inner RX: front end, nr_compute_llr, descrambling into the codeword slice (LLR order per RE: the
+// I/Q pairs of each level)
+template <int NB>
+__global__ void k_inner_rx_1layer(const nr_gpu_rx_sym_t *b, int nb_rx, int shift)
+{
+  const nr_gpu_rx_sym_t &s = b[blockIdx.y];
+  const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= s.length)
+    return;
+  c16_t y;
+  int16_t mag[3];
+  front_end_1layer<NB>(s, i, nb_rx, shift, y, mag);
+  int16_t llr[2 * NB];
+  if (NB == 1) {
+    llr[0] = (int16_t)(y.r >> 4);
+    llr[1] = (int16_t)(y.i >> 4);
+  } else {
+    const bool tail = i >= (s.length & ~3u);
+    llr[0] = y.r;
+    llr[1] = y.i;
+#pragma unroll
+    for (int k = 1; k < NB; k++) {
+      llr[2 * k] = pam_level(mag[k - 1], llr[2 * k - 2], tail);
+      llr[2 * k + 1] = pam_level(mag[k - 1], llr[2 * k - 1], tail);
+    }
+  }
+#pragma unroll
+  for (int p = 0; p < 2 * NB; p++) {
+    int16_t v = llr[p];
+    if (s.scramble) {
+      const uint32_t n = s.scramble_offset + i * 2 * NB + p;
+      v = (s.scramble[n >> 5] >> (n & 31)) & 1 ? (int16_t)wrap16(-v) : v;
+    }
+    s.llr_cw[(size_t)i * 2 * NB + p] = v;
+  }
+}
+
 template <int NB, int DET>
 void launch(const nr_gpu_rx_sym_t *b, int nsym, uint32_t maxlen, uint32_t total, int nb_rx, int shift, float lam, nr_gpu_det_ws_t *ws, gpuStream_t st)
 {
@@ -350,5 +426,37 @@ extern "C" int nr_gpu_inner_rx_2layer(const nr_gpu_rx_sym_t *sym,
       return -1;
   }
 #undef NRG_L
+  return gpuGetLastError() == gpuSuccess ? 0 : -1;
+}
+
+extern "C" int nr_gpu_inner_rx_1layer(const nr_gpu_rx_sym_t *sym, int nsym, int nb_rx, int mod_order, int output_shift, nr_gpu_det_ws_t *ws, void *stream)
+{
+  if (nsym < 1 || nsym > NR_GPU_MAX_SYM || nb_rx < 1 || nb_rx > NR_IRX_MAX_RX || !ws)
+    return -1;
+  uint32_t maxlen = 0;
+  for (int k = 0; k < nsym; k++) {
+    ws->desc[k] = sym[k];
+    maxlen = sym[k].length > maxlen ? sym[k].length : maxlen;
+  }
+  if (maxlen == 0)
+    return 0;
+  const dim3 grid((maxlen + NRG_THREADS - 1) / NRG_THREADS, nsym);
+  gpuStream_t st = (gpuStream_t)stream;
+  switch (mod_order) {
+    case 2:
+      k_inner_rx_1layer<1><<<grid, NRG_THREADS, 0, st>>>(ws->desc_d, nb_rx, output_shift);
+      break;
+    case 4:
+      k_inner_rx_1layer<2><<<grid, NRG_THREADS, 0, st>>>(ws->desc_d, nb_rx, output_shift);
+      break;
+    case 6:
+      k_inner_rx_1layer<3><<<grid, NRG_THREADS, 0, st>>>(ws->desc_d, nb_rx, output_shift);
+      break;
+    case 8:
+      k_inner_rx_1layer<4><<<grid, NRG_THREADS, 0, st>>>(ws->desc_d, nb_rx, output_shift);
+      break;
+    default:
+      return -1;
+  }
   return gpuGetLastError() == gpuSuccess ? 0 : -1;
 }

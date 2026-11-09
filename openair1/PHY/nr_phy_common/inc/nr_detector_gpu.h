@@ -88,6 +88,11 @@ int nr_gpu_inner_rx_2layer(const nr_gpu_rx_sym_t *sym,
                            nr_gpu_det_ws_t *ws,
                            void *stream);
 
+/// Single-layer inner RX of nsym (<= NR_GPU_MAX_SYM) symbols in one launch, bit-exact with nr_channel_compensation
+/// (nb_layers = 1) + nr_compute_llr + descrambling (chF [nb_rx][ch_stride]); ws holds the descriptors as for
+/// nr_gpu_inner_rx_2layer.
+int nr_gpu_inner_rx_1layer(const nr_gpu_rx_sym_t *sym, int nsym, int nb_rx, int mod_order, int output_shift, nr_gpu_det_ws_t *ws, void *stream);
+
 #ifdef __cplusplus
 }
 #endif
