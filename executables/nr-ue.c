@@ -220,7 +220,8 @@ static void UE_synch(void *arg) {
 
   if (ret.cell_detected) {
     syncD->rx_offset = ret.rx_offset;
-    const int freq_offset = UE->common_vars.freq_offset; // frequency offset computed with pss in initial sync
+    const int freq_offset = UE->sl_mode == SL_MODE2_SUPPORTED ? UE->SL_UE_PHY_PARAMS.sync_params.freq_offset
+                                                            : UE->common_vars.freq_offset;
     const int hw_slot_offset =
         ((ret.rx_offset * 2) / fp->samples_per_subframe * fp->slots_per_subframe)
         + round((float)((ret.rx_offset * 2) % fp->samples_per_subframe) / fp->samples_per_slot0);
@@ -614,7 +615,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
     }
 
     sampleShift = pbch_processing(UE, proc, phy_data);
-    pdcch_processing(UE, proc, phy_data);
+    pdcch_processing(UE, proc, phy_data,0);
     if (phy_data->dlsch[0].active
         && (phy_data->dlsch[0].rnti_type == TYPE_C_RNTI_ || phy_data->dlsch[0].rnti_type == TYPE_RA_RNTI_)) {
       // indicate to tx thread to wait for DLSCH decoding
@@ -640,8 +641,15 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
     if (proc->rx_slot_type == NR_SIDELINK_SLOT) {
       phy_data->sl_rx_action = 0;
       if (UE->if_inst != NULL && UE->if_inst->sl_indication != NULL) {
-        nr_sidelink_indication_t sl_indication;
-        nr_fill_sl_indication(&sl_indication, NULL, NULL, proc, UE, phy_data);
+        nr_sidelink_indication_t sl_indication = {.module_id = UE->Mod_id,
+                                                  .hfn_rx = proc->hfn_rx,
+                                                  .frame_rx = proc->frame_rx,
+                                                  .slot_rx = proc->nr_slot_rx,
+                                                  .hfn_tx = proc->hfn_tx,
+                                                  .frame_tx = proc->frame_tx,
+                                                  .slot_tx = proc->nr_slot_tx,
+                                                  .slot_type = SIDELINK_SLOT_TYPE_RX,
+                                                  .phy_data = phy_data};
         UE->if_inst->sl_indication(&sl_indication);
       }
 
@@ -650,7 +658,7 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
         AssertFatal((phy_data->sl_rx_action >= SL_NR_CONFIG_TYPE_RX_PSBCH &&
                      phy_data->sl_rx_action < SL_NR_CONFIG_TYPE_RX_MAXIMUM), "Incorrect SL RX Action Scheduled\n");
 
-        sampleShift = psbch_pscch_processing(UE, proc, phy_data);
+        sampleShift = psbch_processing(UE, proc, phy_data);
       }
     }
   } else
