@@ -31,6 +31,6 @@ RUN --mount=type=cache,target=/root/.cache/ccache/,id=ccache_clang \
     --mount=type=cache,target=/root/.cache/cpm/ \
     CC=clang CXX=clang++ cmake .. -GNinja \
       -DENABLE_TESTS=ON -DOAI_ZMQ=ON -DCMAKE_BUILD_TYPE=Debug \
-      -DSANITIZE_ADDRESS=True -DOAI_VRTSIM_TAPS_CLIENT=ON -DOAI_RU_FRONTHAUL=ON \
+      -DSANITIZE_ADDRESS=True -DSANITIZE_UNDEFINED=True -DOAI_VRTSIM_TAPS_CLIENT=ON -DOAI_RU_FRONTHAUL=ON \
     && \
     ninja
