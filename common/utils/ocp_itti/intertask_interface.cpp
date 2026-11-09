@@ -437,10 +437,28 @@ typedef struct timer_elm_s {
     AssertFatal(rc == 0, "error in sem_post(): %d %s\n", errno, strerror(errno));
   }
 
-  static void catch_sigterm(int) {
-    static const char msg[] = "\n** Caught SIGTERM, shutting down\n";
-    __attribute__((unused))
-    int unused = write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+  static void catch_signal(int signal_number)
+  {
+    static const char msg_int[] = "\n** Caught SIGINT, shutting down\n";
+    static const char msg_term[] = "\n** Caught SIGTERM, shutting down\n";
+    static const char msg_unknown[] = "\n** Caught UNKNOWN, shutting down\n";
+    const char *msg;
+    size_t msg_len;
+    switch (signal_number) {
+      case SIGINT:
+        msg = msg_int;
+        msg_len = sizeof(msg_int) - 1;
+        break;
+      case SIGTERM:
+        msg = msg_term;
+        msg_len = sizeof(msg_term) - 1;
+        break;
+      default:
+        msg = msg_unknown;
+        msg_len = sizeof(msg_unknown) - 1;
+        break;
+    }
+    __attribute__((unused)) ssize_t ret = write(STDERR_FILENO, msg, msg_len);
     itti_wait_tasks_unblock();
   }
 
@@ -450,7 +468,7 @@ typedef struct timer_elm_s {
     AssertFatal(rc == 0, "error in sem_init(): %d %s\n", errno, strerror(errno));
 
     if (handler == NULL) /* no handler given: install default */
-      handler = catch_sigterm;
+      handler = catch_signal;
     signal(SIGTERM, handler);
     signal(SIGINT, handler);
 
