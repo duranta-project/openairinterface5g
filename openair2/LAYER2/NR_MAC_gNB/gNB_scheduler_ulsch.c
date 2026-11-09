@@ -404,16 +404,16 @@ static rnti_t lcid_crnti_lookahead(uint8_t *pdu, uint32_t pdu_len)
 
 /* Decodes the MAC PDU; its RLC PDUs are returned in data_ind[] (pointing into pduP) for
  * the caller to hand to RLC once sched_lock is released. */
-static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
-                              nr_cell_sched_t *cell,
-                              NR_UE_info_t *UE,
-                              frame_t frameP,
-                              slot_t slot,
-                              uint8_t *pduP,
-                              uint32_t pdu_len,
-                              const int8_t harq_pid,
-                              nr_rlc_data_ind_t *data_ind,
-                              int *num_data_ind)
+int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
+                       nr_cell_sched_t *cell,
+                       NR_UE_info_t *UE,
+                       frame_t frameP,
+                       slot_t slot,
+                       uint8_t *pduP,
+                       uint32_t pdu_len,
+                       const int8_t harq_pid,
+                       nr_rlc_data_ind_t *data_ind,
+                       int *num_data_ind)
 {
   int sdus = 0;
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
