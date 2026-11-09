@@ -61,8 +61,10 @@ services:
     shm_size: 4096m
     stdin_open: true
     tty: true
+    working_dir: /opt/oai-gnb/stats
     volumes:
       - ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf.sa.band78.273prb.aerial.20.conf:/opt/oai-gnb/etc/gnb.conf
+      - /var/log/oai/20:/opt/oai-gnb/stats
     container_name: oai-gnb-aerial-20
     healthcheck:
       test: /bin/bash -c "ps aux | grep -v grep | grep -c softmodem"
@@ -97,8 +99,10 @@ services:
     shm_size: 4096m
     stdin_open: true
     tty: true
+    working_dir: /opt/oai-gnb/stats
     volumes:
       - ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf.sa.band78.273prb.aerial.21.conf:/opt/oai-gnb/etc/gnb.conf
+      - /var/log/oai/21:/opt/oai-gnb/stats
     container_name: oai-gnb-aerial-21
     healthcheck:
       test: /bin/bash -c "ps aux | grep -v grep | grep -c softmodem"
