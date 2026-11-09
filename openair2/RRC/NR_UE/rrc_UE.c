@@ -3718,7 +3718,6 @@ void handle_RRCRelease(NR_UE_RRC_INST_t *rrc)
   nr_timer_stop(&tac->T320);
   if (rrc->detach_after_release)
     rrc->nrRrcState = RRC_STATE_DETACH_NR;
-  const struct NR_RRCRelease_IEs *rrcReleaseIEs = rrc->RRCRelease ? rrc->RRCRelease->criticalExtensions.choice.rrcRelease : NULL;
   if (!rrc->as_security_activated) {
     // ignore any field included in RRCRelease message except waitTime
     // perform the actions upon going to RRC_IDLE as specified in 5.3.11 with the release cause 'other'
@@ -3729,7 +3728,8 @@ void handle_RRCRelease(NR_UE_RRC_INST_t *rrc)
     return;
   }
   bool suspend = false;
-  if (rrcReleaseIEs) {
+  if (rrc->RRCRelease && rrc->RRCRelease->criticalExtensions.present == NR_RRCRelease__criticalExtensions_PR_rrcRelease) {
+    const struct NR_RRCRelease_IEs *rrcReleaseIEs = rrc->RRCRelease->criticalExtensions.choice.rrcRelease;
     if (rrcReleaseIEs->redirectedCarrierInfo)
       RRCLOG_E("redirectedCarrierInfo in RRCRelease not handled\n");
     if (rrcReleaseIEs->cellReselectionPriorities)
@@ -3828,26 +3828,27 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
                           NR_RRCRelease_t *RRCRelease)
 {
   NR_UE_Timers_Constants_t *tac = &rrc->timers_and_constants;
-  struct NR_RRCRelease_IEs *rrcReleaseIEs = RRCRelease ? RRCRelease->criticalExtensions.choice.rrcRelease : NULL;
+  const struct NR_RRCRelease_IEs *rrcReleaseIEs =
+      (RRCRelease && RRCRelease->criticalExtensions.present == NR_RRCRelease__criticalExtensions_PR_rrcRelease)
+          ? RRCRelease->criticalExtensions.choice.rrcRelease
+          : NULL;
 
   // if going to RRC_IDLE was triggered by reception
   // of the RRCRelease message including a waitTime
   NR_RejectWaitTime_t *waitTime = NULL;
-  if (RRCRelease) {
-    if(rrcReleaseIEs) {
-      waitTime = rrcReleaseIEs->nonCriticalExtension ?
-                 rrcReleaseIEs->nonCriticalExtension->waitTime : NULL;
-      if (waitTime) {
-        nr_timer_stop(&tac->T302); // stop 302
-        // start timer T302 with the value set to the waitTime
-        int target = *waitTime * 1000; // waitTime is in seconds
-        nr_timer_setup(&tac->T302, target, 10);
-        nr_timer_start(&tac->T302);
-        // TODO inform upper layers that access barring is applicable
-        //      for all access categories except categories '0' and '2'.
-        // for now we just set the access barred in RRC
-        rrc->access_barred = true;
-      }
+  if (rrcReleaseIEs) {
+    waitTime = rrcReleaseIEs->nonCriticalExtension ?
+               rrcReleaseIEs->nonCriticalExtension->waitTime : NULL;
+    if (waitTime) {
+      nr_timer_stop(&tac->T302); // stop 302
+      // start timer T302 with the value set to the waitTime
+      int target = *waitTime * 1000; // waitTime is in seconds
+      nr_timer_setup(&tac->T302, target, 10);
+      nr_timer_start(&tac->T302);
+      // TODO inform upper layers that access barring is applicable
+      //      for all access categories except categories '0' and '2'.
+      // for now we just set the access barred in RRC
+      rrc->access_barred = true;
     }
   }
   if (!waitTime) {
