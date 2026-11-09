@@ -399,6 +399,18 @@ static rnti_t lcid_crnti_lookahead(uint8_t *pdu, uint32_t pdu_len)
   return 0;
 }
 
+/* Appends an RLC PDU to data_ind[], which holds at most MAX_NUM_DATA_IND entries. Returns
+ * false when it is full: the UE controls how many sub-PDUs a MAC PDU contains. */
+static bool add_data_ind(rnti_t rnti, nr_rlc_data_ind_t *data_ind, int *num_data_ind, nr_rlc_data_ind_t ind)
+{
+  if (*num_data_ind >= MAX_NUM_DATA_IND) {
+    LOG_E(NR_MAC, "RNTI %04x: more than %d RLC PDUs in UL MAC PDU, dropping the rest\n", rnti, MAX_NUM_DATA_IND);
+    return false;
+  }
+  data_ind[(*num_data_ind)++] = ind;
+  return true;
+}
+
 /* Decodes the MAC PDU; its RLC PDUs are returned in data_ind[] (pointing into pduP) for
  * the caller to hand to RLC once sched_lock is released. */
 static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
@@ -498,8 +510,8 @@ static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
 
         if (prepare_initial_ul_rrc_message(nrmac, cell, UE)) {
           nr_rlc_data_ind_t ind = {.ch = 0, .buf = pduP + mac_subheader_len, .len = mac_len};
-          data_ind[(*num_data_ind)++] = ind;
-          DevAssert(*num_data_ind < MAX_NUM_DATA_IND);
+          if (!add_data_ind(UE->rnti, data_ind, num_data_ind, ind))
+            return 0;
         } else {
           LOG_E(NR_MAC, "prepare_initial_ul_rrc_message() returned false, cannot forward CCCH message\n");
         }
@@ -519,8 +531,8 @@ static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
           LOG_I(NR_MAC, "RNTI %04x LCID %d: ignoring %d bytes\n", UE->rnti, lcid, mac_len);
         } else {
           nr_rlc_data_ind_t ind = {.ch = lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
-          data_ind[(*num_data_ind)++] = ind;
-          DevAssert(*num_data_ind < MAX_NUM_DATA_IND);
+          if (!add_data_ind(UE->rnti, data_ind, num_data_ind, ind))
+            return 0;
 
           UE->mac_stats.ul.total_sdu_bytes += mac_len;
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
@@ -546,8 +558,8 @@ static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
 
           nr_rlc_data_ind_t ind = {.ch = lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
-          data_ind[(*num_data_ind)++] = ind;
-          DevAssert(*num_data_ind < MAX_NUM_DATA_IND);
+          if (!add_data_ind(UE->rnti, data_ind, num_data_ind, ind))
+            return 0;
 
           sdus += 1;
           /* Updated estimated buffer when receiving data */
