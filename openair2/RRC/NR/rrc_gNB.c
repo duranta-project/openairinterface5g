@@ -2403,8 +2403,15 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
         rrc_gNB_send_NGAP_UPLINK_NAS(rrc, UE, ul_dcch_msg);
         break;
 
-      case NR_UL_DCCH_MessageType__c1_PR_securityModeComplete:
+      case NR_UL_DCCH_MessageType__c1_PR_securityModeComplete: {
         LOG_UE_UL_EVENT(UE, "Received Security Mode Complete\n");
+        /* only accept the answer to a SecurityModeCommand we sent */
+        const long xid = ul_dcch_msg->message.choice.c1->choice.securityModeComplete->rrc_TransactionIdentifier;
+        if (UE->xids[xid] != RRC_SECURITY_MODE_COMMAND) {
+          LOG_E(NR_RRC, "UE %d: SecurityModeComplete with xid %ld without SecurityModeCommand, ignoring\n", UE->rrc_ue_id, xid);
+          break;
+        }
+        UE->xids[xid] = RRC_ACTION_NONE;
         /* configure ciphering */
         nr_rrc_pdcp_config_security(UE, true);
         UE->as_security_active = true;
@@ -2435,6 +2442,7 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
           rrc_forward_ue_nas_message(rrc, UE);
         }
         break;
+      }
 
       case NR_UL_DCCH_MessageType__c1_PR_securityModeFailure:
         LOG_E(NR_RRC, "UE %d: received securityModeFailure\n", ue_context_p->ue_context.rrc_ue_id);
@@ -4138,10 +4146,9 @@ void rrc_gNB_generate_SecurityModeCommand(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p)
 
   T(T_ENB_RRC_SECURITY_MODE_COMMAND, T_INT(0), T_INT(0), T_INT(0), T_INT(ue_p->rrc_ue_id));
   NR_IntegrityProtAlgorithm_t integrity_algorithm = (NR_IntegrityProtAlgorithm_t)ue_p->integrity_algorithm;
-  int size = do_NR_SecurityModeCommand(buffer,
-                                       rrc_gNB_get_next_transaction_identifier(rrc->module_id),
-                                       ue_p->ciphering_algorithm,
-                                       integrity_algorithm);
+  uint8_t xid = rrc_gNB_get_next_transaction_identifier(rrc->module_id);
+  ue_p->xids[xid] = RRC_SECURITY_MODE_COMMAND;
+  int size = do_NR_SecurityModeCommand(buffer, xid, ue_p->ciphering_algorithm, integrity_algorithm);
   LOG_DUMPMSG(NR_RRC, DEBUG_RRC, (char *)buffer, size, "[MSG] RRC Security Mode Command\n");
   LOG_I(NR_RRC, "UE %u Logical Channel DL-DCCH, Generate SecurityModeCommand (bytes %d)\n", ue_p->rrc_ue_id, size);
 
