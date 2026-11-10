@@ -42,7 +42,7 @@
 #include "lib/f1ap_interface_management.h"
 #include "F1AP_CauseRadioNetwork.h"
 #include "nfapi/oai_integration/vendor_ext.h"
-#include "nfapi_pnf.h"
+#include "nfapi/oai_integration/pnf/nfapi_nr_pnf.h"
 #include "vnf/nfapi_nr_vnf.h"
 #include "openair3/NGAP/ngap_gNB.h"
 #include "nr_common.h"
