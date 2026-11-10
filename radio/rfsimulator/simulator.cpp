@@ -1273,24 +1273,43 @@ static inline int16_t f_to_i16_sat(float x)
   return v > INT16_MAX ? INT16_MAX : v < INT16_MIN ? INT16_MIN : v;
 }
 
-/* out += in * gain, saturated to int16 like an ADC (each partial sum is saturated: the order of the senders only
-   matters beyond the full scale) */
-static void c16_scale_adds(const c16_t *in, float gain, c16_t *out, int n)
+/* 4 int16 values of a 128-bit register (low half if hi == 0) as doubles */
+static inline simde__m256d i16x4_to_pd(simde__m128i v, int hi)
 {
-  const simde__m256 g = simde_mm256_set1_ps(gain);
+  return simde_mm256_cvtepi32_pd(simde_mm_cvtepi16_epi32(hi ? simde_mm_srli_si128(v, 8) : v));
+}
+
+/* o + x * g truncated toward zero, saturated to int16, as 4 int32 */
+static inline simde__m128i scale_add_trunc_sat(simde__m256d o, simde__m256d x, simde__m256d g)
+{
+  const simde__m256d max = simde_mm256_set1_pd(INT16_MAX), min = simde_mm256_set1_pd(INT16_MIN);
+  const simde__m256d s = simde_mm256_add_pd(o, simde_mm256_mul_pd(x, g));
+  return simde_mm256_cvttpd_epi32(simde_mm256_max_pd(simde_mm256_min_pd(s, max), min));
+}
+
+static inline int16_t d_to_i16_trunc_sat(double x)
+{
+  return x >= INT16_MAX ? INT16_MAX : x <= INT16_MIN ? INT16_MIN : (int16_t)x;
+}
+
+/* out += in * gain, saturated to int16 like an ADC (each partial sum is saturated: the order of the senders only
+   matters beyond the full scale). In the int16 range, the result is the one of the former plain loop
+   (out += in * gain: the sum in double, truncated toward zero) */
+static void c16_scale_adds(const c16_t *in, double gain, c16_t *out, int n)
+{
+  const simde__m256d g = simde_mm256_set1_pd(gain);
   int i = 0;
-  for (; i + 8 <= n; i += 8) {
-    const simde__m256i x = simde_mm256_loadu_si256((const simde__m256i *)(in + i));
-    const simde__m256 lo =
-        simde_mm256_mul_ps(simde_mm256_cvtepi32_ps(simde_mm256_cvtepi16_epi32(simde_mm256_castsi256_si128(x))), g);
-    const simde__m256 hi =
-        simde_mm256_mul_ps(simde_mm256_cvtepi32_ps(simde_mm256_cvtepi16_epi32(simde_mm256_extracti128_si256(x, 1))), g);
-    simde__m256i *o = (simde__m256i *)(out + i);
-    simde_mm256_storeu_si256(o, simde_mm256_adds_epi16(simde_mm256_loadu_si256(o), f16_to_c16_sat(lo, hi)));
+  for (; i + 4 <= n; i += 4) { // 4 complex samples = 8 int16
+    const simde__m128i x = simde_mm_loadu_si128((const simde__m128i *)(in + i));
+    simde__m128i *po = (simde__m128i *)(out + i);
+    const simde__m128i o = simde_mm_loadu_si128(po);
+    const simde__m128i lo = scale_add_trunc_sat(i16x4_to_pd(o, 0), i16x4_to_pd(x, 0), g);
+    const simde__m128i hi = scale_add_trunc_sat(i16x4_to_pd(o, 1), i16x4_to_pd(x, 1), g);
+    simde_mm_storeu_si128(po, simde_mm_packs_epi32(lo, hi));
   }
   for (; i < n; i++) {
-    out[i].r = f_to_i16_sat(out[i].r + f_to_i16_sat(in[i].r * gain)); // as the vector part
-    out[i].i = f_to_i16_sat(out[i].i + f_to_i16_sat(in[i].i * gain));
+    out[i].r = d_to_i16_trunc_sat(out[i].r + in[i].r * gain);
+    out[i].i = d_to_i16_trunc_sat(out[i].i + in[i].i * gain);
   }
 }
 
