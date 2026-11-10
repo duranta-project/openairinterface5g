@@ -1464,6 +1464,13 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   } else
     cw1 = false;
 
+  int max_mimo_layers = 0;
+  if (sc_info->maxMIMO_Layers_PDSCH)
+    max_mimo_layers = *sc_info->maxMIMO_Layers_PDSCH;
+  else
+    max_mimo_layers = mac->uecap_maxMIMO_PDSCH_layers;
+  AssertFatal(max_mimo_layers > 0, "Invalid number of max MIMO layers for PDSCH\n");
+
   dlsch_pdu->n_front_load_symb = 1; // default value
   if (!set_antenna_port_parameters(dlsch_pdu, cw0 + cw1, max_length, dmrs_type, dci->antenna_ports.val)) {
     LOG_W(NR_MAC,
@@ -1471,6 +1478,19 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
           frame,
           slot,
           dci->antenna_ports.val);
+    return -1;
+  }
+  // one layer per DMRS port: the UE is not configured for more than maxMIMO-Layers (TS 38.331 PDSCH-ServingCellConfig), and
+  // its PDSCH buffers are sized for that many layers
+  const int n_layers = __builtin_popcount(dlsch_pdu->dmrs_ports);
+  if (n_layers > max_mimo_layers) {
+    LOG_W(NR_MAC,
+          "[%d.%d] antenna_ports value %d gives %d layers, more than the %d configured. Possibly due to false DCI. Ignoring DCI!\n",
+          frame,
+          slot,
+          dci->antenna_ports.val,
+          n_layers,
+          max_mimo_layers);
     return -1;
   }
   int nb_re_dmrs = ((dmrs_type == NULL) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
@@ -1610,12 +1630,6 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   dlsch_pdu->harq_feedback_disabled = get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val);
 
   // TBS_LBRM according to section 5.4.2.1 of 38.212
-  int max_mimo_layers = 0;
-  if (sc_info->maxMIMO_Layers_PDSCH)
-    max_mimo_layers = *sc_info->maxMIMO_Layers_PDSCH;
-  else
-    max_mimo_layers = mac->uecap_maxMIMO_PDSCH_layers;
-  AssertFatal(max_mimo_layers > 0, "Invalid number of max MIMO layers for PDSCH\n");
   int nl_tbslbrm = max_mimo_layers < 4 ? max_mimo_layers : 4;
   dlsch_pdu->tbslbrm = nr_compute_tbslbrm(dlsch_pdu->mcs_table, sc_info->dl_bw_tbslbrm, nl_tbslbrm);
   /*PTRS configuration */
