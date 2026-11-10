@@ -6,7 +6,9 @@ add_library(nfapi_pnf_lib
         src/pnf_interface_lte.c
         src/pnf_interface_nr.c
         src/pnf_p7.c
-        src/pnf_p7_interface.c)
+        src/pnf_p7_interface_common.c
+        src/pnf_p7_interface_lte.c
+        src/pnf_p7_interface_nr.c)
 target_link_libraries(nfapi_pnf_lib PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
 target_link_libraries(nfapi_pnf_lib PUBLIC nr_fapi_p7)
 target_link_libraries(nfapi_pnf_lib PUBLIC nfapi_nr_lib nfapi_lte_lib)
