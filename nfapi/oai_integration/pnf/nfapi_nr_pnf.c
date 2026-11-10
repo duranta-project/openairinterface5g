@@ -13,7 +13,7 @@
 
 #include "debug.h"
 #include "nfapi/oai_integration/vendor_ext.h"
-#include "nfapi_pnf_interface.h"
+#include "nfapi_nr_pnf_interface.h"
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
 
@@ -64,7 +64,7 @@ extern int nfapi_sync_var;
 
 extern int sync_var;
 
-static nfapi_pnf_p7_config_t *p7_config_g = NULL;
+static nfapi_nr_pnf_p7_config_t *p7_config_g = NULL;
 static pnf_info pnf;
 static pthread_t pnf_p5_init_and_receive_pthread;
 static bool has_sent_stop_ind = false;
@@ -87,7 +87,7 @@ static void pnf_nfapi_trace(nfapi_trace_level_t nfapi_level, const char *message
   va_end(args);
 }
 
-int pnf_nr_param_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_param_request_t *req)
+int pnf_nr_param_request(nfapi_nr_pnf_config_t *config, nfapi_nr_pnf_param_request_t *req)
 {
   UNUSED(req)
   printf("[PNF] pnf param request\n");
@@ -139,7 +139,7 @@ int pnf_nr_param_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_param_request_
   return 0;
 }
 
-int pnf_nr_config_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_config_request_t *req)
+int pnf_nr_config_request(nfapi_nr_pnf_config_t *config, nfapi_nr_pnf_config_request_t *req)
 {
   printf("[PNF] pnf config request\n");
   pnf_info *pnf = (pnf_info *)(config->user_data);
@@ -157,7 +157,7 @@ int pnf_nr_config_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_config_reques
   return 0;
 }
 
-void nfapi_nr_send_pnf_start_resp(nfapi_pnf_config_t *config, uint16_t phy_id)
+void nfapi_nr_send_pnf_start_resp(nfapi_nr_pnf_config_t *config, uint16_t phy_id)
 {
   printf("Sending NFAPI_START_RESPONSE config:%p phy_id:%d\n", config, phy_id);
   nfapi_nr_start_response_scf_t start_resp;
@@ -168,7 +168,7 @@ void nfapi_nr_send_pnf_start_resp(nfapi_pnf_config_t *config, uint16_t phy_id)
   nfapi_nr_pnf_start_resp(config, &start_resp);
 }
 
-int pnf_nr_start_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_start_request_t *req)
+int pnf_nr_start_request(nfapi_nr_pnf_config_t *config, nfapi_nr_pnf_start_request_t *req)
 {
   UNUSED(req)
   printf("Received NFAPI_PNF_START_REQUEST\n");
@@ -182,7 +182,7 @@ int pnf_nr_start_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_start_request_
   return 0;
 }
 
-int nr_param_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi_nr_param_request_scf_t *req)
+int nr_param_request(nfapi_nr_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi_nr_param_request_scf_t *req)
 {
   UNUSED(phy)
   printf("[PNF] Received NFAPI_PARAM_REQUEST phy_id:%d\n", req->header.phy_id);
@@ -403,7 +403,7 @@ int nr_param_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   return 0;
 }
 
-int nr_config_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi_nr_config_request_scf_t *req)
+int nr_config_request(nfapi_nr_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi_nr_config_request_scf_t *req)
 {
   UNUSED(phy)
   printf("[PNF] Received NFAPI_CONFIG_REQ phy_id:%d\n", req->header.phy_id);
@@ -523,7 +523,7 @@ void pnf_nr_phy_deallocate_p7_vendor_ext(void *header)
   free(header);
 }
 
-int pnf_nr_phy_vendor_ext(nfapi_pnf_p7_config_t *config, void *msg)
+int pnf_nr_phy_vendor_ext(nfapi_nr_pnf_p7_config_t *config, void *msg)
 {
   UNUSED(config)
   if (((nfapi_nr_p7_message_header_t *)msg)->message_id == P7_VENDOR_EXT_REQ) {
@@ -670,12 +670,12 @@ int pnf_nr_sim_unpack_p4_p5_vendor_extension(void *header,
   return 0;
 }
 
-int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi_nr_start_request_scf_t *req)
+int nr_start_request(nfapi_nr_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi_nr_start_request_scf_t *req)
 {
   printf("[PNF] Received NFAPI_START_REQ phy_id:%d\n", req->header.phy_id);
   pnf_info *pnf = (pnf_info *)(config->user_data);
   phy_info *phy_info = pnf->phys;
-  nfapi_pnf_p7_config_t *p7_config = nfapi_pnf_p7_config_create();
+  nfapi_nr_pnf_p7_config_t *p7_config = nfapi_nr_pnf_p7_config_create();
   p7_config->phy_id = phy->phy_id;
   p7_config->remote_p7_port = phy_info->remote_port;
   p7_config->remote_p7_addr = phy_info->remote_addr;
@@ -694,9 +694,8 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   p7_config->codec_config.deallocate = &pnf_deallocate;
   p7_config->trace = &pnf_nfapi_trace;
   phy->user_data = p7_config;
-  p7_config->subframe_buffer_size = phy_info->timing_window;
   p7_config->slot_buffer_size = phy_info->timing_window;
-  printf("subframe_buffer_size configured using phy_info->timing_window:%d\n", phy_info->timing_window);
+  printf("slot_buffer_size configured using phy_info->timing_window:%d\n", phy_info->timing_window);
 
   if (phy_info->timing_info_mode & 0x1) {
     p7_config->timing_info_mode_periodic = 1;
@@ -753,7 +752,7 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   // check that SCS has actually been received
   const nfapi_uint8_tlv_t *scs = &gNB->gNB_config.ssb_config.scs_common;
   DevAssert(scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG);
-  pnf_p7_t *pnf_p7 = (pnf_p7_t *)(p7_config);
+  pnf_p7_t *pnf_p7 = PNF_P7_FROM_NR_CONFIG(p7_config);
   pnf_p7->mu = scs->value;
 
   // Need to wait for main thread to create RU structures
@@ -800,7 +799,7 @@ void stop_nr_nfapi_pnf(void)
 #endif
 }
 
-int nr_stop_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi_nr_stop_request_scf_t *req)
+int nr_stop_request(nfapi_nr_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi_nr_stop_request_scf_t *req)
 {
   UNUSED(phy)
   if (has_sent_stop_ind) {
@@ -813,7 +812,7 @@ int nr_stop_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfa
   nfapi_nr_stop_indication(config, &resp);
   has_sent_stop_ind = true;
   // Upon sending the STOP.indication mark P7 PNF to terminate, to not send any further messages to the VNF
-  pnf_p7_t *pnf_p7 = (pnf_p7_t *)(p7_config_g);
+  pnf_p7_t *pnf_p7 = PNF_P7_FROM_NR_CONFIG(p7_config_g);
   pnf_p7->terminate = 1;
 #ifdef ENABLE_WLS
   wls_pnf_close(pnf_p5_init_and_receive_pthread);
@@ -823,7 +822,7 @@ int nr_stop_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfa
   return 0;
 }
 
-int nr_vendor_ext(nfapi_pnf_config_t *config, void *msg)
+int nr_vendor_ext(nfapi_nr_pnf_config_t *config, void *msg)
 {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] P5 %s %p\n", __FUNCTION__, msg);
 
@@ -835,7 +834,7 @@ int nr_vendor_ext(nfapi_pnf_config_t *config, void *msg)
       memset(&rsp, 0, sizeof(rsp));
       rsp.header.message_id = P5_VENDOR_EXT_RSP;
       rsp.error_code = NFAPI_MSG_OK;
-      nfapi_pnf_vendor_extension(config, &rsp.header, sizeof(vendor_ext_p5_rsp));
+      nfapi_nr_pnf_vendor_extension(config, &rsp.header, sizeof(vendor_ext_p5_rsp));
     } break;
   }
 
@@ -847,7 +846,7 @@ void configure_nr_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_add
   printf("%s() PNF\n\n\n\n\n\n", __FUNCTION__);
   nfapi_setmode(NFAPI_MODE_PNF);
 
-  nfapi_pnf_config_t *config = nfapi_pnf_config_create();
+  nfapi_nr_pnf_config_t *config = nfapi_nr_pnf_config_create();
   config->vnf_ip_addr = vnf_ip_addr;
   config->vnf_p5_port = vnf_p5_port;
   pnf.phys[0].udp.enabled = 1;
@@ -919,8 +918,8 @@ static void maybe_slow_down_pnf(int mu)
 
 void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
 {
-  nfapi_pnf_p7_config_t *config = p7_config_g;
-  pnf_p7_t *_this = (pnf_p7_t *)(config);
+  nfapi_nr_pnf_p7_config_t *config = p7_config_g;
+  pnf_p7_t *_this = PNF_P7_FROM_NR_CONFIG(config);
   int mu = _this->mu;
 
   if (IS_SOFTMODEM_RFSIM) {
@@ -947,14 +946,14 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
   oai_nfapi_nr_slot_indication(&ind);
 
   // copy data from appropriate p7 slot buffers into channel structures for PHY processing
-  nfapi_pnf_p7_get_msgs(config,
-                        config->phy_id,
-                        sfn,
-                        slot,
-                        &sched_resp->DL_req,
-                        &sched_resp->UL_tti_req,
-                        &sched_resp->UL_dci_req,
-                        &sched_resp->TX_req);
+  nfapi_nr_pnf_p7_get_msgs(config,
+                           config->phy_id,
+                           sfn,
+                           slot,
+                           &sched_resp->DL_req,
+                           &sched_resp->UL_tti_req,
+                           &sched_resp->UL_dci_req,
+                           &sched_resp->TX_req);
 }
 
 int oai_nfapi_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)

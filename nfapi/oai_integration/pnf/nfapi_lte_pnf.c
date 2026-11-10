@@ -12,7 +12,7 @@
 
 #include "debug.h"
 #include "nfapi/oai_integration/vendor_ext.h"
-#include "nfapi_pnf_interface.h"
+#include "nfapi_lte_pnf_interface.h"
 
 #include "nfapi.h"
 #include "pnf/nfapi_lte_pnf.h"
@@ -75,6 +75,17 @@ static void pnf_nfapi_trace(nfapi_trace_level_t nfapi_level, const char *message
   va_start(args, message);
   VLOG(NFAPI_PNF, nfapitooai_level(nfapi_level), message, args);
   va_end(args);
+}
+
+static void nfapi_send_pnf_start_resp(nfapi_pnf_config_t *config, uint16_t phy_id)
+{
+  printf("Sending NFAPI_START_RESPONSE config:%p phy_id:%d\n", config, phy_id);
+  nfapi_start_response_t start_resp;
+  memset(&start_resp, 0, sizeof(start_resp));
+  start_resp.header.message_id = NFAPI_START_RESPONSE;
+  start_resp.header.phy_id = phy_id;
+  start_resp.error_code = NFAPI_MSG_OK;
+  nfapi_pnf_start_resp(config, &start_resp);
 }
 
 static void *pnf_p7_thread_start(void *ptr)
