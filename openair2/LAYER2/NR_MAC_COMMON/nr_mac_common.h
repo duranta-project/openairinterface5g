@@ -409,6 +409,14 @@ long get_transformPrecoding(const NR_UE_UL_BWP_t *current_UL_BWP, nr_dci_format_
 
 void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report_t *csi_report_template);
 
+/// Pack i_1,1, i_1,2, i_1,3 into the PMI X1 field (i_1,1 first, TS 38.212 Table 6.3.1.1.2-1), each with its width for
+/// rank ri + 1; bits beyond a field's width are dropped
+uint16_t nr_pack_pmi_x1(const CSI_Meas_bitlen_t *bitlen, int ri, uint8_t i_1_1, uint8_t i_1_2, uint8_t i_1_3);
+
+/// RI field of a CSI report for rank ri + 1: index of the rank among the ranks allowed by ri_restriction, in
+/// increasing order (TS 38.212 Section 6.3.1.1.2)
+uint8_t nr_ri_index(uint8_t ri_restriction, int ri);
+
 uint16_t nr_get_csi_bitlen(nr_csi_report_t *csi_report);
 
 uint32_t compute_PDU_length(uint32_t num_TLV, uint32_t total_length);
