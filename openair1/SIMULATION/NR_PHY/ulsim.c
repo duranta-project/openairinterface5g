@@ -86,10 +86,6 @@ THREAD_STRUCT thread_struct;
 
 // NTN cellSpecificKoffset-r17, but in slots for DL SCS
 
-void nr_derive_key_ng_ran_star(uint16_t pci, uint64_t nr_arfcn_dl, const uint8_t key[32], uint8_t *key_ng_ran_star)
-{
-}
-
 /* this is a hack, but necessary for E2 agent. We compile in all of RRC
  * (because of CMakeLists.txt), but we don't need it (only nr_radio_config.c).
  * however, if E2 agent is defined, the following functions are used in
@@ -100,11 +96,6 @@ void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); }
 void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req) { abort(); }
 void e1_bearer_context_mod_confirm(const e1ap_bearer_mod_confirm_t *conf) { abort(); }
 void e1_bearer_release_cmd(const e1ap_bearer_release_cmd_t *cmd) { abort(); }
-
-void nr_derive_key(int alg_type, uint8_t alg_id, const uint8_t key[32], uint8_t out[16])
-{
-  (void)alg_type;
-}
 
 nrUE_params_t nrUE_params;
 

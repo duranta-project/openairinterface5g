@@ -1606,6 +1606,18 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
     goto fallback_rrc_setup;
   }
 
+  /* TS 38.331 5.3.7.4, TS 33.501 6.11: verify the shortMAC-I before using the context. If it
+   * does not match, the UE context cannot be retrieved: do RRCSetup for the requesting UE and
+   * leave the existing UE untouched. */
+  const BIT_STRING_t *short_mac_i = &req->ue_Identity.shortMAC_I;
+  const uint16_t expected_short_mac_i =
+      nr_derive_short_mac_i(UE->integrity_algorithm, UE->kgnb, physCellId, current_cell->info.cell_id, old_rnti);
+  if (short_mac_i->size != 2 || ((short_mac_i->buf[0] << 8) | short_mac_i->buf[1]) != expected_short_mac_i) {
+    LOG_E(NR_RRC, "UE %d: shortMAC-I verification failed, fallback to RRC setup\n", UE->rrc_ue_id);
+    ue_context_p = NULL;
+    goto fallback_rrc_setup;
+  }
+
   /* TS 38.331 5.3.7.1: requires a retrieved valid UE context. Context without
    * SRB2 or any DRB is incomplete for re-establishment (UE initiation needs both,
    * treat as not verified). */
