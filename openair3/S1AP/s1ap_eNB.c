@@ -95,7 +95,7 @@ uint32_t s1ap_generate_eNB_id(void)
   uint8_t out[32] = {0};
   kdf(key, data, 32, out);
 
-  uint32_t const eNB_id = ((out[0] << 24) | (out[1] << 16) | (out[2] << 8) | out[3]);
+  uint32_t const eNB_id = (((uint32_t)out[0] << 24) | (out[1] << 16) | (out[2] << 8) | out[3]);
   return eNB_id;
 }
 
