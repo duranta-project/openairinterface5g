@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include "nfapi/oai_integration/vendor_ext.h"
-#include "common/utils/LOG/log.h"
+
 static const char *const nfapi_str_mode[] = {
     "MONOLITHIC",
     "PNF",

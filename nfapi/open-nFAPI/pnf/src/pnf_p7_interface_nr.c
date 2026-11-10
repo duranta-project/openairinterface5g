@@ -8,6 +8,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+int nfapi_nr_pnf_p7_start(nfapi_nr_pnf_p7_config_t* config)
+{
+  if (!config)
+    return -1;
+  pnf_p7_t* _this = PNF_P7_FROM_NR_CONFIG(config);
+  return pnf_nr_p7_message_pump(_this);
+}
+
 int nfapi_nr_pnf_p7_get_msgs(nfapi_nr_pnf_p7_config_t* config,
                              uint16_t phy_id,
                              uint16_t sfn,

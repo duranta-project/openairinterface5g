@@ -7,6 +7,29 @@
 #include "pnf.h"
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+int nfapi_pnf_start(nfapi_pnf_config_t* config)
+{
+  // Verify that config is not null
+  if (config == 0)
+    return -1;
+
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
+
+  pnf_t* _this = (pnf_t*)(config);
+
+  while (_this->terminate == 0) {
+    int connect_result = pnf_connect(_this);
+    if (connect_result > 0)
+      pnf_message_pump(_this);
+    else if (connect_result < 0)
+      return connect_result;
+    sleep(1);
+  }
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() terminate=1 - EXITTING............\n", __FUNCTION__);
+  return 0;
+}
 
 int nfapi_pnf_pnf_param_resp(nfapi_pnf_config_t* config, nfapi_pnf_param_response_t* resp)
 {
