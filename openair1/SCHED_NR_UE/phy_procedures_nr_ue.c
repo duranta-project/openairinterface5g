@@ -480,6 +480,11 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   const uint32_t pdsch_est_size = scratch->pdsch_est_size;
   const uint32_t pdsch_buf_size_max = scratch->pdsch_buf_size_max;
   const int max_layers = min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS);
+  // the scratch buffers hold max_layers layers (nr_init_pdsch_buffers())
+  if (dlsch->cw_info.Nl > max_layers) {
+    LOG_E(NR_PHY, "PDSCH with %d layers, the UE has buffers for %d\n", dlsch->cw_info.Nl, max_layers);
+    return -1;
+  }
   int32_t (*pdsch_dl_ch_estimates)[pdsch_est_size] = (int32_t (*)[pdsch_est_size])scratch->pdsch_dl_ch_estimates;
   c16_t(*rxdataF_comp)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->rxdataF_comp;
   c16_t(*dl_ch_mag)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_mag;
