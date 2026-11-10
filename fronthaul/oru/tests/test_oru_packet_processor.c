@@ -2020,6 +2020,81 @@ void test_eaxc_lists(void)
   printf("eAxC lists passed!\n");
 }
 
+static uint8_t g_last_pkt[9600];
+static uint32_t g_last_pkt_len;
+
+static void test_send_mbuf_copy(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+{
+  for (uint32_t i = 0; i < num_mbufs; i++) {
+    g_last_pkt_len = rte_pktmbuf_pkt_len(mbufs[i]);
+    assert(g_last_pkt_len <= sizeof(g_last_pkt));
+    memcpy(g_last_pkt, rte_pktmbuf_mtod(mbufs[i], uint8_t *), g_last_pkt_len);
+    g_packets_sent++;
+    rte_pktmbuf_free(mbufs[i]);
+  }
+}
+
+// Static UL compression as cuBB uses it: the C-Plane udCompHdr is 0, the U-Plane is BFP9 with no udCompHdr
+void test_ul_static_compression(void)
+{
+  printf("Testing static UL compression...\n");
+  void *ctx = init_packet_processor(1,
+                                    100,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf_copy,
+                                    NULL,
+                                    9000,
+                                    ru_ports(1),
+                                    FH_COMP_BFP,
+                                    TEST_PRACH_KBAR);
+  assert(ctx != NULL);
+  // The C-Plane udCompHdr is 0, as cuBB sends it: the static widths apply. PRACH has its own width.
+  set_static_compression(ctx, 9, 8);
+  // Pattern: 5 slots, 2 DL, 2 UL. Symbols 0-27 DL, 42-69 UL.
+  const uint64_t cur_sym = 1030;
+  handle_absolute_symbol_tick(ctx, cur_sym);
+  const uint64_t target_sym = cur_sym + 5;
+  const size_t hdr_len = sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr) + sizeof(struct data_section_hdr);
+
+  // PUSCH: 20 PRBs, values below 2^8 so that BFP9 keeps them exactly
+  g_packets_sent = 0;
+  send_cplane_on_eaxc(ctx, 0, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) == 0);
+  assert(job.response_payload.comp_method == FH_COMP_BFP && job.response_payload.iq_width == 9);
+  static int16_t iq[100 * 12 * 2];
+  for (int i = 0; i < 20 * 12 * 2; i++)
+    iq[i] = (int16_t)((i % 251) - 125);
+  write_ul_iq(ctx, (uint32_t *)iq, target_sym % 14, &job);
+  assert(g_packets_sent == 1);
+  assert(g_last_pkt_len == hdr_len + 20 * FH_COMP_PRB_BYTES(9));
+  const struct xran_ecpri_hdr *ecpri = (const struct xran_ecpri_hdr *)g_last_pkt;
+  assert(rte_be_to_cpu_16(ecpri->cmnhdr.bits.ecpri_payl_size) == g_last_pkt_len - 4);
+  static int16_t out[20 * 12 * 2];
+  fh_decompress_prbs(FH_COMP_BFP, 9, 20, (const int8_t *)g_last_pkt + hdr_len, out);
+  assert(memcmp(out, iq, sizeof(out)) == 0);
+
+  // PRACH on RU port 1 (prach_eaxc_offset 1): 12 BFP8 PRBs with no udCompHdr
+  send_cplane_on_eaxc(ctx, 1, XRAN_CP_SECTIONTYPE_3, XRAN_DIR_UL, target_sym);
+  uint32_t *txdataF[1] = {(uint32_t *)iq};
+  const int slot_in_frame = (target_sym % (10 * 2 * 14)) / 14;
+  write_prach_iq(ctx, txdataF, 1, (target_sym / (10 * 2 * 14)) % 1024, slot_in_frame, target_sym % 14);
+  assert(g_packets_sent == 2);
+  assert(g_last_pkt_len == hdr_len + FH_PRACH_NUM_PRBS * FH_COMP_PRB_BYTES(8));
+
+  cleanup_packet_processor(ctx);
+  printf("Static UL compression passed!\n");
+}
+
 void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
 {
   printf("Testing PRACH generation...\n");
@@ -2281,9 +2356,10 @@ void test_hyper_frame_calculation()
   printf("Hyper-frame calculation test passed!\n");
 }
 
-void test_dl_bfp_decompression(void)
+// static_comp: BFP9 as a static M-Plane setting (cuBB dl_iq_data_fmt), with no udCompHdr in the U-Plane
+void test_dl_bfp_decompression(bool static_comp)
 {
-  printf("Testing DL BFP decompression...\n");
+  printf("Testing DL BFP decompression%s...\n", static_comp ? " (static)" : "");
   int mu = 1;
   int slots_per_subframe = 1 << mu;
   const int n_prb = 1;
@@ -2316,6 +2392,7 @@ void test_dl_bfp_decompression(void)
                                     FH_COMP_BFP,
                                     0);
   assert(ctx != NULL);
+  set_static_compression(ctx, static_comp ? iq_bits : 0, 0);
 
   uint64_t current_sym = 1000;
   handle_absolute_symbol_tick(ctx, current_sym);
@@ -2367,11 +2444,13 @@ void test_dl_bfp_decompression(void)
   u_data->fields.start_prbu = 0;
   u_data->fields.sect_id = 0;
   u_data->fields.all_bits = rte_cpu_to_be_32(u_data->fields.all_bits);
-  struct data_section_compression_hdr *comp_hdr =
-      (struct data_section_compression_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct data_section_compression_hdr));
-  memset(comp_hdr, 0, sizeof(*comp_hdr));
-  comp_hdr->ud_comp_hdr.ud_comp_meth = FH_COMP_BFP;
-  comp_hdr->ud_comp_hdr.ud_iq_width = XRAN_CONVERT_IQWIDTH(iq_bits);
+  if (!static_comp) {
+    struct data_section_compression_hdr *comp_hdr =
+        (struct data_section_compression_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct data_section_compression_hdr));
+    memset(comp_hdr, 0, sizeof(*comp_hdr));
+    comp_hdr->ud_comp_hdr.ud_comp_meth = FH_COMP_BFP;
+    comp_hdr->ud_comp_hdr.ud_iq_width = XRAN_CONVERT_IQWIDTH(iq_bits);
+  }
   int8_t *payload = (int8_t *)rte_pktmbuf_append(u_mbuf, FH_COMP_PRB_BYTES(iq_bits) * n_prb);
   assert(payload != NULL);
   memcpy(payload, pre_compressed, FH_COMP_PRB_BYTES(iq_bits) * n_prb);
@@ -2382,6 +2461,7 @@ void test_dl_bfp_decompression(void)
   get_packet_processor_stats(ctx, &stats);
   assert(stats.uplane_err_early == 0);
   assert(stats.uplane_err_late == 0);
+  assert(stats.uplane_err_short_payload == 0);
 
   current_sym += 10;
   handle_absolute_symbol_tick(ctx, current_sym);
@@ -2406,7 +2486,7 @@ void test_dl_bfp_decompression(void)
     assert(recovered[i] == src_iq[i]);
 
   cleanup_packet_processor(ctx);
-  printf("DL BFP decompression passed!\n");
+  printf("DL BFP decompression%s passed!\n", static_comp ? " (static)" : "");
 }
 
 void test_ul_bfp_compression(void)
@@ -3756,6 +3836,7 @@ int main(int argc, char **argv)
   test_ul_eaxc_du_port();
   test_eaxc_ru_port_lists();
   test_eaxc_lists();
+  test_ul_static_compression();
   test_prach_generation(4, false);
   const int offsets[] = {0, 1, 4, 15};
   for (unsigned i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
@@ -3771,7 +3852,8 @@ int main(int argc, char **argv)
   usleep(10000);
   test_hyper_frame_calculation();
   usleep(10000);
-  test_dl_bfp_decompression();
+  test_dl_bfp_decompression(false);
+  test_dl_bfp_decompression(true);
   usleep(10000);
   test_ul_bfp_compression();
   usleep(10000);
