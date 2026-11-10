@@ -280,7 +280,12 @@ static void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
     pucch_pdu->param_v4.spatialStreamIndices[i] = ssi[ant_port_start + i];
 }
 
-static void nr_fill_nfapi_pucch(nr_cell_sched_t *cell, frame_t frame, slot_t slot, const NR_sched_pucch_t *pucch, NR_UE_info_t* UE)
+/* adds the PUCCH PDU of pucch to the UL_TTI request of its slot, returns it (NULL if the request is full) */
+static nfapi_nr_pucch_pdu_t *nr_fill_nfapi_pucch(nr_cell_sched_t *cell,
+                                                 frame_t frame,
+                                                 slot_t slot,
+                                                 const NR_sched_pucch_t *pucch,
+                                                 NR_UE_info_t *UE)
 {
 
   const int index = ul_buffer_index(pucch->frame,
@@ -304,7 +309,7 @@ static void nr_fill_nfapi_pucch(nr_cell_sched_t *cell, frame_t frame, slot_t slo
 	  future_ul_tti_req->n_pdus,
 	  pucch->ul_slot,
 	  pucch->sr_flag);
-    return;
+    return NULL;
   }
   future_ul_tti_req->pdus_list[future_ul_tti_req->n_pdus].pdu_type = NFAPI_NR_UL_CONFIG_PUCCH_PDU_TYPE;
   future_ul_tti_req->pdus_list[future_ul_tti_req->n_pdus].pdu_size = sizeof(nfapi_nr_pucch_pdu_t);
@@ -348,6 +353,77 @@ static void nr_fill_nfapi_pucch(nr_cell_sched_t *cell, frame_t frame, slot_t slo
                      ant_ports_to_use,
                      cell->radio_config.spatial_stream_index,
                      cell->radio_config.pusch_AntennaPorts);
+  return pucch_pdu;
+}
+
+/* UCI on PUSCH (TS 38.213 9.2.5): when a PUCCH of the UE overlaps one of its PUSCHs in time, the UE multiplexes the
+ * HARQ-ACK and, if the PUSCH carries no aperiodic CSI, the CSI of the PUCCH in the PUSCH, and does not send the PUCCH
+ * (schedule_uci_on_pusch() of the UE). The UE needs uci-OnPUSCH for it; an SR alone stays on the PUCCH.
+ * Asks the PHY for this UCI in the PUSCH PDU and returns true when the PUCCH is not sent. */
+static bool nr_uci_on_pusch(nr_cell_sched_t *cell,
+                            const NR_UE_info_t *UE,
+                            const NR_sched_pucch_t *pucch,
+                            const nfapi_nr_pucch_pdu_t *pucch_pdu)
+{
+  const NR_PUSCH_Config_t *pusch_Config = UE->current_UL_BWP.pusch_Config;
+  if (!pusch_Config || !pusch_Config->uci_OnPUSCH || !pusch_Config->uci_OnPUSCH->choice.setup)
+    return false;
+  const NR_UCI_OnPUSCH_t *onPusch = pusch_Config->uci_OnPUSCH->choice.setup;
+  if (!onPusch->betaOffsets || onPusch->betaOffsets->present != NR_UCI_OnPUSCH__betaOffsets_PR_semiStatic)
+    return false;
+  if (pucch->dai_c == 0 && pucch->csi_bits == 0)
+    return false;
+
+  const int index =
+      ul_buffer_index(pucch->frame, pucch->ul_slot, cell->frame_structure.numb_slots_frame, cell->UL_tti_req_ahead_size);
+  nfapi_nr_ul_tti_request_t *ul_tti_req = &cell->UL_tti_req_ahead[index];
+  nfapi_nr_pusch_pdu_t *pusch = NULL;
+  for (int i = 0; i < ul_tti_req->n_pdus; i++) {
+    nfapi_nr_pusch_pdu_t *p = &ul_tti_req->pdus_list[i].pusch_pdu;
+    if (ul_tti_req->pdus_list[i].pdu_type != NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE || p->rnti != UE->rnti)
+      continue;
+    // overlap in time, as the UE checks it
+    if (pucch_pdu->start_symbol_index < p->start_symbol_index + p->nr_of_symbols
+        && pucch_pdu->start_symbol_index + pucch_pdu->nr_of_symbols > p->start_symbol_index) {
+      pusch = p;
+      break;
+    }
+  }
+  if (!pusch)
+    return false;
+
+  const NR_BetaOffsets_t *beta = onPusch->betaOffsets->choice.semiStatic;
+  nfapi_nr_pusch_uci_t *uci = &pusch->pusch_uci;
+  if (!(pusch->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI))
+    *uci = (nfapi_nr_pusch_uci_t){0};
+  // CSI only if the PUSCH carries no aperiodic CSI report: without HARQ-ACK nor CSI to multiplex, the PUCCH is sent
+  const bool csi = pucch->csi_bits > 0 && uci->csi_part1_bit_length == 0;
+  if (pucch->dai_c == 0 && !csi)
+    return false;
+  if (pucch->dai_c > 0) {
+    uci->harq_ack_bit_length = pucch->dai_c;
+    // TS 38.213 Table 9.3-1: index 1 up to 2 bits, index 2 up to 11 bits, index 3 above
+    const long *ack_index = pucch->dai_c <= 2    ? beta->betaOffsetACK_Index1
+                            : pucch->dai_c <= 11 ? beta->betaOffsetACK_Index2
+                                                 : beta->betaOffsetACK_Index3;
+    uci->beta_offset_harq_ack = *ack_index;
+  }
+  if (csi) {
+    uci->csi_part1_bit_length = pucch->csi_bits;
+    // TS 38.213 Table 9.3-2: index 1 up to 11 bits, index 2 above
+    const long *csi_index = pucch->csi_bits <= 11 ? beta->betaOffsetCSI_Part1_Index1 : beta->betaOffsetCSI_Part1_Index2;
+    uci->beta_offset_csi1 = *csi_index;
+  }
+  uci->alpha_scaling = onPusch->scaling;
+  pusch->pdu_bit_map |= PUSCH_PDU_BITMAP_PUSCH_UCI;
+  LOG_D(NR_MAC,
+        "UE %04x %4d.%2d: UCI on PUSCH, %d HARQ-ACK bits, %d CSI bits\n",
+        UE->rnti,
+        pucch->frame,
+        pucch->ul_slot,
+        uci->harq_ack_bit_length,
+        uci->csi_part1_bit_length);
+  return true;
 }
 
 //Differential RSRP values Table 10.1.6.1-2 from 38.133
@@ -431,7 +507,12 @@ static void schedule_pucch_core(nr_cell_sched_t *cell, gNB_MAC_INST *nrmac, NR_U
         curr_pucch->ul_slot,
         O_ack,O_sr,
         O_csi);
-  nr_fill_nfapi_pucch(cell, frame, slot, curr_pucch, UE);
+  const nfapi_nr_pucch_pdu_t *pucch_pdu = nr_fill_nfapi_pucch(cell, frame, slot, curr_pucch, UE);
+  if (pucch_pdu && nr_uci_on_pusch(cell, UE, curr_pucch, pucch_pdu)) {
+    // the UE sends this UCI in its PUSCH, not on the PUCCH: remove the PUCCH PDU, the last one added
+    const int index = ul_buffer_index(frame, slot, cell->frame_structure.numb_slots_frame, cell->UL_tti_req_ahead_size);
+    cell->UL_tti_req_ahead[index].n_pdus--;
+  }
   memset(curr_pucch, 0, sizeof(*curr_pucch));
 }
 
@@ -1301,10 +1382,13 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, int cell_id, frame_t frame, slo
   NR_SCHED_UNLOCK(&nrmac->sched_lock);
 }
 
-/* UCI on PUSCH: the aperiodic CSI report requested in the DCI 0_1 of this PUSCH */
+/* UCI on PUSCH: the aperiodic CSI report requested in the DCI 0_1 of this PUSCH, and the HARQ-ACK and periodic CSI of a
+ * PUCCH multiplexed in the PUSCH (TS 38.213 9.2.5, nr_uci_on_pusch()). The PHY gives the latter in the bit order of a
+ * PUCCH format 2/3/4: they go through handle_nr_uci_pucch_2_3_4(), without the PUCCH power control */
 void handle_nr_uci_pusch(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pusch_pdu_t *uci_pusch)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[mod_id];
+  bool aperiodic = false;
   NR_SCHED_LOCK(&nrmac->sched_lock);
   nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(nrmac, cell_id);
   NR_UE_info_t *UE = find_connected_nr_ue(&nrmac->UE_info, uci_pusch->rnti);
@@ -1312,6 +1396,7 @@ void handle_nr_uci_pusch(module_id_t mod_id, int cell_id, frame_t frame, slot_t 
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_CSI_MeasConfig_t *csi_MeasConfig = UE->sc_info.csi_MeasConfig;
     if (sched_ctrl->aperiodic_csi.pending && sched_ctrl->aperiodic_csi.frame == frame && sched_ctrl->aperiodic_csi.slot == slot) {
+      aperiodic = true;
       sched_ctrl->aperiodic_csi.pending = false;
       if (uci_pusch->csi_part1.csi_part1_crc != 1 && csi_MeasConfig)
         extract_csi_report(csi_MeasConfig,
@@ -1323,15 +1408,25 @@ void handle_nr_uci_pusch(module_id_t mod_id, int cell_id, frame_t frame, slot_t 
                            UE,
                            nrmac,
                            cell);
+      free(uci_pusch->csi_part1.csi_part1_payload);
     }
   }
-  if (uci_pusch->pduBitmap & 2)
-    free(uci_pusch->harq.harq_payload);
-  if (uci_pusch->pduBitmap & 4)
-    free(uci_pusch->csi_part1.csi_part1_payload);
+  NR_SCHED_UNLOCK(&nrmac->sched_lock);
+
+  const nfapi_nr_uci_pucch_pdu_format_2_3_4_t uci = {
+      .pduBitmap = uci_pusch->pduBitmap & (aperiodic ? 0x2 : 0x6), // HARQ-ACK and periodic CSI part 1, no SR on PUSCH
+      .handle = uci_pusch->handle,
+      .rnti = uci_pusch->rnti,
+      .ul_cqi = 0xff, // the PUCCH power control does not use the PUSCH
+      .timing_advance = uci_pusch->timing_advance,
+      .rssi = uci_pusch->rssi,
+      .harq = uci_pusch->harq,
+      .csi_part1 = uci_pusch->csi_part1,
+  };
+  if (uci.pduBitmap)
+    handle_nr_uci_pucch_2_3_4(mod_id, cell_id, frame, slot, &uci);
   if (uci_pusch->pduBitmap & 8)
     free(uci_pusch->csi_part2.csi_part2_payload);
-  NR_SCHED_UNLOCK(&nrmac->sched_lock);
 }
 
 void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_234)

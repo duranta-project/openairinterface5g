@@ -92,7 +92,8 @@ void nr_uci_decoding(PHY_VARS_gNB *phy_vars_gNB, NR_UL_IND_t *UL_INFO, int nb_pu
                                                                     pusch_uci->harq_ack_bit_length,
                                                                     pusch->uci_info.E_uci_ACK_actual,
                                                                     pusch_pdu->qam_mod_order);
-      pusch_ind->harq.harq_crc = ack_res.crc_result;
+      // no PUSCH detected (DTX): the HARQ-ACK bits are noise, reported as failed
+      pusch_ind->harq.harq_crc = pusch->DTX ? 1 : ack_res.crc_result;
       pusch_ind->harq.harq_bit_len = pusch_uci->harq_ack_bit_length;
       bytes = (pusch_uci->harq_ack_bit_length + 7) / 8;
       pusch_ind->harq.harq_payload = calloc_or_fail(bytes, sizeof(uint8_t));
@@ -104,7 +105,7 @@ void nr_uci_decoding(PHY_VARS_gNB *phy_vars_gNB, NR_UL_IND_t *UL_INFO, int nb_pu
                                                                      pusch_uci->csi_part1_bit_length,
                                                                      pusch->uci_info.E_uci_CSI1,
                                                                      pusch_pdu->qam_mod_order);
-      pusch_ind->csi_part1.csi_part1_crc = csi1_res.crc_result;
+      pusch_ind->csi_part1.csi_part1_crc = pusch->DTX ? 1 : csi1_res.crc_result;
       pusch_ind->csi_part1.csi_part1_bit_len = pusch_uci->csi_part1_bit_length;
       bytes = (pusch_uci->csi_part1_bit_length + 7) / 8;
       pusch_ind->csi_part1.csi_part1_payload = calloc_or_fail(bytes, sizeof(uint8_t));
@@ -116,7 +117,7 @@ void nr_uci_decoding(PHY_VARS_gNB *phy_vars_gNB, NR_UL_IND_t *UL_INFO, int nb_pu
                                                                      pusch_uci->csi_part2_bit_length,
                                                                      pusch->uci_info.E_uci_CSI2,
                                                                      pusch_pdu->qam_mod_order);
-      pusch_ind->csi_part2.csi_part2_crc = csi2_res.crc_result;
+      pusch_ind->csi_part2.csi_part2_crc = pusch->DTX ? 1 : csi2_res.crc_result;
       pusch_ind->csi_part2.csi_part2_bit_len = pusch_uci->csi_part2_bit_length;
       bytes = (pusch_uci->csi_part2_bit_length + 7) / 8;
       pusch_ind->csi_part2.csi_part2_payload = calloc_or_fail(bytes, sizeof(uint8_t));
