@@ -192,12 +192,17 @@ void *init_packet_processor(int numerology,
                             void *io_controller,
                             size_t mtu,
                             const oru_eaxc_lists_t *eaxc_lists,
-                            fh_comp_method_t dl_comp_method,
+                            fh_comp_method_t comp_method,
                             int prach_kbar);
 void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *job);
 void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int slot_in_frame, int symbol);
 void cleanup_packet_processor(void *context);
 void set_num_bf_weights(void *context, int num_bf_weights);
+// Static U-Plane compression, an M-Plane setting: comp_method in both directions at iq_width (PRACH: prach_iq_width,
+// 0 = iq_width), with no udCompHdr in the U-Plane. iq_width 0 keeps the dynamic compression: DL takes the IQ width from
+// the udCompHdr of each U-Plane section, and UL the method and IQ width from the C-Plane udCompHdr. cuBB always sends a
+// C-Plane udCompHdr of 0.
+void set_static_compression(void *context, int iq_width, int prach_iq_width);
 void handle_absolute_symbol_tick(void *context, uint64_t absolute_symbol);
 void handle_uplane_packet(void *context, void *pkt);
 void handle_cplane_packet(void *context, void *pkt);

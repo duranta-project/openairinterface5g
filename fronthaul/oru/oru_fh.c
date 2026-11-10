@@ -240,6 +240,7 @@ void *oru_fh_init(oru_fh_config_t *cfg)
                                                &cfg->eaxc_lists,
                                                cfg->comp_type,
                                                cfg->prach_kbar);
+  set_static_compression(fh->packet_processor, cfg->static_iq_width, cfg->static_iq_width_prach);
 
   return fh;
 }

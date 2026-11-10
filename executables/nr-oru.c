@@ -106,6 +106,8 @@
 #define CONFIG_STRING_PRACH_EAXC_OFFSET "prach_eaxc_offset"
 #define CONFIG_STRING_PRACH_KBAR "prach_kbar"
 #define CONFIG_STRING_COMP_TYPE         "comp_type"
+#define CONFIG_STRING_STATIC_IQ_WIDTH "static_iq_width"
+#define CONFIG_STRING_STATIC_IQ_WIDTH_PRACH "static_iq_width_prach"
 #define CONFIG_STRING_CLOCK_TIMEBASE    "clock_timebase"
 #define CONFIG_STRING_EAXC_DL "eaxc_dl"
 #define CONFIG_STRING_EAXC_UL "eaxc_ul"
@@ -125,7 +127,11 @@
 #define HLP_MTU "MTU for RX and TX."
 #define HLP_PRACH_EAXC_OFFSET "PRACH eAxC offset."
 #define HLP_PRACH_KBAR "PRACH kbar offset."
-#define HLP_COMP_TYPE         "DL U-plane compression method: none, bfp, blkscale, or ulaw."
+#define HLP_COMP_TYPE \
+  "U-plane compression method: none, bfp, blkscale, or ulaw. DL only, and also UL and PRACH with static_iq_width."
+#define HLP_STATIC_IQ_WIDTH \
+  "Static U-plane compression (cuBB dl/ul_iq_data_fmt): IQ bit width of comp_type, no udCompHdr. 0: dynamic udCompHdr."
+#define HLP_STATIC_IQ_WIDTH_PRACH "PRACH IQ bit width of the static compression. 0: static_iq_width."
 #define HLP_EAXC_DL "DL eAxC IDs, e.g. cuBB eAxC_id_pdsch; ID i is DL stream (or TX antenna) i. Empty: RU port layout."
 #define HLP_EAXC_UL "UL eAxC IDs, e.g. cuBB eAxC_id_pusch; ID i is UL stream (or RX antenna) i. Empty: RU port layout."
 #define HLP_EAXC_PRACH "PRACH eAxC IDs, e.g. cuBB eAxC_id_prach; ID i is PRACH stream i. Empty: prach_eaxc_offset."
@@ -161,6 +167,8 @@
   {CONFIG_STRING_PRACH_EAXC_OFFSET,          HLP_PRACH_EAXC_OFFSET, 0,                      .u8ptr=NULL,      .defuintval=0,                TYPE_UINT8,        0}, \
   {CONFIG_STRING_PRACH_KBAR,                 HLP_PRACH_KBAR,        0,                      .uptr=NULL,       .defuintval=4,                TYPE_UINT,         0}, \
   {CONFIG_STRING_COMP_TYPE,                  HLP_COMP_TYPE,         0,                      .strptr=NULL,     .defstrval="none",           TYPE_STRING,       0, COMP_TYPE_CHECK}, \
+  {CONFIG_STRING_STATIC_IQ_WIDTH,            HLP_STATIC_IQ_WIDTH,   0,                      .u8ptr=NULL,      .defuintval=0,                TYPE_UINT8,        0}, \
+  {CONFIG_STRING_STATIC_IQ_WIDTH_PRACH,      HLP_STATIC_IQ_WIDTH_PRACH, 0,                  .u8ptr=NULL,      .defuintval=0,                TYPE_UINT8,        0}, \
   {CONFIG_STRING_CLOCK_TIMEBASE,             HLP_CLOCK_TIMEBASE,    0,                      .strptr=NULL,     .defstrval="utc",            TYPE_STRING,       0, CLOCK_TIMEBASE_CHECK}, \
   {CONFIG_STRING_EAXC_DL,                    HLP_EAXC_DL,           0,                      .iptr=NULL,       .defintarrayval=NULL,         TYPE_INTARRAY,     0}, \
   {CONFIG_STRING_EAXC_UL,                    HLP_EAXC_UL,           0,                      .iptr=NULL,       .defintarrayval=NULL,         TYPE_INTARRAY,     0}, \
@@ -530,6 +538,8 @@ int get_oru_options(ORU_t *oru)
   int comp_type_idx = config_paramidx_fromname(fh_param, nump, CONFIG_STRING_COMP_TYPE);
   AssertFatal(comp_type_idx >= 0, "Index for %s config option not found!\n", CONFIG_STRING_COMP_TYPE);
   fh_cfg->comp_type = (fh_comp_method_t)config_get_processedint(config_get_if(), &fh_param[comp_type_idx]);
+  fh_cfg->static_iq_width = *gpd(fh_param, nump, CONFIG_STRING_STATIC_IQ_WIDTH)->u8ptr;
+  fh_cfg->static_iq_width_prach = *gpd(fh_param, nump, CONFIG_STRING_STATIC_IQ_WIDTH_PRACH)->u8ptr;
   int clock_tb_idx = config_paramidx_fromname(fh_param, nump, CONFIG_STRING_CLOCK_TIMEBASE);
   AssertFatal(clock_tb_idx >= 0, "Index for %s config option not found!\n", CONFIG_STRING_CLOCK_TIMEBASE);
   fh_cfg->clock_timebase = (fh_clock_timebase_t)config_get_processedint(config_get_if(), &fh_param[clock_tb_idx]);
