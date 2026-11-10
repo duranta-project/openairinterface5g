@@ -16,14 +16,14 @@ add_library(ldpc_orig MODULE
             nrLDPC_encoder/ldpc_encoder.c
 )
 set_target_properties(ldpc_orig PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-target_link_libraries(ldpc_orig PRIVATE ldpc_segment)
+target_link_libraries(ldpc_orig PRIVATE ldpc_segment ldpc_segment_common)
 
 add_library(ldpc MODULE
             nrLDPC_decoder/nrLDPC_decoder.c
             nrLDPC_encoder/ldpc_encoder_optim8segmulti.c
 )
 set_target_properties(ldpc PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-target_link_libraries(ldpc PRIVATE ldpc_segment)
+target_link_libraries(ldpc PRIVATE ldpc_segment ldpc_segment_common)
 
 add_dependencies(ldpctest ldpc ldpc_orig)
 add_dependencies(nr-softmodem ldpc ldpc_orig)
