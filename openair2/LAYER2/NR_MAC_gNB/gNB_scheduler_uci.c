@@ -169,6 +169,11 @@ static void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
                                                          2,
                                                          pucchres->format.choice.format2->nrofSymbols,
                                                          8);
+            AssertFatal(pucch_pdu->prb_size > 0,
+                        "PUCCH format2 resource cannot carry %d CSI, %d HARQ-ACK and %d SR bits\n",
+                        O_csi,
+                        O_ack,
+                        O_sr);
             pucch_pdu->bit_len_csi_part1 = O_csi;
             break;
           case NR_PUCCH_Resource__format_PR_format3 :
@@ -194,6 +199,11 @@ static void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
                                                          2 - pucch_pdu->pi_2bpsk,
                                                          pucchres->format.choice.format3->nrofSymbols - f3_dmrs_symbols,
                                                          12);
+            AssertFatal(pucch_pdu->prb_size > 0,
+                        "PUCCH format3 resource cannot carry %d CSI, %d HARQ-ACK and %d SR bits\n",
+                        O_csi,
+                        O_ack,
+                        O_sr);
             pucch_pdu->bit_len_csi_part1 = O_csi;
             break;
           case NR_PUCCH_Resource__format_PR_format4 :
