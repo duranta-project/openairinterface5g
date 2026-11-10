@@ -47,6 +47,7 @@ More general information is available in the
 - [Running the gNB](./RUNMODEM.md): simulators, hardware, SDAP and custom DRBs,
   IF setups and arbitrary frequencies, MIMO
 - [Running the UE](./runmodem-nrue.md): configuration and modes (phy-test, do-ra, noS1)
+- [Commercial SIM card and NR UE](./nr_ue_commercial_simcard.md): how to use a commercial SIM card with the NR UE
 - [gNB MAC usage](./MAC/mac-usage.md): scheduler, periodic output and configuration options
 - [gNB RRC usage](./RRC/rrc-usage.md): RRC functions, periodic output and configuration options
 - [Setting the gNB frequency](./gNB_frequency_setup.md): configure the gNB carrier frequency and bandwidth (ARFCN)
