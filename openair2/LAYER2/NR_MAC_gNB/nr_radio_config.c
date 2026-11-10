@@ -284,6 +284,10 @@ static nr_pucch_radio_res_t get_nb_periodic_pucch_per_slot(const frame_structure
   int nb_cycles = periodicity / fs->numb_slots_period;
   int available_report_occasions = nb_cycles * ul_slots_period;
   res.nb_periodic_res = (max_csi_reports + available_report_occasions - 1) / available_report_occasions;
+  // each report of a UE takes a block of ceil(MAX_MOBILES_PER_GNB / nb_periodic_res) occasions (see
+  // set_csi_meas_periodicity()): the blocks must fit in the period
+  while (reports_per_ue * ((MAX_MOBILES_PER_GNB + res.nb_periodic_res - 1) / res.nb_periodic_res) > available_report_occasions)
+    res.nb_periodic_res++;
   res.periodicity = periodicity;
   return res;
 }
@@ -2224,8 +2228,14 @@ static void set_csi_meas_periodicity(const frame_structure_t *fs,
                                      int uid,
                                      bool is_rsrp)
 {
-  int rep_idx = is_rsrp ? uid : MAX_MOBILES_PER_GNB + uid;
-  int idx = rep_idx / pucch_res->nb_periodic_res;
+  // The CSI PUCCH resource of a UE is on PRB index uid % nb_periodic_res for both reports (config_pucch()), like its SR.
+  // The second report therefore takes the occasions after a whole block of ceil(max_served_ues / nb_periodic_res)
+  // occasions: with MAX_MOBILES_PER_GNB + uid, a block size that is not a multiple of nb_periodic_res put the second
+  // report of the first UEs on the occasion and PRB of the SR and first report of the last UEs, which then could
+  // never be scheduled.
+  const int nb = pucch_res->nb_periodic_res;
+  const int block = (pucch_res->max_served_ues + nb - 1) / nb;
+  int idx = is_rsrp ? uid / nb : block + uid / nb;
   int offset = get_ul_slot_offset(fs, idx, true);
   LOG_D(NR_MAC, "set_csi_meas_periodicity: uid = %d, offset = %d, ideal_period = %d\n", uid, offset, pucch_res->periodicity);
   // checked for validity in verify_radio_configuration
