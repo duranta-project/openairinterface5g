@@ -3013,36 +3013,10 @@ static nfapi_nr_ue_csi_payload_t get_ssb_rsrp_payload(NR_UE_MAC_INST_t *mac,
 
 // Pack i_1,1 || i_1,2 || i_1,3 into the X1 PMI field, with i_1,1 in the most significant bits
 // (ordering per TS 38.212 Sections 6.3.1.1.2 and 6.3.2.1.2).
-// Sub-field widths are inferred from the total pmi_x1_bitlen, which is unique across the Type1 Single Panel configurations
-// covered by the PMI estimator:
-//   ports | rank | pmi_x1_bitlen | i_1,1 | i_1,2 | i_1,3
-//     2   | 1,2  |       0       |   -   |   -   |   -
-//     4   |   1  |       3       |   3   |   0   |   0
-//     4   |   2  |       4       |   3   |   0   |   1
-//     8   |   1  |       6       |   3   |   3   |   0
-//     8   |   2  |       8       |   3   |   3   |   2
-static uint16_t pack_pmi_x1(int pmi_x1_bitlen, uint8_t i_1_1, uint8_t i_1_2, uint8_t i_1_3)
+static uint16_t pack_pmi_x1(const CSI_Meas_bitlen_t *bitlen, int ri, uint8_t i_1_1, uint8_t i_1_2, uint8_t i_1_3)
 {
-  int bits_12 = 0, bits_13 = 0;
-  switch (pmi_x1_bitlen) {
-    case 0:
-      return 0; // 2-port: no X1
-    case 3:
-      break; // 4-port rank 1
-    case 4:
-      bits_13 = 1;
-      break; // 4-port rank 2
-    case 6:
-      bits_12 = 3;
-      break; // 8-port rank 1
-    case 8:
-      bits_12 = 3;
-      bits_13 = 2;
-      break; // 8-port rank 2
-    default:
-      LOG_W(NR_MAC, "pack_pmi_x1: unsupported pmi_x1_bitlen %d (Type1 SinglePanel only)\n", pmi_x1_bitlen);
-      return 0;
-  }
+  const int bits_12 = bitlen->pmi_i12_bitlen[ri];
+  const int bits_13 = bitlen->pmi_i13_bitlen[ri];
   return ((uint16_t)i_1_1 << (bits_12 + bits_13)) | ((uint16_t)i_1_2 << bits_13) | (uint16_t)i_1_3;
 }
 
@@ -3086,8 +3060,11 @@ static nfapi_nr_ue_csi_payload_t get_csirs_RI_PMI_CQI_payload(NR_UE_MAC_INST_t *
       int padding_bitlen = 0;
 
       // Reconstruct X1 from the separate i_1,1 / i_1,2 / i_1,3 fields; X2 is just i_2.
-      const uint16_t pmi_x1 =
-          pack_pmi_x1(pmi_x1_bitlen, mac->csirs_measurements.i_1_1, mac->csirs_measurements.i_1_2, mac->csirs_measurements.i_1_3);
+      const uint16_t pmi_x1 = pack_pmi_x1(&csi_report->csi_meas_bitlen,
+                                          ri,
+                                          mac->csirs_measurements.i_1_1,
+                                          mac->csirs_measurements.i_1_2,
+                                          mac->csirs_measurements.i_1_3);
       const uint8_t pmi_x2 = mac->csirs_measurements.i_2;
 
       // TODO: Improvements will be needed to cri_bitlen>0 and pmi_x1_bitlen>0
