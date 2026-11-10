@@ -30,7 +30,7 @@
 #include "PHY/INIT/phy_init.h"
 #include "radio/ETHERNET/ethernet_lib.h"
 #include "vnf/nfapi_lte_vnf.h"
-#include "nfapi_pnf.h"
+#include "nfapi/oai_integration/pnf/nfapi_lte_pnf.h"
 
 #include "L1_paramdef.h"
 #include "MACRLC_paramdef.h"

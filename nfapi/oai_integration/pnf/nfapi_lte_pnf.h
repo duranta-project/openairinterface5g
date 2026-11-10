@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
-#ifndef NFAPI_PNF_H_
-#define NFAPI_PNF_H_
+#ifndef NFAPI_LTE_PNF_H_
+#define NFAPI_LTE_PNF_H_
 
 extern nfapi_ue_release_request_body_t release_rntis;
 int oai_nfapi_rach_ind(nfapi_rach_indication_t *rach_ind);
@@ -14,4 +14,4 @@ int oai_nfapi_crc_indication(nfapi_crc_indication_t *crc_ind);
 int oai_nfapi_cqi_indication(nfapi_cqi_indication_t *ind);
 int oai_nfapi_rx_ind(nfapi_rx_indication_t *ind);
 int oai_nfapi_sr_indication(nfapi_sr_indication_t *ind);
-#endif /* NFAPI_PNF_H_ */
+#endif /* NFAPI_LTE_PNF_H_ */

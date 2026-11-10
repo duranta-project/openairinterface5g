@@ -9,7 +9,7 @@
 #include "PHY/defs_eNB.h"
 #include "nfapi_interface.h"
 #include "fapi_l1.h"
-#include "nfapi_pnf.h"
+#include "nfapi/oai_integration/pnf/nfapi_lte_pnf.h"
 #include "common/utils/LOG/log.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "common/utils/LOG/vcd_signal_dumper.h"
