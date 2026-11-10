@@ -95,6 +95,37 @@ ninja lte-softmodem nr-softmodem nr-cuup oairu lte-uesoftmodem nr-uesoftmodem
 ninja params_libconfig coding rfsimulator
 ```
 
+## Qualcomm DragonWing IQ-9/X
+
+The ARM side of the DragonWing IQ-9/X (QCS9075, Cortex-A78) is built with the
+same two steps, using `cmake_targets/cross-arm-dragonwing.cmake` instead of
+`cross-arm.cmake`. What differs:
+
+- **Compiler**: the aarch64 GCC bundled with the Hexagon SDK
+  (`tools/gcc_tools_64/bin/aarch64-none-linux-gnu-gcc`), not the Ubuntu
+  package. The SDK is expected in `/opt/Hexagon_SDK/6.4.0.2`; otherwise pass
+  `-DHEXAGON_SDK_ROOT=<path>`.
+- **Target CPU**: the toolchain file sets `-mcpu=cortex-a78+crypto`, which
+  replaces the generic `-march=armv8.2-a`. `+crypto` matters: without it the
+  CRC falls back to a scalar carry-less multiply.
+- **Headers and libraries**: the SDK compiler's own sysroot has an incomplete
+  glibc, so the toolchain file points it at the Ubuntu arm64 multiarch headers
+  and libraries installed above (add `libyaml-cpp-dev:arm64`).
+
+```shell
+cd ran_build/build-cross
+cmake ../../.. -GNinja -DCMAKE_TOOLCHAIN_FILE=../../../cmake_targets/cross-arm-dragonwing.cmake -DNATIVE_DIR=../build
+ninja nr-softmodem nr-cuup params_libconfig coding
+```
+
+For the O-RAN 7.2 fronthaul (`-DOAI_FHI72=ON`), DPDK, libxran and ArmRAL must
+also be cross-built for arm64; pass their locations with
+`-Dxran_LOCATION=<path>` and `-Darmral_LOCATION=<path>` and add DPDK's
+`lib/pkgconfig` to `PKG_CONFIG_PATH`.
+
+Copy the executables and the `lib*.so` modules from the build directory to the
+same directory on the target and run with `LD_LIBRARY_PATH` pointing at it.
+
 ## Further information
 
 You can do the above steps using docker, see dockerfiles
