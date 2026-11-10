@@ -98,7 +98,7 @@ typedef struct {
   int ss_type;
   // n_CCE index of first CCE for PDCCH reception
   int n_CCE;
-  // N_CCE is L, or number of CCEs for DCI
+  // N_CCE number of CCEs in the CORESET of the PDCCH reception (TS 38.213 9.2.1, used for r_PUCCH)
   int N_CCE;
   int cset_start;
   uint8_t payloadSize;
@@ -524,6 +524,7 @@ typedef struct {
   uint16_t dlDataScramblingId;
   uint16_t pduBitmap;
   uint32_t k1_feedback;
+  bool harq_feedback_disabled; ///< no HARQ-ACK for this PDSCH (downlinkHARQ-FeedbackDisabled-r17)
   uint8_t numCsiRsForRateMatching;
   fapi_nr_dl_config_csirs_pdu_rel15_t csiRsForRateMatching[NFAPI_MAX_NUM_CSI_RATEMATCH];
 } fapi_nr_dl_config_dlsch_pdu_rel15_t;
