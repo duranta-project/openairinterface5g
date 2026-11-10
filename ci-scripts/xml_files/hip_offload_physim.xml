@@ -4,6 +4,12 @@
   <htmlTabName>Test HIP LDPC Offload</htmlTabName>
 
   <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
     <class>Custom_Command</class>
     <desc>Disable Sleep States</desc>
     <node>localhost</node>
