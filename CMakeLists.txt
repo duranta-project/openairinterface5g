@@ -2030,7 +2030,7 @@ add_executable(nr_srssim
   )
 
 target_link_libraries(nr_srssim PRIVATE
-  SCHED_NR_LIB SCHED_NR_UE_LIB SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_LIB
+  SCHED_NR_LIB SCHED_NR_UE_LIB SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_UE_LIB SCHED_NR_LIB
   ITTI physim_common softmodem_common
   )
 
