@@ -1971,6 +1971,25 @@ static void set_phr_config(NR_MAC_CellGroupConfig_t *mac_CellGroupConfig)
   mac_CellGroupConfig->phr_Config->choice.setup->phr_Tx_PowerFactorChange = NR_PHR_Config__phr_Tx_PowerFactorChange_dB1;
 }
 
+static void configure_trigstate(NR_CSI_MeasConfig_t *csi_MeasConfig, const NR_CSI_ReportConfig_t *csirep, bool is_ssb)
+{
+  NR_CSI_AssociatedReportConfigInfo_t *info = calloc(1, sizeof(*info));
+  info->reportConfigId = csirep->reportConfigId;
+  if (is_ssb) {
+    info->resourcesForChannel.present = NR_CSI_AssociatedReportConfigInfo__resourcesForChannel_PR_csi_SSB_ResourceSet;
+    info->resourcesForChannel.choice.csi_SSB_ResourceSet = 1; //TODO csirep->resourcesForChannelMeasurement has the wrong value
+  } else {
+    info->resourcesForChannel.present = NR_CSI_AssociatedReportConfigInfo__resourcesForChannel_PR_nzp_CSI_RS;
+    struct NR_CSI_AssociatedReportConfigInfo__resourcesForChannel__nzp_CSI_RS *nzp = calloc(1, sizeof(*nzp));
+    nzp->resourceSet = csirep->resourcesForChannelMeasurement;
+    // TODO add qcl-info
+    info->resourcesForChannel.choice.nzp_CSI_RS = nzp;
+  }
+  info->csi_IM_ResourcesForInterference = csirep->csi_IM_ResourcesForInterference;
+  info->nzp_CSI_RS_ResourcesForInterference = csirep->nzp_CSI_RS_ResourcesForInterference;
+  asn1cSeqAdd(&csi_MeasConfig->aperiodicTriggerStateList->choice.setup->list.array[0]->associatedReportConfigInfoList, info);
+}
+
 static void set_csi_meas_periodicity(const nr_cell_sched_t *cell,
                                      const NR_ServingCellConfigCommon_t *scc,
                                      NR_CSI_ReportConfig_t *csirep,
@@ -2135,6 +2154,7 @@ static void config_csi_meas_report(const nr_cell_sched_t *cell,
                                    NR_PUCCH_CSI_Resource_t *pucchcsires,
                                    struct NR_SetupRelease_PDSCH_Config *pdsch_Config,
                                    const nr_pdsch_AntennaPorts_t *antennaports,
+                                   bool aperiodic_csi,
                                    const int max_layers,
                                    int rep_id,
                                    int uid,
@@ -2165,10 +2185,21 @@ static void config_csi_meas_report(const nr_cell_sched_t *cell,
   csirep->csi_IM_ResourcesForInterference = calloc(1, sizeof(*csirep->csi_IM_ResourcesForInterference));
   *csirep->csi_IM_ResourcesForInterference = im_id;
   csirep->nzp_CSI_RS_ResourcesForInterference = NULL;
-  csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_periodic;
-  csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
-  set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, antennaports, false);
-  asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
+  if (aperiodic_csi) {
+    configure_trigstate(csi_MeasConfig, csirep, false);
+    csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_aperiodic;
+    csirep->reportConfigType.choice.aperiodic = calloc(1, sizeof(*csirep->reportConfigType.choice.aperiodic));
+    NR_PUSCH_TimeDomainResourceAllocationList_t *tda_list =
+          servingcellconfigcommon->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList;
+    // This list must have the same number of entries as the pusch-TimeDomainAllocationList in PUSCH-Config
+    for (int i = 0; i < tda_list->list.count; i++)
+      asn1cSeqAdd(&csirep->reportConfigType.choice.aperiodic->reportSlotOffsetList.list, tda_list->list.array[i]->k2);
+  } else {
+    csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_periodic;
+    csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
+    set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, antennaports, false);
+    asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
+  }
   csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI;
   csirep->reportQuantity.choice.cri_RI_PMI_CQI = (NULL_t)0;
   csirep->reportFreqConfiguration = calloc(1, sizeof(*csirep->reportFreqConfiguration));
@@ -2285,6 +2316,8 @@ static void config_rsrp_meas_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
                                                                                            ssb_bitmap,
                                                                                            servingcellconfigcommon,
                                                                                            configuration->max_num_rsrp);
+  if (configuration->do_aperiodic_CSI_report)
+    configure_trigstate(csi_MeasConfig, csirep, true);
   asn1cSeqAdd(&csi_MeasConfig->csi_ReportConfigToAddModList->list, csirep);
 }
 
@@ -3555,6 +3588,17 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
     asn1cSeqAdd(&csi_MeasConfig->csi_ResourceConfigToAddModList->list, csires0);
   }
 
+  if (config->do_aperiodic_CSI_report) {
+    csi_MeasConfig->reportTriggerSize = calloc(1, sizeof(*csi_MeasConfig->reportTriggerSize));
+    *csi_MeasConfig->reportTriggerSize = 1;
+    csi_MeasConfig->aperiodicTriggerStateList = calloc(1, sizeof(*csi_MeasConfig->aperiodicTriggerStateList));
+    csi_MeasConfig->aperiodicTriggerStateList->present = NR_SetupRelease_CSI_AperiodicTriggerStateList_PR_setup;
+    NR_CSI_AperiodicTriggerStateList_t *trig_list = calloc(1, sizeof(*trig_list));
+    NR_CSI_AperiodicTriggerState_t *state = calloc(1, sizeof(*state));
+    asn1cSeqAdd(&trig_list->list, state);
+    csi_MeasConfig->aperiodicTriggerStateList->choice.setup = trig_list;
+  }
+
   if (config->do_CSIRS) {
     NR_CSI_ResourceConfig_t *csires2 = calloc(1, sizeof(*csires2));
     csires2->csi_ResourceConfigId = bwp_id + 10;
@@ -3577,6 +3621,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
                            pucchcsi,
                            pdsch_Config,
                            &config->pdsch_AntennaPorts,
+                           config->do_aperiodic_CSI_report,
                            *configDedicated->pdsch_ServingCellConfig->choice.setup->ext1->maxMIMO_Layers,
                            bwp_id,
                            uid,
