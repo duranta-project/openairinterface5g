@@ -74,8 +74,17 @@ endif()
 # alignment 1 of 'struct XYZ' is less than 2
 add_compile_options(-Wno-packed-not-aligned)
 
-set_target_properties(oran_fhlib_5g PROPERTIES COMPILE_FLAGS "-fvisibility=hidden -march=native")
+set_target_properties(oran_fhlib_5g PROPERTIES COMPILE_FLAGS "-fvisibility=hidden")
 target_link_libraries(oran_fhlib_5g PRIVATE xran::xran PkgConfig::dpdk_fh pthread dl rt m numa)
+# DPDK's pkg-config Cflags carry the -march DPDK itself was built for (e.g.
+# armv8-a+crc for a generic arm64 build). It would override the target ISA
+# chosen in CMAKE_C_FLAGS: it comes later on the command line, and GCC lets
+# -march win over -mcpu.
+get_target_property(_dpdk_cflags PkgConfig::dpdk_fh INTERFACE_COMPILE_OPTIONS)
+if(_dpdk_cflags)
+  list(FILTER _dpdk_cflags EXCLUDE REGEX "^-march=")
+  set_target_properties(PkgConfig::dpdk_fh PROPERTIES INTERFACE_COMPILE_OPTIONS "${_dpdk_cflags}")
+endif()
 target_link_libraries(oran_fhlib_5g PRIVATE log_headers)
 if (CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
   find_package(armral REQUIRED)
