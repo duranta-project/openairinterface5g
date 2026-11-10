@@ -524,6 +524,7 @@ typedef struct {
   uint16_t dlDataScramblingId;
   uint16_t pduBitmap;
   uint32_t k1_feedback;
+  bool harq_feedback_disabled; ///< no HARQ-ACK for this PDSCH (downlinkHARQ-FeedbackDisabled-r17)
   uint8_t numCsiRsForRateMatching;
   fapi_nr_dl_config_csirs_pdu_rel15_t csiRsForRateMatching[NFAPI_MAX_NUM_CSI_RATEMATCH];
 } fapi_nr_dl_config_dlsch_pdu_rel15_t;

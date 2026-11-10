@@ -763,9 +763,11 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   }
 
   /* The PID was re-armed while decoding: the soft buffer and segment parameters may belong to the newer grant,
-     so this result is not trusted. The newer grant decodes and reports the TB. Only with HARQ feedback (k1 set): without
-     it (downlinkHARQ-FeedbackDisabled, NTN) the gNB reuses the process at once and every TB must be delivered. */
-  const bool rearmed = config->k1_feedback && (dl_harq->activated_frame != frame_rx || dl_harq->activated_slot != nr_slot_rx);
+     so this result is not trusted. The newer grant decodes and reports the TB. Not with downlinkHARQ-FeedbackDisabled
+     (NTN): the gNB reuses the process at once and every TB must be delivered. k1_feedback cannot tell: it is also 0 for
+     the SI-RNTI, P-RNTI and RA-RNTI PDSCHs, which have no HARQ feedback but are re-armed like the others. */
+  const bool rearmed =
+      !config->harq_feedback_disabled && (dl_harq->activated_frame != frame_rx || dl_harq->activated_slot != nr_slot_rx);
   if (rearmed)
     LOG_W(NR_PHY,
           "[UE %d] %d.%d DLSCH harq %d re-armed %d.%d during decode, result dropped\n",
