@@ -2873,6 +2873,15 @@ static void configure_servingcell_info(NR_UE_MAC_INST_t *mac, NR_ServingCellConf
   if (scd->csi_MeasConfig) {
     configure_csiconfig(sc_info, scd->csi_MeasConfig, mac->ue_id);
     compute_csi_bitlen(sc_info->csi_MeasConfig, mac->csi_report_template);
+    const struct NR_CSI_MeasConfig__csi_ReportConfigToAddModList *reports = sc_info->csi_MeasConfig->csi_ReportConfigToAddModList;
+    for (int i = 0; reports && i < reports->list.count; i++) {
+      const nr_csi_report_t *csi_report = &mac->csi_report_template[i];
+      if (csi_report->N1 > 0 && csi_report->codebook_mode != 1)
+        LOG_W(NR_MAC,
+              "CSI report %ld: codebookMode %d not supported, PMI not measured\n",
+              csi_report->reportConfigId,
+              csi_report->codebook_mode);
+    }
   }
 
   if (scd->supplementaryUplink)

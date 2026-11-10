@@ -23,3 +23,8 @@ add_dependencies(tests test_nr_est_delay)
 add_dependencies(test_nr_est_delay dfts)
 add_test(NAME test_nr_est_delay COMMAND ./test_nr_est_delay)
 set_tests_properties(test_nr_est_delay PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}")
+
+add_executable(test_csi_pmi test_csi_pmi.cpp)
+target_link_libraries(test_csi_pmi PRIVATE nr_csi_pmi GTest::gtest GTest::gtest_main)
+add_dependencies(tests test_csi_pmi)
+add_test(NAME test_csi_pmi COMMAND ./test_csi_pmi)

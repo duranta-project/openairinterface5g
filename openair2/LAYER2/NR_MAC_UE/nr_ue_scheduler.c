@@ -1231,6 +1231,62 @@ static uint8_t set_csirs_measurement_bitmap(NR_CSI_MeasConfig_t *csi_measconfig,
   return meas_bitmap;
 }
 
+static bool report_has_pmi(NR_CSI_ReportConfig__reportQuantity_PR quantity)
+{
+  return quantity == NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI
+         || quantity == NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_LI_PMI_CQI;
+}
+
+static bool report_has_ri(NR_CSI_ReportConfig__reportQuantity_PR quantity)
+{
+  return report_has_pmi(quantity) || quantity == NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_CQI;
+}
+
+// Codebook and rank restrictions of the CSI reports measuring RI and PMI on this CSI-RS resource configuration;
+// a report with PMI takes precedence over one with RI only
+static void set_csirs_codebook(const NR_UE_MAC_INST_t *mac,
+                               const NR_CSI_MeasConfig_t *csi_measconfig,
+                               NR_CSI_ResourceConfigId_t csi_res_id,
+                               fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu)
+{
+  csirs_config_pdu->codebook_n1 = 0;
+  csirs_config_pdu->codebook_n2 = 0;
+  csirs_config_pdu->ri_restriction = 0xff;
+  csirs_config_pdu->codebook_subset = 0;
+  if (!(csirs_config_pdu->measurement_bitmap & ((1 << 1) | (1 << 3))))
+    return;
+  bool ri_only_seen = false;
+  for (int i = 0; i < csi_measconfig->csi_ReportConfigToAddModList->list.count; i++) {
+    const NR_CSI_ReportConfig_t *report_config = csi_measconfig->csi_ReportConfigToAddModList->list.array[i];
+    const NR_CSI_ReportConfig__reportQuantity_PR quantity = report_config->reportQuantity.present;
+    if (report_config->resourcesForChannelMeasurement != csi_res_id || !report_has_ri(quantity))
+      continue;
+    const nr_csi_report_t *csi_report = NULL;
+    for (int j = 0; j < MAX_CSI_REPORTCONFIG; j++) {
+      if (mac->csi_report_template[j].reportConfigId == report_config->reportConfigId) {
+        csi_report = &mac->csi_report_template[j];
+        break;
+      }
+    }
+    if (!csi_report)
+      continue;
+    if (!report_has_pmi(quantity)) {
+      if (!ri_only_seen)
+        csirs_config_pdu->ri_restriction = csi_report->csi_meas_bitlen.ri_restriction;
+      ri_only_seen = true;
+      continue;
+    }
+    csirs_config_pdu->ri_restriction = csi_report->csi_meas_bitlen.ri_restriction;
+    // the UE PHY searches codebookMode 1 only
+    if (csi_report->codebook_mode == 1) {
+      csirs_config_pdu->codebook_n1 = csi_report->N1;
+      csirs_config_pdu->codebook_n2 = csi_report->N2;
+      csirs_config_pdu->codebook_subset = csi_report->codebook_subset;
+    }
+    return;
+  }
+}
+
 static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int slot)
 {
   if (!mac->sc_info.csi_MeasConfig)
@@ -1264,6 +1320,7 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
     LOG_D(MAC,"Scheduling reception of CSI-RS in frame %d slot %d\n", frame, slot);
     fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu = &dl_config->dl_config_list[dl_config->number_pdus].csirs_config_pdu.csirs_config_rel15;
     csirs_config_pdu->measurement_bitmap = set_csirs_measurement_bitmap(csi_measconfig, csi_res_id);
+    set_csirs_codebook(mac, csi_measconfig, csi_res_id, csirs_config_pdu);
     csirs_config_pdu->subcarrier_spacing = mu;
     csirs_config_pdu->cyclic_prefix = current_DL_BWP->cyclicprefix ? *current_DL_BWP->cyclicprefix : 0;
 
