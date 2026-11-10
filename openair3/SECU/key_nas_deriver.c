@@ -119,6 +119,52 @@ void nr_derive_key(algorithm_type_dist_t alg_type, uint8_t alg_id, const uint8_t
 }
 
 /*!
+ * @brief Compute the shortMAC-I of RRCReestablishmentRequest (TS 38.331 5.3.7.4): the 16 least
+ * significant bits of the MAC-I calculated over the encoded VarShortMAC-Input, with the KRRCint
+ * and integrity algorithm of the source PCell, and all bits of COUNT, BEARER and DIRECTION set to 1.
+ * @param[in] integrity_alg integrity algorithm of the source PCell (NIA0/1/2)
+ * @param[in] kgnb KgNB in use in the source PCell
+ * @param[in] source_pci physical cell identity of the source PCell
+ * @param[in] target_cell_id cell identity (36 bits) of the cell the UE re-establishes on
+ * @param[in] source_crnti C-RNTI of the UE in the source PCell
+ */
+uint16_t nr_derive_short_mac_i(uint8_t integrity_alg,
+                               const uint8_t kgnb[SECURITY_KEY_LEN],
+                               uint16_t source_pci,
+                               uint64_t target_cell_id,
+                               uint16_t source_crnti)
+{
+  /* NIA0 produces an all-zero MAC-I (TS 33.501 D.1) */
+  if (integrity_alg == EIA0_ALG_ID)
+    return 0;
+
+  uint8_t krrcint[16];
+  nr_derive_key(RRC_INT_ALG, integrity_alg, kgnb, krrcint);
+
+  /* VarShortMAC-Input: sourcePhysCellId (10 bits), targetCellIdentity (36 bits) and
+   * source-c-RNTI (16 bits), encoded MSB first and padded to 64 bits */
+  const uint64_t input =
+      ((uint64_t)(source_pci & 0x3ff) << 54) | ((target_cell_id & 0xfffffffffULL) << 18) | ((uint64_t)source_crnti << 2);
+  uint8_t var_input[8];
+  for (int i = 0; i < 8; i++)
+    var_input[i] = (input >> (56 - 8 * i)) & 0xff;
+
+  stream_security_context_t *ctx = stream_integrity_init(integrity_alg, krrcint);
+  nas_stream_cipher_t cipher = {
+      .context = ctx,
+      .count = 0xffffffff,
+      .bearer = 0x1f,
+      .direction = SECU_DIRECTION_DOWNLINK,
+      .message = var_input,
+      .blength = 64,
+  };
+  uint8_t mac[4];
+  stream_compute_integrity(integrity_alg, &cipher, mac);
+  stream_integrity_free(integrity_alg, ctx);
+  return ((uint16_t)mac[2] << 8) | mac[3];
+}
+
+/*!
  * @brief Derive the keys from key and perform truncate on the generated key to
  * reduce his size to 128 bits. Definition of the derivation function can
  * be found in 3GPP TS.33401 #A.7
