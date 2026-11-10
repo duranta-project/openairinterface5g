@@ -115,6 +115,9 @@ static void apply_nr_rotation_TX_masked(const NR_DL_FRAME_PARMS *fp,
   }
 }
 
+// With a single concurrent beam, one beam is applied to all antennas,
+// so every antenna gets the PDU beam, including those no PDU maps to.
+// With concurrent beams only the PDU ports are written.
 void beam_index_allocation(uint16_t fapi_beam_index,
                            int ant,
                            int num_ports,
@@ -122,19 +125,24 @@ void beam_index_allocation(uint16_t fapi_beam_index,
                            int slot,
                            uint16_t bitmap_symbols,
                            int num_ant_max,
+                           int num_beams_period,
                            uint16_t **ant_beam_id_list)
 {
   if (!ant_beam_id_list)
     return;
 
   AssertFatal(IS_BIT_SET(fapi_beam_index, 15), "Can't handle preconfigured DBM yet\n");
+  DevAssert(ant >= 0 && ant + num_ports <= num_ant_max);
   uint16_t ru_beam_idx = fapi_beam_index & 0x7fff;
+
+  const int first_ant = num_beams_period == 1 ? 0 : ant;
+  const int last_ant = num_beams_period == 1 ? num_ant_max : ant + num_ports;
   for (int j = 0; j < symbols_per_slot; j++) {
-    if (((bitmap_symbols >> j) & 0x01))
-      for (uint_fast8_t p = 0; p < num_ports; p++) {
-        DevAssert(ant + p < num_ant_max);
-        ant_beam_id_list[slot * symbols_per_slot + j][ant + p] = ru_beam_idx;
-      }
+    if ((bitmap_symbols >> j) & 0x01) {
+      uint16_t *symb_beams = ant_beam_id_list[slot * symbols_per_slot + j];
+      for (int a = first_ant; a < last_ant; a++)
+        symb_beams[a] = ru_beam_idx;
+    }
   }
 }
 
@@ -200,7 +208,15 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const n
                                         fp->nb_antennas_tx / gNB->common_vars.num_beams_period,
                                         beam_id,
                                         (pdu->param_v4.spatialStreamIndexPresent ? pdu->param_v4.spatialStreamIndex : 0));
-  beam_index_allocation(beam_id, ant_port, 1, fp->symbols_per_slot, slot, sym_bitmap, fp->nb_antennas_tx, gNB->common_vars.beam_id);
+  beam_index_allocation(beam_id,
+                        ant_port,
+                        1,
+                        fp->symbols_per_slot,
+                        slot,
+                        sym_bitmap,
+                        fp->nb_antennas_tx,
+                        gNB->common_vars.num_beams_period,
+                        gNB->common_vars.beam_id);
 
   nr_generate_pss(txdataF[ant_port], gNB->TX_AMP, ssb_start_symbol, cfg, fp);
   nr_generate_sss(txdataF[ant_port], gNB->TX_AMP, ssb_start_symbol, cfg->cell_config.phy_cell_id.value, fp);
@@ -289,6 +305,7 @@ static void nr_generate_csi_rs_gNB(PHY_VARS_gNB *gNB, int slot, const nfapi_nr_d
                         slot,
                         csi_bitmap,
                         gNB->frame_parms.nb_antennas_tx,
+                        gNB->common_vars.num_beams_period,
                         gNB->common_vars.beam_id);
 
   nr_generate_csi_rs(&gNB->frame_parms,

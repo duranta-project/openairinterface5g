@@ -337,6 +337,12 @@ port, the `beam_index_allocation` function is simplified in the sense that the
 beam index corresponds to the antenna port index of the frequency domain
 buffers.
 
+L1 keeps the beam index of every antenna for each symbol and forwards it to the
+radio (`trx_set_beams()`) or to the fronthaul (per eAxC beam ID in the 7.2
+C-Plane). With `beams_per_period = 1` the beam of a PDU is applied to all
+antennas in its symbols, including those no PDU maps to. With more than one
+concurrent beam, only the antennas of the PDU's spatial streams carry its beam.
+
 ## RU implementation
 
 The implementation is still work in progress.

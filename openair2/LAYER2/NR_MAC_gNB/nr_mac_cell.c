@@ -81,6 +81,12 @@ void seq_arr_cell_free(void *cell)
 void nr_mac_cell_free(nr_cell_sched_t *cell)
 {
   free(cell->radio_config.ssb_beams);
+  NR_beam_info_t *beam_info = &cell->beam_info;
+  if (beam_info->beam_allocation) {
+    for (int b = 0; b < beam_info->config.beams_per_period; b++)
+      free(beam_info->beam_allocation[b]);
+    free(beam_info->beam_allocation);
+  }
   NR_COMMON_channels_t *cc = &cell->common_channels;
   nr_mac_pcch_queue_free(cc);
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, cc->mib);

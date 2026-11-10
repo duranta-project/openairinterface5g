@@ -902,9 +902,9 @@ static NR_beam_info_t initialize_beam_information(const NR_beam_config_t *beam_c
               beam_config->beam_duration,
               slots_per_frame);
   beam_info.beam_allocation_size = size / beam_config->beam_duration;
-  beam_info.beam_allocation = malloc16(beam_config->beams_per_period * sizeof(beam_info.beam_allocation));
+  beam_info.beam_allocation = malloc16(beam_config->beams_per_period * sizeof(*beam_info.beam_allocation));
   for (int i = 0; i < beam_config->beams_per_period; i++) {
-    beam_info.beam_allocation[i] = malloc16(beam_info.beam_allocation_size * sizeof(*beam_info.beam_allocation));
+    beam_info.beam_allocation[i] = malloc16(beam_info.beam_allocation_size * sizeof(**beam_info.beam_allocation));
     for (int j = 0; j < beam_info.beam_allocation_size; j++)
       beam_info.beam_allocation[i][j] = -1;
   }
