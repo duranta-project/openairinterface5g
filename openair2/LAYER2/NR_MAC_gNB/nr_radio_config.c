@@ -1663,9 +1663,10 @@ static NR_SetupRelease_PUSCH_Config_t *config_pusch(const nr_mac_config_t *confi
     pusch_Config->maxRank = calloc(1, sizeof(*pusch_Config->maxRank));
   *pusch_Config->maxRank = set_ul_max_layers(configuration, uecap, ul_id);
   pusch_Config->rbg_Size = NULL;
-  pusch_Config->uci_OnPUSCH = NULL;
-  if (configuration->aperiodic_csi) {
-    /* aperiodic CSI reports on PUSCH: semi-static beta offsets (TS 38.213 9.3), no scaling of the UCI REs */
+  /* UCI on PUSCH: the UE multiplexes the HARQ-ACK and CSI of a PUCCH overlapping a PUSCH into the PUSCH (TS 38.213 9.2.5),
+   * and sends the aperiodic CSI reports on PUSCH, with semi-static beta offsets (TS 38.213 9.3) and no limit on the share
+   * of UCI REs (scaling 1) */
+  if (!pusch_Config->uci_OnPUSCH) {
     pusch_Config->uci_OnPUSCH = calloc_or_fail(1, sizeof(*pusch_Config->uci_OnPUSCH));
     pusch_Config->uci_OnPUSCH->present = NR_SetupRelease_UCI_OnPUSCH_PR_setup;
     NR_UCI_OnPUSCH_t *onPusch = calloc_or_fail(1, sizeof(*onPusch));
