@@ -4853,6 +4853,17 @@ static void set_bitlen_size_singlepanel(CSI_Meas_bitlen_t *csi_bitlen, int n1, i
 }
 
 
+uint16_t nr_pack_pmi_x1(const CSI_Meas_bitlen_t *bitlen, int ri, uint8_t i_1_1, uint8_t i_1_2, uint8_t i_1_3)
+{
+  const int bits_11 = bitlen->pmi_i11_bitlen[ri];
+  const int bits_12 = bitlen->pmi_i12_bitlen[ri];
+  const int bits_13 = bitlen->pmi_i13_bitlen[ri];
+  const uint16_t x1_11 = i_1_1 & ((1 << bits_11) - 1);
+  const uint16_t x1_12 = i_1_2 & ((1 << bits_12) - 1);
+  const uint16_t x1_13 = i_1_3 & ((1 << bits_13) - 1);
+  return (x1_11 << (bits_12 + bits_13)) | (x1_12 << bits_13) | x1_13;
+}
+
 static void compute_pmi_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, uint8_t ri_restriction, nr_csi_report_t *csi_report)
 {
   NR_CodebookConfig_t *codebookConfig = csi_reportconfig->codebookConfig;
