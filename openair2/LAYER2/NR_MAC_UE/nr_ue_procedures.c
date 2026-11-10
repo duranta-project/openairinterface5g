@@ -438,17 +438,17 @@ static inline bool nr_ue_has_dedicated_pucch_resource_set(const NR_PUCCH_Config_
   return cfg && cfg->resourceSetToAddModList && cfg->resourceSetToAddModList->list.array[0];
 }
 
-static void set_harq_status(NR_UE_MAC_INST_t *mac,
-                            uint8_t pucch_id,
-                            uint8_t harq_id,
-                            int cw_id,
-                            int8_t delta_pucch,
-                            uint16_t data_toul_fb,
-                            uint8_t dai,
-                            int n_CCE,
-                            int N_CCE,
-                            frame_t frame,
-                            int slot)
+void set_harq_status(NR_UE_MAC_INST_t *mac,
+                     uint8_t pucch_id,
+                     uint8_t harq_id,
+                     int cw_id,
+                     int8_t delta_pucch,
+                     uint16_t data_toul_fb,
+                     uint8_t dai,
+                     int n_CCE,
+                     int N_CCE,
+                     frame_t frame,
+                     int slot)
 {
   NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[harq_id][cw_id];
   const NR_PUCCH_Config_t *pucch_Config = mac->current_UL_BWP ? mac->current_UL_BWP->pucch_Config : NULL;
@@ -500,10 +500,12 @@ static void set_harq_status(NR_UE_MAC_INST_t *mac,
   }
 
   current_harq->dai_cumul = temp_dai + 1;  // DAI = 0 (temp_dai) corresponds to 1st assignment and so on
-  // if temp_dai is less or equal than cumulative highest dai for given slot
+  // if temp_dai is less or equal than highest dai modulo 4 for given slot
   // it's an indication dai was reset due to modulo 4 operation
-  if (temp_dai <= highest_dai) {
-    int mod4_count = (highest_dai + 1) / 4; // to take into account how many times dai wrapped up (modulo 4)
+  if (highest_dai >= 0) {
+    int mod4_count = highest_dai / 4;
+    if (temp_dai <= (highest_dai % 4))
+      mod4_count++;
     current_harq->dai_cumul += (mod4_count * 4);
   }
   LOG_D(NR_MAC,

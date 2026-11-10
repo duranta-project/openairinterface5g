@@ -151,6 +151,17 @@ void set_precoding_information_parameters(nfapi_nr_ue_pusch_pdu_t *pusch_config_
                                           int precoding_information,
                                           NR_PUSCH_Config_t *pusch_Config);
 
+void set_harq_status(NR_UE_MAC_INST_t *mac,
+                     uint8_t pucch_id,
+                     uint8_t harq_id,
+                     int cw_id,
+                     int8_t delta_pucch,
+                     uint16_t data_toul_fb,
+                     uint8_t dai,
+                     int n_CCE,
+                     int N_CCE,
+                     frame_t frame,
+                     int slot);
 bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sched_t *pucch);
 initial_pucch_resource_t get_initial_pucch_resource(const int idx);
 void multiplex_pucch_resource(NR_UE_MAC_INST_t *mac, PUCCH_sched_t *pucch, int num_res);
