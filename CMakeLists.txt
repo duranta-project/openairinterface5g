@@ -219,7 +219,13 @@ if (NOT CROSS_COMPILE)
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=native")
   endif()
 else ()
-  set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=armv8.2-a")
+  # A cross toolchain file may select the target CPU in CMAKE_C_FLAGS_INIT
+  # (e.g. -mcpu=cortex-a78+crypto); only fall back to the ARMv8.2-A baseline
+  # when it does not. GCC lets -march override the ISA of -mcpu, so both
+  # must not be passed.
+  if (NOT CMAKE_C_FLAGS MATCHES "-m(arch|cpu)=")
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=armv8.2-a")
+  endif()
 endif()
 
 # we need -rdynamic to incorporate all symbols in shared objects, see man page
