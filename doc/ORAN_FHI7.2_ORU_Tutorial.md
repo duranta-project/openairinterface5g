@@ -86,6 +86,9 @@ An example configuration file can be found at
 | `eaxc_ul` | Integer Array | UL eAxC IDs (cuBB `eAxC_id_pusch`); ID `i` is UL stream `i` or RX antenna `i`. Up to `16` | `[]` |
 | `eaxc_prach` | Integer Array | PRACH eAxC IDs (cuBB `eAxC_id_prach`); ID `i` is PRACH stream `i`. Up to `16` | `[]` |
 | `eaxc_srs` | Integer Array | SRS eAxC IDs (cuBB `eAxC_id_srs`); ID `i` is RX antenna `i`. SRS goes to the DU per RX antenna after the FFT, not beamformed, also in codebook mode. Not in `eaxc_ul`. Up to `64` | `[]` |
+| `comp_type` | String | U-plane compression method: `none`, `bfp`, `blkscale` or `ulaw`. DL only, and also UL and PRACH with `static_iq_width` | `none` |
+| `static_iq_width` | Integer | Static U-plane compression, as cuBB `dl_iq_data_fmt` and `ul_iq_data_fmt`, or the OAI DU `comp_hdr_type = "static"`: `comp_type` at this IQ bit width (1 to 16) in both directions. U-plane sections have no `udCompHdr`, and the C-plane `udCompHdr` is ignored (cuBB always sends `0`). `0`: DL takes the IQ width from the `udCompHdr` of each U-plane section, and UL the compression from the C-plane `udCompHdr` | `0` |
+| `static_iq_width_prach` | Integer | PRACH IQ bit width of the static compression, as the OAI DU `iq_width_prach`. `0`: `static_iq_width` | `0` |
 | `extra_eal_args` | String List | EAL arguments passed to DPDK | `[]` |
 
 With all eAxC lists empty, the O-RU uses the RU port (the 4 low bits of the eAxC ID) as the stream index, and `prach_eaxc_offset` for PRACH. With the lists, set `eaxc_dl`, `eaxc_ul` and `eaxc_prach` (`eaxc_srs` is optional). An eAxC ID is then compared on all 16 bits, as cuBB sets them, and an ID that is not in the list of its flow is dropped and counted as invalid. In both cases, the UL U-plane carries the eAxC ID of its C-plane.
