@@ -56,6 +56,7 @@
 #include "key_nas_deriver.h"
 #include "nr-uesoftmodem.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap_qos_rule.h"
+#include "common/utils/remote_sim/remote_sim.h"
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #include "curve_25519.h"
@@ -1243,7 +1244,7 @@ static void generateAuthenticationResp(as_nas_info_t *initialNasMsg, OctetString
 
 /** @brief Send Authentication Failure message from the UE to the AMF to
  * indicate that authentication of the network has failed */
-static void generateAuthenticationFailure(as_nas_info_t *initialNasMsg, cause_id_t cause)
+static void generateAuthenticationFailure(as_nas_info_t *initialNasMsg, cause_id_t cause, uint8_t *auts)
 {
   int size = sizeof(fgmm_msg_header_t);
   fgmm_nas_message_plain_t plain = {0};
@@ -1255,6 +1256,13 @@ static void generateAuthenticationFailure(as_nas_info_t *initialNasMsg, cause_id
   fgmm_auth_failure_t *mm_msg = &plain.mm_msg.fgmm_auth_failure;
   mm_msg->cause = cause;
   size += 1;
+
+  if (cause == Synch_failure) {
+    mm_msg->authentication_failure_param.len = 14;
+    mm_msg->authentication_failure_param.buf = auts;
+    size += 16;
+  }
+
   initialNasMsg->nas_data = malloc_or_fail(size * sizeof(*initialNasMsg->nas_data));
   initialNasMsg->length = mm_msg_encode(&plain, initialNasMsg->nas_data, size);
 }
@@ -1279,15 +1287,11 @@ static void handle_fgmm_authentication_request(nr_ue_nas_t *nas, as_nas_info_t *
     return;
   }
   size += decoded;
-  if (!nas->ksi) {
-    nas->ksi = malloc_or_fail(sizeof(*nas->ksi));
-    *nas->ksi = msg.ngKSI.naskeysetidentifier;
-    LOG_D(NAS, "Stored NAS Key Set Identifier %d\n", *nas->ksi);
-  } else if (*nas->ksi == msg.ngKSI.naskeysetidentifier) {
+  if (nas->ksi && *nas->ksi == msg.ngKSI.naskeysetidentifier) {
     /* If the ngKSI value received is already associated with one
     of the 5G security contexts stored in the UE, send failure message */
     LOG_E(NAS, "Invalid NAS Key Set Identifier: send Authentication Failure\n");
-    generateAuthenticationFailure(initialNasMsg, ngKSI_already_in_use);
+    generateAuthenticationFailure(initialNasMsg, ngKSI_already_in_use, NULL);
     return;
   }
 
@@ -1295,10 +1299,54 @@ static void handle_fgmm_authentication_request(nr_ue_nas_t *nas, as_nas_info_t *
   uint8_t ck[16];
   uint8_t ik[16];
   get_rand_from_auth_request(nas, buffer->buf);
-  compute_res_ck_ik(nas, res, ck, ik);
+
+  cause_id_t failure_cause = Protocol_error_unspecified;
+
+  remote_sim_authenticate_result_t auth_res = { .type = AUTHENTICATE_SUCCESS };
+
+  if (remote_sim_enabled()) {
+    /* todo: try to use decode_authentication_parameter_autn() */
+    uint8_t *autn = buffer->buf + 8 + 16 + 2;
+    /* 0x20 is Element ID of AUTN, the length has to be 16, enough bytes must be present */
+    if (autn[-2] != 0x20 || autn[-1] != 16 || buffer->len < 8 + 16 + 2 + 16) {
+      LOG_E(SIM, "problem with AUTN in Authentication Request\n");
+      failure_cause = Protocol_error_unspecified;
+      goto authenticate_error;
+    }
+    auth_res = remote_sim_authenticate(nas->security.rand, autn);
+    switch (auth_res.type) {
+      case AUTHENTICATE_SUCCESS:
+        memcpy(res, auth_res.success.res, 16);
+        memcpy(ck, auth_res.success.ck, 16);
+        memcpy(ik, auth_res.success.ik, 16);
+        break;
+      case AUTHENTICATE_FAILURE:
+        failure_cause = MAC_failure;
+        goto authenticate_error;
+      case AUTHENTICATE_RESYNC:
+        failure_cause = Synch_failure;
+        goto authenticate_error;
+    }
+  } else {
+    compute_res_ck_ik(nas, res, ck, ik);
+  }
+
+  /* authentication success */
+
+  /* store KSI */
+  if (!nas->ksi)
+    nas->ksi = malloc_or_fail(sizeof(*nas->ksi));
+  *nas->ksi = msg.ngKSI.naskeysetidentifier;
+  LOG_D(NAS, "Stored NAS Key Set Identifier %d\n", *nas->ksi);
+
   derive_ue_keys(buffer->buf, nas, res, ck, ik);
   OctetString res_star = { .length = 16, .value = nas->security.res };
   generateAuthenticationResp(initialNasMsg, res_star);
+  return;
+
+authenticate_error:
+  /* authentication failure */
+  generateAuthenticationFailure(initialNasMsg, failure_cause, auth_res.resync.auts);
 }
 
 /** @brief Handle authentication not accepted by the network
