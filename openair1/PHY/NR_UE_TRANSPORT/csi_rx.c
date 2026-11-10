@@ -20,6 +20,7 @@
 #include "nr_transport_proto_ue.h"
 #include "nr_phy_common_csi_rs.h"
 #include "nr_phy_common.h"
+#include "nr_csi_pmi.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "common/utils/nr/nr_common.h"
 #include "PHY/NR_UE_ESTIMATION/filt16a_32.h"
@@ -577,18 +578,6 @@ static int nr_csi_rs_ri_estimation(const PHY_VARS_NR_UE *ue,
   }
 }
 
-// Type1 Single Panel PMI indices (TS 38.214 Section 5.2.2.2.1).
-typedef struct {
-  uint8_t i_1_1; // first DFT beam index (4/8 ports; range depends on N1*O1)
-  uint8_t i_1_2; // second DFT beam index (8 ports only; range depends on N2*O2)
-  uint8_t i_1_3; // beam-pair / k1 selection (rank>=2 with 4/8 ports)
-  uint8_t i_2; // co-phasing index (rank 1: 0..3; rank>=2: 0..1)
-} csi_rs_pmi_t;
-
-// DFT codebook: v_l = [1, exp(j*pi*l/4)]^T, l in {0..7}. Q8 fixed-point.
-#define PMI_Q 256
-static const int16_t vl_r[8] = {256, 181, 0, -181, -256, -181, 0, 181};
-static const int16_t vl_i[8] = {0, 181, 256, 181, 0, -181, -256, -181};
 // Co-phasing phi_n = exp(j*pi*n/2): pure integer entries.
 static const int8_t phi_r[4] = {1, 0, -1, 0};
 static const int8_t phi_i[4] = {0, 1, 0, -1};
@@ -637,7 +626,7 @@ static void nr_csi_rs_pmi_2ports(int nb_antennas_rx,
                                  const fapi_nr_dl_config_csirs_pdu_rel15_t *cfg,
                                  uint32_t noise,
                                  uint8_t rank_indicator,
-                                 csi_rs_pmi_t *pmi,
+                                 nr_csi_pmi_t *pmi,
                                  int32_t *precoded_sinr_dB)
 {
   if (rank_indicator > 1) {
@@ -705,214 +694,52 @@ static void nr_csi_rs_pmi_2ports(int nb_antennas_rx,
         *precoded_sinr_dB);
 }
 
-// Rank 1 or 2; 4 ports (TS 38.214 - Tables 5.2.2.2.1-5 and -6)
-static void nr_csi_rs_pmi_4ports(int nb_antennas_rx,
-                                 int N_ports,
-                                 int osz,
-                                 const c16_t ch_freq[][N_ports][osz],
-                                 const fapi_nr_dl_config_csirs_pdu_rel15_t *cfg,
-                                 uint32_t noise,
-                                 uint8_t rank_indicator,
-                                 csi_rs_pmi_t *pmi,
-                                 int32_t *precoded_sinr_dB)
+// Rank 1 or 2; 4 to 16 ports, Type I single panel (TS 38.214 - Tables 5.2.2.2.1-5 and -6)
+static void nr_csi_rs_pmi_single_panel(int nb_antennas_rx,
+                                       int N_ports,
+                                       int osz,
+                                       const c16_t ch_freq[][N_ports][osz],
+                                       const fapi_nr_dl_config_csirs_pdu_rel15_t *cfg,
+                                       uint32_t noise,
+                                       uint8_t rank_indicator,
+                                       nr_csi_pmi_t *pmi,
+                                       int32_t *precoded_sinr_dB)
 {
-  if (rank_indicator > 1) {
-    LOG_W(NR_PHY, "PMI not implemented for 4 ports and rank %d\n", rank_indicator + 1);
+  if (N_ports != 2 * cfg->codebook_n1 * cfg->codebook_n2) {
+    LOG_W(NR_PHY, "PMI: %d CSI-RS ports do not match codebook N1 %d N2 %d\n", N_ports, cfg->codebook_n1, cfg->codebook_n2);
     return;
   }
-  // R = sum H^H H, 4x4 Hermitian, upper triangle only.
-  c64_t R[4][4] = {{{0}}};
+  // R = sum H^H H over the measured REs, upper triangle only.
+  c64_t R[N_ports][N_ports];
+  memset(R, 0, sizeof(R));
   int num_h_vectors = 0;
   for (int rb = cfg->start_rb; rb < cfg->start_rb + cfg->nr_of_rbs; rb++) {
     if (cfg->freq_density <= 1 && cfg->freq_density != (rb % 2))
       continue;
     int k = rb * NR_NB_SC_PER_RB;
     for (int ant_rx = 0; ant_rx < nb_antennas_rx; ant_rx++) {
-      c16_t h[4];
-      for (int p = 0; p < 4; p++)
-        h[p] = ch_freq[ant_rx][p][k];
-      for (int i = 0; i < 4; i++)
-        for (int j = i; j < 4; j++) {
-          R[i][j] = c64x16maddConjShift(h[i], h[j], R[i][j], 0);
-        }
+      for (int i = 0; i < N_ports; i++)
+        for (int j = i; j < N_ports; j++)
+          R[i][j] = c64x16maddConjShift(ch_freq[ant_rx][i][k], ch_freq[ant_rx][j][k], R[i][j], 0);
     }
     num_h_vectors++;
   }
   if (num_h_vectors == 0)
     return;
 
-  // For W = c*[v_l; phi_n*v_l], W^H R W = (1/4)[A_l + B_l + 2*Re(phi_n*D_l)]
-  // A_l = v_l^H R[0:2,0:2] v_l   (Hermitian -> real)
-  // B_l = v_l^H R[2:4,2:4] v_l   (Hermitian -> real)
-  // D_l = v_l^H R[0:2,2:4] v_l   (general -> complex)
-  int64_t A[8];
-  int64_t B[8];
-  c64_t D[8];
-  for (int l = 0; l < 8; l++) {
-    const c64_t v = {vl_r[l], vl_i[l]};
-    A[l] = PMI_Q * PMI_Q * (R[0][0].r + R[1][1].r) + 2LL * PMI_Q * (R[0][1].r * v.r - R[0][1].i * v.i);
-    B[l] = PMI_Q * PMI_Q * (R[2][2].r + R[3][3].r) + 2LL * PMI_Q * (R[2][3].r * v.r - R[2][3].i * v.i);
-    D[l].r = PMI_Q * PMI_Q * (R[0][2].r + R[1][3].r) + PMI_Q * ((R[0][3].r + R[1][2].r) * v.r + (R[1][2].i - R[0][3].i) * v.i);
-    D[l].i = PMI_Q * PMI_Q * (R[0][2].i + R[1][3].i) + PMI_Q * ((R[0][3].i + R[1][2].i) * v.r + (R[0][3].r - R[1][2].r) * v.i);
-  }
-
-  int64_t best = INT64_MIN, best_signal = 0;
-  if (rank_indicator == 0) {
-    // Rank 1, Table 5.2.2.2.1-5: 32 entries indexed by (l, n).
-    for (int l = 0; l < 8; l++) {
-      const int64_t AB = A[l] + B[l];
-      for (int n = 0; n < 4; n++) {
-        int64_t cross = (int64_t)phi_r[n] * D[l].r - (int64_t)phi_i[n] * D[l].i;
-        int64_t m = AB + 2 * cross;
-        if (m > best) {
-          best = m;
-          pmi->i_1_1 = l;
-          pmi->i_2 = n;
-          best_signal = m;
-        }
-      }
-    }
-  } else {
-    // Rank 2, Table 5.2.2.2.1-6: 32 entries indexed by (l, i13, n). l' = (l + 4*i13) mod 8.
-    // trace(W^H R W) = (1/8)[A_l + A_l' + B_l + B_l' + 2*Re(phi_n*(D_l - D_l'))]
-    for (int l = 0; l < 8; l++)
-      for (int i13 = 0; i13 < 2; i13++) {
-        const int lp = (l + 4 * i13) & 7;
-        const int64_t AB = (A[l] + A[lp]) + (B[l] + B[lp]);
-        const int64_t dDr = D[l].r - D[lp].r, dDi = D[l].i - D[lp].i;
-        for (int n = 0; n < 2; n++) {
-          int64_t cross = (int64_t)phi_r[n] * dDr - (int64_t)phi_i[n] * dDi;
-          int64_t m = AB + 2 * cross;
-          if (m > best) {
-            best = m;
-            pmi->i_1_1 = l;
-            pmi->i_1_3 = i13;
-            pmi->i_2 = n;
-            best_signal = m;
-          }
-        }
-      }
-  }
-  // Average signal power per RE = best / (4 * Q^2 * num_REs)  [rank 1]
-  // For rank 2 the (1/8) cancels in best, but we keep the (1/4) here for SINR consistency.
-  int64_t signal_power = best_signal / (4LL * PMI_Q * PMI_Q * num_h_vectors);
-  *precoded_sinr_dB = dB_fixed(signal_power) - dB_fixed(noise);
-
-  LOG_D(NR_PHY,
-        "[nr_csi_rs_pmi_4ports] signal_power = %li (%i dB), noise = %u (%i dB)\n  --> precoded_sinr_dB = %i dB\n",
-        signal_power,
-        (int)(10 * log10(signal_power)),
-        noise,
-        (int)(10 * log10(noise)),
-        *precoded_sinr_dB);
-}
-
-static c64_t block_elem_sum(const c64_t R[8][8], int row0, int col0, int size)
-{
-  c64_t sum = {0};
-  const int64_t scale = (int64_t)PMI_Q * PMI_Q;
-  for (int i = 0; i < size; i++) {
-    sum.r += R[row0 + i][col0 + i].r;
-    sum.i += R[row0 + i][col0 + i].i;
-  }
-  sum.r *= scale;
-  sum.i *= scale;
-  return sum;
-}
-
-// Rank 1; 8 ports (TS 38.214 - Table 5.2.2.2.1-9)
-static void nr_csi_rs_pmi_8ports(int nb_antennas_rx,
-                                 int N_ports,
-                                 int osz,
-                                 const c16_t ch_freq[][N_ports][osz],
-                                 const fapi_nr_dl_config_csirs_pdu_rel15_t *cfg,
-                                 uint32_t noise,
-                                 uint8_t rank_indicator,
-                                 csi_rs_pmi_t *pmi,
-                                 int32_t *precoded_sinr_dB)
-{
-  if (rank_indicator != 0) {
-    LOG_W(NR_PHY, "PMI not implemented for 8 ports and rank %d\n", rank_indicator + 1);
+  int sinr_dB = 0;
+  if (!nr_csi_pmi_type1_single_panel(cfg->codebook_n1,
+                                     cfg->codebook_n2,
+                                     rank_indicator + 1,
+                                     &R[0][0],
+                                     num_h_vectors,
+                                     noise,
+                                     pmi,
+                                     &sinr_dB)) {
+    LOG_W(NR_PHY, "PMI not implemented for %d ports and rank %d\n", N_ports, rank_indicator + 1);
     return;
   }
-  // R = sum H^H H, 8x8 Hermitian, upper triangle only.
-  c64_t R[8][8] = {{{0}}};
-  int num_h_vectors = 0;
-  for (int rb = cfg->start_rb; rb < cfg->start_rb + cfg->nr_of_rbs; rb++) {
-    if (cfg->freq_density <= 1 && cfg->freq_density != (rb % 2))
-      continue;
-    int k = rb * NR_NB_SC_PER_RB;
-    for (int ant_rx = 0; ant_rx < nb_antennas_rx; ant_rx++) {
-      c16_t h[8];
-      for (int p = 0; p < 8; p++)
-        h[p] = ch_freq[ant_rx][p][k];
-      for (int i = 0; i < 8; i++)
-        for (int j = i; j < 8; j++) {
-          R[i][j] = c64x16maddConjShift(h[i], h[j], R[i][j], 0);
-        }
-      num_h_vectors++;
-    }
-  }
-  if (num_h_vectors == 0)
-    return;
-
-  // For W = c*[v_lm; phi_n*v_lm] with v_lm = v_l1 (x) u_m2 (4x1, |v_lm[i]|=Q), decompose R into 4x4 blocks
-  // R_TL = R[0:4,0:4], R_TR = R[0:4,4:8], R_BR = R[4:8,4:8],
-  // and precompute A_lm, B_lm, D_lm for each (l1, m2).
-  // The Kronecker structure means v_lm = [1, exp(j*pi*m2/4), exp(j*pi*l1/4), exp(j*pi*(l1+m2)/4)],
-  // so the fourth entry is just a lookup at index (l1+m2)%8.
-  int64_t A[8][8];
-  int64_t B[8][8];
-  c64_t D[8][8];
-  const c64_t Adiag = block_elem_sum(R, 0, 0, 4);
-  const c64_t Bdiag = block_elem_sum(R, 4, 4, 4);
-  const c64_t Ddiag = block_elem_sum(R, 0, 4, 4);
-  for (int l1 = 0; l1 < 8; l1++) {
-    for (int m2 = 0; m2 < 8; m2++) {
-      const c16_t v[4] = {{PMI_Q, 0},
-                          {vl_r[m2], vl_i[m2]},
-                          {vl_r[l1], vl_i[l1]},
-                          {vl_r[(l1 + m2) & 7], vl_i[(l1 + m2) & 7]}};
-      int64_t Aval = Adiag.r;
-      int64_t Bval = Bdiag.r;
-      c64_t Dval = Ddiag;
-      for (int i = 0; i < 4; i++)
-        for (int j = i + 1; j < 4; j++) {
-          // c = conj(v[i]) * v[j]
-          c64_t c = c64x16maddConjShift(v[i], v[j], (c64_t){0, 0}, 0);
-          // Hermitian blocks: 2 * Re(c * M[i][j])
-          Aval += 2 * (c.r * R[i][j].r - c.i * R[i][j].i);
-          Bval += 2 * (c.r * R[i + 4][j + 4].r - c.i * R[i + 4][j + 4].i);
-          // General block R_TR: c * R[i][j+4] + conj(c) * R[j][i+4]
-          Dval.r += c.r * (R[i][j + 4].r + R[j][i + 4].r) + c.i * (R[j][i + 4].i - R[i][j + 4].i);
-          Dval.i += c.r * (R[i][j + 4].i + R[j][i + 4].i) + c.i * (R[i][j + 4].r - R[j][i + 4].r);
-        }
-      A[l1][m2] = Aval;
-      B[l1][m2] = Bval;
-      D[l1][m2] = Dval;
-    }
-  }
-
-  // Enumerate (l1, m2, n) - 256 hypotheses, each evaluation is O(1).
-  int64_t best = INT64_MIN, best_signal = 0;
-  for (int l1 = 0; l1 < 8; l1++)
-    for (int m2 = 0; m2 < 8; m2++) {
-      const int64_t AB = A[l1][m2] + B[l1][m2];
-      for (int n = 0; n < 4; n++) {
-        int64_t cross = (int64_t)phi_r[n] * D[l1][m2].r - (int64_t)phi_i[n] * D[l1][m2].i;
-        int64_t m = AB + 2 * cross;
-        if (m > best) {
-          best = m;
-          pmi->i_1_1 = l1;
-          pmi->i_1_2 = m2;
-          pmi->i_2 = n;
-          best_signal = m;
-        }
-      }
-    }
-  // Average signal power per RE = best / (8 * Q^2 * N_RE_total)
-  int64_t sp = best_signal / (8LL * PMI_Q * PMI_Q * (int64_t)num_h_vectors);
-  *precoded_sinr_dB = dB_fixed(sp) - dB_fixed(noise);
+  *precoded_sinr_dB = sinr_dB;
 }
 
 static void nr_csi_rs_pmi_estimation(const PHY_VARS_NR_UE *ue,
@@ -921,7 +748,7 @@ static void nr_csi_rs_pmi_estimation(const PHY_VARS_NR_UE *ue,
                                      const c16_t csi_rs_estimated_channel_freq[][N_ports][ue->frame_parms.ofdm_symbol_size],
                                      const uint32_t interference_plus_noise_power,
                                      const uint8_t rank_indicator,
-                                     csi_rs_pmi_t *pmi,
+                                     nr_csi_pmi_t *pmi,
                                      int32_t *precoded_sinr_dB)
 {
   memset(pmi, 0, sizeof(*pmi));
@@ -946,26 +773,18 @@ static void nr_csi_rs_pmi_estimation(const PHY_VARS_NR_UE *ue,
                            precoded_sinr_dB);
       break;
     case 4:
-      nr_csi_rs_pmi_4ports(nrx,
-                           N_ports,
-                           osz,
-                           csi_rs_estimated_channel_freq,
-                           csirs_config_pdu,
-                           noise,
-                           rank_indicator,
-                           pmi,
-                           precoded_sinr_dB);
-      break;
     case 8:
-      nr_csi_rs_pmi_8ports(nrx,
-                           N_ports,
-                           osz,
-                           csi_rs_estimated_channel_freq,
-                           csirs_config_pdu,
-                           noise,
-                           rank_indicator,
-                           pmi,
-                           precoded_sinr_dB);
+    case 12:
+    case 16:
+      nr_csi_rs_pmi_single_panel(nrx,
+                                 N_ports,
+                                 osz,
+                                 csi_rs_estimated_channel_freq,
+                                 csirs_config_pdu,
+                                 noise,
+                                 rank_indicator,
+                                 pmi,
+                                 precoded_sinr_dB);
       break;
     default:
       LOG_W(NR_PHY, "PMI not implemented for %d antenna ports\n", N_ports);
@@ -1251,7 +1070,7 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
     rank_indicator = nr_csi_rs_ri_estimation(ue, csirs_config_pdu, mapping_parms.ports, csi_rs_estimated_channel_freq, log2_maxh);
   }
 
-  csi_rs_pmi_t pmi = {0};
+  nr_csi_pmi_t pmi = {0};
   uint8_t cqi = 0;
   int32_t precoded_sinr_dB = 0;
   // bit 3 in bitmap to indicate RI measurment
