@@ -53,6 +53,7 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
   mac->msg3_C_RNTI = false;
   mac->sr_fallback_ra_triggered = false;
   mac->phy_config.config_req.ntn_config.params_changed = false;
+  mac->synch_request.synch_req.target_Nid_cell = -1;
   initNotifiedFIFO(&mac->input_nf);
   reset_mac_inst(mac);
 

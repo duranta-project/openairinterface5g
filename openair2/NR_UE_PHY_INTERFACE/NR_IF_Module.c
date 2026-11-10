@@ -299,6 +299,15 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
 
       switch(rx_indication_body.pdu_type) {
         case FAPI_NR_RX_PDU_TYPE_SSB:
+          if (mac->state == UE_NOT_SYNC_RECONF && mac->synch_request.synch_req.target_Nid_cell >= 0
+              && rx_indication_body.ssb_pdu.cell_id != mac->synch_request.synch_req.target_Nid_cell) {
+            LOG_W(NR_MAC,
+                  "[UE %d] Dropping SSB for cell ID %d (target is %d) while awaiting sync\n",
+                  mac->ue_id,
+                  rx_indication_body.ssb_pdu.cell_id,
+                  mac->synch_request.synch_req.target_Nid_cell);
+            break;
+          }
           handle_rlm(rx_indication_body.ssb_pdu.radiolink_monitoring,
                      dl_info->frame,
                      mac);
