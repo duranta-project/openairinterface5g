@@ -403,8 +403,12 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
     }
   }
 
-  for (int i = 0; i < UL_dci_req->numPdus; ++i)
-    nr_generate_dci(gNB, &UL_dci_req->ul_dci_pdu_list[i].pdcch_pdu.pdcch_pdu_rel15, &gNB->frame_parms, slot, prb_mask_words);
+  if (UL_dci_req->numPdus > 0) {
+    start_meas(&gNB->dci_generation_stats);
+    for (int i = 0; i < UL_dci_req->numPdus; ++i)
+      nr_generate_dci(gNB, &UL_dci_req->ul_dci_pdu_list[i].pdcch_pdu.pdcch_pdu_rel15, &gNB->frame_parms, slot, prb_mask_words);
+    stop_meas(&gNB->dci_generation_stats);
+  }
 
   int num_pdsch = 0;
   for (int i = 0; i < DL_req->dl_tti_request_body.nPDUs; ++i) {
@@ -414,7 +418,9 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
         nr_common_signal_procedures(gNB, frame, slot, &dl_tti_pdu->ssb_pdu, prb_mask_words);
         break;
       case NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE:
+        start_meas(&gNB->dci_generation_stats);
         nr_generate_dci(gNB, &dl_tti_pdu->pdcch_pdu.pdcch_pdu_rel15, &gNB->frame_parms, slot, prb_mask_words);
+        stop_meas(&gNB->dci_generation_stats);
         break;
       case NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE:
         nr_generate_csi_rs_gNB(gNB, slot, &dl_tti_pdu->csi_rs_pdu, prb_mask_words);
