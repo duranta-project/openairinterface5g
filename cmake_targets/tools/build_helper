@@ -99,6 +99,7 @@ check_supported_distribution() {
         "rhel9.6")     return 0 ;;
         "rhel9.7")     return 0 ;;
         "rhel9.8")     return 0 ;;
+        "rhel9.9")     return 0 ;;
         "centos9")     return 0 ;; # CentOS stream
         "rocky9.1")    return 0 ;;
         "rocky9.2")    return 0 ;;
@@ -108,6 +109,7 @@ check_supported_distribution() {
         "rocky9.6")    return 0 ;;
         "rocky9.7")    return 0 ;;
         "rocky9.8")    return 0 ;;
+        "rocky9.9")    return 0 ;;
     esac
     return 1
 }
