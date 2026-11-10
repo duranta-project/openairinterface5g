@@ -12,6 +12,7 @@ if(ENABLE_WEBSRV)
 endif()
 
 add_subdirectory(T)
+add_subdirectory(remote_sim)
 add_subdirectory(nr)
 add_subdirectory(LOG)
 add_subdirectory(threadPool)

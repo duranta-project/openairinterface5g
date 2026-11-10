@@ -63,6 +63,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "executables/thread-common.h"
 
 #include "nr_nas_msg.h"
+#include "common/utils/remote_sim/remote_sim.h"
 
 THREAD_STRUCT thread_struct;
 nrUE_params_t nrUE_params = {0};
@@ -273,6 +274,9 @@ int main(int argc, char **argv)
 
   nr_pdcp_layer_init();
   nas_init_nrue(NB_UE_INST);
+
+  if (get_nrUE_params()->remote_sim)
+    remote_sim_init(get_nrUE_params()->remote_sim);
 
   nrue_set_ru_params(uniqCfg);
   nrue_set_cell_params(uniqCfg);
