@@ -16,7 +16,7 @@
 #include "common/utils/LOG/log.h"
 #include <common/utils/system.h>
 #include "common/utils/LOG/vcd_signal_dumper.h"
-#include <nfapi/oai_integration/nfapi_pnf.h>
+#include "nfapi/oai_integration/pnf/nfapi_lte_pnf.h"
 
 #include "assertions.h"
 
