@@ -903,7 +903,11 @@ nfapi_nr_ue_csi_payload_t nr_ue_aperiodic_csi_reporting(NR_UE_MAC_INST_t *mac, d
   if (csi_request.val == 0)
     return csi;
   const int state = csi_request.val - 1;
-  AssertFatal(state < n_states, "CSI request codepoint %d but %d trigger states\n", csi_request.val, n_states);
+  if (state >= n_states) {
+    // a false DCI: the gNB never sends a codepoint beyond the configured trigger states
+    LOG_W(NR_MAC, "Ignoring CSI request codepoint %d with %d trigger states (false DCI?)\n", csi_request.val, n_states);
+    return csi;
+  }
   NR_CSI_AperiodicTriggerState_t *trigger_state = aperiodicTriggerStateList->list.array[state];
   AssertFatal(trigger_state->associatedReportConfigInfoList.list.count == 1,
               "Cannot handle more than 1 report configuration per state\n");
@@ -916,10 +920,13 @@ nfapi_nr_ue_csi_payload_t nr_ue_aperiodic_csi_reporting(NR_UE_MAC_INST_t *mac, d
     if (report_config->reportConfigId == id) {
       struct NR_CSI_ReportConfig__reportConfigType__aperiodic__reportSlotOffsetList *offset_list =
           &report_config->reportConfigType.choice.aperiodic->reportSlotOffsetList;
-      AssertFatal(tda < offset_list->list.count,
-                  "TDA index from DCI %d exceeds slot offset list %d\n",
-                  tda,
-                  offset_list->list.count);
+      if (tda >= offset_list->list.count) {
+        LOG_W(NR_MAC,
+              "Ignoring CSI request: TDA index %d beyond the %d report slot offsets (false DCI?)\n",
+              tda,
+              offset_list->list.count);
+        return csi;
+      }
       if (*k2 < *offset_list->list.array[tda])
         *k2 = *offset_list->list.array[tda];
       found = c;

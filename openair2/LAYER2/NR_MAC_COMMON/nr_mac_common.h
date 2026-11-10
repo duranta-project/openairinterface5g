@@ -343,6 +343,7 @@ uint8_t get_pusch_nb_antenna_ports(NR_PUSCH_Config_t *pusch_Config,
                                    NR_SRS_Config_t *srs_config,
                                    dci_field_t srs_resource_indicator);
 
+/// number of PRBs of a PUCCH format 2/3 resource for the UCI bits, 0 if the resource cannot carry them
 uint16_t compute_pucch_prb_size(uint8_t nr_prbs,
                                 uint16_t O_csi,
                                 uint16_t O_ack,

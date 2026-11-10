@@ -1874,6 +1874,29 @@ int nr_ue_configure_pucch(NR_UE_MAC_INST_t *mac,
                                                      2,
                                                      pucchres->format.choice.format2->nrofSymbols,
                                                      8);
+        if (pucch_pdu->prb_size == 0 && pucch->csi_payload.p1_bits > 0 && pucch->n_harq > 0) {
+          // TS 38.213 9.2.5.2: HARQ-ACK and SR before CSI. It happens on a false DCI, scheduling HARQ-ACK where the gNB has
+          // only sized the resource for the CSI report
+          LOG_W(NR_MAC,
+                "%d.%d PUCCH format2: dropping %d CSI bits for %d HARQ-ACK bits\n",
+                frame,
+                slot,
+                pucch->csi_payload.p1_bits,
+                pucch->n_harq);
+          pucch->csi_payload.p1_bits = 0;
+          pucch->csi_payload.part1_payload = 0;
+          pucch_pdu->n_bit = pucch->n_sr + pucch->n_harq;
+          pucch_pdu->prb_size = compute_pucch_prb_size(pucchres->format.choice.format2->nrofPRBs,
+                                                       0,
+                                                       pucch->n_harq,
+                                                       pucch->n_sr,
+                                                       pucch_Config->format2->choice.setup->maxCodeRate,
+                                                       2,
+                                                       pucchres->format.choice.format2->nrofSymbols,
+                                                       8);
+        }
+        if (pucch_pdu->prb_size == 0)
+          return -1;
         pucch_pdu->payload = (pucch->csi_payload.part1_payload << (pucch->n_harq + pucch->n_sr))
                              | (pucch->sr_payload << pucch->n_harq) | pucch->ack_payload;
         break;
@@ -1909,6 +1932,29 @@ int nr_ue_configure_pucch(NR_UE_MAC_INST_t *mac,
                                                      2 - pucch_pdu->pi_2bpsk,
                                                      pucchres->format.choice.format3->nrofSymbols - f3_dmrs_symbols,
                                                      12);
+        if (pucch_pdu->prb_size == 0 && pucch->csi_payload.p1_bits > 0 && pucch->n_harq > 0) {
+          // TS 38.213 9.2.5.2: HARQ-ACK and SR before CSI. It happens on a false DCI, scheduling HARQ-ACK where the gNB has
+          // only sized the resource for the CSI report
+          LOG_W(NR_MAC,
+                "%d.%d PUCCH format3: dropping %d CSI bits for %d HARQ-ACK bits\n",
+                frame,
+                slot,
+                pucch->csi_payload.p1_bits,
+                pucch->n_harq);
+          pucch->csi_payload.p1_bits = 0;
+          pucch->csi_payload.part1_payload = 0;
+          pucch_pdu->n_bit = pucch->n_sr + pucch->n_harq;
+          pucch_pdu->prb_size = compute_pucch_prb_size(pucchres->format.choice.format3->nrofPRBs,
+                                                       0,
+                                                       pucch->n_harq,
+                                                       pucch->n_sr,
+                                                       pucch_Config->format3->choice.setup->maxCodeRate,
+                                                       2 - pucch_pdu->pi_2bpsk,
+                                                       pucchres->format.choice.format3->nrofSymbols - f3_dmrs_symbols,
+                                                       12);
+        }
+        if (pucch_pdu->prb_size == 0)
+          return -1;
         pucch_pdu->payload = (pucch->csi_payload.part1_payload << (pucch->n_harq + pucch->n_sr))
                              | (pucch->sr_payload << pucch->n_harq) | pucch->ack_payload;
         break;
@@ -2504,8 +2550,9 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
               continue;
             }
 
-            if (current_harq->dai_cumul == 0) {
-              LOG_E(NR_MAC,"PUCCH Downlink DAI is invalid\n");
+            if (current_harq->dai_cumul == 0 || current_harq->dai_cumul > NR_MAX_HARQ_PROCESSES) {
+              // beyond NR_MAX_HARQ_PROCESSES: DAI values of false DCIs, each one can add up to 4 to the count
+              LOG_E(NR_MAC, "PUCCH Downlink DAI %d is invalid\n", current_harq->dai_cumul);
               return false;
             } else if (current_harq->dai_cumul > dai_max) {
               dai_max = current_harq->dai_cumul;

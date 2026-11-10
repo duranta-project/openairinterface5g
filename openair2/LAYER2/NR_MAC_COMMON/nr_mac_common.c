@@ -4401,12 +4401,10 @@ uint16_t compute_pucch_prb_size(uint8_t nr_prbs,
 
   float r = get_max_code_rate(maxCodeRate);
 
-  AssertFatal(O_tot <= (nr_prbs * n_re_ctrl * n_symb * Qm * r),
-              "MaxCodeRate %.2f can't support %d UCI bits and %d CRC bits with %d PRBs",
-              r,
-              O_uci,
-              O_crc,
-              nr_prbs);
+  if (O_tot > (nr_prbs * n_re_ctrl * n_symb * Qm * r)) {
+    LOG_W(NR_MAC, "MaxCodeRate %.2f can't support %d UCI bits and %d CRC bits with %d PRBs\n", r, O_uci, O_crc, nr_prbs);
+    return 0;
+  }
 
   // TODO fix this for multiple CSI reports
   for (int i = nr_prbs; i > 0; i--) {
@@ -4417,7 +4415,7 @@ uint16_t compute_pucch_prb_size(uint8_t nr_prbs,
       return i;
   }
 
-  AssertFatal(false , "Couldn't find adequate number of PRBs\n");
+  LOG_W(NR_MAC, "Couldn't find adequate number of PRBs\n");
   return 0;
 }
 
