@@ -27,6 +27,10 @@ typedef struct {
 
 typedef struct {
   fh_comp_method_t comp_type;
+  // static compression: IQ width of comp_type in both directions, with no udCompHdr; 0 = dynamic
+  uint8_t static_iq_width;
+  // PRACH IQ width with static compression; 0 = static_iq_width
+  uint8_t static_iq_width_prach;
   int numerology;
   uint16_t num_prbs;
   // MTU configuration

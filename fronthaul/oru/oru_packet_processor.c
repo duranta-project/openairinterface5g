@@ -149,8 +149,11 @@ typedef struct {
   // O-RAN CUS, 5.1.3.2.8: sequence IDs advance per U-plane UL eAxC, not per channel type.
   _Atomic(uint8_t) ul_seq_id[NUM_EAXC_IDS];
   size_t mtu;
-  fh_comp_method_t dl_comp_method;
+  fh_comp_method_t comp_method;
   int num_bf_weights;
+  // static compression: IQ widths of comp_method in both directions, 0 when dynamic
+  uint8_t static_iq_width;
+  uint8_t static_prach_iq_width;
   // ext11 decode output, sized at init for ORU_MAX_BF_WEIGHTS
   int ext11_max_bundles;
   uint16_t *ext11_beam_ids;
@@ -242,7 +245,7 @@ void *init_packet_processor(int numerology,
                             void *io_controller,
                             size_t mtu,
                             const oru_eaxc_lists_t *eaxc_lists,
-                            fh_comp_method_t dl_comp_method,
+                            fh_comp_method_t comp_method,
                             int prach_kbar)
 {
   oru_packet_processor_context_t *ctx = calloc(1, sizeof(*ctx));
@@ -258,7 +261,7 @@ void *init_packet_processor(int numerology,
               "PRACH kbar %d out of range\n",
               prach_kbar);
   ctx->prach_kbar = prach_kbar;
-  ctx->dl_comp_method = dl_comp_method;
+  ctx->comp_method = comp_method;
   // A section has at most num_prb PRBs (Type 3 PRBs are at the carrier SCS), and bundleOffset (6 bits) adds at most 63
   // bundles
   ctx->ext11_max_bundles = num_prb + 63;
@@ -359,6 +362,49 @@ oru_flow_t oru_eaxc_classify(const oru_eaxc_map_t *map, bool prach, bool dl, uin
   if (kind == ORU_EAXC_UL && oru_eaxc_index(map, ORU_EAXC_SRS, eaxc) >= 0)
     kind = ORU_EAXC_SRS;
   return (oru_flow_t){.eaxc = eaxc, .kind = kind, .index = oru_eaxc_index(map, kind, eaxc)};
+}
+
+void set_static_compression(void *context, int iq_width, int prach_iq_width)
+{
+  oru_packet_processor_context_t *ctx = (oru_packet_processor_context_t *)context;
+  if (iq_width == 0)
+    return;
+  if (prach_iq_width == 0)
+    prach_iq_width = iq_width;
+  AssertFatal(ctx->comp_method != FH_COMP_NONE, "static compression needs a compression method (comp_type)\n");
+  AssertFatal(iq_width >= 1 && iq_width <= XRAN_IQ_BITS_UNCOMPRESSED, "static iq_width %d out of range [1..16]\n", iq_width);
+  AssertFatal(prach_iq_width >= 1 && prach_iq_width <= XRAN_IQ_BITS_UNCOMPRESSED,
+              "static PRACH iq_width %d out of range [1..16]\n",
+              prach_iq_width);
+  ctx->static_iq_width = iq_width;
+  ctx->static_prach_iq_width = prach_iq_width;
+  LOG_I(HW, "O-RU: static compression, iq_width %d, PRACH iq_width %d\n", iq_width, prach_iq_width);
+}
+
+// The UL compression of a C-Plane message with udCompHdr ud: the static one if set, else the one ud gives
+static fh_comp_t ul_compression(const oru_packet_processor_context_t *ctx, const struct xran_radioapp_udComp_header *ud, bool prach)
+{
+  if (ctx->static_iq_width)
+    return (fh_comp_t){.method = ctx->comp_method, .iq_width = prach ? ctx->static_prach_iq_width : ctx->static_iq_width};
+  return (fh_comp_t){.method = ud->udCompMeth, .iq_width = ud->udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : ud->udIqWidth};
+}
+
+// Length of the udCompHdr of a UL U-Plane section: 0 when it is uncompressed or the compression is static
+static size_t ul_comp_hdr_len(const oru_packet_processor_context_t *ctx, fh_comp_method_t method)
+{
+  return method != FH_COMP_NONE && !ctx->static_iq_width ? sizeof(struct data_section_compression_hdr) : 0;
+}
+
+// Writes the udCompHdr of a UL U-Plane section at p if the section carries one; returns the start of its IQ data
+static uint8_t *put_ul_comp_hdr(const oru_packet_processor_context_t *ctx, uint8_t *p, fh_comp_method_t method, int iq_width)
+{
+  if (!ul_comp_hdr_len(ctx, method))
+    return p;
+  struct data_section_compression_hdr *hdr = (struct data_section_compression_hdr *)p;
+  hdr->ud_comp_hdr.ud_comp_meth = method;
+  hdr->ud_comp_hdr.ud_iq_width = XRAN_CONVERT_IQWIDTH(iq_width);
+  hdr->rsrvd = 0;
+  return (uint8_t *)(hdr + 1);
 }
 
 void cleanup_packet_processor(void *context)
@@ -507,10 +553,11 @@ void handle_uplane_packet(void *context, void *pkt)
   uint16_t sym_inc;
   uint16_t rb;
   uint16_t sect_id;
-  const bool has_comp_hdr = ctx->dl_comp_method != FH_COMP_NONE;
-  uint8_t staticComp = 0;
-  uint8_t compMeth = 0;
-  uint8_t iqWidth = 0;
+  // Static compression is an M-Plane setting: the U-Plane sections carry no udCompHdr
+  const bool static_comp = ctx->static_iq_width != 0;
+  const bool has_comp_hdr = !static_comp && ctx->comp_method != FH_COMP_NONE;
+  uint8_t compMeth = static_comp ? ctx->comp_method : 0;
+  uint8_t iqWidth = ctx->static_iq_width;
   int ret = xran_extract_iq_samples(pkt,
                                     &ctx->eaxcid_config,
                                     &iq_data_start,
@@ -528,7 +575,7 @@ void handle_uplane_packet(void *context, void *pkt)
                                     &rb,
                                     &sect_id,
                                     has_comp_hdr,
-                                    staticComp,
+                                    static_comp,
                                     &compMeth,
                                     &iqWidth);
   if (ret == 0) {
@@ -567,8 +614,8 @@ void handle_uplane_packet(void *context, void *pkt)
   // ret is the packet length still remaining after xran_extract_iq_samples() stripped the headers -
   // verify it actually holds the IQ payload the header claims, before iq_data_start is handed off
   // to the deferred unpack_iq() in read_dl_iq_streams().
-  size_t expected_bytes = has_comp_hdr ? (size_t)effective_num_prbu * FH_COMP_PRB_BYTES(effective_iq_width)
-                                       : (size_t)effective_num_prbu * NR_NB_SC_PER_RB * 2 * sizeof(uint16_t);
+  size_t expected_bytes = compMeth != FH_COMP_NONE ? (size_t)effective_num_prbu * FH_COMP_PRB_BYTES(effective_iq_width)
+                                                   : (size_t)effective_num_prbu * NR_NB_SC_PER_RB * 2 * sizeof(uint16_t);
   if ((size_t)ret < expected_bytes) {
     LOG_W(HW,
           "U-plane packet: payload too short (%d bytes, need %zu for %u PRBs), dropping\n",
@@ -769,8 +816,9 @@ static unsigned handle_ul_cplane_section(oru_packet_processor_context_t *ctx,
   if (rte_ring_dequeue(ctx->ul_free_jobs, (void **)&ul_job) == 0) {
     memset(ul_job, 0, sizeof(*ul_job));
     ul_job->response_payload.section_id = section->hdr.u1.common.sectionId;
-    ul_job->response_payload.comp_method = hdr->udComp.udCompMeth;
-    ul_job->response_payload.iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
+    const fh_comp_t comp = ul_compression(ctx, &hdr->udComp, false);
+    ul_job->response_payload.comp_method = comp.method;
+    ul_job->response_payload.iq_width = comp.iq_width;
     uint64_t absolute_gps_symbol = target_absolute_symbol;
     ul_job->hyper_frame = absolute_gps_symbol / (1024 * (10 * (1 << ctx->numerology) * 14));
     ul_job->frame = (absolute_gps_symbol / (10 * (1 << ctx->numerology) * 14)) % 1024;
@@ -890,8 +938,9 @@ static unsigned add_prach_section(oru_packet_processor_context_t *ctx,
   job->start_prb = section->hdr.u1.common.startPrbc;
   job->filter_id = hdr->cmnhdr.field.filterIndex;
   job->beam_id = section->hdr.u.s3.beamId;
-  job->comp_method = (fh_comp_method_t)hdr->udComp.udCompMeth;
-  job->iq_width = hdr->udComp.udIqWidth == 0 ? XRAN_IQ_BITS_UNCOMPRESSED : hdr->udComp.udIqWidth;
+  const fh_comp_t comp = ul_compression(ctx, &hdr->udComp, true);
+  job->comp_method = comp.method;
+  job->iq_width = comp.iq_width;
   job->eaxc = flow.eaxc;
   RATELIMIT(PRACH_ERR_LOG_RATELIMIT, {
     LOG_A(HW, "PRACH JOB added slot_in_frame %d, aarx %d, target_absolute_symbol %lu\n", slot_in_frame, flow.index, start_symbol);
@@ -1590,6 +1639,7 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
   atomic_fetch_add_explicit(&ctx->thread_safe_stats.ul_uplane_ota_delay_count, 1, memory_order_relaxed);
 
   const bool use_comp = (job->response_payload.comp_method != 0);
+  const size_t comp_hdr_len = ul_comp_hdr_len(ctx, job->response_payload.comp_method);
 
   int section_id = job->response_payload.section_id;
   int total_ul_rbs = job->num_prb;
@@ -1602,11 +1652,8 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
   uint32_t num_mbufs = 0;
 
   int rbs_sent = 0;
-  size_t overhead = sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr)
-                    + sizeof(struct data_section_hdr);
-  if (use_comp) {
-    overhead += sizeof(struct data_section_compression_hdr);
-  }
+  const size_t overhead = sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr)
+                          + sizeof(struct data_section_hdr) + comp_hdr_len;
   const size_t prb_bytes = use_comp ? (size_t)FH_COMP_PRB_BYTES(job->response_payload.iq_width)
                                     : (size_t)(NR_NB_SC_PER_RB * sizeof(int32_t));
   int max_prb_per_packet = (int)((ctx->mtu - overhead) / prb_bytes);
@@ -1623,10 +1670,8 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
       break;
     }
 
-    size_t header_length = sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr) + sizeof(struct data_section_hdr);
-    if (use_comp) {
-      header_length += sizeof(struct data_section_compression_hdr);
-    }
+    const size_t header_length =
+        sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr) + sizeof(struct data_section_hdr) + comp_hdr_len;
     const uint num_sc = num_ul_rbs * NR_NB_SC_PER_RB;
     size_t data_len = use_comp ? (size_t)FH_COMP_PRB_BYTES(job->response_payload.iq_width) * num_ul_rbs
                                : (size_t)sizeof(int32_t) * num_sc;
@@ -1655,16 +1700,10 @@ void write_ul_iq(void *context, uint32_t *rxdataF, int symbol, const ul_job_t *j
     struct data_section_hdr *data_section_header = (struct data_section_hdr *)(radio_app_header + 1);
     fill_data_section_header(data_section_header, num_ul_rbs, start_prb_base + rbs_sent, section_id);
 
-    uint8_t *iq_data_start;
-    if (use_comp) {
-      struct data_section_compression_hdr *compression_header = (struct data_section_compression_hdr *)(data_section_header + 1);
-      compression_header->ud_comp_hdr.ud_comp_meth = job->response_payload.comp_method;
-      compression_header->ud_comp_hdr.ud_iq_width = XRAN_CONVERT_IQWIDTH(job->response_payload.iq_width);
-      compression_header->rsrvd = 0;
-      iq_data_start = (uint8_t *)(compression_header + 1);
-    } else {
-      iq_data_start = (uint8_t *)(data_section_header + 1);
-    }
+    uint8_t *iq_data_start = put_ul_comp_hdr(ctx,
+                                             (uint8_t *)(data_section_header + 1),
+                                             job->response_payload.comp_method,
+                                             job->response_payload.iq_width);
 
     const int16_t *src = (const int16_t *)&rxdataF[(start_prb_base + rbs_sent) * NR_NB_SC_PER_RB];
     if (use_comp) {
@@ -1749,9 +1788,8 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
     }
 
     const bool prach_compressed = job->comp_method != FH_COMP_NONE;
-    size_t header_length = sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr) + sizeof(struct data_section_hdr);
-    if (prach_compressed)
-      header_length += sizeof(struct data_section_compression_hdr);
+    const size_t header_length = sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr)
+                                 + sizeof(struct data_section_hdr) + ul_comp_hdr_len(ctx, job->comp_method);
     const uint prach_length = 139;
     // O-RAN CUS, 8.3.2: uncompressed U-plane sections carry all 12 complex REs of each advertised PRB.
     size_t data_len = prach_compressed ? (size_t)FH_COMP_PRB_BYTES(job->iq_width) * FH_PRACH_NUM_PRBS
@@ -1784,17 +1822,10 @@ void write_prach_iq(void *context, uint32_t **txdataF, int nb_rx, int frame, int
     struct data_section_hdr *data_section_header = (struct data_section_hdr *)(radio_app_header + 1);
     fill_data_section_header(data_section_header, num_ul_rbs, start_prb, section_id);
 
-    uint8_t *iq_data_start;
+    uint8_t *iq_data_start = put_ul_comp_hdr(ctx, (uint8_t *)(data_section_header + 1), job->comp_method, job->iq_width);
     if (prach_compressed) {
-      struct data_section_compression_hdr *comp_hdr =
-          (struct data_section_compression_hdr *)(data_section_header + 1);
-      comp_hdr->ud_comp_hdr.ud_comp_meth = job->comp_method;
-      comp_hdr->ud_comp_hdr.ud_iq_width = XRAN_CONVERT_IQWIDTH(job->iq_width);
-      comp_hdr->rsrvd = 0;
-      iq_data_start = (uint8_t *)(comp_hdr + 1);
       fh_compress_prach(job->comp_method, job->iq_width, ctx->prach_kbar, (const int16_t *)txdataF[aarx], (int8_t *)iq_data_start);
     } else {
-      iq_data_start = (uint8_t *)(data_section_header + 1);
       const uint16_t *raw = (const uint16_t *)txdataF[aarx];
       uint16_t *dst = (uint16_t *)iq_data_start;
       memset(dst, 0, data_len);
