@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
 add_library(nfapi_pnf_lib
-        src/pnf.c
+        src/pnf_common.c
+        src/pnf_lte.c
+        src/pnf_nr.c
         src/pnf_interface_common.c
         src/pnf_interface_lte.c
         src/pnf_interface_nr.c
