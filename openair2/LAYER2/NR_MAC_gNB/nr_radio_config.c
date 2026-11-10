@@ -1680,7 +1680,26 @@ static NR_SetupRelease_PUSCH_Config_t *config_pusch(const nr_mac_config_t *confi
     pusch_Config->maxRank = calloc(1, sizeof(*pusch_Config->maxRank));
   *pusch_Config->maxRank = set_ul_max_layers(configuration, uecap, ul_id);
   pusch_Config->rbg_Size = NULL;
-  pusch_Config->uci_OnPUSCH = NULL;
+  /* UCI on PUSCH: the UE multiplexes the HARQ-ACK and CSI of a PUCCH overlapping a PUSCH into the PUSCH (TS 38.213 9.2.5),
+   * with semi-static beta offsets (TS 38.213 9.3) and no limit on the share of UCI REs (scaling 1) */
+  if (!pusch_Config->uci_OnPUSCH) {
+    pusch_Config->uci_OnPUSCH = calloc_or_fail(1, sizeof(*pusch_Config->uci_OnPUSCH));
+    pusch_Config->uci_OnPUSCH->present = NR_SetupRelease_UCI_OnPUSCH_PR_setup;
+    NR_UCI_OnPUSCH_t *onPusch = calloc_or_fail(1, sizeof(*onPusch));
+    pusch_Config->uci_OnPUSCH->choice.setup = onPusch;
+    onPusch->betaOffsets = calloc_or_fail(1, sizeof(*onPusch->betaOffsets));
+    onPusch->betaOffsets->present = NR_UCI_OnPUSCH__betaOffsets_PR_semiStatic;
+    NR_BetaOffsets_t *beta = calloc_or_fail(1, sizeof(*beta));
+    onPusch->betaOffsets->choice.semiStatic = beta;
+    asn1cCallocOne(beta->betaOffsetACK_Index1, NR_BETA_OFFSET_ACK_INDEX);
+    asn1cCallocOne(beta->betaOffsetACK_Index2, NR_BETA_OFFSET_ACK_INDEX);
+    asn1cCallocOne(beta->betaOffsetACK_Index3, NR_BETA_OFFSET_ACK_INDEX);
+    asn1cCallocOne(beta->betaOffsetCSI_Part1_Index1, NR_BETA_OFFSET_CSI_INDEX);
+    asn1cCallocOne(beta->betaOffsetCSI_Part1_Index2, NR_BETA_OFFSET_CSI_INDEX);
+    asn1cCallocOne(beta->betaOffsetCSI_Part2_Index1, NR_BETA_OFFSET_CSI_INDEX);
+    asn1cCallocOne(beta->betaOffsetCSI_Part2_Index2, NR_BETA_OFFSET_CSI_INDEX);
+    onPusch->scaling = NR_UCI_OnPUSCH__scaling_f1;
+  }
   pusch_Config->tp_pi2BPSK = NULL;
 
   return setup_puschconfig;

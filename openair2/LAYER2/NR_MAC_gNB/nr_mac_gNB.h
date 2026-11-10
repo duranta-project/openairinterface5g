@@ -65,6 +65,9 @@
 
 /* Defs */
 #define MAX_NUM_BWP 5
+/// semi-static beta offset indexes of UCI on PUSCH: TS 38.213 Table 9.3-1 for HARQ-ACK (9: 12.625), Table 9.3-2 for CSI (13: 6.25)
+#define NR_BETA_OFFSET_ACK_INDEX 9
+#define NR_BETA_OFFSET_CSI_INDEX 13
 #define MAX_NUM_CORESET 12
 /*!\brief Maximum number of random access process */
 #define NR_NB_RA_PROC_MAX 16 // set to 16 for multiple CFRA at the same time
