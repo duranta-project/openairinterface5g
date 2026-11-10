@@ -88,14 +88,6 @@ void nfapi_nr_pnf_p7_config_destroy(nfapi_nr_pnf_p7_config_t* config)
     free(PNF_P7_FROM_NR_CONFIG(config));
 }
 
-int nfapi_nr_pnf_p7_start(nfapi_nr_pnf_p7_config_t* config)
-{
-  if (!config)
-    return -1;
-  pnf_p7_t* _this = PNF_P7_FROM_NR_CONFIG(config);
-  return pnf_nr_p7_message_pump(_this);
-}
-
 int nfapi_nr_pnf_p7_stop(nfapi_nr_pnf_p7_config_t* config)
 {
   if (!config)
