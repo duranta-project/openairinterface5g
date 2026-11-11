@@ -59,7 +59,10 @@ uicc_t *init_uicc(char *sectionName) {
   // key, OPc, sqn, amf don't need to be read from the true USIM
   int ret = config_get(config_get_if(), uicc_params, sizeofArray(uicc_params), sectionName);
   AssertFatal(ret >= 0, "configuration couldn't be performed for uicc name: %s", sectionName);
-  LOG_I(SIM, "UICC simulation: IMSI=%s, IMEISV=%s, Ki=%s, OPc=%s\n", uicc->imsiStr, uicc->imeisvStr, uicc->keyStr, uicc->opcStr);
+  LOG_I(SIM, "UICC simulation: IMSI=%s, IMEISV=%s\n", uicc->imsiStr, uicc->imeisvStr);
+  // Ki and OPc are long-term subscriber secrets: only log them when security dumps are enabled
+  if (LOG_DUMPFLAG(DEBUG_SECURITY))
+    LOG_I(SIM, "UICC simulation: Ki=%s, OPc=%s\n", uicc->keyStr, uicc->opcStr);
   to_hex(uicc->keyStr,uicc->key, sizeof(uicc->key) );
   to_hex(uicc->opcStr,uicc->opc, sizeof(uicc->opc) );
   to_hex(uicc->sqnStr,uicc->sqn, sizeof(uicc->sqn) );
@@ -73,6 +76,9 @@ void uicc_milenage_generate(uint8_t *autn, uicc_t *uicc) {
   // the code is in open-cells.com => program_uicc open source
   milenage_generate(uicc->opc, uicc->amf, uicc->key,
                     uicc->sqn, uicc->rand, autn, uicc->ik, uicc->ck, uicc->milenage_res);
+  // log_dump() always prints: the inputs and outputs include Ki, OPc, IK and CK
+  if (!LOG_DUMPFLAG(DEBUG_SECURITY))
+    return;
   log_dump(SIM,uicc->opc,sizeof(uicc->opc), LOG_DUMP_CHAR,"opc:");
   log_dump(SIM,uicc->amf,sizeof(uicc->amf), LOG_DUMP_CHAR,"amf:");
   log_dump(SIM,uicc->key,sizeof(uicc->key), LOG_DUMP_CHAR,"key:");
