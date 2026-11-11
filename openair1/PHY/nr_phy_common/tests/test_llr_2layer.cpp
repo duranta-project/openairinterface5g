@@ -50,6 +50,10 @@ void nr_llr_2layer_mmse_simd_w128(const c16_t *, const c16_t *, const c16_t *, c
 void nr_llr_2layer_mmse_simd_w256(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_ref(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_channel_compensation(uint32_t, uint32_t, int, int, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t **, c16_t *, c16_t, int, uint32_t, uint32_t);
+#if defined(__aarch64__)
+void nr_qam64_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam256_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+#endif
 #if defined(__AVX512BW__) && defined(__AVX512VL__) && defined(__AVX512F__)
 void nr_qam64_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
@@ -652,6 +656,45 @@ TEST(test_llr_2layer, flat_2x2_qpsk_signs)
   EXPECT_EQ(0u, err_ml) << "ML";
   EXPECT_EQ(0u, err_mmse) << "MMSE";
 }
+
+#if defined(__aarch64__)
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+
+// FP16 seed-centred L-best / full ML against the fp32 kernel (same candidate sets): rounding-level agreement
+TEST(test_llr_2layer, f16_close_to_f32)
+{
+  if (!(getauxval(AT_HWCAP) & HWCAP_ASIMDHP))
+    GTEST_SKIP() << "no FP16 vector arithmetic";
+  const uint32_t n = 3276 + 5; // + a last block overlapping the previous one
+  typedef void (*k_t)(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+  struct {
+    int qm;
+    k_t f32, f16;
+  } ks[] = {{6, nr_qam64_llr_2layer_lbest_f32_simd_w128, nr_qam64_llr_2layer_lbest_f16_simd_w128},
+            {8, nr_qam256_llr_2layer_lbest_f32_simd_w128, nr_qam256_llr_2layer_lbest_f16_simd_w128}};
+  for (auto &k : ks)
+    for (int clean : {0, 1})
+      for (int pattern : {1, 3})
+        for (float lambda : {0.0f, 40.0f}) {
+          Inputs2L in = clean ? gen_clean_inputs(n, 0xF16u + k.qm, k.qm == 6 ? 7 : 15, k.qm == 6 ? 2048 : 1000) : gen_inputs(n, 0xF16u + k.qm);
+          AlignedVector512<int16_t> a((size_t)n * k.qm + 64), b((size_t)n * k.qm + 64);
+          k.f32(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), a.data(), in.rho.data(), n, pattern, lambda);
+          k.f16(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), b.data(), in.rho.data(), n, pattern, lambda);
+          const Fit f = fit_stats(b.data(), a.data(), (size_t)n * k.qm);
+          fprintf(stderr, "[  F16  ] Qm=%d %s pattern %d lambda %.0f: signDisagree=%.4f%% fitScale=%.4f residFrac=%.5f\n", k.qm,
+                  clean ? "clean " : "random", pattern, lambda, f.signDisagree_pct, f.fitScale, f.residFrac);
+          const char *what = clean ? "clean" : "random";
+          EXPECT_LT(f.signDisagree_pct, 0.05) << "Qm=" << k.qm << " " << what << " pattern " << pattern << " lambda " << lambda;
+          EXPECT_NEAR(f.fitScale, 1.0, 0.005) << "Qm=" << k.qm << " " << what << " pattern " << pattern << " lambda " << lambda;
+          EXPECT_LT(f.residFrac, 0.001) << "Qm=" << k.qm << " " << what << " pattern " << pattern << " lambda " << lambda;
+          // REs are independent: a short call (fewer REs than one block) gives the long call's LLRs
+          AlignedVector512<int16_t> d((size_t)5 * k.qm + 64);
+          k.f16(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), d.data(), in.rho.data(), 5, pattern, lambda);
+          EXPECT_EQ(0, memcmp(b.data(), d.data(), (size_t)5 * k.qm * sizeof(int16_t))) << "short call differs from the long one";
+        }
+}
+#endif
 
 int main(int argc, char **argv)
 {

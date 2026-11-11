@@ -84,6 +84,11 @@ NR_MMSE2L_SIMD_PROTOTYPES(512)
 #undef NR_MMSE2L_SIMD_PROTOTYPES
 NR_LBEST_SIMD_PROTOTYPES(128)
 NR_LBEST_SIMD_PROTOTYPES(256)
+#if defined(__aarch64__)
+// FP16 seed-centred L-best / full ML (nr_lbest_simd.c, NRLB_F16 object, ARMv8.2 FP16 vector arithmetic)
+void nr_qam64_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam256_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+#endif
 NR_LBEST_SIMD_PROTOTYPES(512)
 #undef NR_LBEST_SIMD_PROTOTYPES
 

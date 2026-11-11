@@ -233,6 +233,8 @@ TEST(test_detector_gpu, ml_qpsk_16qam_bit_exact)
 
 int main(int argc, char **argv)
 {
+  // the GPU kernels mirror the fp32 CPU ones: keep the production CPU path on fp32 (not the aarch64 FP16 L-best)
+  setenv("OAI_LBEST_F16", "0", 1);
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
