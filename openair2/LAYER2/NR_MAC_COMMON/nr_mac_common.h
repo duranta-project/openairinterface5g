@@ -417,6 +417,10 @@ uint16_t nr_pack_pmi_x1(const CSI_Meas_bitlen_t *bitlen, int ri, uint8_t i_1_1, 
 /// increasing order (TS 38.212 Section 6.3.1.1.2)
 uint8_t nr_ri_index(uint8_t ri_restriction, int ri);
 
+/// inverse of nr_ri_index(): rank - 1 of RI field ri_index, -1 if out of range; with a single allowed rank the RI
+/// field is absent (0 bits) and ri_index 0 gives that rank; no restriction (0) is treated as rank 1 only
+int nr_ri_from_index(uint8_t ri_restriction, int ri_index);
+
 uint16_t nr_get_csi_bitlen(nr_csi_report_t *csi_report);
 
 uint32_t compute_PDU_length(uint32_t num_TLV, uint32_t total_length);

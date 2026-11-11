@@ -4857,6 +4857,19 @@ uint8_t nr_ri_index(uint8_t ri_restriction, int ri)
   return __builtin_popcount(ri_restriction & ((1u << ri) - 1));
 }
 
+int nr_ri_from_index(uint8_t ri_restriction, int ri_index)
+{
+  if (ri_restriction == 0)
+    return ri_index == 0 ? 0 : -1;
+  for (int ri = 0; ri < 8; ri++) {
+    if (!((ri_restriction >> ri) & 1))
+      continue;
+    if (ri_index-- == 0)
+      return ri;
+  }
+  return -1;
+}
+
 uint16_t nr_pack_pmi_x1(const CSI_Meas_bitlen_t *bitlen, int ri, uint8_t i_1_1, uint8_t i_1_2, uint8_t i_1_3)
 {
   const int bits_11 = bitlen->pmi_i11_bitlen[ri];
@@ -4874,8 +4887,13 @@ static void compute_pmi_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, ui
   for(int i = 0; i < 8; i++) {
     csi_report->csi_meas_bitlen.pmi_x1_bitlen[i] = 0;
     csi_report->csi_meas_bitlen.pmi_x2_bitlen[i] = 0;
-    if (codebookConfig == NULL || ((ri_restriction >> i) & 0x01) == 0)
+    csi_report->csi_meas_bitlen.pmi_i11_bitlen[i] = 0;
+    csi_report->csi_meas_bitlen.pmi_i12_bitlen[i] = 0;
+    csi_report->csi_meas_bitlen.pmi_i13_bitlen[i] = 0;
+    if (codebookConfig == NULL)
       return;
+    if (((ri_restriction >> i) & 0x01) == 0)
+      continue;
     else {
       if(codebookConfig->codebookType.present == NR_CodebookConfig__codebookType_PR_type1) {
         struct NR_CodebookConfig__codebookType__type1 *type1 = codebookConfig->codebookType.choice.type1;
