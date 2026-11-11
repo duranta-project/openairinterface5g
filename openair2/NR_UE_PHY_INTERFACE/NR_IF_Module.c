@@ -195,7 +195,7 @@ static int8_t handle_dlsch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_i
   if (mac->ra.ra_state != nrRA_WAIT_RAR) // no HARQ for MSG2
     update_harq_status(mac,
                        dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.harq_pid,
-                       dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.cw_idx,
+                       dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.tb_idx,
                        dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.ack_nack);
   if(dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.ack_nack)
     nr_ue_send_sdu(mac, dl_info, pdu_id);
@@ -218,9 +218,9 @@ static int8_t handle_l1_measurements(NR_UE_MAC_INST_t *mac, frame_t frame, int s
   return 0;
 }
 
-void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, int cw_idx, uint8_t ack_nack)
+void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, int tb_idx, uint8_t ack_nack)
 {
-  NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[harq_pid][cw_idx];
+  NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[harq_pid][tb_idx];
 
   if (current_harq->active) {
     LOG_D(PHY,"Updating harq_status for harq_id %d, ack/nak %d\n", harq_pid, current_harq->ack);

@@ -387,6 +387,7 @@ typedef struct {
 typedef struct {
   bool active;
   bool ack_received;
+  uint8_t feedback_cw_idx; // transmitted codeword, independent of the HARQ transport block
   uint8_t  pucch_resource_indicator;
   /* -1: dedicated PUCCH-Config (38.213 9.2.3)
    * else: ASN.1 pucch-ResourceCommon Table 9.2.1-1 row 0..15, frozen at DCI */
@@ -633,7 +634,7 @@ typedef struct NR_UE_MAC_INST_s {
   dci_pdu_rel15_t def_dci_pdu_rel15[NR_MAX_SLOTS_PER_FRAME][8];
 
   // Defined for abstracted mode
-  NR_UE_DL_HARQ_STATUS_t dl_harq_info[NR_MAX_HARQ_PROCESSES][2]; // one harq process for each codeword
+  NR_UE_DL_HARQ_STATUS_t dl_harq_info[NR_MAX_HARQ_PROCESSES][2]; // history and feedback for each transport block
   NR_UE_UL_HARQ_INFO_t ul_harq_info[NR_MAX_HARQ_PROCESSES];
 
   NR_TAG_Id_t tag_Id;

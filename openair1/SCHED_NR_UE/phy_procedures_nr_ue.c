@@ -82,9 +82,9 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
     case FAPI_NR_RX_PDU_TYPE_DLSCH:
     case FAPI_NR_RX_PDU_TYPE_PCCH:
       if(dlsch) {
-        NR_DL_UE_HARQ_t *dl_harq = &ue->dl_harq_processes[cw_idx][harq_pid];
+        NR_DL_UE_HARQ_t *dl_harq = &ue->dl_harq_processes[dlsch->cw_info.tb_idx][harq_pid];
         rx->pdsch_pdu.harq_pid = harq_pid;
-        rx->pdsch_pdu.cw_idx = cw_idx;
+        rx->pdsch_pdu.tb_idx = dlsch->cw_info.tb_idx;
         rx->pdsch_pdu.ack_nack = dl_harq->decodeResult;
         rx->pdsch_pdu.pdu = (uint8_t *)typeSpecific;
         rx->pdsch_pdu.pdu_length = dlsch->cw_info.TBS / 8;
@@ -699,7 +699,7 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
 
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   // exit dlsch procedures as there are no active dlsch
-  NR_DL_UE_HARQ_t *dl_harq = &ue->dl_harq_processes[cw_idx][harq_pid];
+  NR_DL_UE_HARQ_t *dl_harq = &ue->dl_harq_processes[dlsch->cw_info.tb_idx][harq_pid];
   if (dl_harq->status != NR_ACTIVE) {
     /* Grant arrived (dlsch active, LLRs demodulated) but the HARQ process is no longer ACTIVE. */
     LOG_E(NR_PHY, "Internal error nr_ue_dlsch_procedure() no active cw slot %d harq %d (now %d.%d status %d activated %d.%d)\n",
@@ -723,7 +723,7 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   }
 
   start_meas_nr_ue_phy(ue, DLSCH_UNSCRAMBLING_STATS);
-  nr_dlsch_unscrambling(llr, G, 0, config->dlDataScramblingId, dlsch->rnti);
+  nr_dlsch_unscrambling(llr, G, cw_idx, config->dlDataScramblingId, dlsch->rnti);
   stop_meas_nr_ue_phy(ue, DLSCH_UNSCRAMBLING_STATS);
 
   start_meas_nr_ue_phy(ue, DLSCH_DECODING_STATS);
@@ -1319,7 +1319,7 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     const uint32_t rx_llr_buf_sz = ALIGNARRAYSIZE(G, 32); // each LLR is 2 bytes hence 64 byte aligned
 
     // dlsch_harq contains the previous transmissions data for this harq pid
-    NR_DL_UE_HARQ_t *harq = &ue->dl_harq_processes[c][dlsch_config->harq_process_nbr];
+    NR_DL_UE_HARQ_t *harq = &ue->dl_harq_processes[dlsch->cw_info.tb_idx][dlsch_config->harq_process_nbr];
     // it returns -1 in case of internal failure, or 0 in case of normal result
     int ret_pdsch = nr_ue_pdsch_procedures(ue, proc, dlsch, harq, dlsch_config, llr[c], rxdataF, &freq_alloc);
     TracyCPlot("pdsch mcs", dlsch->cw_info.mcs);
