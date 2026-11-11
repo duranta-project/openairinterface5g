@@ -2399,8 +2399,13 @@ static void send_nas_5gmm_ind(instance_t instance, const Guti5GSMobileIdentity_t
 {
   MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, 0, NAS_5GMM_IND);
   nas_5gmm_ind_t *ind = &NAS_5GMM_IND(msg);
-  LOG_I(NR_RRC, "5G-GUTI: AMF pointer %u, AMF Set ID %u, 5G-TMSI %u \n", guti->amfpointer, guti->amfsetid, guti->tmsi);
-  ind->fiveG_STMSI = nr_construct_5g_s_tmsi(guti->amfsetid, guti->amfpointer, guti->tmsi);
+  if (guti) {
+    LOG_I(NR_RRC, "5G-GUTI: AMF pointer %u, AMF Set ID %u, 5G-TMSI %u \n", guti->amfpointer, guti->amfsetid, guti->tmsi);
+    ind->fiveG_STMSI = nr_construct_5g_s_tmsi(guti->amfsetid, guti->amfpointer, guti->tmsi);
+  } else {
+    LOG_I(NR_RRC, "Clearing 5G-S-TMSI\n");
+    ind->fiveG_STMSI = UINT64_MAX;
+  }
   itti_send_msg_to_task(TASK_RRC_NRUE, instance, msg);
 }
 
@@ -2617,6 +2622,53 @@ static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
   // Extract timer t3446 in seconds (optional IE)
   nas->t3446 = process_gprs_timer(msg.t3446);
   LOG_E(NAS, "Received NAS Service Reject message with cause %s\n", print_info(msg.cause, fgmm_cause_s, sizeofArray(fgmm_cause_s)));
+
+  if (msg.cause == UE_identity_cannot_be_derived_by_the_network || msg.cause == Implicitly_de_registered) {
+    /* TS 24.501 §5.6.1.5: enter 5GMM-DEREGISTERED, locally release PDU sessions,
+     * and initiate initial registration upon release of the N1 signalling connection. */
+    LOG_I(NAS,
+          "Service Reject cause %s: preparing re-registration per TS 24.501 §5.6.1.5\n",
+          print_info(msg.cause, fgmm_cause_s, sizeofArray(fgmm_cause_s)));
+    nas->fiveGMM_state = FGS_DEREGISTERED;
+    memset(nas->psi_status, 0, sizeof(nas->psi_status));
+    send_nas_tun_req_action(nas, NAS_TUN_START_IDLE_LISTENER);
+
+    if (msg.cause == UE_identity_cannot_be_derived_by_the_network) {
+      /* Cause #9: delete 5G-GUTI, ngKSI, NAS security context, and inform AS that no 5G-S-TMSI is available */
+      free(nas->guti);
+      nas->guti = NULL;
+      free(nas->ksi);
+      nas->ksi = NULL;
+      if (nas->security_container) {
+        stream_security_container_delete(nas->security_container);
+        nas->security_container = NULL;
+      }
+      memset(&nas->security, 0, sizeof(nas->security));
+      send_nas_5gmm_ind(nas->UE_id, NULL);
+    }
+    /* For cause #10 (Implicitly de-registered): 5G-GUTI, ngKSI, and NAS security context are preserved */
+
+    if (nas->fiveGMM_mode == FGS_IDLE) {
+      /* Already in IDLE: initiate registration procedure immediately */
+      as_nas_info_t initialNasMsg = {0};
+      generateRegistrationRequest(&initialNasMsg, nas, false);
+      if (initialNasMsg.length > 0) {
+        send_nas_initial_ul_transfer_req(nas, &initialNasMsg);
+        nas->fiveGMM_state = FGS_REGISTERED_INITIATED;
+        LOG_I(NAS,
+              "[UE %ld] Initiating re-registration from IDLE (NAS_INITIAL_UL_TRANSFER_REQ, %u B)\n",
+              nas->UE_id,
+              initialNasMsg.length);
+      }
+    } else {
+      /* Wait for N1 signalling connection release from lower layers (NR_NAS_CONN_RELEASE_IND) */
+      nas->re_registration_pending = true;
+    }
+    free_fgs_service_reject(&msg);
+    return;
+  }
+
+  free_fgs_service_reject(&msg);
   /* Retrying the Service Request would loop forever, and re-registering is not supported:
    * terminate as after a Registration Reject. */
   LOG_E(NAS, "Service Reject: cannot connect, exiting\n");
@@ -2678,6 +2730,7 @@ static void handle_registration_reject(nr_ue_nas_t *nas, const byte_array_t *buf
 
   LOG_E(NAS, "Received Registration Reject cause: %s\n", print_info(msg.cause, fgmm_cause_s, sizeofArray(fgmm_cause_s)));
   free_fgs_registration_reject(&msg);
+  nas->re_registration_pending = false;
   nas->fiveGMM_state = FGS_DEREGISTERED;
   nas->termination_procedure = true;
   send_nas_detach_req(nas, false);
@@ -2824,6 +2877,19 @@ void *nas_nrue(void *args_p)
            If SR incomplete (5GMM-SERVICE-REQUEST-INITIATED) §5.6.1.7 l): abort SR, enter 5GMM-REGISTERED */
         abort_service_request(nas);
         nas->fiveGMM_mode = FGS_IDLE;
+        if (nas->re_registration_pending) {
+          nas->re_registration_pending = false;
+          as_nas_info_t initialNasMsg = {0};
+          generateRegistrationRequest(&initialNasMsg, nas, false);
+          if (initialNasMsg.length > 0) {
+            send_nas_initial_ul_transfer_req(nas, &initialNasMsg);
+            nas->fiveGMM_state = FGS_REGISTERED_INITIATED;
+            LOG_I(NAS,
+                  "[UE %ld] Initiating re-registration after N1 connection release (NAS_INITIAL_UL_TRANSFER_REQ, %u B)\n",
+                  nas->UE_id,
+                  initialNasMsg.length);
+          }
+        }
         // TODO handle connection release
         if (nas->termination_procedure) {
           /* the following is not clean, but probably necessary: we need to give
