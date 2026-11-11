@@ -66,6 +66,8 @@ typedef struct {
   stream_security_container_t *security_container;
   Guti5GSMobileIdentity_t *guti;
   bool termination_procedure;
+  /* Re-registration pending upon N1 signalling connection release (TS 24.501 §5.6.1.5) */
+  bool re_registration_pending;
   instance_t UE_id;
   /* RRC Inactive Indication */
   bool is_rrc_inactive;
