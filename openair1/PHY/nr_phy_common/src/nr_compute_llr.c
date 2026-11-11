@@ -8,6 +8,10 @@
 #include "PHY/impl_defs_top.h"
 #include "PHY/TOOLS/tools_defs.h"
 #include "nr_lbest_simd.h"
+#if defined(__aarch64__)
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+#endif
 #ifdef __aarch64__
 #define USE_128BIT
 #endif
@@ -3955,6 +3959,20 @@ void nr_qam256_llr_2layer_lbest_q15_simd16(c16_t *stream0_in,
 #endif
 }
 
+#if defined(__aarch64__)
+// CPUs with FP16 vector arithmetic (ARMv8.2 FP16): the FP16 seed-centred L-best / full ML replaces the fp32 and int16
+// kernels, at the fp32 quality for less than the int16 cost (OAI_LBEST_F16=0 keeps them, e.g. for comparisons)
+static bool nr_lbest_f16(void)
+{
+  static int on = -1;
+  if (on < 0) {
+    const char *e = getenv("OAI_LBEST_F16");
+    on = (getauxval(AT_HWCAP) & HWCAP_ASIMDHP) && !(e && atoi(e) == 0);
+  }
+  return on;
+}
+#endif
+
 void nr_qam64_llr_2layer_lbest_f32_simd16(c16_t *stream0_in,
                                           c16_t *stream1_in,
                                           c16_t *ch_mag,
@@ -4019,8 +4037,16 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       // 8x8 grid. Both use the fp32 metric: the int16 kernels'
       // 1/8-scale metric flips small-|LLR| bits with 2 Rx at high SNR (UL MCS 27, 15 LDPC iterations: full ML 92%
       // -> 96% and 3x3 86% -> 88% throughput at 30 dB), at the same cost for the 3x3 search and ~2x for full ML.
-      nr_qam64_llr_2layer_lbest_f32_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, lbest ? 1 : 3, lambda);
-      nr_qam64_llr_2layer_lbest_f32_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, lbest ? 1 : 3, lambda);
+#if defined(__aarch64__)
+      if (nr_lbest_f16()) {
+        nr_qam64_llr_2layer_lbest_f16_simd_w128(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, lbest ? 1 : 3, lambda);
+        nr_qam64_llr_2layer_lbest_f16_simd_w128(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, lbest ? 1 : 3, lambda);
+      } else
+#endif
+      {
+        nr_qam64_llr_2layer_lbest_f32_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, lbest ? 1 : 3, lambda);
+        nr_qam64_llr_2layer_lbest_f32_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, lbest ? 1 : 3, lambda);
+      }
       // 64QAM: the input runs one bit hot (nr_ml_llr_maxh_off(6, .) = -2 / -3, tuned with the former int16
       // search); cool the LLRs back by one bit for the LDPC int8 input (the hot output clips and loses
       // ~0.5 dB at low SNR, MCS 20).
@@ -4034,7 +4060,15 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
       // truncations), which flips the sign of small-|LLR| bits: 0.2-0.6 dB at 70% throughput for MCS 20-26
       // and ~1.4 dB at MCS 27 (4 RX), ~1 dB at 2 RX. The fp32-metric kernel tracks the float reference. It
       // costs ~16% more for the 3x3 search (lbest == 2: pusch_mimo_hires / --pdsch-mimo-hires) and is ~30%
-      // cheaper for the full grid (per-axis max-log), which therefore always uses it.
+      // cheaper for the full grid (per-axis max-log), which therefore always uses it. ARM CPUs with FP16 vector
+      // arithmetic run the FP16 kernel for all three, at the fp32 quality and ~20% below the int16 cost.
+#if defined(__aarch64__)
+      if (nr_lbest_f16()) {
+        const int pat = lbest ? 1 : 3;
+        nr_qam256_llr_2layer_lbest_f16_simd_w128(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, pat, lambda);
+        nr_qam256_llr_2layer_lbest_f16_simd_w128(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, pat, lambda);
+      } else
+#endif
       if (lbest == 1) {
         nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp0, rxdataF_comp1, ch_mag0, ch_mag1, llr_layers0, rho0, nb_re, 1, lambda);
         nr_qam256_llr_2layer_lbest_q15_simd16(rxdataF_comp1, rxdataF_comp0, ch_mag1, ch_mag0, llr_layers1, rho1, nb_re, 1, lambda);
