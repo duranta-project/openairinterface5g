@@ -51,10 +51,8 @@ void nr_llr_2layer_mmse_simd_w256(const c16_t *, const c16_t *, const c16_t *, c
 void nr_llr_2layer_mmse_ref(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_channel_compensation(uint32_t, uint32_t, int, int, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t **, c16_t *, c16_t, int, uint32_t, uint32_t);
 bool nr_inner_rx(uint32_t, uint32_t, int, int, int, c16_t *, c16_t *, c16_t, c16_t **, c16_t **, c16_t **, c16_t **, c16_t *, c16_t *, int, bool, bool, int, float, int16_t **, const int16_t *, int16_t *);
-#if defined(__aarch64__)
-void nr_inner_rx_2layer_f16(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, int, int, float, int, int16_t *, int16_t *, int16_t *, const int16_t *);
-void nr_qam64_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
-void nr_qam256_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+#if defined(NR_LBEST_F16)
+#include "openair1/PHY/nr_phy_common/src/nr_lbest_f16.h"
 #endif
 #if defined(__AVX512BW__) && defined(__AVX512VL__) && defined(__AVX512F__)
 void nr_qam64_llr_2layer_lbest_q15_simd_w512(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
@@ -659,27 +657,27 @@ TEST(test_llr_2layer, flat_2x2_qpsk_signs)
   EXPECT_EQ(0u, err_mmse) << "MMSE";
 }
 
-#if defined(__aarch64__)
-#include <sys/auxv.h>
-#include <asm/hwcap.h>
+#if defined(NR_LBEST_F16)
 
 // FP16 seed-centred L-best / full ML against the fp32 kernel (same candidate sets): rounding-level agreement
 TEST(test_llr_2layer, f16_close_to_f32)
 {
-  if (!(getauxval(AT_HWCAP) & HWCAP_ASIMDHP))
+  if (!nr_lbest_f16_enabled())
     GTEST_SKIP() << "no FP16 vector arithmetic";
   const uint32_t n = 3276 + 5; // + a last block overlapping the previous one
   typedef void (*k_t)(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
   struct {
     int qm;
     k_t f32, f16;
-  } ks[] = {{6, nr_qam64_llr_2layer_lbest_f32_simd_w128, nr_qam64_llr_2layer_lbest_f16_simd_w128},
-            {8, nr_qam256_llr_2layer_lbest_f32_simd_w128, nr_qam256_llr_2layer_lbest_f16_simd_w128}};
+  } ks[] = {{6, nr_qam64_llr_2layer_lbest_f32_simd_w128, nr_qam64_llr_2layer_lbest_f16},
+            {8, nr_qam256_llr_2layer_lbest_f32_simd_w128, nr_qam256_llr_2layer_lbest_f16}};
   for (auto &k : ks)
     for (int clean : {0, 1})
       for (int pattern : {1, 3})
         for (float lambda : {0.0f, 40.0f}) {
-          Inputs2L in = clean ? gen_clean_inputs(n, 0xF16u + k.qm, k.qm == 6 ? 7 : 15, k.qm == 6 ? 2048 : 1000) : gen_inputs(n, 0xF16u + k.qm);
+          // random streams on a consistent Gram (|rho|^2 < P0 P1): gen_inputs' independent rho has det < 0 on many REs, where
+          // the seed only reflects how each kernel floors det
+          Inputs2L in = clean ? gen_clean_inputs(n, 0xF16u + k.qm, k.qm == 6 ? 7 : 15, k.qm == 6 ? 2048 : 1000) : gen_gram_inputs(n, 0xF16u + k.qm);
           AlignedVector512<int16_t> a((size_t)n * k.qm + 64), b((size_t)n * k.qm + 64);
           k.f32(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), a.data(), in.rho.data(), n, pattern, lambda);
           k.f16(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), b.data(), in.rho.data(), n, pattern, lambda);
@@ -702,7 +700,7 @@ TEST(test_llr_2layer, f16_close_to_f32)
 // sums wrap at this output_shift, the FP16 path still decides the MSBs right
 TEST(test_llr_2layer, fused_f16_units)
 {
-  if (!(getauxval(AT_HWCAP) & HWCAP_ASIMDHP))
+  if (!nr_lbest_f16_enabled())
     GTEST_SKIP() << "no FP16 vector arithmetic";
   std::mt19937 rng(0xFE16);
   std::normal_distribution<double> g(0, 1);
