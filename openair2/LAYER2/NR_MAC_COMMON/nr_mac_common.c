@@ -4870,8 +4870,10 @@ static void compute_pmi_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, ui
   for(int i = 0; i < 8; i++) {
     csi_report->csi_meas_bitlen.pmi_x1_bitlen[i] = 0;
     csi_report->csi_meas_bitlen.pmi_x2_bitlen[i] = 0;
-    if (codebookConfig == NULL || ((ri_restriction >> i) & 0x01) == 0)
+    if (codebookConfig == NULL)
       return;
+    if (((ri_restriction >> i) & 0x01) == 0)
+      continue;
     else {
       if(codebookConfig->codebookType.present == NR_CodebookConfig__codebookType_PR_type1) {
         struct NR_CodebookConfig__codebookType__type1 *type1 = codebookConfig->codebookType.choice.type1;
