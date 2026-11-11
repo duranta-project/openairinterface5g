@@ -29,9 +29,11 @@ allowed_fapi_latency: 0
 # Allowed tick interval error. Unit: us
 allowed_tick_error: 10
 
+# Core 10 is an A725. The slot timer only sleeps there, so the X925 at 15 is free
+# for the low-priority CUDA/DPDK threads. Nothing else may be pinned to 10.
 timer_thread_config:
   name: timer_thread
-  cpu_affinity: 15
+  cpu_affinity: 10
   sched_priority: 99
 message_thread_config:
   name: msg_processing
@@ -45,7 +47,7 @@ message_thread_config:
 # priority kept below msg_processing (95) and timer (99) so it never preempts them.
 nonslot_lp_thread_config:
   name: nonslot_lp
-  cpu_affinity: 10
+  cpu_affinity: 15
   sched_priority: 94
 # Lowest TTI for Ticking
 mu_highest: 1
@@ -145,8 +147,8 @@ transport:
     debug_timing: 0 # Saving full timestamps of nvipc message states for engineering debug
     pcap_enable: 0 # Enable PCAP logging
     pcap_sync_save: 0 # 0 - Asynchronized saving packets in SHM caching thread; 1 - Synchronized saving packets in caller thread
-    pcap_shm_caching_cpu_core: 10 # CPU core of pcap shared memory caching thread
-    pcap_file_saving_cpu_core: 10 # CPU core of pcap file saving thread
+    pcap_shm_caching_cpu_core: 15 # CPU core of pcap shared memory caching thread
+    pcap_file_saving_cpu_core: 15 # CPU core of pcap file saving thread
     pcap_cache_size_bits: 29 # 2^29 = 512MB, size of /dev/shm/${prefix}_pcap
     pcap_file_size_bits: 31 # 2^31 = 2GB, max size of /var/log/aerial/${prefix}_pcap. Requires pcap_file_size_bits > pcap_cache_size_bits.
     pcap_max_data_size: 8000 # Max DL/UL FAPI data size to capture reduce pcap size.
