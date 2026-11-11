@@ -163,7 +163,6 @@
     }                                                                                     \
   } while (0)
 
-static void dispatch_ul_work(work_q_t *q, ORU_t *oru, int frame, int slot, int symbol, const ul_job_t *job);
 static void dispatch_ul_fft(work_q_t *fft_q,
                             work_q_t *beam_q,
                             ORU_t *oru,
@@ -179,7 +178,7 @@ static void dispatch_ul_fft(work_q_t *fft_q,
 // O(1) instead of a linear scan, and the per-symbol tick drains exactly the jobs due now.
 //
 #define UL_CAL_SLOTS 4 // Number of slots ahead in the UL calendar ring
-#define UL_CAL_JOBS_PER_SYMBOL 10
+#define UL_CAL_JOBS_PER_SYMBOL 32 // one per C-Plane section and stream starting on a symbol
 
 typedef struct {
   ul_job_t job;
@@ -228,19 +227,13 @@ static bool ul_calendar_park(ul_calendar_t *cal, ORU_t *oru, const ul_job_t *job
   return false;
 }
 
-// Dispatch the next `count` symbols of a job. Codebook mode routes through one FFT job per symbol
-// (it dispatches the beam items itself, so the per-antenna FFTs are computed once); passthrough
-// keeps one work item per symbol.
+// Dispatch the next `count` symbols of a job, one FFT job per symbol (it dispatches the beam items
+// itself, so the per-antenna FFTs are computed once).
 static void ul_calendar_dispatch(work_q_t *beam_q, work_q_t *fft_q, ORU_t *oru, const ul_job_t *job, int symbols_sent, int count)
 {
   const int sym = job->symbol + symbols_sent;
-  const bool beamforming = oru->codebook.nb_fh_streams > 0;
   for (int k = 0; k < count; k++) {
-    if (beamforming) {
-      dispatch_ul_fft(fft_q, beam_q, oru, job->frame, job->slot_in_frame, sym + k, job, 1);
-    } else {
-      dispatch_ul_work(beam_q, oru, job->frame, job->slot_in_frame, sym + k, job);
-    }
+    dispatch_ul_fft(fft_q, beam_q, oru, job->frame, job->slot_in_frame, sym + k, job, 1);
   }
 }
 
@@ -283,9 +276,8 @@ static void ul_calendar_add(ul_calendar_t *cal, work_q_t *beam_q, work_q_t *fft_
 }
 
 // Per-symbol tick: dispatch one symbol of every job parked on the current symbol's entry, re-park
-// multi-symbol continuations on the next symbol's entry. Codebook mode batches the symbol's whole
-// job set into ONE FFT job - the per-antenna FFTs are computed once and every beam job of the
-// symbol shares them. Passthrough dispatches one work item per job as before.
+// multi-symbol continuations on the next symbol's entry. The symbol's whole job set goes into ONE
+// FFT job - the per-antenna FFTs are computed once and every job (section) of the symbol shares them.
 static void ul_calendar_tick(ul_calendar_t *cal, work_q_t *beam_q, work_q_t *fft_q, ORU_t *oru, uint64_t reader_abs)
 {
   const int idx = reader_abs % (UL_CAL_SLOTS * NR_SYMBOLS_PER_SLOT);
@@ -296,11 +288,7 @@ static void ul_calendar_tick(ul_calendar_t *cal, work_q_t *beam_q, work_q_t *fft
     if (!entry->active) {
       continue;
     }
-    if (oru->codebook.nb_fh_streams > 0) {
-      batch[nb_batch++] = entry->job;
-    } else {
-      ul_calendar_dispatch(beam_q, fft_q, oru, &entry->job, entry->symbols_sent, 1);
-    }
+    batch[nb_batch++] = entry->job;
     if (entry->symbols_sent + 1 < entry->job.num_symbols) {
       ul_calendar_park(cal, oru, &entry->job, entry->symbols_sent + 1, reader_abs + 1);
     }
@@ -920,7 +908,7 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   c16_t *beamF_ptr[nb_streams];
   for (int s = 0; s < nb_streams; s++) {
     beamF_ptr[s] = beamF[s];
-    const int beam_id = oru_fh_get_prach_beam_id(oru->fronthaul, slot, s);
+    const int beam_id = oru_fh_get_prach_beam_id(oru->fronthaul, slot, s, symbol);
     if (beam_id < 0) {
       memset(beamF[s], 0, sizeof(beamF[s])); // no C-Plane for this stream: write_prach_iq() skips it
       continue;
@@ -930,6 +918,8 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   oru_fh_rx_send_prach(oru->fronthaul, (uint32_t **)beamF_ptr, nb_streams, frame, slot, symbol);
 }
 
+// Sends one UL job (C-Plane section) for a symbol from the symbol's shared per-antenna FFTs. Only the job's PRB range
+// is combined, shifted and rotated: write_ul_iq() reads nothing else, so the per-section cost scales with its PRBs.
 static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t *job, const c16_t *const *ant_fft)
 {
   struct timespec start, end;
@@ -947,38 +937,58 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
       LOG_W(PHY, "[ORU south] receive_pusch: UL beam stream %d exceeds nb_fh_streams %d, dropping\n", aarx, cb->nb_fh_streams);
       return;
     }
-  } else if (aarx < 0 || aarx >= fp->nb_antennas_rx) {
+  } else if (aarx < 0 || aarx >= ru->nb_rx) {
     LOG_W(PHY, "[ORU south] receive_pusch: invalid antenna_id %d\n", aarx);
     return;
   }
 
-  // CP removal + FFT → full ofdm_symbol_size frequency-domain output
+  // The job's PRBs as at most two runs of the unshifted FFT window
   const int nbins = fp->N_RB_UL * NR_NB_SC_PER_RB;
-  c16_t rxdataF_fft[fp->ofdm_symbol_size] __attribute__((aligned(32)));
+  oru_fft_run_t runs[2];
+  const int nruns = oru_prb_fft_runs(fp->ofdm_symbol_size, nbins, job->start_prb, job->num_prb, runs);
+
+  const c16_t *fft;
+  c16_t combined[fp->ofdm_symbol_size] __attribute__((aligned(32)));
   if (beamforming) {
-    // UL Rx beamforming: combine the per-antenna FFTs via the codebook, only over the PRBs this job
-    // sends (the rest of the window is zero and never leaves the O-RU).
-    memset(rxdataF_fft, 0, sizeof(rxdataF_fft));
-    combine_ul_beam_prbs(ant_fft, ru->nb_rx, fp->ofdm_symbol_size, nbins, job->start_prb, job->num_prb, cb, job->beam_id, aarx,
-                         rxdataF_fft);
+    // UL Rx beamforming: combine the per-antenna FFTs via the codebook over this job's PRBs only
+    for (int r = 0; r < nruns; r++)
+      memset(&combined[runs[r].bin], 0, runs[r].len * sizeof(c16_t));
+    combine_ul_beam_prbs(ant_fft,
+                         ru->nb_rx,
+                         fp->ofdm_symbol_size,
+                         nbins,
+                         job->start_prb,
+                         job->num_prb,
+                         cb,
+                         job->beam_id,
+                         aarx,
+                         combined);
+    fft = combined;
   } else {
-    // No beamforming: perform FFT on the received antenna's time-domain signal
-    nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[aarx], rxdataF_fft, symbol, slot, ru->N_TA_offset);
+    // No beamforming: the received antenna's FFT, shared by every section of that antenna in this symbol
+    fft = ant_fft[aarx];
   }
 
-  // FFT shift: IDFT output layout -> contiguous PRB format sent to the DU
+  // FFT shift: FFT output layout -> contiguous PRB format sent to the DU
   c16_t rxdataF[nbins] __attribute__((aligned(32)));
-  fftshift(rxdataF_fft, rxdataF, nbins, fp->ofdm_symbol_size);
+  int nre = 0;
+  for (int r = 0; r < nruns; r++) {
+    memcpy(&rxdataF[runs[r].re], &fft[runs[r].bin], runs[r].len * sizeof(c16_t));
+    nre += runs[r].len;
+  }
 
-  // Phase decompensation (conjugate rotation for UL)
-  apply_nr_rotation_symbol_fftshifted_RX(fp->symbols_per_slot,
-                                         fp->slots_per_subframe,
-                                         fp->timeshift_symbol_rotation,
-                                         rxdataF,
-                                         fp->symbol_rotation[link_type_ul],
-                                         fp->N_RB_UL,
-                                         slot,
-                                         symbol);
+  // Phase decompensation (conjugate rotation for UL); PRB offsets keep the 16-byte alignment it needs
+  if (nre > 0) {
+    const int re0 = runs[0].re;
+    apply_nr_rotation_symbol_fftshifted_RX(fp->symbols_per_slot,
+                                           fp->slots_per_subframe,
+                                           fp->timeshift_symbol_rotation + re0,
+                                           rxdataF + re0,
+                                           fp->symbol_rotation[link_type_ul],
+                                           nre / NR_NB_SC_PER_RB,
+                                           slot,
+                                           symbol);
+  }
 
   oru_fh_rx_send_pusch(oru->fronthaul, (uint32_t *)rxdataF, symbol, job);
 
@@ -996,8 +1006,9 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
   }
 }
 
-#define UL_WORK_QUEUE_DEPTH 128 // beam items: bound on in-flight UL jobs (backpressure)
-#define UL_FFT_QUEUE_DEPTH 32   // FFT items: one per symbol (codebook mode); a few symbols of margin
+// beam items: bound on in-flight UL jobs (backpressure), about 16 symbols of full calendar entries; a power of two
+#define UL_WORK_QUEUE_DEPTH (UL_CAL_JOBS_PER_SYMBOL * 16)
+#define UL_FFT_QUEUE_DEPTH 32 // FFT items: one per symbol; a few symbols of margin
 
 typedef struct {
   ORU_t *oru;
@@ -1006,12 +1017,12 @@ typedef struct {
   int symbol;
   ul_job_t job;
   work_q_t *queue;
-  const c16_t *ant_fft[ORU_CODEBOOK_MAX_NB_TX]; // codebook: this symbol's per-antenna FFT windows
-  void *fft_slot; // codebook: the FFT item whose refs this job releases on completion (NULL in passthrough)
+  const c16_t *ant_fft[ORU_CODEBOOK_MAX_NB_TX]; // this symbol's per-antenna FFT windows
+  void *fft_slot; // the FFT item whose refs this job releases on completion
 } ul_work_item_t;
 
-// One FFT job per symbol (codebook mode): computes every RX antenna's FFT once, then dispatches
-// the symbol's UL jobs as beam items. The per-antenna windows live in this item's own queue slot
+// One FFT job per symbol: computes each RX antenna's FFT once, then dispatches the symbol's UL
+// jobs (one per C-Plane section) as beam items. The per-antenna windows live in this item's own queue slot
 // (payload after the fixed fields, 32-byte aligned - work_q slots are 32-byte aligned). Beam jobs
 // reference them via item pointers, and the slot is released by its last reader (refs), not by
 // the FFT job itself - so an FFT job arriving late for an overdue symbol computes into its own
@@ -1065,8 +1076,20 @@ static void ul_fft_pool_task(void *args)
   const int nb_rx = ru->nb_rx;
   const int n = fp->ofdm_symbol_size;
 
+  // Codebook mode combines every RX antenna; passthrough only reads the antennas its jobs name.
+  bool used[nb_rx];
+  const bool beamforming = oru->codebook.nb_fh_streams > 0;
+  for (int a = 0; a < nb_rx; a++)
+    used[a] = beamforming;
+  for (int i = 0; i < item->nb_jobs; i++) {
+    const int a = item->jobs[i].antenna_id;
+    if (a >= 0 && a < nb_rx)
+      used[a] = true;
+  }
   // Window offset, N_TA and frame-boundary wrap all inside nr_symbol_fep_ul().
   for (int a = 0; a < nb_rx; a++) {
+    if (!used[a])
+      continue;
     nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[a], &item->ant_fft[a * n], item->symbol, item->slot,
                      ru->N_TA_offset);
   }
@@ -1103,9 +1126,9 @@ static void ul_fft_pool_task(void *args)
   // NB: the FFT item's own slot is released by its last beam job (or the drop path above), not here.
 }
 
-// Push one FFT job for a symbol: the FFT worker computes all RX antennas' FFTs once and then
+// Push one FFT job for a symbol: the FFT worker computes the RX antennas' FFTs once and then
 // dispatches the symbol's UL jobs as beam items (one FFT per antenna per symbol, shared by all
-// beams). Passthrough mode never goes through here.
+// beams and sections).
 static void dispatch_ul_fft(work_q_t *fft_q,
                             work_q_t *beam_q,
                             ORU_t *oru,
@@ -1141,32 +1164,6 @@ static void dispatch_ul_fft(work_q_t *fft_q,
     return;
   }
   pushTpool(oru->ru->threadPool, (task_t){.args = slot_ptr, .func = ul_fft_pool_task});
-}
-
-static void dispatch_ul_work(work_q_t *q, ORU_t *oru, int frame, int slot, int symbol, const ul_job_t *job)
-{
-  ul_work_item_t item = {
-    .oru = oru,
-    .frame = frame,
-    .slot = slot,
-    .symbol = symbol,
-    .job = *job,
-    .queue = q,
-  };
-
-  void *slot_ptr = work_q_push(q, &item);
-  if (slot_ptr == NULL) {
-    // Slot still owned by a previous job's worker: admission is per-slot, so this drop is
-    // precise - no overwrite of live work is ever possible.
-    __atomic_fetch_add(&oru->ul_dropped_jobs, 1, __ATOMIC_RELAXED);
-    return;
-  }
-
-  task_t task = {
-    .args = slot_ptr,
-    .func = ul_worker_pool_task,
-  };
-  pushTpool(oru->ru->threadPool, task);
 }
 
 // O-RU-specific TX thread: TDD-aware (skips writes in UL slots) and uses a simpler
@@ -1326,8 +1323,9 @@ void *oru_south_read_thread(void *arg)
   AssertFatal(work_q_alloc(&beam_queue, UL_WORK_QUEUE_DEPTH, sizeof(ul_work_item_t)),
               "[ORU south] failed to allocate UL work queue\n");
 
-  // Codebook mode: one FFT job per symbol computes every RX antenna's FFT once and dispatches
-  // the symbol's beam jobs; the FFT payload lives in the job's own queue slot (refcounted).
+  // One FFT job per symbol computes each RX antenna's FFT once and dispatches the symbol's beam
+  // jobs; the FFT payload lives in the job's own queue slot (refcounted).
+  AssertFatal(ru->nb_rx <= ORU_CODEBOOK_MAX_NB_TX, "nb_rx %d exceeds maximum %d\n", ru->nb_rx, ORU_CODEBOOK_MAX_NB_TX);
   work_q_t fft_queue;
   const size_t fft_payload = (size_t)ru->nb_rx * fp->ofdm_symbol_size * sizeof(c16_t);
   AssertFatal(work_q_alloc(&fft_queue, UL_FFT_QUEUE_DEPTH, ul_fft_item_size(fft_payload)),
