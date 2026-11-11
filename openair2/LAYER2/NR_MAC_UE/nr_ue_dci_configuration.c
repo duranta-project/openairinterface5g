@@ -335,7 +335,7 @@ bool is_ss_monitor_occasion(const int frame, const int slot, const int slots_per
   get_monitoring_period_offset(ss, &period, &offset);
   // The UE monitors PDCCH candidates for search space set ss for 'duration' consecutive slots
   for (int i = 0; i < duration; i++) {
-    if (((frame * slots_per_frame + slot - offset - i) % period) == 0) {
+    if (is_periodic_occasion(frame, slot, slots_per_frame, period, offset + i)) {
       monitor = true;
       break;
     }
@@ -354,7 +354,7 @@ static bool search_space_monitoring_ocasion_other_si(NR_UE_MAC_INST_t *mac,
   int period, offset;
   get_monitoring_period_offset(ss, &period, &offset);
   for (int i = 0; i < duration; i++) {
-    if (((frame * slots_per_frame + slot - offset - i) % period) == 0) {
+    if (is_periodic_occasion(frame, slot, slots_per_frame, period, offset + i)) {
       int N = mac->ssb_list.nb_tx_ssb;
       int K = mac->ssb_list.nb_ssb_per_index[mac->mib_ssb];
       // numbering current frame and slot in terms of monitoring occasions in window
@@ -588,6 +588,16 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
         if (is_ss_monitor_occasion(frame, slot, slots_per_frame, ss))
           config_dci_pdu(mac, dl_config, TYPE_C_RNTI_, slot, ss);
       }
+      // the gNB may address the C-RNTI in a common search space
+      bool ss0_listed = false;
+      for (int i = 0; i < pdcch_config->list_common_SS.count; i++) {
+        NR_SearchSpace_t *ss = pdcch_config->list_common_SS.array[i];
+        ss0_listed |= ss->searchSpaceId == 0;
+        if (is_ss_monitor_occasion(frame, slot, slots_per_frame, ss))
+          config_dci_pdu(mac, dl_config, TYPE_C_RNTI_, slot, ss);
+      }
+      if (!ss0_listed && mac->search_space_zero && is_ss_monitor_occasion(frame, slot, slots_per_frame, mac->search_space_zero))
+        config_dci_pdu(mac, dl_config, TYPE_C_RNTI_, slot, mac->search_space_zero);
     }
   } else if (mac->state == UE_CONNECTED) {
     /*

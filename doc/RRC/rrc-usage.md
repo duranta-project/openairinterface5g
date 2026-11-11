@@ -158,7 +158,7 @@ In other words:
 
 MeasGap does not depend on SIB3/SIB4, however they share the same underlying
 neighbour/frequency data model, which is the common source of serving +
-neighbour frequency information (see also [Neighbor-gNB configuration](#neighbour-gnb-configuration)):
+neighbour frequency information (see also [Neighbor-gNB configuration](#neighbor-gnb-configuration)):
 
 - SIB3/SIB4 generation is done on the CU-CP side (inside `rrc_gNB_du.c`) from
   neighbour/frequency configuration and serving-cell MTC-derived ARFCN.

@@ -7,14 +7,12 @@ logging.basicConfig(
 	stream=sys.stdout,
 	format="[%(asctime)s] %(levelname)8s: %(message)s"
 )
-import os
 import unittest
 import yaml
 
 sys.path.append('./') # to find OAI imports below
 import cls_analysis
 import cls_oai_html
-import constants
 
 class TestAnalysis(unittest.TestCase):
 	def setUp(self):

@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>5gc-closure</htmlTabRef>
   <htmlTabName>5GC-Closure</htmlTabName>
-  <htmlTabIcon>log-out</htmlTabIcon>
 
   <testCase>
     <class>UndeployCoreNetwork</class>

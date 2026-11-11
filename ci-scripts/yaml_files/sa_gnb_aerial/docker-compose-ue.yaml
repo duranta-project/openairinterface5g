@@ -38,6 +38,7 @@ services:
                --uicc0.imsi 001010000000003
                --ue-fo-compensation -A 90
                --usrp-tx-thread-config 1
+               --uecap_file /opt/oai-nr-ue/etc/uecap.xml
                --log_config.global_log_options level,nocolor,utc_time
            # Unused options:
            #   --T_stdout 2

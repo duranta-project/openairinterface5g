@@ -10,8 +10,8 @@
  */
 
 #include <softmodem-common.h>
-#include "NR_MAC_gNB/nr_mac_gNB.h"
-#include "NR_MAC_gNB/mac_proto.h"
+#include "nr_mac_gNB.h"
+#include "mac_proto.h"
 #include "common/ran_context.h"
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
@@ -80,7 +80,7 @@ static void nr_fill_nfapi_pucch(nr_cell_sched_t *cell, frame_t frame, slot_t slo
                      pucch->dai_c,
                      pucch->sr_flag,
                      pucch->r_pucch,
-                     cell->beam_info.beam_mode,
+                     &cell->beam_info,
                      ant_ports_to_use,
                      cell->radio_config.spatial_stream_index,
                      cell->radio_config.pusch_AntennaPorts);
@@ -239,7 +239,7 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
       csi_period_offset(csirep, NULL, &period, &offset);
       const fsn_t sched = get_fb_frame_slot(frame, slot, ul_bwp->max_fb_time, n_slots_frame, NTN_gNB_Koffset);
       // prepare to schedule csi measurement reception according to 5.2.1.4 in 38.214
-      if ((sched.f * n_slots_frame + sched.s - offset) % period != 0)
+      if (!is_periodic_occasion(sched.f, sched.s, n_slots_frame, period, offset))
         continue;
 
       AssertFatal(is_ul_slot(sched.s, &cell->frame_structure), "CSI reporting slot %d is not set for an uplink slot\n", sched.s);
@@ -776,7 +776,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     int period, offset;
     csi_period_offset(csirep, NULL, &period, &offset);
     // verify if report with current id has been scheduled for this frame and slot
-    if ((n_slots_frame*frame + slot - offset)%period == 0) {
+    if (is_periodic_occasion(frame, slot, n_slots_frame, period, offset)) {
       reportQuantity_type = csi_report->reportQuantity_type;
       reportQuantity_type_r16 = csi_report->reportQuantity_type_r16;
       LOG_D(MAC, "SFN/SF:%d/%d reportQuantity type = %d, type_r16 = %d\n", frame, slot, reportQuantity_type, reportQuantity_type_r16);
@@ -821,10 +821,8 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             if (ri_bitlen)
               r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
             cumul_bits += ri_bitlen;
-            if (ri_bitlen) {
-              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
-              pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            }
+            skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
@@ -841,10 +839,8 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             cumul_bits += ri_bitlen;
             li_bitlen = evaluate_li_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             cumul_bits += li_bitlen;
-            if (ri_bitlen) {
-              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
-              pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            }
+            skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
             sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);

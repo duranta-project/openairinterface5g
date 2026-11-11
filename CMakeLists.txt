@@ -4,7 +4,7 @@ cmake_minimum_required (VERSION 3.19)
 project (OpenAirInterface LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(OAI_VERSION 2.4.0)
+set(OAI_VERSION 3.0.0)
 
 option(ENABLE_CHANNEL_SIM_CUDA "Enable CUDA accelerated channel simulation" OFF)
 if(ENABLE_CHANNEL_SIM_CUDA)
@@ -58,14 +58,9 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake_targets/tools/MODULES" "${CMAKE
 option(CCACHE_ACTIVE "CCache" ON)
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND AND CCACHE_ACTIVE)
-  if(${CMAKE_VERSION} VERSION_LESS "3.4.0")
-    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
-    message(STATUS "Found ccache in ${CCACHE_FOUND}. Using ccache. CMake < 3.4")
-  else()
-    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_FOUND}")
-    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_FOUND}")
-    message(STATUS "Found ccache in ${CCACHE_FOUND}. Using ccache. CMake >= 3.4")
-  endif()
+  set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_FOUND}")
+  set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_FOUND}")
+  message(STATUS "Found ccache in ${CCACHE_FOUND}")
 else()
   message(STATUS "Ccache not found. Consider installing it for faster compilation. Command: sudo apt/dnf install ccache")
 endif()
@@ -240,6 +235,46 @@ if(CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
 endif()
 
 if (ENABLE_LDPC_CUDA)
+  # The GPU offload is written against PHY/gpu_compat.h, which maps the CUDA
+  # runtime API onto HIP as well, so the backend follows whichever toolchain is
+  # installed rather than needing a flag of its own. Set LDPC_GPU_BACKEND to
+  # CUDA or HIP to force one when both are present.
+  set(LDPC_GPU_BACKEND "AUTO" CACHE STRING "GPU backend for the LDPC offload (AUTO, CUDA or HIP)")
+  set_property(CACHE LDPC_GPU_BACKEND PROPERTY STRINGS AUTO CUDA HIP)
+
+  # CheckLanguage reports CMAKE_HIP_COMPILER without committing to the
+  # language. Both the AUTO decision and the ROCm prefix below need it, so
+  # probe unconditionally: forcing LDPC_GPU_BACKEND=HIP used to skip this and
+  # then fail in find_package(hip) for want of a prefix path.
+  include(CheckLanguage)
+  check_language(HIP)
+
+  if (LDPC_GPU_BACKEND STREQUAL "AUTO")
+    if (CMAKE_HIP_COMPILER)
+      set(LDPC_GPU_BACKEND "HIP")
+    else()
+      set(LDPC_GPU_BACKEND "CUDA")
+    endif()
+    message(STATUS "LDPC GPU offload: selected the ${LDPC_GPU_BACKEND} backend")
+  endif()
+
+  if (LDPC_GPU_BACKEND STREQUAL "HIP")
+    # ROCm installs hip-config.cmake under its own prefix, which is two levels
+    # up from the HIP compiler (<rocm>/lib/llvm/bin/clang++); derive it rather
+    # than making the caller pass CMAKE_PREFIX_PATH.
+    if (CMAKE_HIP_COMPILER)
+      get_filename_component(ROCM_ROOT "${CMAKE_HIP_COMPILER}" DIRECTORY)
+      get_filename_component(ROCM_ROOT "${ROCM_ROOT}/../../.." ABSOLUTE)
+      list(APPEND CMAKE_PREFIX_PATH "${ROCM_ROOT}")
+    endif()
+    # hip::host carries the ROCm include directories, libamdhip64 and
+    # __HIP_PLATFORM_AMD__, which is what PHY/gpu_compat.h keys off, so nothing
+    # has to hardcode a ROCm path.
+    find_package(hip REQUIRED)
+  elseif (NOT LDPC_GPU_BACKEND STREQUAL "CUDA")
+    message(FATAL_ERROR "LDPC_GPU_BACKEND must be AUTO, CUDA or HIP, got \"${LDPC_GPU_BACKEND}\"")
+  endif()
+
   # TODO only on specific targets!!
   set(commonOpts "${commonOpts} -DLDPC_CUDA")
 endif()
@@ -371,9 +406,6 @@ set (OCP_ITTI ${OPENAIR_DIR}/common/utils/ocp_itti)
 add_library(ITTI ${OCP_ITTI}/intertask_interface.cpp)
 target_link_libraries(ITTI PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
 
-# asn1c skeletons need this
-add_definitions(-DHAVE_NETINET_IN_H)
-
 #########################
 ##### E2 AGENT
 #########################
@@ -409,7 +441,7 @@ add_library(lte_rrc
     ${OPENAIR2_DIR}/RRC/LTE/MESSAGES/asn1_msg.c
     ${OPENAIR2_DIR}/RRC/LTE/MESSAGES/asn1_msg_NB_IoT.c)
 target_link_libraries(lte_rrc PUBLIC asn1_lte_rrc)
-target_link_libraries(lte_rrc PRIVATE nr_rrc)
+target_link_libraries(lte_rrc PRIVATE nr_rrc SECURITY)
 
 
 #NR RRC
@@ -422,7 +454,6 @@ target_link_libraries(nr_rrc PUBLIC asn1_nr_rrc asn1_lte_rrc rrc_cell_management
 # S1AP
 ##############
 set(S1AP_DIR ${OPENAIR3_DIR}/S1AP)
-include_directories ("${S1AP_DIR}")
 add_library(s1ap
   ${S1AP_DIR}/s1ap_eNB.c
   ${S1AP_DIR}/s1ap_eNB_context_management_procedures.c
@@ -437,13 +468,13 @@ add_library(s1ap
   ${S1AP_DIR}/s1ap_eNB_trace.c
   ${S1AP_DIR}/s1ap_eNB_ue_context.c
   )
+target_include_directories(s1ap PUBLIC ${S1AP_DIR})
 target_link_libraries(s1ap PUBLIC asn1_s1ap)
-target_link_libraries(s1ap PRIVATE nr_rrc asn1_nr_rrc_hdrs lte_rrc)
+target_link_libraries(s1ap PRIVATE nr_rrc asn1_nr_rrc_hdrs lte_rrc SCTP_CLIENT)
 
 # NGAP
 ##############
 set(NGAP_DIR ${OPENAIR3_DIR}/NGAP)
-include_directories ("${NGAP_DIR}")
 add_library(ngap
   ${NGAP_DIR}/ngap_gNB.c
   ${NGAP_DIR}/ngap_common.c
@@ -462,6 +493,7 @@ add_library(ngap
   ${NGAP_DIR}/ngap_gNB_ue_context.c
   ${NGAP_DIR}/ngap_gNB_NRPPa_transport_procedures.c
   )
+target_include_directories(ngap PUBLIC ${NGAP_DIR})
 target_link_libraries(ngap PUBLIC asn1_ngap)
 target_link_libraries(ngap PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
 if(ENABLE_TESTS)
@@ -493,8 +525,8 @@ add_library(m2ap
   ${M2AP_DIR}/m2ap_eNB_interface_management.c
  )
 target_link_libraries(m2ap PUBLIC asn1_m2ap)
-target_link_libraries(m2ap PRIVATE lte_rrc nr_rrc)
-target_include_directories(m2ap PRIVATE "${M2AP_DIR}")
+target_link_libraries(m2ap PRIVATE lte_rrc nr_rrc SCTP_CLIENT)
+target_include_directories(m2ap PUBLIC "${M2AP_DIR}")
 
 #M3AP
 ##############
@@ -516,14 +548,13 @@ add_library(m3ap
   ${M3AP_DIR}/m3ap_timers.c
 )
 target_link_libraries(m3ap PUBLIC asn1_m3ap)
-target_link_libraries(m3ap PRIVATE m2ap)
+target_link_libraries(m3ap PRIVATE m2ap SCTP_CLIENT)
 target_link_libraries(m3ap PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
 target_include_directories(m3ap PUBLIC "${M3AP_DIR}")
 
 #X2AP
 ##############
 set(X2AP_DIR ${OPENAIR2_DIR}/X2AP)
-include_directories ("${X2AP_DIR}")
 add_library(x2ap
   ${X2AP_DIR}/x2ap_common.c
   ${X2AP_DIR}/x2ap_eNB.c
@@ -537,7 +568,7 @@ add_library(x2ap
   ${X2AP_DIR}/x2ap_timers.c
  )
 target_link_libraries(x2ap PUBLIC asn1_x2ap)
-target_link_libraries(x2ap PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
+target_link_libraries(x2ap PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs SCTP_CLIENT)
 
 # F1AP
 ##############
@@ -560,10 +591,10 @@ add_library(f1ap
             ${F1AP_DIR}/f1ap_cu_positioning.c
             ${F1AP_DIR}/f1ap_du_positioning.c
             ${F1AP_DIR}/f1ap_itti_messaging.c)
-target_include_directories(f1ap PUBLIC F1AP_DIR)
+target_include_directories(f1ap PUBLIC ${F1AP_DIR})
 target_link_libraries(f1ap PUBLIC asn1_f1ap GTPV1U)
 target_link_libraries(f1ap PRIVATE ngap nr_rrc ds f1ap_lib)
-target_include_directories(f1ap PRIVATE ${F1AP_DIR}/lib)
+target_include_directories(f1ap PRIVATE ${F1AP_DIR} ${F1AP_DIR}/lib)
 if(E2_AGENT)
   target_compile_definitions(f1ap PRIVATE E2_AGENT)
 endif()
@@ -593,10 +624,9 @@ target_link_libraries(CONFIG_LIB PRIVATE config_internals dl UTIL)
 
 # CONFIG_LIB is a wrapper around a particular config implementation, default is
 # libconfig in params_libconfig below
-pkg_check_modules(libconfig REQUIRED libconfig)
+pkg_check_modules(libconfig REQUIRED IMPORTED_TARGET libconfig)
 add_library(params_libconfig MODULE ${CONFIG_ROOTDIR}/libconfig/config_libconfig.c)
-target_include_directories(params_libconfig PRIVATE ${libconfig_INCLUDE_DIRS})
-target_link_libraries(params_libconfig PRIVATE config_internals ${libconfig_LIBRARIES})
+target_link_libraries(params_libconfig PRIVATE config_internals PkgConfig::libconfig)
 
 # shared library loader
 add_library(shlib_loader OBJECT common/utils/load_module_shlib.c)
@@ -644,18 +674,12 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories("${OPENAIR_DIR}/executables")
 include_directories("${OPENAIR2_DIR}/COMMON")
 include_directories("${OPENAIR2_DIR}/UTIL")
-include_directories("${OPENAIR3_DIR}/COMMON")
 include_directories("${OPENAIR3_DIR}/UTILS")
 include_directories("${OPENAIR1_DIR}")
 include_directories("${OPENAIR2_DIR}")
 include_directories("${OPENAIR3_DIR}/NAS/TOOLS")
 include_directories("${OPENAIR2_DIR}/ENB_APP")
 include_directories("${OPENAIR2_DIR}/GNB_APP")
-include_directories("${OPENAIR2_DIR}/MCE_APP")
-include_directories("${OPENAIR2_DIR}/LAYER2/RLC")
-include_directories("${OPENAIR2_DIR}/LAYER2/PDCP_v10.1.0")
-include_directories("${OPENAIR2_DIR}/RRC/LTE/MESSAGES")
-include_directories("${OPENAIR2_DIR}/RRC/LTE")
 include_directories("${OPENAIR_DIR}/common/utils")
 include_directories("${OPENAIR_DIR}/common/utils/collection")
 include_directories("${OPENAIR_DIR}/common/utils/ocp_itti")
@@ -668,17 +692,7 @@ include_directories("${OPENAIR3_DIR}/NAS/UE/EMM")
 include_directories("${OPENAIR3_DIR}/NAS/UE/API/USER")
 include_directories("${OPENAIR3_DIR}/NAS/COMMON/IES")
 include_directories("${OPENAIR3_DIR}/NAS/COMMON/UTIL")
-include_directories("${OPENAIR3_DIR}/SECU")
-include_directories("${OPENAIR3_DIR}/SCTP")
-include_directories("${OPENAIR3_DIR}/S1AP")
-include_directories("${OPENAIR2_DIR}/X2AP")
-include_directories("${OPENAIR2_DIR}/M2AP")
-include_directories("${OPENAIR2_DIR}/F1AP")
-include_directories("${OPENAIR3_DIR}/M3AP")
-include_directories("${OPENAIR3_DIR}/MME_APP")
 include_directories("${OPENAIR_DIR}/radio/COMMON")
-include_directories("${OPENAIR2_DIR}/UTIL/MATH")
-include_directories("${OPENAIR2_DIR}/UTIL/OTG")
 include_directories("${OPENAIR2_DIR}/UTIL/OPT")
 include_directories("${OPENAIR_DIR}")
 
@@ -700,38 +714,14 @@ add_library(UTIL
   ${OPENAIR2_DIR}/UTIL/OPT/probe.c
 )
 
-pkg_check_modules(cap libcap)
+pkg_check_modules(cap IMPORTED_TARGET libcap)
 if (cap_FOUND)
   # see system.c for more info
-  target_link_libraries(UTIL PRIVATE cap)
+  target_link_libraries(UTIL PRIVATE PkgConfig::cap)
   target_compile_definitions(UTIL PRIVATE HAVE_LIB_CAP)
 endif()
 target_link_libraries(UTIL PUBLIC ${T_LIB} pthread LOG thread-pool utils barrier actor)
 target_link_libraries(UTIL PUBLIC instrumentation)
-
-set(SECURITY_SRC
-  ${OPENAIR3_DIR}/SECU/secu_defs.c
-  ${OPENAIR3_DIR}/SECU/curve_25519.c
-  ${OPENAIR3_DIR}/SECU/x963_kdf.c
-  ${OPENAIR3_DIR}/SECU/kdf.c
-  ${OPENAIR3_DIR}/SECU/aes_128_ctr.c
-  ${OPENAIR3_DIR}/SECU/aes_128_cbc_cmac.c
-  ${OPENAIR3_DIR}/SECU/aes_128_ecb.c
-  ${OPENAIR3_DIR}/SECU/sha_256_hmac.c
-  ${OPENAIR3_DIR}/SECU/rijndael.c
-  ${OPENAIR3_DIR}/SECU/snow3g.c
-  ${OPENAIR3_DIR}/SECU/key_nas_deriver.c
-  ${OPENAIR3_DIR}/SECU/nas_stream_eea0.c
-  ${OPENAIR3_DIR}/SECU/nas_stream_eea1.c
-  ${OPENAIR3_DIR}/SECU/nas_stream_eia1.c
-  ${OPENAIR3_DIR}/SECU/nas_stream_eea2.c
-  ${OPENAIR3_DIR}/SECU/nas_stream_eia2.c
-  )
-
-pkg_check_modules(OpenSSL openssl REQUIRED)
-add_library(SECURITY ${SECURITY_SRC} $<TARGET_OBJECTS:ds>)
-target_include_directories(SECURITY PRIVATE ${OPENAIR_DIR}/common/utils/ds/)
-target_link_libraries(SECURITY PRIVATE ${OpenSSL_LIBRARIES})
 
 # Physical Channel Procedures Scheduling
 ################################"
@@ -944,6 +934,7 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_dlsch.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_dlsch_coding.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_ulsch_decoding.c
+  ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_uci_decoding.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_ulsch.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_sch_dmrs.c
   ${OPENAIR1_DIR}/PHY/NR_TRANSPORT/nr_prach.c
@@ -1022,7 +1013,7 @@ target_link_libraries(PHY_UE PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs UTIL)
 add_library(PHY_NR_COMMON ${PHY_NR_SRC_COMMON})
 target_link_libraries(PHY_NR_COMMON PUBLIC UTIL PHY_TOOLS crc_byte)
 
-if (ENABLE_LDPC_CUDA)
+if (ENABLE_LDPC_CUDA AND LDPC_GPU_BACKEND STREQUAL "CUDA")
   find_package(CUDA REQUIRED)
   if (NOT CUDA_FOUND)
     message(FATAL_ERROR "no CUDA found")
@@ -1042,10 +1033,18 @@ endif()
 target_link_libraries(PHY_NR PHY_NR_COMMON nr_phy_common nr_common nr_fapi_p5 polar smallblock ds)
 
 add_library(PHY_NR_NO_AVX_256 ${PHY_NR_SRC})
-target_link_libraries(PHY_NR_NO_AVX_256 PHY_NR_COMMON nr_phy_common nr_common)
+target_link_libraries(PHY_NR_NO_AVX_256 PHY_NR_COMMON nr_phy_common_no_avx_256 nr_common)
 target_compile_definitions(PHY_NR_NO_AVX_256 PUBLIC USE_128BIT)
 
 target_link_libraries(PHY_NR_UE asn1_nr_rrc_hdrs nr_phy_common nr_common UTIL polar smallblock)
+
+if (ENABLE_LDPC_CUDA AND LDPC_GPU_BACKEND STREQUAL "HIP")
+  # these compile the LDPC_CUDA-guarded pinned-memory paths, which call into the
+  # HIP runtime; linked publicly so the consuming executables inherit it
+  target_link_libraries(PHY_NR hip::host)
+  target_link_libraries(PHY_NR_UE hip::host)
+  target_link_libraries(PHY_NR_NO_AVX_256 hip::host)
+endif()
 
 add_library(PHY_RU ${PHY_SRC_RU})
 target_link_libraries(PHY_RU PRIVATE asn1_lte_rrc_hdrs UTIL)
@@ -1104,6 +1103,7 @@ set(NR_PDCP_SRC_UE ${NR_PDCP_SRC})
 set(NR_SDAP_SRC
   ${OPENAIR2_DIR}/SDAP/nr_sdap/nr_sdap.c
   ${OPENAIR2_DIR}/SDAP/nr_sdap/nr_sdap_entity.c
+  ${OPENAIR2_DIR}/SDAP/nr_sdap/nr_sdap_qos_rule.c
   )
 
 set(L2_SRC
@@ -1245,7 +1245,6 @@ set (MAC_NR_SRC
 
 set (MAC_SRC_UE
   ${PHY_INTERFACE_DIR}/phy_stub_UE.c
-  ${PHY_INTERFACE_DIR}/queue_t.c
   ${MAC_DIR}/main_ue.c
   ${MAC_DIR}/ue_procedures.c
   ${MAC_DIR}/ra_procedures.c
@@ -1302,7 +1301,7 @@ add_library(L2
   ${ENB_APP_SRC}
   ${MCE_APP_SRC}
   )
-target_link_libraries(L2 PRIVATE x2ap s1ap lte_rrc m2ap)
+target_link_libraries(L2 PRIVATE x2ap s1ap lte_rrc m2ap m3ap SCTP_CLIENT)
 target_link_libraries(L2 PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
 target_link_libraries(L2 PRIVATE nfapi_lte_user_lib nfapi_pnf_lib)
 if(E2_AGENT)
@@ -1320,8 +1319,11 @@ add_library(L2_NR
   ${MAC_NR_SRC}
   ${GNB_APP_SRC}
   )
+if(E3_AGENT)
+  target_compile_definitions(L2_NR PRIVATE E3_AGENT)
+endif()
 target_link_libraries(L2_NR PRIVATE ds alg)
-target_link_libraries(L2_NR PRIVATE f1ap_lib)
+target_link_libraries(L2_NR PRIVATE f1ap f1ap_lib)
 target_link_libraries(L2_NR PRIVATE nfapi_nr_user_lib)
 target_link_libraries(L2_NR PRIVATE nrppa)
 target_include_directories(L2_NR PRIVATE ${F1AP_DIR}/lib)
@@ -1334,7 +1336,7 @@ add_library(e1_if
   ${NR_RRC_DIR}/cucp_cuup_e1ap.c
   )
 
-target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap SECURITY ${OPENSSL_LIBRARIES} e1ap GTPV1U)
+target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap SECURITY e1ap GTPV1U)
 
 target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc nr_common xnap)
 target_compile_definitions(L2_NR PRIVATE PDCP_CUCP_CUUP)
@@ -1361,14 +1363,9 @@ target_link_libraries(L2_UE PRIVATE nfapi_pnf_lib)
 target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
-target_link_libraries(NR_L2_UE PRIVATE nr_rlc)
+target_link_libraries(NR_L2_UE PRIVATE nr_rlc ds alg)
 target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
-
-include_directories("${OPENAIR2_DIR}/NR_UE_PHY_INTERFACE")
-include_directories("${OPENAIR2_DIR}/LAYER2")
-include_directories("${OPENAIR1_DIR}/SCHED_NR_UE")
-#include_directories("${NFAPI_USER_DIR}"")
 
 # L3 Libs
 ##########################
@@ -1384,16 +1381,6 @@ add_library(MME_APP ${MME_APP_SRC})
 target_link_libraries(MME_APP PRIVATE m2ap m3ap)
 target_link_libraries(MME_APP PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 target_link_libraries(MME_APP PRIVATE nfapi_lte_user_lib)
-
-find_package(sctp REQUIRED)
-set(SCTP_SRC
-  ${OPENAIR3_DIR}/SCTP/sctp_common.c
-  ${OPENAIR3_DIR}/SCTP/sctp_eNB_task.c
-  ${OPENAIR3_DIR}/SCTP/sctp_eNB_itti_messaging.c
-)
-add_library(SCTP_CLIENT ${SCTP_SRC})
-target_link_libraries(SCTP_CLIENT PRIVATE sctp::sctp)
-target_link_libraries(SCTP_CLIENT PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 
 set(NAS_SRC ${OPENAIR3_DIR}/NAS/)
 
@@ -1644,7 +1631,7 @@ add_library(LIB_NAS_UE
   )
 target_include_directories(LIB_NAS_UE PRIVATE ${OPENAIR_DIR}/common/utils/ds/)
 set(NAS_UE_LIB LIB_NAS_UE)
-target_link_libraries(LIB_NAS_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_link_libraries(LIB_NAS_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs SECURITY)
 
 include_directories(${NAS_SRC}NR_UE)
 include_directories(${NAS_SRC}UE)
@@ -1687,9 +1674,6 @@ endif()
 
 include_directories("${NFAPI_DIR}/nfapi/public_inc")
 include_directories("${NFAPI_DIR}/common/public_inc")
-include_directories("${NFAPI_DIR}/nfapi/inc")
-include_directories("${NFAPI_DIR}/sim_common/inc")
-include_directories("${NFAPI_DIR}/pnf_sim/inc")
 
 add_library(oai_iqplayer MODULE ${OPENAIR_DIR}/radio/iqplayer/iqplayer_lib.c)
 target_link_libraries(oai_iqplayer PRIVATE log_headers)
@@ -1718,7 +1702,6 @@ add_executable(lte-softmodem
   ${OPENAIR_DIR}/executables/create_tasks.c
   ${OPENAIR_DIR}/executables/create_tasks_mbms.c
   ${OPENAIR3_DIR}/NAS/UE/nas_ue_task.c
-  ${PHY_INTERFACE_DIR}/queue_t.c
   ${OPENAIR_DIR}/common/utils/lte/ue_power.c
   ${OPENAIR_DIR}/common/utils/lte/prach_utils.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
@@ -1806,11 +1789,11 @@ if (OAI_RU_FRONTHAUL)
     ${OPENAIR_DIR}/executables/nr-oru.c
   )
   target_link_libraries(nr-oru PRIVATE
-    UTIL NR_PHY_RU PHY_NR shlib_loader dl oru_fh MAC_NR_COMMON PHY_NR_COMMON
+    UTIL NR_PHY_RU PHY_NR shlib_loader dl oru_fh oru_beamforming MAC_NR_COMMON PHY_NR_COMMON
     radio_common softmodem_common nfapi_pnf_lib symbol_reorder)
   target_link_libraries(nr-oru PRIVATE pthread m CONFIG_LIB rt ${T_LIB} utils
     barrier actor nfapi_user_lib)
-  target_link_libraries(nr-oru PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_phy_common time_management ds)
+  target_link_libraries(nr-oru PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs time_management ds)
 endif()
 # nr-softmodem
 ###################################################
@@ -1824,7 +1807,6 @@ add_executable(nr-softmodem
   ${OPENAIR_DIR}/executables/nr-softmodem.c
   ${OPENAIR_DIR}/common/utils/lte/ue_power.c
   ${OPENAIR_DIR}/common/utils/lte/prach_utils.c
-  ${PHY_INTERFACE_DIR}/queue_t.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   )
 
@@ -1899,7 +1881,6 @@ add_executable(nr-uesoftmodem
   ${OPENAIR_DIR}/executables/nr-ue-ru.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   ${NFAPI_USER_DIR}/nfapi.c
-  ${PHY_INTERFACE_DIR}/queue_t.c
   )
 
 target_link_libraries(nr-uesoftmodem PRIVATE
@@ -1937,15 +1918,6 @@ target_link_libraries(nr-uesoftmodem PRIVATE
 #  pthread m rt CONFIG_LIB ${T_LIB}
 #  )
 
-add_executable(rftest
-  ${OPENAIR_DIR}/openair1/PHY/TOOLS/calibration_test.c
-  ${OPENAIR_DIR}/openair1/PHY/TOOLS/calibration_scope.c
-)
-target_link_libraries(rftest PRIVATE
-  minimal_lib PHY_NR_COMMON UTIL forms pthread dl m ${T_LIB}
-  radio_common softmodem_common)
-target_link_libraries(rftest PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
-
 add_executable(polartest
   ${OPENAIR1_DIR}/PHY/CODING/TESTBENCH/polartest.c
   )
@@ -1977,11 +1949,15 @@ target_link_libraries(ldpctest PRIVATE
   -Wl,--whole-archive crc_byte -Wl,--no-whole-archive
 )
 if (ENABLE_LDPC_CUDA)
-  # ldpctest.c uses cudaHostAlloc(), so include dir/link libr to make available
+  # ldpctest.c uses gpuHostAlloc(), so include dir/link libr to make available
   # TODO don't write it directly into ldpctest, but separate compilation unit?
-  find_package(CUDA REQUIRED)
-  target_link_libraries(ldpctest PRIVATE ${CUDA_LIBRARIES})
-  target_include_directories(ldpctest PRIVATE ${CUDA_INCLUDE_DIRS})
+  if (LDPC_GPU_BACKEND STREQUAL "HIP")
+    target_link_libraries(ldpctest PRIVATE hip::host)
+  else()
+    find_package(CUDA REQUIRED)
+    target_link_libraries(ldpctest PRIVATE ${CUDA_LIBRARIES})
+    target_include_directories(ldpctest PRIVATE ${CUDA_INCLUDE_DIRS})
+  endif()
 endif()
 
 add_library(physim_common OBJECT ${OPENAIR1_DIR}/SIMULATION/NR_PHY/nr_unitary_common.c)
@@ -2003,7 +1979,6 @@ target_link_libraries(nr_pbchsim PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 
 add_executable(nr_psbchsim
   ${OPENAIR1_DIR}/SIMULATION/NR_PHY/psbchsim.c
-  ${NFAPI_USER_DIR}/nfapi.c
   )
 target_link_libraries(nr_psbchsim PRIVATE
   -Wl,--start-group UTIL SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_LIB SCHED_NR_UE_LIB MAC_UE_NR MAC_NR_COMMON CONFIG_LIB -Wl,--end-group
@@ -2020,9 +1995,6 @@ target_link_libraries(nr_pucchsim PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 
 add_executable(nr_dlsim
   ${OPENAIR1_DIR}/SIMULATION/NR_PHY/dlsim.c
-  ${NFAPI_USER_DIR}/nfapi.c
-  ${NFAPI_USER_DIR}/gnb_ind_vars.c
-  ${PHY_INTERFACE_DIR}/queue_t.c
   )
 target_link_libraries(nr_dlsim PRIVATE
   -Wl,--start-group UTIL SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_LIB SCHED_NR_UE_LIB MAC_UE_NR MAC_NR_COMMON CONFIG_LIB L2_NR time_management_core -Wl,--end-group
@@ -2048,9 +2020,6 @@ target_link_libraries(nr_ulschsim PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 
 add_executable(nr_ulsim
   ${OPENAIR1_DIR}/SIMULATION/NR_PHY/ulsim.c
-  ${NFAPI_USER_DIR}/nfapi.c
-  ${NFAPI_USER_DIR}/gnb_ind_vars.c
-  ${PHY_INTERFACE_DIR}/queue_t.c
   )
 
 target_link_libraries(nr_ulsim PRIVATE
@@ -2061,7 +2030,6 @@ target_link_libraries(nr_ulsim PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 
 add_executable(nr_srssim
   ${OPENAIR1_DIR}/SIMULATION/NR_PHY/srssim.c
-  ${NFAPI_USER_DIR}/nfapi.c
   )
 
 target_link_libraries(nr_srssim PRIVATE
@@ -2071,9 +2039,6 @@ target_link_libraries(nr_srssim PRIVATE
 
 add_executable(nr_ulsim_mu_mimo
   ${OPENAIR1_DIR}/SIMULATION/NR_PHY/ulsim_mu_mimo.c
-  ${NFAPI_USER_DIR}/nfapi.c
-  ${NFAPI_USER_DIR}/gnb_ind_vars.c
-  ${PHY_INTERFACE_DIR}/queue_t.c
   )
 
 target_link_libraries(nr_ulsim_mu_mimo PRIVATE
@@ -2100,7 +2065,6 @@ foreach(myExe dlsim ulsim)
     ${OPENAIR_DIR}/common/utils/lte/ue_power.c
     ${OPENAIR_DIR}/common/utils/lte/prach_utils.c
     ${OPENAIR1_DIR}/PHY/INIT/lte_param_init.c
-    ${NFAPI_USER_DIR}/nfapi.c
     )
   target_link_libraries (${myExe} PRIVATE
     -Wl,--start-group SIMU UTIL SCHED_LIB SCHED_RU_LIB SCHED_UE_LIB PHY_COMMON PHY_NR_COMMON PHY PHY_UE PHY_RU ITTI -Wl,--end-group

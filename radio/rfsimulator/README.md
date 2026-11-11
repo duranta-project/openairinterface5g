@@ -39,7 +39,7 @@ flowchart TD
 
 # Build
 
-## From [build_oai](../../../doc/BUILD.md) script
+## From [build_oai](../../doc/BUILD.md) script
 The RF simulator is implemented as an OAI device and always built when you build the OAI eNB or the OAI UE.
 
 Using the `-w SIMU` option it is possible to just re-build the RF simulator device.
@@ -79,6 +79,7 @@ The RF simulator is using the configuration module, and its parameters are defin
 |`--rfsimulator.[0].options saviq`     | store IQs to a file for future replay                                          | disabled               |
 |`--rfsimulator.[0].options chanmod`   | enable the channel model                                                       | disabled               |
 |`--rfsimulator.[0].IQfile <file>`     | path to a file to store the IQ samples to (only with `saviq`)                  | `/tmp/rfsimulator.iqs` |
+|`--rfsimulator.[0].ploss`             | coupling loss in dB (positive = attenuation, negative = net gain) of the model created by `rfsimu setmodel` | 0 |
 |`--rfsimulator.[0].prop_delay`        | simulated receive-path (gNB: UL, UE: DL) propagation delay in ms               | 0                      |
 |`--rfsimulator.[0].wait_timeout`      | wait timeout when no UE is connected                                           | 1                      |
 
@@ -155,7 +156,7 @@ Notes:
 1. This starts the gNB and UE in the `phy-test` UP-only mode where the gNB is started as if a UE had already connected. See [`RUNMODEM.md`](../../doc/RUNMODEM.md) for more details.
 2. `<TARGET_GNB_IP_ADDRESS>` should be the IP interface address of the remote host running the gNB executable, if the gNB and nrUE run on separate hosts, or be omitted if they are on the same host.
 3. To enable the noS1 mode, `--noS1` option should be added to the command line, see again [`RUNMODEM.md`](../../doc/RUNMODEM.md).
-4. Information on operating the gNB/UE with a 5GC can be found here. [here](../../../doc/NR_SA_Tutorial_OAI_CN5G.md).
+4. Information on operating the gNB/UE with a 5GC can be found here. [here](../../doc/NR_SA_Tutorial_OAI_CN5G.md).
 
 ## Store and replay
 
@@ -232,7 +233,7 @@ Command line parameters to be set on gNB side only.
 
 * `--rfsimulator.[0].enable_beams` : enable beam domain simulation
 * `--rfsimulator.[0].beam_gains <comma separated list>` : one gain/loss value (in dB) per gNB beam id.
-`beam_gains[k]` is the additional pathloss applied, on top of the channel model (if present), whenever
+`beam_gains[k]` is the additional gain (negative = loss) applied, on top of the channel model (if present), whenever
 the gNB's antenna is on beam `k`.
 
 Example: `0,-2,-3` means the 1st beam is the reference, the 2nd beam has 2 dB extra loss, the 3rd beam has 3 dB extra loss.

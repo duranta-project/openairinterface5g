@@ -277,40 +277,30 @@ static void ldpc8blocks(void *p)
   if (Eshift) {
     bzero(f2, ceil_mod(E2, 64));
   }
-  nr_rate_matching_ldpc(Tbslbrm,
-                        impp->BG,
-                        impp->Zc,
-                        d,
-                        e,
-                        impp->n_segments,
-                        impp->F,
-                        impp->K - impp->F - 2 * impp->Zc,
-                        nrLDPC_TB_encoding_parameters->rv_index,
-                        Emax);
-
-  if (impp->K - impp->F - 2 * impp->Zc > E) {
-    LOG_E(PHY,
-          "dlsch coding A %d  Kr %d G %d (nb_rb %d, mod_order %d)\n",
-          A,
-          impp->K,
-          G,
-          nb_rb,
-          (int)mod_order);
-
+  if (nr_rate_matching_ldpc(Tbslbrm,
+                            impp->BG,
+                            impp->Zc,
+                            d,
+                            e,
+                            impp->n_segments,
+                            impp->F,
+                            impp->K - impp->F - 2 * impp->Zc,
+                            nrLDPC_TB_encoding_parameters->rv_index,
+                            Emax)
+      < 0)
     LOG_E(NR_PHY,
-          "Rate Matching, Code segments %d...%d/%d (coded bits (G) %u, E %d, Kr %d, Filler bits %d, Filler offset %d mod_order %d, "
-          "nb_rb %d)...\n",
+          "Rate matching failed, code segments %d...%d/%d (A %d, G %u, E %u, Kr %d, F %d, Zc %d, rv %d), sending zeroed block\n",
           macro_segment,
-	  macro_segment_end,
+          macro_segment_end,
           impp->n_segments,
+          A,
           G,
-          E,
+          Emax,
           impp->K,
           impp->F,
-          impp->K - impp->F - 2 * impp->Zc,
-          mod_order,
-          nb_rb);
-  }
+          impp->Zc,
+          nrLDPC_TB_encoding_parameters->rv_index);
+
   nr_interleaving_ldpc(E,
                        mod_order,
                        e,

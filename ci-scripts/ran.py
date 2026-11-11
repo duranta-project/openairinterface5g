@@ -5,9 +5,6 @@
 #
 #   Required Python Version
 #     Python 3.x
-#
-#   Required Python Package
-#     pexpect
 #---------------------------------------------------------------------
 
 #-----------------------------------------------------------
@@ -44,7 +41,6 @@ class RAN():
 		
 		# args usually start with -O and followed by the location in repository
 		full_config_file = args.replace('-O ','')
-		extra_options = ''
 		extIdx = full_config_file.find('.conf')
 		if (extIdx <= 0):
 			raise ValueError(f"no config file in {args}")

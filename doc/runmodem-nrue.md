@@ -32,7 +32,7 @@ sudo ./nr-uesoftmodem -r 106 --numerology 1 --band 78 -C 3619200000 --ssb 516
 
 With the **RFsimulator** (on the same machine), just add the option `--rfsim` to both gNB and NR UE command lines.
 
-UE capabilities can be passed according to the [UE Capabilities](#UE-Capabilities) section.
+UE capabilities can be passed according to the [UE Capabilities](#ue-capabilities) section.
 
 ## Configuration file
 
@@ -54,12 +54,11 @@ uicc0 = {
 | **IMSI** | Unique identifier for the UE within the mobile network. Used by the network to identify the UE during authentication. It ensures that the UE is correctly identified by the network. | 001010000000001 |
 | **key** | Cryptographic key shared between the UE and the network, used for encryption during the authentication process. | `fec86ba6eb707ed08905757b1bb44b8f` |
 | **OPC** | Operator key for the Milenage Authentication and Key Agreement algorithm used for encryption during the authentication process. | Ensures secure communication between the UE and the network by matching the encryption keys. | `C42449363BBAD02B66D16BC975D77CC1` |
-| **DNN** | _Deprecated_: Specifies the name of the data network the UE wishes to connect to, similar to an APN in 4G networks. Use `pdu_sessions` instead. | `oai` |
-| **NSSAI** | _Deprecated_: Allows the UE to select the appropriate network slice, which provides different QoS. Use `pdu_sessions` instead. | `1` |
 | **pdu_sessions** | list of PDU sessions to request | empty array (no PDU session) |
 
-Note that DNN and NSSAI parameters are deprecated, and `pdu_sessions` should be
-used. If the `pdu_sessions` array is present, DNN and NSSAI are ignored.
+Note that the legacy DNN and NSSAI parameters are not supported anymore, and
+`pdu_sessions` should be defined in the config style, or the UE will not
+request a PDU session.
 
 Each element within the `pdu_sessions` array takes the following parameters.
 Multiple PDU sessions can be requested.
@@ -71,6 +70,7 @@ Multiple PDU sessions can be requested.
 | `dnn`         | Specifies the name of the data network the UE wishes to connect to | `oai` |
 | `nssai_sst`   | Slice Service Type to request (1=eMBB, 2=URLLC, 3=mMTC) | `1` |
 | `nssai_sd`   | Slice Differentiator to request | `0xffffff` (meaning "no SD") |
+| `ifname`      | Interface name to be used for this PDU session | auto-generated name |
 
 For instance, to request two PDU sessions with user-defined IDs, you could
 use.
@@ -80,10 +80,38 @@ uicc0 = {
   # ...
   pdu_sessions = (
     { id=1; dnn = "oai.ipv4"; type = "IPv4", nssai_sst = 1; },
-    { id=2; dnn = "oai.ipv6"; type = "IPv6", nssai_sst = 1; },
+    { id=2; dnn = "oai.ipv6"; type = "IPv6", nssai_sst = 1; ifname = "ue.ipv6"; },
   );
 }
 ```
+
+For the second PDU session, an interface name to be used has been requested.
+By default (if not provided), the interface names follow the scheme
+`oaitun_ueX[_pY]` and `oaitap_ueX[_pY]` where
+
+-  `oaitun` is used for IP PDU sessions (TUN), and `oaitap` is used for
+   Ethernet PDU sessions (TAP)
+- `ueX` with `X` referring to the UE index, starting at 1, if multiple UEs run
+  in a single process
+- `pY` is an optional suffix that is appended for each 2nd, 3rd, ..., PDU session.
+
+An explicit interface name can be requested to allow these use cases:
+
+1. running multiple UE processes, which by default would all use `oaitun_ue1`,
+   i.e., to avoid conflicts
+2. where the existing names are not descriptive enough or need to fit into
+   existing workflows.
+3. to bind to a pre-existing, named interface. To do this, create a new
+   interface before running the UE, then configure the IP address manually that
+   is received by the UE. Example:
+   ```
+   sudo ip tuntap add name ue_wan mode tun
+   ./nr-uesoftmodem ... --uicc0.pdu_sessions.[0].ifname ue_wan
+   sudo ip addr add <IP>/24 dev ue_wan # replace with IP shown in logs
+   sudo ip link set ue_wan up
+   sudo ip tuntap delete name ue_wan mode tun # remove once not needed
+   ```
+   In this case, in RFsim, the UE does not need root privileges anymore
 
 ### Optional NR-UE command line options
 
@@ -106,6 +134,7 @@ Here are some useful command line options for the NR UE:
 | `--usrp-args`            | Equivalent to the `sdr_addrs` field in the gNB config file. Used to identify the USRP and set some basic parameters (like the clock source).  |
 | `--clock-source`         | Sets the clock source (internal or external).                                                                 |
 | `--time-source`          | Sets the time source (internal or external).                                                                  |
+| `--ue-capability-rx2tx`  | Sets the minimum number of slots for the UE between RX command and TX of corresponding channel.               |
 
 You can view all available options by typing:
 
@@ -115,7 +144,13 @@ You can view all available options by typing:
 
 ### UE Capabilities
 
-The `--uecap_file` option can be used to pass the UE Capabilities input file (path location + filename), e.g.`--uecap_file ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports1.xml` for 1 layer or e.g. `--uecap_file ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports2.xml` for 2 layers.
+The `--uecap_file` option can be used to pass the UE Capabilities input file
+(path location + filename):
+
+- `targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_portsX.xml` for X=1,2,4 layer(s).
+  Those are sample files and might need to be tweaked for your scenario.
+
+Not providing this option yields empty UE capabilities being sent to the gNB.
 
 This option is available for the following combinations of operation modes and gNB/nrUE softmodems:
 
@@ -271,7 +306,7 @@ In summary:
   * `scp usera@machineA:/the/path/where/you/launched/nr-softmodem/r*config.raw userb@machineB:/the/path/where/you/will/launch/nr-uesoftmodem/`
   * Obviously this operation should be done before launching the `nr-uesoftmodem` executable.
 
-In phy-test mode it is possible to mimic the reception of UE Capabilities at gNB through the command line parameter `--uecap_file`. Refer to the [UE Capabilities](#UE-Capabilities) section for more details.
+In phy-test mode it is possible to mimic the reception of UE Capabilities at gNB through the command line parameter `--uecap_file`. Refer to the [UE Capabilities](#ue-capabilities) section for more details.
 
 ### noS1 setup with OAI UE
 
@@ -307,7 +342,7 @@ The do-ra flag is used to ran the NR Random Access procedures in contention-free
 
 In order to run the RA, the `--do-ra` flag is needed for both the gNB and the UE.
 
-In do-ra mode it is possible to mimic the reception of UE Capabilities at gNB through the command line parameter `--uecap_file`. Refer to the [UE Capabilities](#UE-Capabilities) section for more details.
+In do-ra mode it is possible to mimic the reception of UE Capabilities at gNB through the command line parameter `--uecap_file`. Refer to the [UE Capabilities](#ue-capabilities) section for more details.
 
 To run using the RFsimulator:
 

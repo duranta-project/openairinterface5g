@@ -2,12 +2,8 @@
 
 import logging
 import re
-import os
 
 import cls_cmd
-import cls_oai_html
-import cls_analysis
-import constants as CONST
 from cls_ci_helper import archiveArtifact
 
 DPDK_PATH = '/opt/dpdk-t2-22.11.0'
@@ -38,8 +34,8 @@ class Native():
 
 		if success:
 			logging.info('\u001B[1m Building OAI Pass\u001B[0m')
-			HTML.CreateHtmlTestRow(options, 'OK', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTestRowQueue(options, 'OK', [])
 		else:
 			logging.error('\u001B[1m Building OAI Failed\u001B[0m')
-			HTML.CreateHtmlTestRow(options, 'KO', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTestRowQueue(options, 'KO', [])
 		return success

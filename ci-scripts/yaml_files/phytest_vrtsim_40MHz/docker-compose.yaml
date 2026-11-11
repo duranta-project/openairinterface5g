@@ -29,6 +29,7 @@ services:
             - ALL
         cap_add:
             - SYS_NICE
+            - NET_ADMIN
         environment:
             USE_ADDITIONAL_OPTIONS: --phy-test --reconfig-file etc/rrc/reconfig.raw --rbconfig-file etc/rrc/rbconfig.raw --device.name vrtsim --vrtsim.role client -q --log_config.global_log_options level,nocolor,time
             ASAN_OPTIONS: detect_leaks=0

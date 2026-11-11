@@ -6,11 +6,15 @@
 #define _NR_SDAP_ENTITY_H_
 
 #include <assertions.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "NR_QFI.h"
 #include "NR_SDAP-Config.h"
+#include "common/5g_packet_filter.h"
 #include "common/platform_constants.h"
+#include "common/utils/ds/seq_arr.h"
+#include "nr_sdap_qos_rule.h"
 
 #define SDAP_BITMASK_DC             (0x80)
 #define SDAP_BITMASK_R              (0x40)
@@ -75,19 +79,25 @@ typedef struct sdap_configuration_s {
   uint8_t mappedQFIs2ReleaseCount;
 } sdap_config_t;
 
-typedef struct nr_sdap_entity_s {
+typedef struct sdap_tun_endpoint_s {
   ue_id_t ue_id;
-  /// sdap_tun_read_thread needs to know if we are gNB/UE, so for noS1 mode,
-  /// store which one we are
-  bool is_gnb;
   int pdusession_id;
-  int pdusession_sock;
+  // TUN fd (-1 = none)
+  int sock;
+  bool is_gnb;
+} sdap_tun_endpoint_t;
+
+typedef struct nr_sdap_entity_s {
+  sdap_tun_endpoint_t tun;
   pthread_t pdusession_thread;
-  bool stop_thread;
   int qfi;
 
   qfi2drb_t default_drb;
   qfi2drb_t qfi2drb_table[SDAP_MAX_QFI];
+
+  seq_arr_t qos_rules;
+  pthread_mutex_t qos_rules_lock;
+  _Atomic(bool) use_packet_filters;
 
   void (*qfi2drb_map_update)(struct nr_sdap_entity_s *entity, const sdap_config_t *sdap);
   void (*qfi2drb_map_delete)(struct nr_sdap_entity_s *entity, const uint8_t qfi);
@@ -175,6 +185,4 @@ bool nr_sdap_delete_ue_entities(ue_id_t ue_id);
 void nr_reconfigure_sdap_entity(NR_SDAP_Config_t *sdap_config, ue_id_t ue_id, int pdusession_id, int drb_id);
 
 void nr_sdap_entity_update_qos_flows(ue_id_t ue_id, sdap_config_t *sdap);
-
-void set_qfi(uint8_t qfi, uint8_t pduid, ue_id_t ue_id);
 #endif

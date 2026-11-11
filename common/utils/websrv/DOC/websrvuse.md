@@ -260,10 +260,10 @@ BUILD SHOULD BE SUCCESSFUL
 
 # Running the web server interface
 
-When starting the softmodem, you must specify the `--websrv` option to load and start the web server. The web server is loaded via the [oai shared library loader](loader).
+When starting the softmodem, you must specify the `--websrv` option to load and start the web server. The web server is loaded via the [oai shared library loader](../../DOC/loader.md).
 
 ## web server parameters
-The web server back-end is using the [oai configuration module](Config/Rtusage). web server parameters must be specified in the websrv section.
+The web server back-end is using the [oai configuration module](../../../config/DOC/config/rtusage.md). web server parameters must be specified in the websrv section.
 
 | name | type | default | description |
 |:---:|:---:|:---:|:----|

@@ -17,7 +17,7 @@
 #include "common/utils/threadPool/notified_fifo.h"
 
 /* IF */
-#include "NR_IF_Module.h"
+#include "NR_UE_PHY_INTERFACE/NR_IF_Module.h"
 #include "fapi_nr_ue_interface.h"
 
 /* MAC */
@@ -290,6 +290,7 @@ typedef struct {
 } NR_pdcch_order_config_t;
 
 typedef struct {
+  /* when present, dedicated PUCCH-Resource (9.2.3/9.2.5), else Table 9.2.1-1 common HARQ-ACK */
   NR_PUCCH_Resource_t *pucch_resource;
   uint32_t ack_payload;
   int harq_ack_pucch_res_ind;
@@ -299,7 +300,9 @@ typedef struct {
   int n_harq;
   int n_CCE;
   int N_CCE;
+  /* r_PUCCH from TS 38.213 9.2.1 (resource index 0..15), -1 if unused */
   int initial_pucch_id;
+  /* ASN.1 pucch-ResourceCommon set (row index of Table 9.2.1-1) */
   int pucch_ResourceCommon;
 } PUCCH_sched_t;
 
@@ -384,8 +387,9 @@ typedef struct {
   bool active;
   bool ack_received;
   uint8_t  pucch_resource_indicator;
-  /* use pucch-ResourceCommon table (TS 38.213 9.2.1) for this HARQ-ACK */
-  bool pucch_resource_common;
+  /* -1: dedicated PUCCH-Config (38.213 9.2.3)
+   * else: ASN.1 pucch-ResourceCommon Table 9.2.1-1 row 0..15, frozen at DCI */
+  int pucch_ResourceCommon;
   frame_t ul_frame;
   int ul_slot;
   uint8_t ack;
@@ -619,6 +623,7 @@ typedef struct NR_UE_MAC_INST_s {
   int ssb_start_subcarrier;
   uint64_t dl_frequency;
   int numerology;
+  int rx2tx_capability;
 
   NR_SSB_meas_t ssb_measurements[MAX_NB_SSB];
   NR_CSIRS_meas_t csirs_measurements;
@@ -658,9 +663,9 @@ static inline int GET_NTN_UE_K_OFFSET(const fapi_nr_ntn_config_t *ntn_ta, int sc
   return (int)ntn_ta->cell_specific_k_offset << scs;
 }
 
-static inline long GET_DURATION_RX_TO_TX(const fapi_nr_ntn_config_t *ntn_ta, int scs)
+static inline long GET_DURATION_RX_TO_TX(const NR_UE_MAC_INST_t *mac, int scs)
 {
-  return NR_UE_CAPABILITY_SLOT_RX_TO_TX + (ntn_ta->cell_specific_k_offset << scs);
+  return mac->rx2tx_capability + (mac->phy_config.config_req.ntn_config.cell_specific_k_offset << scs);
 }
 
 /*@}*/

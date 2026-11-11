@@ -522,7 +522,7 @@ This will initiate the N2 handover on the source gNB.
 ### Neighbour list and measurement configuration
 
 Make sure the configuration file contains a neighbour list and measurement
-configuration, e.g. [neighbour-config-rfsim.conf](../../ci-scripts/conf_files/neighbour-config.conf).
+configuration, e.g. [neighbour-config.conf](../ci-scripts/conf_files/neighbour-config.conf).
 This configuration can also be present in a different file and included in the
 gNB configuration file with `@include "neighbour-config-rfsim.conf"`.
 

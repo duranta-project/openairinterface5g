@@ -498,10 +498,9 @@ static void puschLLR (OAIgraph_t *graph, scopeData_t *p, int nb_UEs) {
   int coded_bits_per_codeword = num_re*Qm;
 
   for (int ue = uestart; ue < nb_UEs; ue++) {
-    if (p->gNB->pusch_vars &&
-        p->gNB->pusch_vars[ue].llr ) {
-      int16_t *pusch_llr = (int16_t *)p->gNB->pusch_vars[ue].llr;
-      float *llr=NULL, *bit=NULL;
+    if (p->gNB->pusch_vars && p->gNB->pusch_vars[ue].ulsch_llrs) {
+      int16_t *pusch_llr = (int16_t *)p->gNB->pusch_vars[ue].ulsch_llrs;
+      float *llr = NULL, *bit = NULL;
       int nx = coded_bits_per_codeword;
 #ifdef WEBSRVSCOPE
       nx = websrv_cpllrbuff_tomsg(graph, pusch_llr, coded_bits_per_codeword, ue, 0, 0);

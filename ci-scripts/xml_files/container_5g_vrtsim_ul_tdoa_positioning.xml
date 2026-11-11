@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>vrtsim-5gnr-ul-tdoa-positioning</htmlTabRef>
   <htmlTabName>Monolithic gNB vrtsim + NRPPA validation</htmlTabName>
-  <htmlTabIcon>wrench</htmlTabIcon>
 
   <testCase>
     <class>Pull_Local_Registry</class>
@@ -70,7 +68,7 @@
     <desc>Initiate and validate NRPPA</desc>
     <node>localhost</node>
     <script>scripts/run-nrppa-validation.sh</script>
-    <args>./yaml_files/5g_vrtsim_ul_tdoa_positioning/validate_nrppa.py ./yaml_files/5g_vrtsim_ul_tdoa_positioning/InputData.json</args>
+    <options>./yaml_files/5g_vrtsim_ul_tdoa_positioning/validate_nrppa.py ./yaml_files/5g_vrtsim_ul_tdoa_positioning/InputData.json</options>
   </testCase>
 
   <testCase>

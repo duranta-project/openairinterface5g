@@ -8,8 +8,6 @@
 #include "common/config/config_paramdesc.h"
 #include "common/config/config_userapi.h"
 
-#define E3CONFIG_SECTION "E3Configuration"
-
 #define simOpt PARAMFLAG_NOFREE | PARAMFLAG_CMDLINE_NOPREFIXENABLED
 
 /* String-to-integer mappings for link, transport, and encoding.

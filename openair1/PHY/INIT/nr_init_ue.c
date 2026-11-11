@@ -20,7 +20,8 @@
 #include "common/config/config_userapi.h"
 #include "nr_phy_common.h"
 #ifdef LDPC_CUDA
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
+#include "PHY/gpu_alloc.h"
 #endif
 
 void RCconfig_nrUE_prs(void *cfg)
@@ -338,7 +339,7 @@ void free_nr_ue_dl_harq(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int
   for (int j=0; j < 2; j++) {
     for (int i = 0; i < number_of_processes; i++) {
 #ifdef LDPC_CUDA
-      cudaFreeHost(harq_list[j][i].c);
+      gpuFreeHost(harq_list[j][i].c);
 #else
       free_and_zero(harq_list[j][i].c);
 #endif
@@ -362,8 +363,8 @@ void free_nr_ue_ul_harq(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int nu
 #ifdef LDPC_CUDA
     {
       // nr_init_ul_harq_processes() makes single allocation(!)
-      cudaFreeHost(harq_list[i].c[0]);
-      cudaFreeHost(harq_list[i].d[0]);
+      gpuFreeHost(harq_list[i].c[0]);
+      gpuFreeHost(harq_list[i].d[0]);
     }
 #else
     for (int r = 0; r < a_segments; r++) {
@@ -389,8 +390,8 @@ void free_nr_ue_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors)
     free_and_zero(buffers[i].pdsch_dl_ch_estimates);
     for (int c = 0; c < 2; c++) {
 #ifdef LDPC_CUDA
-      cudaFreeHost(buffers[i].llr[c]);
-      cudaFreeHost(buffers[i].llr_dev[c]);
+      // llr_dev[c] is the device alias of llr[c], not a separate allocation
+      gpuFreeHost(buffers[i].llr[c]);
 #else
       free_and_zero(buffers[i].llr[c]);
 #endif
@@ -422,10 +423,8 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
       init_downlink_harq_status(harq_list[j] + i);
 
 #ifdef LDPC_CUDA
-      cudaError_t err = cudaHostAlloc((void **)&harq_list[j][i].c, a_segments * sizeof(uint8_t *) * 1056, cudaHostAllocMapped);
-      AssertFatal(err == cudaSuccess, "CUDA Error (harq.c): %s\n", cudaGetErrorString(err));
-      err = cudaHostGetDevicePointer((void **)&harq_list[j][i].cdev, (void *)harq_list[j][i].c, 0);
-      AssertFatal(err == cudaSuccess, "CUDA Error (harq.cdev): %s\n", cudaGetErrorString(err));
+      harq_list[j][i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *) * 1056, gpuHostAllocMapped);
+      harq_list[j][i].cdev = gpuHostGetDevicePointer_or_fail(harq_list[j][i].c);
 #else
       harq_list[j][i].c = malloc16(a_segments * sizeof(*harq_list[j][i].c) * 1056);
 #endif
@@ -455,21 +454,16 @@ void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES],
     harq_list[i].payload_AB = malloc16_clear(ulsch_bytes);
 
 #ifdef LDPC_CUDA
-    uint8_t *tmp_c, *tmp_d;
     size_t total_c_size = a_segments * 8448;
     size_t total_d_size = a_segments * 68 * 384 * sizeof(uint32_t);
 
-    cudaError_t err = cudaHostAlloc((void **)&tmp_c, total_c_size, cudaHostAllocMapped);
-    AssertFatal(err == cudaSuccess, "cudaHostAlloc() tmp_c: %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void **)&tmp_d, total_d_size, cudaHostAllocMapped);
-    AssertFatal(err == cudaSuccess, "cudaHostAlloc() tmp_d: %s\n", cudaGetErrorString(err));
+    uint8_t *tmp_c = gpuHostAlloc_or_fail(total_c_size, gpuHostAllocMapped);
+    uint8_t *tmp_d = gpuHostAlloc_or_fail(total_d_size, gpuHostAllocMapped);
     memset(tmp_c, 0, total_c_size);
     memset(tmp_d, 0, total_d_size);
 
-    err = cudaHostAlloc((void **)&harq_list[i].c, a_segments * sizeof(uint8_t *), cudaHostAllocMapped);
-    AssertFatal(err == cudaSuccess, "cudaHostAlloc() harq.c: %s\n", cudaGetErrorString(err));
-    err = cudaHostAlloc((void **)&harq_list[i].d, a_segments * sizeof(uint8_t *), cudaHostAllocMapped);
-    AssertFatal(err == cudaSuccess, "cudaHostAlloc() harq.d: %s\n", cudaGetErrorString(err));
+    harq_list[i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *), gpuHostAllocMapped);
+    harq_list[i].d = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *), gpuHostAllocMapped);
 
     for (int r = 0; r < a_segments; r++) {
       harq_list[i].c[r] = tmp_c + (r * 8448);
@@ -493,14 +487,26 @@ void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES],
   }
 }
 
-void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp)
+void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp, bool do_ml)
 {
   const uint32_t pdsch_buf_size_max = (fp->N_RB_DL * NR_NB_SC_PER_RB + 15) & ~15;
   const uint32_t pdsch_est_size = fp->symbols_per_slot * fp->ofdm_symbol_size;
-  const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 8 * NR_MAX_NB_LAYERS;
-  const size_t comp_elems = (size_t)NR_SYMBOLS_PER_SLOT * NR_MAX_NB_LAYERS * pdsch_buf_size_max;
-  const size_t rho_elems  = (size_t)NR_SYMBOLS_PER_SLOT * NR_MAX_NB_LAYERS * NR_MAX_NB_LAYERS * pdsch_buf_size_max;
-  const size_t ch_est_elems = (size_t)fp->nb_antennas_rx * NR_MAX_NB_LAYERS * pdsch_est_size;
+
+  /* Cap layer dimension at nb_antennas_rx instead of NR_MAX_NB_LAYERS to
+   * right-size all per-actor scratch buffers, reducing the PDSCH working
+   * set and easing L2 cache pressure. */
+  const int max_layers = min(fp->nb_antennas_rx, NR_MAX_NB_LAYERS);
+  const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 8 * max_layers;
+  /* Buffers are now 1-symbol-wide: channel compensation writes into them and
+   * LLR+demapping consumes them within the same nr_rx_pdsch() call, so there
+   * is no need to keep slot-wide storage. */
+  const size_t comp_elems = (size_t)max_layers * pdsch_buf_size_max;
+  const size_t ch_est_elems = (size_t)fp->nb_antennas_rx * max_layers * pdsch_est_size;
+
+  /* rho_dl is only needed for 2-layer ML LLR computation; skip the
+   * allocation entirely when ML is disabled to reduce memory footprint. */
+  const size_t rho_elems = do_ml ? (size_t)max_layers * max_layers * pdsch_buf_size_max : 0;
+
   for (int i = 0; i < num_actors; i++) {
     buffers[i].pdsch_buf_size_max           = pdsch_buf_size_max;
     buffers[i].pdsch_est_size        = pdsch_est_size;
@@ -509,18 +515,19 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
     buffers[i].dl_ch_mag             = malloc16_clear(comp_elems   * sizeof(c16_t));
     buffers[i].dl_ch_magb            = malloc16_clear(comp_elems   * sizeof(c16_t));
     buffers[i].dl_ch_magr            = malloc16_clear(comp_elems   * sizeof(c16_t));
-    buffers[i].rho_dl                = malloc16_clear(rho_elems    * sizeof(c16_t));
+    buffers[i].rho_dl                = rho_elems ? malloc16_clear(rho_elems * sizeof(c16_t)) : NULL;
     buffers[i].pdsch_dl_ch_estimates = malloc16_clear(ch_est_elems * sizeof(int32_t));
-    for (int c = 0; c < 2; c++) {
+    /* Per TS 38.211 Table 7.3.1.3-1, 1 codeword is used for 1-4 layers.
+     * NR_MAX_NB_LAYERS == 4, so llr[1] is never needed. */
+    for (int c = 0; c < 1; c++) {
 #ifdef LDPC_CUDA
-      cudaError_t err = cudaHostAlloc((void **)&buffers[i].llr[c], (66 * 3 * 8448) * sizeof(int16_t), cudaHostAllocMapped);
-      AssertFatal(err == cudaSuccess, "CUDA Error (pusch_llr): %s\n", cudaGetErrorString(err));
-      err = cudaHostGetDevicePointer((void **)&buffers[i].llr_dev[c], buffers[i].llr[c], 0);
-      AssertFatal(err == cudaSuccess, "CUDA Error (pusch_llr_dev): %s\n", cudaGetErrorString(err));
+      buffers[i].llr[c] = gpuHostAlloc_or_fail((66 * 3 * 8448) * sizeof(int16_t), gpuHostAllocMapped);
+      buffers[i].llr_dev[c] = gpuHostGetDevicePointer_or_fail(buffers[i].llr[c]);
 #else
       buffers[i].llr[c]              = malloc16(llr_buf_max * sizeof(int16_t));
 #endif
     }
+    buffers[i].llr[1] = NULL;
   }
 }
 
@@ -531,7 +538,7 @@ void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
   const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
   ue->pdsch_num_actors = num_actors;
   ue->pdsch_scratch = calloc_or_fail(num_actors, sizeof(*ue->pdsch_scratch));
-  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms);
+  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms, ue->do_ml);
 }
 
 void init_phy_nr_measurements(PHY_VARS_NR_UE *ue)

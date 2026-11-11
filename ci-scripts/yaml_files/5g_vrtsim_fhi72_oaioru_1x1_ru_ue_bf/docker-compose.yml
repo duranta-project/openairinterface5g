@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+
+# Variant of 5g_vrtsim_fhi72_oaioru_1x1_ru_ue that deploys the O-RU with
+# digital codebook beamforming: the conf file to mount is picked by RU_CONF in
+# .env, so no docker file is duplicated. The UE setup scripts and service
+# definitions are the base compose's.
+include:
+    - ../5g_vrtsim_fhi72_oaioru_1x1_ru_ue/docker-compose.yml
+
+services:
+    oai-nr-oru:
+        environment:
+            USE_ADDITIONAL_OPTIONS: --device.name vrtsim --vrtsim.role server --vrtsim.chanmod 1

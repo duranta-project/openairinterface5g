@@ -147,6 +147,13 @@ typedef enum {
 } pusch_dmrs_AdditionalPosition_t;
 
 typedef enum {
+  pdsch_dmrs_pos0 = 0,
+  pdsch_dmrs_pos1 = 1,
+  pdsch_dmrs_pos2 = 2,
+  pdsch_dmrs_pos3 = 3,
+} pdsch_dmrs_AdditionalPosition_t;
+
+typedef enum {
   pusch_len1 = 1,
   pusch_len2 = 2
 } pusch_maxLength_t;
@@ -162,7 +169,7 @@ typedef struct {
 } ssb_ro_preambles_t;
 
 uint32_t get_Y(const NR_SearchSpace_t *ss, int slot, rnti_t rnti);
-
+pusch_dmrs_AdditionalPosition_t get_pusch_dmrs_pos(const long *dmrs_AdditionalPosition);
 uint8_t get_BG(uint32_t A, uint16_t R);
 uint32_t get_short_bsr_value(int idx);
 uint32_t get_long_bsr_value(int idx);
@@ -178,6 +185,7 @@ uint16_t get_ul_bitmap(const frame_structure_t *fs, int slot);
 bool is_ul_slot(const slot_t slot, const frame_structure_t *fs);
 bool is_dl_slot(const slot_t slot, const frame_structure_t *fs);
 bool is_mixed_slot(const slot_t slot, const frame_structure_t *fs);
+bool is_ul_or_mixed_slot(const slot_t slot, const frame_structure_t *fs);
 int get_tdd_period_idx(NR_TDD_UL_DL_ConfigCommon_t *tdd);
 void config_frame_structure(int mu,
                             const NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon,
@@ -256,6 +264,13 @@ uint8_t compute_nr_root_seq(NR_RACH_ConfigCommon_t *rach_config,
                             frequency_range_t);
 ssb_ro_preambles_t get_ssb_ro_preambles_4step(struct NR_RACH_ConfigCommon__ssb_perRACH_OccasionAndCB_PreamblesPerSSB *config);
 
+ssb_ro_preambles_t get_ssb_ro_preambles_2step(struct NR_RACH_ConfigCommonTwoStepRA_r16__msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16 *config);
+
+void get_config_index_and_ssb_ro(const NR_MsgA_ConfigCommon_r16_t *msgacc,
+                                 const NR_RACH_ConfigCommon_t *rach_ConfigCommon,
+                                 uint8_t *config_index,
+                                 ssb_ro_preambles_t *ssb_ro);
+
 int ul_ant_bits(NR_DMRS_UplinkConfig_t *NR_DMRS_UplinkConfig, long transformPrecoder);
 
 uint8_t get_pdsch_mcs_table(long *mcs_Table, int dci_format, int rnti_type, int ss_type);
@@ -287,7 +302,7 @@ uint32_t nr_get_code_rate_ul(uint8_t Imcs, uint8_t table_idx);
 int srs_binomial_sum(int count, int Lmax);
 int srs_codebook_nb_res(NR_SRS_Config_t *srs_config);
 int srs_non_codebook_nb_res(NR_SRS_Config_t *srs_config);
-uint16_t get_nr_srs_offset(NR_SRS_PeriodicityAndOffset_t periodicityAndOffset);
+int get_nr_srs_offset(NR_SRS_PeriodicityAndOffset_t periodicityAndOffset);
 void get_monitoring_period_offset(const NR_SearchSpace_t *ss, int *period, int *offset);
 
 uint32_t nr_compute_tbslbrm(uint16_t table,
@@ -349,6 +364,8 @@ void csi_period_offset(const NR_CSI_ReportConfig_t *csirep,
                        const struct NR_CSI_ResourcePeriodicityAndOffset *periodicityAndOffset,
                        int *period,
                        int *offset);
+
+bool is_periodic_occasion(int frame, int slot, int slots_per_frame, int period, int offset);
 
 bool set_dl_ptrs_values(NR_PTRS_DownlinkConfig_t *ptrs_config,
                         uint16_t rbSize, uint8_t mcsIndex, uint8_t mcsTable,

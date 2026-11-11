@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>test-5g-fhi72-4x4-vvdn</htmlTabRef>
   <htmlTabName>100 MHz 4x4 TDD SA VVDN</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
     <class>DeployCoreNetwork</class>
@@ -19,7 +17,7 @@
   </testCase>
 
   <testCase>
-    <class>DeployWithScript</class>
+    <class>Custom_Script</class>
     <desc>Deploy CU</desc>
     <node>stonechat</node>
     <script>scripts/oc-chart-deploy.sh</script>
@@ -164,6 +162,15 @@
   </testCase>
 
   <testCase>
+    <class>Custom_Script</class>
+    <always_exec>true</always_exec>
+    <desc>Collect logs from VVDN RU</desc>
+    <node>cacofonix</node>
+    <script>scripts/remote-collect-log.sh</script>
+    <options>/var/log/synctimingptp2.log %%log_dir%% vvdn</options>
+  </testCase>
+
+  <testCase>
     <class>Clean_Test_Server_Images</class>
     <always_exec>true</always_exec>
     <desc>Clean Test Images on Test Server</desc>
@@ -172,7 +179,7 @@
   </testCase>
 
   <testCase>
-    <class>UndeployWithScript</class>
+    <class>Custom_Script</class>
     <always_exec>true</always_exec>
     <desc>Undeploy CU on OC</desc>
     <node>stonechat</node>

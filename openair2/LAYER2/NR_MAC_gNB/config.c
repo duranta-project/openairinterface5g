@@ -17,7 +17,7 @@
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "GNB_APP/gnb_config.h"
 #include "NR_MIB.h"
-#include "NR_MAC_gNB/nr_mac_gNB.h"
+#include "nr_mac_gNB.h"
 #include "NR_BCCH-BCH-Message.h"
 #include "NR_ServingCellConfigCommon.h"
 #include "NR_MIB.h"
@@ -35,6 +35,9 @@
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
 #include "utils.h"
+#ifdef E3_AGENT
+#include "openair2/E3AP/ran_func_spectrum_extern.h"
+#endif /* E3_AGENT */
 
 c16_t convert_precoder_weight(double complex c_in)
 {
@@ -318,6 +321,16 @@ int get_ul_slots_per_period(const frame_structure_t *fs)
 }
 
 /**
+ * @brief Get number of periodic SRS UEs that fit in one full UL slot
+ * @param rc Pointer to the MAC radio configuration
+ * @return Number of UEs, comb offsets times SRS symbols, since each UE SRS resource spans one symbol
+ */
+int nr_srs_ue_per_slot(const nr_mac_config_t *rc)
+{
+  return rc->srs.ue_per_symbol * rc->srs.symbols_per_slot;
+}
+
+/**
  * @brief Get number of full UL slots per period
  * @param fs Pointer to the frame structure
  * @return Number of full UL slots
@@ -401,6 +414,38 @@ int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
   int ul_slot_idx_in_period = idx % ul_slot_count; // wrap up the UL slot index within the current TDD period
 
   return ul_slot_idxs[ul_slot_idx_in_period] + period_idx * fs->numb_slots_period;
+}
+
+/**
+ * @brief Get the UL slot index for a slot in a TDD period using the frame structure bitmap
+ * @param fs frame structure
+ * @param slot slot
+ * @param count_mixed indicates whether counting mixed slot with UL symbols or only full UL slots
+ * @param max_period size of the vector to be indicized
+ * @return UL slot index in period
+ */
+int get_ul_period_idx_from_abs_slot(const frame_structure_t *fs, int abs_slot, bool count_mixed, int max_period)
+{
+  DevAssert(fs);
+  // FDD: every slot is UL, compacted index == raw offset
+  if (fs->frame_type == FDD)
+    return abs_slot % max_period;
+  // UL slot indexes in period (same construction as get_ul_slot_offset)
+  int ul_slot_idxs[fs->numb_slots_period];
+  int ul_slot_count = 0;
+  for (int i = 0; i < fs->numb_slots_period; i++) {
+    ul_slot_idxs[ul_slot_count] = -1; // init to invalid value
+    if ((count_mixed && is_ul_slot(i, fs)) || fs->period_cfg.tdd_slot_bitmap[i].slot_type == TDD_NR_UPLINK_SLOT)
+      ul_slot_idxs[ul_slot_count++] = i;
+  }
+  AssertFatal(fs->numb_slots_period <= max_period, "Invalid max period, smaller than TDD period\n");
+  int slot_period = abs_slot % fs->numb_slots_period;
+  int num_period = (abs_slot % max_period) / fs->numb_slots_period;
+  for (int i = 0; i < ul_slot_count; i++) {
+    if (ul_slot_idxs[i] == slot_period)
+      return i + ul_slot_count * num_period;
+  }
+  return -1; // slot_in_period is not a UL slot under this count_mixed setting
 }
 
 static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, NR_ServingCellConfigCommon_t *scc)
@@ -743,16 +788,41 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   cfg->num_tlv++;
   cfg->num_tlv++;
 #ifdef ENABLE_AERIAL
-  if (cell->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX) {
-    // if we are doing BF in Aerial we need these Custom TLV
-    cfg->carrier_config.num_rx_ant.value = 64; //TOOD: Read number of baseband ports (phy ant) from Config?
-    cfg->carrier_config.num_tx_ant.value = 64; //TOOD: Read number of baseband ports (phy ant) from Config? 
-  }else{
-    // In CAT-A Mode these are equal to num_rx_ant (and Aerial ignores the value)
+  /* numTxAnt/numRxAnt advertise the TXRUs to the L1 (numRxAnt sizes e.g. the
+   * PUSCH receive combining), while numTxPort/numRxPort carry the logical
+   * antenna ports. The TXRU counts come from the Aerial config section; when
+   * not set (0) fall back to the previous behavior. */
+  const nr_aerial_config_t *aerial_cfg = &config->aerial;
+  if (cell->beam_info.bf_method == BF_METHOD_PREDEFINED && !cell->beam_info.beam_id_to_ru) {
+    // if we are doing BF in Aerial we need these Custom TLV. The weights are applied
+    // per TXRU, so the count has to be configured rather than guessed
+    AssertFatal(aerial_cfg->num_tx_ant > 0 && aerial_cfg->num_rx_ant > 0,
+                "beam-index based beamforming needs the TXRU counts of the Aerial section\n");
+    cfg->carrier_config.num_rx_ant.value = aerial_cfg->num_rx_ant;
+    cfg->carrier_config.num_tx_ant.value = aerial_cfg->num_tx_ant;
+    /* with mMIMO enabled the L1 dimensions PUSCH processing from the vendor
+     * port TLVs (numRxAnt only sizes SRS); without them it falls back to a
+     * compile-time constant, so always send the logical port counts */
+    cfg->carrier_config.num_rx_port.value = pusch_AntennaPorts * cell->beam_info.beams_per_period;
+    cfg->carrier_config.num_rx_port.tl.tag = NFAPI_NR_CONFIG_NUM_RX_PORT_TAG;
+    cfg->carrier_config.num_tx_port.value = num_pdsch_antenna_ports * cell->beam_info.beams_per_period;
+    cfg->carrier_config.num_tx_port.tl.tag = NFAPI_NR_CONFIG_NUM_TX_PORT_TAG;
+  } else {
+    if (aerial_cfg->num_rx_ant > 0)
+      cfg->carrier_config.num_rx_ant.value = aerial_cfg->num_rx_ant;
+    if (aerial_cfg->num_tx_ant > 0)
+      cfg->carrier_config.num_tx_ant.value = aerial_cfg->num_tx_ant;
     cfg->carrier_config.num_rx_port.value = pusch_AntennaPorts;
     cfg->carrier_config.num_rx_port.tl.tag = NFAPI_NR_CONFIG_NUM_RX_PORT_TAG;
     cfg->carrier_config.num_tx_port.value = num_pdsch_antenna_ports;
     cfg->carrier_config.num_tx_port.tl.tag = NFAPI_NR_CONFIG_NUM_TX_PORT_TAG;
+    if (aerial_cfg->num_rx_ant > 0 || aerial_cfg->num_tx_ant > 0)
+      LOG_I(NR_MAC,
+            "Aerial: numTxAnt %d numRxAnt %d (numTxPort %d numRxPort %d)\n",
+            cfg->carrier_config.num_tx_ant.value,
+            cfg->carrier_config.num_rx_ant.value,
+            cfg->carrier_config.num_tx_port.value,
+            cfg->carrier_config.num_rx_port.value);
   }
 #endif
   // Frame structure configuration
@@ -775,8 +845,8 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
   // precoding matrix configuration (to be improved)
   cfg->pmi_list = init_DL_MIMO_codebook(cell, pdsch_AntennaPorts);
 
-  if (cell->beam_info.beam_mode != NO_BEAM_MODE) {
-    LOG_I(NR_MAC, "Configuring analog beamforming in config_request message\n");
+  if (cell->beam_info.bf_method != BF_METHOD_STRAIGHT_WIRE) {
+    LOG_I(NR_MAC, "Configuring beam-index based beamforming in config_request message\n");
     cfg->analog_beamforming_ve.num_beams_period_vendor_ext.tl.tag = NFAPI_NR_FAPI_NUM_BEAMS_PERIOD_VENDOR_EXTENSION_TAG;
     cfg->analog_beamforming_ve.num_beams_period_vendor_ext.value = cell->beam_info.beams_per_period;
     cfg->num_tlv++;
@@ -827,7 +897,7 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
 
 static void initialize_beam_information(NR_beam_info_t *beam_info, int mu, int slots_per_frame)
 {
-  if (beam_info->beam_mode == NO_BEAM_MODE)
+  if (beam_info->bf_method == BF_METHOD_STRAIGHT_WIRE)
     return;
 
   int size = mu == 0 ? slots_per_frame << 1 : slots_per_frame;
@@ -941,11 +1011,23 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
 
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
   const int n = get_slots_per_frame_from_scs(*scc->ssbSubcarrierSpacing);
-  const int size = n << ceil_log2_u32((NTN_gNB_Koffset + 13) / n + 1); // 13 is upper limit for max_fb_time
+  int size = n << ceil_log2_u32((NTN_gNB_Koffset + 13) / n + 1); // 13 is upper limit for max_fb_time
+
+  // If the RA is configured as 2-step, the size must be increased to accommodate more frames. This allows MsgA-PUSCH and the
+  // ACK/NACK to be scheduled within the same slot, as they reside in different frames. Consequently, multiple MsgA-PUSCH
+  // transmissions can be scheduled without overriding the ACK/NACK.
+  if (scc->uplinkConfigCommon->initialUplinkBWP->ext1
+      && scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16->choice.setup->msgA_PUSCH_Config_r16
+             ->msgA_PUSCH_ResourceGroupA_r16->msgA_PUSCH_TimeDomainOffset_r16) {
+    NR_MsgA_ConfigCommon_r16_t *msgacc = scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16->choice.setup;
+    int msgA_PUSCH_TimeDomainOffset = msgacc->msgA_PUSCH_Config_r16->msgA_PUSCH_ResourceGroupA_r16->msgA_PUSCH_TimeDomainOffset_r16;
+    size *= (n + msgA_PUSCH_TimeDomainOffset + (n - 1)) / n;
+  }
+
   cell->vrb_map_UL_size = size;
 
   int num_beams = 1;
-  if(cell->beam_info.beam_mode != NO_BEAM_MODE)
+  if(cell->beam_info.bf_method != BF_METHOD_STRAIGHT_WIRE)
     num_beams = cell->beam_info.beams_per_period;
   for (int i = 0; i < num_beams; i++) {
     cell->common_channels.vrb_map_UL[i] = calloc(size * MAX_BWP_SIZE, sizeof(uint16_t));
@@ -962,6 +1044,8 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
   LOG_D(NR_MAC, "Configuring common parameters from NR ServingCellConfig\n");
 
   config_common(cell, config, scc);
+  if (cell->radio_config.do_SRS == PERIODIC_SRS)
+    cell->periodic_srs_config = create_period_structure(cell, SRS);
   fill_beam_index_list(scc, config, cell);
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
@@ -984,9 +1068,16 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_ServingCel
                        scc->tdd_UL_DL_ConfigurationCommon,
                        csi_symbols_in_slot(scc),
                        num_symb_cset);
-  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS);
+  // PUSCH ends where the SRS block starts, counting down from the last SRS symbol
+  nr_rrc_config_ul_tda(scc, rc->minRXTXTIME, rc->do_SRS, rc->srs.last_symbol - rc->srs.symbols_per_slot + 1);
   seq_arr_init(&cell->ul_tda, sizeof(NR_tda_info_t));
   init_ul_tda_info(scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList, &cell->ul_tda);
+
+#ifdef E3_AGENT
+  /* The cell's frame structure is known now: let the Spectrum RAN function bind
+   * to it. It owns its configuration (E3Configuration) and state. */
+  e3_spectrum_mac_attach_cell(cell);
+#endif /* E3_AGENT */
   seq_arr_init(&nrmac->pos_act_ue_arr, sizeof(positioning_activation_info_t));
 }
 
@@ -1270,7 +1361,7 @@ bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, uint32_t rnt
   bool res = add_connected_nr_ue(nrmac, UE);
   if (!res) {
     LOG_E(NR_MAC, "Error adding UE %04x\n", rnti);
-    delete_nr_ue_data(UE, &nrmac->UE_info.uid_allocator);
+    delete_nr_ue_data(nrmac, UE);
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
     return false;
   }

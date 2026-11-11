@@ -12,20 +12,20 @@
 #include <string.h>
 #include "assertions.h"
 #include "common/utils/LOG/log.h"
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 
 
 
-int ldpc_BG1_Zc176_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc192_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc208_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc224_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc240_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc256_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc288_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc320_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc352_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
-int ldpc_BG1_Zc384_cuda32(uint32_t **c,uint32_t **d,int n_inputs, cudaStream_t *stream,int sidx);
+int ldpc_BG1_Zc176_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc192_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc208_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc224_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc240_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc256_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc288_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc320_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc352_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
+int ldpc_BG1_Zc384_cuda32(uint32_t **c,uint32_t **d,int n_inputs, gpuStream_t *stream,int sidx);
 
 void encode_parity_check_part_cuda(uint32_t **c,
                                    uint32_t **d,
@@ -34,7 +34,7 @@ void encode_parity_check_part_cuda(uint32_t **c,
                                    short Kb,
                                    int ncols,
                                    int n_inputs,
-                                   cudaStream_t *stream,
+                                   gpuStream_t *stream,
                                    int sidx)
 {
   if (BG == 1) {

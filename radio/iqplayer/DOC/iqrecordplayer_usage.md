@@ -142,17 +142,17 @@ options for replay mode are:
 ## iq recorder and iq player implementation overview
 
 ### configuration
-The iq's record/player is using the [configuration module](../../../../common/config/DOC/config.md). Configuration parameters supported by the record player are defined in the [record_player.h](../../COMMON/record_player.h) include file.
+The iq's record/player is using the [configuration module](../../../common/config/DOC/config.md). Configuration parameters supported by the record player are defined in the [record_player.h](../../COMMON/record_player.h) include file.
  There are no specific sections for the recorder or the replayer, parameters are defined under the `device.recplay`section and the `read_recplayconfig` function is common to both the recorder and the player. `device.recplay` configuration section is read from oai code common to all devices:
 Implemented in [record_player.c](../../COMMON/record_player.c), the `read_recplayconfig` function is called from `load_lib` and reads the configuration parameters, saving them in a `recplay_conf_t` sub-structure of the oai device. It also allocates a `recplay_state_t` structure which will save the recorder or player data. 
 3GPP authentication algorithm doesn't allow session establishment via replaying iq's. When using the replayer, a softmodem parameter is set (`SOFTMODEM_RECPLAY_BIT` in the `optmask` bitmask of the `softmodem_params_t` structure. It allows bypassing or activating specific code in the softmodem to allow session establishment replay. This mechanism only works if in parallel specific code is also activated in the EPC, which is supported by the NOKIA LTE box.
-An easiest scenario is to use the record player in parallel with the noS1 mode, as described [here](../../../../doc/RUNMODEM.md) 
+An easiest scenario is to use the record player in parallel with the noS1 mode, as described [here](../../../doc/RUNMODEM.md) 
 
 ### iq recorder
 most of the implementation is now located in the oai device common code:
 * The`load_lib` function in [common-lib.c](../../COMMON/common_lib.c) reads the record player parameters. 
 * Recorder specific functions are implemented in  `iqrecorder_end` saves the cached iq's to disk, it has to be called by the oai device in it's end function.
-* When recording is enabled, the device must implement iq's caching in it's read function. It also has to call the `iqrecorder_end ` function when  terminating to write iqs to a file on disk. Look at the USRP device ( [../usrp_lib.cpp](../../USRP/USERSPACE/LIB/usrp_lib.cpp) ) for  details.
+* When recording is enabled, the device must implement iq's caching in it's read function. It also has to call the `iqrecorder_end ` function when  terminating to write iqs to a file on disk. Look at the USRP device ( [usrp_lib.cpp](../../USRP/usrp_lib.cpp) ) for  details.
 
 ### iq player
 The replay feature is implemented as a oai device. 

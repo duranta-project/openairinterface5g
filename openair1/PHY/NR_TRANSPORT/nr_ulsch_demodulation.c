@@ -131,18 +131,23 @@ static void nr_ulsch_extract_rbs(c16_t *const rxF,
   }
 }
 
-static int get_nb_re_pusch (NR_DL_FRAME_PARMS *frame_parms, const nfapi_nr_pusch_pdu_t *rel15_ul, int symbol)
+static int get_nb_re_pusch(NR_DL_FRAME_PARMS *frame_parms,
+                           const nfapi_nr_pusch_pdu_t *rel15_ul,
+                           int symbol,
+                           const nr_ptrs_info_t *ptrs_info)
 {
-  uint8_t dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
-  if (dmrs_symbol_flag == 1) {
+  int re_pusch = rel15_ul->rb_size * NR_NB_SC_PER_RB;
+  if ((rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01) {
     if (rel15_ul->dmrs_config_type == 0) {
       // if no data in dmrs cdm group is 1 only even REs have no data
       // if no data in dmrs cdm group is 2 both odd and even REs have no data
-      return(rel15_ul->rb_size *(12 - (rel15_ul->num_dmrs_cdm_grps_no_data*6)));
-    }
-    else return(rel15_ul->rb_size *(12 - (rel15_ul->num_dmrs_cdm_grps_no_data*4)));
-  } else
-    return (rel15_ul->rb_size * NR_NB_SC_PER_RB);
+      re_pusch -= rel15_ul->rb_size * rel15_ul->num_dmrs_cdm_grps_no_data * 6;
+    } else
+      re_pusch -= rel15_ul->rb_size * rel15_ul->num_dmrs_cdm_grps_no_data * 4;
+  }
+  if (IS_BIT_SET(ptrs_info->ptrs_symbols, symbol))
+    re_pusch -= ptrs_info->n_ptrs;
+  return re_pusch;
 }
 
 static void inner_rx(PHY_VARS_gNB *gNB,
@@ -284,15 +289,204 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                      rel15_ul->qam_mod_order);
 }
 
+typedef struct {
+  // The "Density" (used to find UCI REs within a symbol)
+  int d_ack[NR_SYMBOLS_PER_SLOT];
+  int d_ack_rvd[NR_SYMBOLS_PER_SLOT];
+  int d_csi1[NR_SYMBOLS_PER_SLOT];
+  int d_csi2[NR_SYMBOLS_PER_SLOT];
+  // The "Starting Gates" (used for thread-safe parallel writes)
+  int ack_offset[NR_SYMBOLS_PER_SLOT];
+  int csi1_offset[NR_SYMBOLS_PER_SLOT];
+  int csi2_offset[NR_SYMBOLS_PER_SLOT];
+  int ulsch_offset[NR_SYMBOLS_PER_SLOT];
+  // Number of resources per symbol
+  uint32_t q_ack[NR_SYMBOLS_PER_SLOT];
+  uint32_t q_ack_rvd[NR_SYMBOLS_PER_SLOT];
+  uint32_t q_csi1[NR_SYMBOLS_PER_SLOT];
+  uint32_t q_csi2[NR_SYMBOLS_PER_SLOT];
+} nr_uci_mapping_t;
+
+/*
+ * Builds, per OFDM symbol, the mapping information the gNB needs to demultiplex
+ * UCI (HARQ-ACK, CSI part 1, CSI part 2) from UL-SCH data on PUSCH.
+ * It mirrors the UE-side multiplexing procedure of TS 38.212 Section 6.2.7.
+ * Mapping rules implemented:
+ *  - ACK: starts at the first non-DMRS symbol after the first DMRS symbol(s).
+ *         If O_ack <= 2, REs are only *reserved* (they stay counted in the data REs, since
+ *         ULSCH/CSI2 can be later punctured by the ACK).
+ *  - CSI1: starts at the first non-DMRS symbol of the PUSCH. It cannot use reserved ACK REs.
+ *  - CSI2: mapped after CSI1 in the REs left over. It can overlap reserved ACK REs (puncturing).
+ *  - Within a symbol, if the remaining REs to place are fewer than the available ones, they
+ *    are spread with spacing d = floor(available / remaining); otherwise all available REs
+ *    are used (d = 1).
+ */
+nr_uci_mapping_t init_nr_uci_pusch_demux(const nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                         rate_match_info_uci_t *uci_info,
+                                         NR_DL_FRAME_PARMS *frame_parms,
+                                         NR_gNB_PUSCH *pusch_vars)
+{
+  nr_uci_mapping_t map = {0};
+  int first_non_dmrs_sym = 0;
+  int after_dmrs_symb = 0;
+  uint32_t bits_per_re = pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+  get_dmrs_uci_symbol_info(pusch_pdu->start_symbol_index,
+                           pusch_pdu->nr_of_symbols,
+                           pusch_pdu->ul_dmrs_symb_pos,
+                           &first_non_dmrs_sym,
+                           &after_dmrs_symb);
+  // get_dmrs_uci_symbol_info computes values relative to start
+  first_non_dmrs_sym += pusch_pdu->start_symbol_index;
+  after_dmrs_symb += pusch_pdu->start_symbol_index;
+  // Track how many REs we have successfully "assigned" across symbols
+  uint32_t re_assigned_ack = 0;
+  uint32_t re_actual_ack = 0;
+  uint32_t M_ul[14] = {0};
+  uint32_t curr_ack_offset = 0;
+  map.ulsch_offset[0] = 0;
+  if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI)) {
+    for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
+      if (s < frame_parms->symbols_per_slot - 1)
+        map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (pusch_vars->ul_valid_re_per_slot[s] * bits_per_re);
+    }
+    return map;
+  }
+
+  int Q_ack = uci_info->E_uci_ACK / bits_per_re; // includes reserved resources if O_ack <= 2
+  for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
+    // resources available for transmission of data in PUSCH symbol
+    M_ul[s] = pusch_vars->ul_valid_re_per_slot[s];
+    map.d_ack[s] = 0;
+    map.d_ack_rvd[s] = 0;
+    map.ack_offset[s] = curr_ack_offset;
+    // symbols after the first set of consecutive symbol(s) carrying DMRS
+    bool is_ack_sym = (s >= after_dmrs_symb) && !IS_BIT_SET(pusch_pdu->ul_dmrs_symb_pos, s);
+    // if the symbol is valid for ACK and there are still ACK resources to be placed
+    if (is_ack_sym && re_assigned_ack < Q_ack) {
+      uint32_t re_remaining = Q_ack - re_assigned_ack; // includes reserved resources if O_ack <= 2
+      uint32_t re_remaining_actual = uci_info->Q_dash_ACK - re_actual_ack;
+      // if the remaining ACK resources to be placed are less than the ones available in the symbol
+      if (re_remaining < pusch_vars->ul_valid_re_per_slot[s]) {
+        if (uci_info->O_ack <= 2)
+          map.q_ack_rvd[s] += re_remaining;
+        // For O_ack <= 2 the actual ACK REs are a subset of the reserved ones: if fewer actual REs than
+        // reserved REs remain in this symbol, the actual ACK is spread further over the reserved grid.
+        // d_scaling = spacing between actual ACK REs, expressed in reserved-RE units
+        // (0 means there is no actual ACK left to place in this symbol)
+        uint32_t d_scaling = 1;
+        if (uci_info->O_ack <= 2 && re_remaining_actual < map.q_ack_rvd[s])
+          d_scaling = re_remaining_actual ? map.q_ack_rvd[s] / re_remaining_actual : 0;
+        else
+          re_remaining_actual = map.q_ack_rvd[s];
+        map.d_ack[s] = M_ul[s] / re_remaining * d_scaling;
+        if (uci_info->O_ack <= 2)
+          map.d_ack_rvd[s] = M_ul[s] / re_remaining;
+        else
+          M_ul[s] -= re_remaining; // O_ack > 2: ACK REs are removed from available resources
+        // actual ACK REs transmitted on this symbol (reserved REs are only a superset when O_ack <= 2)
+        uint32_t n_actual = (uci_info->O_ack <= 2) ? re_remaining_actual : re_remaining;
+        map.q_ack[s] = n_actual;
+        // advance the ACK bit offset by the number of ACK REs that are actually transmitted in this symbol
+        curr_ack_offset += bits_per_re * n_actual;
+        re_assigned_ack += re_remaining;
+        re_actual_ack += n_actual;
+      } else { // if the remaining ACK resources to be placed are equal or more than the ones available in the symbol
+        // ACK uses every valid RE of the symbol, d = 1, and continues in the next symbol
+        if (uci_info->O_ack > 2)
+          M_ul[s] = 0;
+        else
+          map.q_ack_rvd[s] += pusch_vars->ul_valid_re_per_slot[s];
+        uint32_t d_scaling = 1;
+        if (uci_info->O_ack <= 2 && re_remaining_actual < map.q_ack_rvd[s])
+          d_scaling = re_remaining_actual ? map.q_ack_rvd[s] / re_remaining_actual : 0;
+        else
+          re_remaining_actual = map.q_ack_rvd[s];
+        map.d_ack[s] = d_scaling;
+        if (uci_info->O_ack <= 2)
+          map.d_ack_rvd[s] = 1;
+        uint32_t n_actual = (uci_info->O_ack <= 2) ? re_remaining_actual : pusch_vars->ul_valid_re_per_slot[s];
+        map.q_ack[s] = n_actual;
+        curr_ack_offset += bits_per_re * n_actual;
+        re_assigned_ack += pusch_vars->ul_valid_re_per_slot[s];
+        re_actual_ack += n_actual;
+      }
+    } else
+      map.d_ack[s] = 0;
+  }
+  // if there are no CSI resources to be assigned we conclude the procedure
+  if (uci_info->Q_dash_CSI1 == 0) {
+    // UL-SCH offsets: cumulative data bits per symbol, given the REs left after ACK
+    for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
+      if (s < frame_parms->symbols_per_slot - 1)
+        map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (M_ul[s] * bits_per_re);
+    }
+    return map;
+  }
+
+  uint32_t re_assigned_csi1 = 0;
+  uint32_t re_assigned_csi2 = 0;
+  for (int s = 0; s < frame_parms->symbols_per_slot; s++) {
+    // CSI starts from the first non-DMRS symbol
+    bool is_csi_sym = (s >= first_non_dmrs_sym) && !IS_BIT_SET(pusch_pdu->ul_dmrs_symb_pos, s);
+    // CSI1 cannot be mapped on reserved ACK REs
+    uint32_t re_avail_for_csi1 = M_ul[s] - map.q_ack_rvd[s];
+    map.csi1_offset[s] = re_assigned_csi1 * bits_per_re;
+    map.csi2_offset[s] = re_assigned_csi2 * bits_per_re;
+    if (is_csi_sym && re_assigned_csi1 < uci_info->Q_dash_CSI1 && re_avail_for_csi1 > 0) {
+      uint32_t re_rem_csi1 = uci_info->Q_dash_CSI1 - re_assigned_csi1;
+      // if the remaining CSI1 resources to be placed are less than the ones available in the symbol
+      if (re_rem_csi1 < re_avail_for_csi1) {
+        map.d_csi1[s] = re_avail_for_csi1 / re_rem_csi1;
+        map.q_csi1[s] = re_rem_csi1;
+        M_ul[s] -= re_rem_csi1;
+        re_assigned_csi1 += re_rem_csi1;
+      } else { // if the remaining CSI1 resources to be placed are equal or more than the ones available in the symbol
+        map.d_csi1[s] = 1;
+        map.q_csi1[s] = re_avail_for_csi1;
+        M_ul[s] -= re_avail_for_csi1;
+        re_assigned_csi1 += re_avail_for_csi1;
+      }
+    } else {
+      map.d_csi1[s] = 0;
+      map.q_csi1[s] = 0;
+    }
+    // CSI2 uses whatever is left in the symbol after ACK (O_ack > 2) and CSI1. For O_ack <= 2 this
+    // still includes the reserved ACK REs, which CSI2 may overlap (and which ACK later punctures).
+    uint32_t re_avail_for_csi2 = M_ul[s];
+    if (is_csi_sym && re_assigned_csi2 < uci_info->Q_dash_CSI2 && re_avail_for_csi2 > 0) {
+      uint32_t re_rem_csi2 = uci_info->Q_dash_CSI2 - re_assigned_csi2;
+      // if the remaining CSI2 resources to be placed are less than the ones available in the symbol
+      if (re_rem_csi2 < re_avail_for_csi2) {
+        map.d_csi2[s] = re_avail_for_csi2 / re_rem_csi2;
+        map.q_csi2[s] = re_rem_csi2;
+        M_ul[s] -= re_rem_csi2;
+        re_assigned_csi2 += re_rem_csi2;
+      } else { // if the remaining CSI2 resources to be placed are equal or more than the ones available in the symbol
+        map.d_csi2[s] = 1;
+        map.q_csi2[s] = re_avail_for_csi2;
+        M_ul[s] = 0;
+        re_assigned_csi2 += re_avail_for_csi2;
+      }
+    } else {
+      map.d_csi2[s] = 0;
+      map.q_csi2[s] = 0;
+    }
+    // UL-SCH gets the REs left in M_ul[s]; accumulate the offset for the next symbol
+    if (s < frame_parms->symbols_per_slot - 1)
+      map.ulsch_offset[s + 1] = map.ulsch_offset[s] + (M_ul[s] * bits_per_re);
+  }
+  return map;
+}
+
 typedef struct puschSymbolProc_s {
   PHY_VARS_gNB *gNB;
   NR_DL_FRAME_PARMS *frame_parms;
   const nfapi_nr_pusch_pdu_t *rel15_ul;
   NR_gNB_PUSCH *pusch_vars;
+  nr_uci_mapping_t *map_uci;
   int slot;
   int startSymbol;
   int numSymbols;
-  int16_t *llr;
   uint32_t nvar;
   uint16_t ptrs_symb_pos;
   c16_t *ptrs_cpe;
@@ -310,10 +504,117 @@ typedef struct puschSymbolProc_s {
   int layers_attenuation;
 } puschSymbolProc_t;
 
+static inline void unscramble_helper(const int16_t *llr_in, const int16_t *seq, int16_t *llr_out, int num_llr)
+{
+  int i = 0;
+  for (; (i + 16) <= num_llr; i += 16) {
+    simde__m256i v_llr = simde_mm256_loadu_si256((const simde__m256i *)&llr_in[i]);
+    simde__m256i v_s = simde_mm256_loadu_si256((const simde__m256i *)&seq[i]);
+    simde_mm256_storeu_si256((simde__m256i *)&llr_out[i], simde_mm256_mullo_epi16(v_llr, v_s));
+  }
+  // scalar tail (fewer than 16 elements left)
+  for (; i < num_llr; i++)
+    llr_out[i] = llr_in[i] * seq[i];
+}
+
+static void symbol_unscrambling_demux(puschSymbolProc_t *rdata, int ue_idx, int s, int size, int16_t llr_in[size])
+{
+  const nfapi_nr_pusch_pdu_t *rel15_ul = rdata->rel15_ul_group[ue_idx];
+  const nr_uci_mapping_t *map_uci = &rdata->map_uci[ue_idx];
+  NR_gNB_PUSCH *joint_pusch_vars = rdata->pusch_vars;
+  NR_gNB_PUSCH *ue_pusch_vars = rdata->pusch_vars_group[ue_idx];
+  const rate_match_info_uci_t *uci_info = &ue_pusch_vars->uci_info;
+  int16_t *s_seq = rdata->scrambling_sequences[ue_idx] + (joint_pusch_vars->llr_offset[s] * rel15_ul->nrOfLayers);
+  uint32_t bits_per_re = rel15_ul->nrOfLayers * rel15_ul->qam_mod_order;
+  uint32_t a_idx = map_uci->ack_offset[s];
+  uint32_t c1_idx = map_uci->csi1_offset[s];
+  uint32_t c2_idx = map_uci->csi2_offset[s];
+  uint32_t u_idx = map_uci->ulsch_offset[s];
+
+  // Fast path: uncrambling only no UCI multiplexed on this symbol
+  bool no_uci = (map_uci->d_ack[s] == 0 && map_uci->d_csi1[s] == 0 && map_uci->d_csi2[s] == 0);
+  if (no_uci) {
+    const int end = joint_pusch_vars->ul_valid_re_per_slot[s] * bits_per_re;
+    int16_t *llr = &ue_pusch_vars->ulsch_llrs[u_idx];
+    unscramble_helper(llr_in, s_seq, llr, end);
+    return;
+  }
+
+  // Per-symbol remaining counts: private to this task
+  uint32_t rem_ack = map_uci->q_ack[s];
+  uint32_t rem_rvd = map_uci->q_ack_rvd[s];
+  uint32_t rem_csi1 = map_uci->q_csi1[s];
+  uint32_t rem_csi2 = map_uci->q_csi2[s];
+  int num_rvd_ack = 0;
+  int num_ack = 0;
+  int num_csi = 0;
+  // unscrambling and UCI demultiplexing
+  for (int re = 0; re < joint_pusch_vars->ul_valid_re_per_slot[s]; re++) {
+    bool is_ack = rem_ack > 0 && map_uci->d_ack[s] > 0 && (re % map_uci->d_ack[s] == 0);
+    bool is_cnt_ack = uci_info->O_ack <= 2
+                      && rem_rvd > 0
+                      && map_uci->d_ack_rvd[s] > 0
+                      && rem_csi1 > 0
+                      && (re % map_uci->d_ack_rvd[s] == 0);
+    bool is_csi1 = rem_csi1 > 0 && map_uci->d_csi1[s] > 0 && ((re - num_ack - num_rvd_ack) % map_uci->d_csi1[s] == 0);
+    bool is_csi2 = rem_csi2 > 0 && map_uci->d_csi2[s] > 0 && ((re - num_ack - num_csi) % map_uci->d_csi2[s] == 0);
+    int16_t *curr_re_llr = &llr_in[re * bits_per_re];
+    int16_t *curr_re_s = &s_seq[re * bits_per_re];
+
+    if (is_cnt_ack) {
+      num_rvd_ack++;
+      rem_rvd--;
+    }
+    if (is_ack) {
+      rem_ack--;
+      if (uci_info->O_ack <= 2) {
+        for (int b = 0; b < bits_per_re; b++) {
+          int bit_in_mod_symbol = b % rel15_ul->qam_mod_order;
+          if (uci_info->O_ack == 1) {
+            // Table 5.3.3.1-1 of 38.212: Only the first bit (d0) is c0
+            // Subsequent bits d1...dN-1 are placeholders (y, x).
+            if (bit_in_mod_symbol == 0)
+              ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b] * curr_re_s[b]; // unscrambling for info bits
+            else
+              ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b]; // not unscrambling for placeholders x and y
+          } else {
+            // Table 5.3.3.1-2 of 38.212
+            // Subsequent bits d1...dN-1 are placeholders (y, x).
+            if (bit_in_mod_symbol == 0 || bit_in_mod_symbol == 1)
+              ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b] * curr_re_s[b]; // unscrambling for info bits
+            else
+              ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b]; // not unscrambling for placeholders x and y
+          }
+        }
+      } else {
+        // Large ACK (>2 bits): Standard extraction and unscrambling
+        for (int b = 0; b < bits_per_re; b++)
+          ue_pusch_vars->ack_llrs[a_idx++] = curr_re_llr[b] * curr_re_s[b];
+        num_ack++;
+        continue;
+      }
+    }
+    if (is_csi1 && !is_cnt_ack) {
+      for (int b = 0; b < bits_per_re; b++)
+        ue_pusch_vars->csi1_llrs[c1_idx++] = curr_re_llr[b] * curr_re_s[b];
+      rem_csi1--;
+      num_csi++;
+      continue;
+    }
+    if (is_csi2) {
+      for (int b = 0; b < bits_per_re; b++)
+        ue_pusch_vars->csi2_llrs[c2_idx++] = curr_re_llr[b] * curr_re_s[b];
+      rem_csi2--;
+      continue;
+    }
+    unscramble_helper(curr_re_llr, curr_re_s, &ue_pusch_vars->ulsch_llrs[u_idx], bits_per_re);
+    u_idx += bits_per_re;
+  }
+}
+
 static void nr_pusch_symbol_processing(void *arg)
 {
   puschSymbolProc_t *rdata=(puschSymbolProc_t*)arg;
-
   PHY_VARS_gNB *gNB = rdata->gNB;
   NR_DL_FRAME_PARMS *frame_parms = rdata->frame_parms;
   const nfapi_nr_pusch_pdu_t *rel15_ul = rdata->rel15_ul;
@@ -347,47 +648,22 @@ static void nr_pusch_symbol_processing(void *arg)
 
     int nb_re_pusch = pusch_vars->ul_valid_re_per_slot[symbol];
     for (int u = 0; u < rdata->group_size; u++) {
-      NR_gNB_PUSCH *ue_pusch_vars = rdata->pusch_vars_group[u];
-      const nfapi_nr_pusch_pdu_t *ue_pdu = rdata->rel15_ul_group[u];
-      int16_t *ue_scrambling_seq = rdata->scrambling_sequences[u];
-
-      const int ue_layers = ue_pdu->nrOfLayers;
-      const int qam = ue_pdu->qam_mod_order;
+      // layer de-mapping
+      const int ue_layers = rdata->rel15_ul_group[u]->nrOfLayers;
+      int size = ue_layers * buffer_length;
+      int16_t *llr_ptr;
+      int16_t llr_buf[size];  // only needed for multi-layer
       const int layer_off = rdata->layer_offsets[u];
-
-      ue_pusch_vars->llr_offset[symbol] = pusch_vars->llr_offset[symbol];
-      ue_pusch_vars->ul_valid_re_per_slot[symbol] = nb_re_pusch;
-
-      const int sym_bit_offset = ue_pusch_vars->llr_offset[symbol] * ue_layers;
-      int16_t *llr_dest = &ue_pusch_vars->llr[sym_bit_offset];
-      int16_t *s_seq = &ue_scrambling_seq[sym_bit_offset];
-
-      const int n = nb_re_pusch * ue_layers * qam;
-      const int16_t *src;
-
-      // demapping: bring elements into order such that unscrambling is a linear operation
-      // e.g., from "RE0-l0, RE1-l0, ..., REn-l0, RE0-l1, ..." to "RE0-l0, Re0-l1, RE1-l0, ..."
-      // Each REn-ln = q LLRs (q = QAM order {2,4,6,8}, one LLR/bit).
       if (ue_layers == 1) {
-        // no demapping needed
-        src = llrss[layer_off];
+        llr_ptr = llrss[layer_off];  // zero-copy
       } else {
-        nr_layer_demapping(ue_layers, qam, nb_re_pusch, &llrss[layer_off], llr_dest);
-        src = llr_dest;
+        llr_ptr = llr_buf;
+        const int qam = rdata->rel15_ul_group[u]->qam_mod_order;
+        nr_layer_demapping(ue_layers, qam, nb_re_pusch, &llrss[layer_off], llr_ptr);
       }
-
-      // unscrambling
-      int k = 0;
-      for (; k + 16 <= n; k += 16) {
-        simde__m256i a = simde_mm256_loadu_si256((const simde__m256i *)(src + k));
-        simde__m256i b = simde_mm256_loadu_si256((const simde__m256i *)(s_seq + k));
-        simde_mm256_storeu_si256((simde__m256i *)(llr_dest + k), simde_mm256_mullo_epi16(a, b));
-      }
-      for (; k < n; k++)
-        llr_dest[k] = src[k] * s_seq[k];
+      symbol_unscrambling_demux(rdata, u, symbol, size, llr_ptr);
     }
   }
-
   // Task running in // completed
   completed_task_ans(rdata->ans);
 }
@@ -413,6 +689,74 @@ static uint32_t average_u32(const uint32_t *x, uint16_t size)
   }
 
   return (uint32_t)(sum_x / size);
+}
+
+static rate_match_info_uci_t get_uci_on_pusch_info(const nfapi_nr_pusch_pdu_t *pusch_pdu, const nr_ptrs_info_t *ptrs_info, int G)
+{
+  rate_match_info_uci_t uci_info = {0};
+  if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_UCI)) {
+    uci_info.G_ulsch = G;
+    return uci_info;
+  }
+
+  AssertFatal(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_DATA, "Scenario with no ULSCH data not supported yet\n");
+
+  const nfapi_nr_pusch_uci_t *pusch_uci = &pusch_pdu->pusch_uci;
+  int s1 = 0;
+  int s2 = 0;
+  get_s1_s2(&s1,
+            &s2,
+            pusch_pdu->rb_size,
+            pusch_pdu->nr_of_symbols,
+            pusch_pdu->start_symbol_index,
+            pusch_pdu->ul_dmrs_symb_pos,
+            ptrs_info->ptrs_symbols,
+            ptrs_info->n_ptrs);
+
+  // if the number of HARQ-ACK information bits to be transmitted on PUSCH is 0, 1 or 2 bits
+  // the number of reserved resource elements for potential HARQ-ACK transmission is calculated using oack = 2
+  // according to TS 38.212 section 6.2.7, step 1
+  int rev_ack = (pusch_uci->harq_ack_bit_length <= 2) ? 2 : pusch_uci->harq_ack_bit_length;
+  // As per 6.3.2.1.1 of 38.212
+  // If UCI is transmitted on PUSCH without UL-SCH and the UCI includes CSI part 1 without CSI part 2
+  // We need to generate a sequence of bits with A = 2 even if number of HARQ bits is < 2
+  uci_info.O_ack = pusch_uci->harq_ack_bit_length;
+  if (!(pusch_pdu->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_DATA)
+      && pusch_uci->harq_ack_bit_length < 2
+      && pusch_uci->csi_part1_bit_length > 0
+      && pusch_uci->csi_part2_bit_length == 0)
+    uci_info.O_ack = 2;
+  double alpha = get_alpha_scaling_value(pusch_uci->alpha_scaling);
+  // Calculate sumKr (total bits in all code blocks)
+  int kcb = pusch_pdu->maintenance_parms_v3.ldpcBaseGraph == 1 ? 8448 : 3840;
+  int B = lenWithCrc(1, pusch_pdu->pusch_data.tb_size << 3);
+  int C = get_C(B, kcb);
+  int Bprime = B <= kcb ? B : B + (C * 24);
+  int Kprime = Bprime / C;
+  int Zout = get_Zout(get_Kb(pusch_pdu->maintenance_parms_v3.ldpcBaseGraph, B), Kprime);
+  uint32_t sumKr = get_K(Zout, pusch_pdu->maintenance_parms_v3.ldpcBaseGraph) * C;
+
+  // get the number of coded HARQ-ACK symbols and bits, TS 38.212 section 6.3.2.4.1.1
+  double beta = get_beta_offset_harq_ack(pusch_uci->beta_offset_harq_ack);
+  uci_info.Q_dash_ACK = get_Qd(uci_info.O_ack, beta, alpha, sumKr, s1, s2, 0);
+  int Q_ack_rev = get_Qd(rev_ack, beta, alpha, sumKr, s1, s2, 0);
+  uci_info.E_uci_ACK_actual = uci_info.Q_dash_ACK * pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+  uci_info.E_uci_ACK = Q_ack_rev * pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+
+  // get the number of coded CSI part 1 symbols and bits, TS 38.212 section 6.3.2.4.1.2
+  const double beta_csi1 = get_beta_offset_csi(pusch_uci->beta_offset_csi1);
+  int sub = uci_info.O_ack > 2 ? uci_info.Q_dash_ACK : Q_ack_rev;
+  uci_info.Q_dash_CSI1 = get_Qd(pusch_uci->csi_part1_bit_length, beta_csi1, alpha, sumKr, s1, s1, sub);
+  uci_info.E_uci_CSI1 = uci_info.Q_dash_CSI1 * pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+
+  // get the number of coded CSI part 2 symbols and bits, TS 38.212 section 6.3.2.4.1.3
+  const double beta_csi2 = get_beta_offset_csi(pusch_uci->beta_offset_csi2);
+  sub = uci_info.Q_dash_CSI1 + (uci_info.O_ack > 2 ? uci_info.Q_dash_ACK : 0);
+  uci_info.Q_dash_CSI2 = get_Qd(pusch_uci->csi_part2_bit_length, beta_csi2, alpha, sumKr, s1, s1, sub);
+  uci_info.E_uci_CSI2 = uci_info.Q_dash_CSI2 * pusch_pdu->nrOfLayers * pusch_pdu->qam_mod_order;
+
+  uci_info.G_ulsch = G - uci_info.E_uci_CSI1 - uci_info.E_uci_CSI2 - (uci_info.O_ack > 2 ? uci_info.E_uci_ACK : 0);
+  return uci_info;
 }
 
 int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
@@ -561,8 +905,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   c16_t cpe[NR_SYMBOLS_PER_SLOT];
   for (uint s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
     cpe[s] = (c16_t){.r = INT16_MAX}; // zero phase error.
-  uint ptrs_re_symbol = 0;
-  uint16_t ptrs_symb_pos = 0;
+  nr_ptrs_info_t ptrs_info = {0};
   if (is_ptrs) {
     if (rel15_ul_ref->pusch_ptrs.num_ptrs_ports != 1)
       LOG_W(NR_PHY, "Multi-port PTRS not supported, skipping PTRS processing\n");
@@ -584,9 +927,9 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                        .rnti = rel15_ul_ref->rnti};
       const int slot_offset = (p.slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * p.ofdm_symbol_size;
       c16_t *rxdataF = (c16_t *)&gNB->common_vars.rxdataF[ant_port_start][slot_offset];
-      ptrs_re_symbol =
+      ptrs_info.n_ptrs =
           nr_ptrs_run(&p, rel15_ul_ref->pusch_ptrs.ptrs_time_density, rxdataF, (const c16_t *)joint_pv->ul_ch_estimates[0], cpe);
-      ptrs_symb_pos = p.ptrs_symb_pos;
+      ptrs_info.ptrs_symbols = p.ptrs_symb_pos;
     }
   }
 
@@ -653,8 +996,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   // This is assumed to be same for all the UEs (same PTRS configuration for all UEs)
   uint32_t unav_res = 0;
   if (rel15_ul_ref->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
-    int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrs_symb_pos, rel15_ul_ref->start_symbol_index, rel15_ul_ref->nr_of_symbols);
-    unav_res = ptrs_re_symbol * ptrsSymbPerSlot;
+    int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrs_info.ptrs_symbols, rel15_ul_ref->start_symbol_index, rel15_ul_ref->nr_of_symbols);
+    unav_res = ptrs_info.n_ptrs * ptrsSymbPerSlot;
   }
 
   // Scrambling initialization
@@ -664,11 +1007,12 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   int nb_re_dmrs = factor * rel15_ul_ref->num_dmrs_cdm_grps_no_data;
 
   int max_G = 0;
+  int G[group_size];
   for (int u = 0; u < group_size; u++) {
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
-    int G_u = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
-    if (G_u > max_G)
-      max_G = G_u;
+    G[u] = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
+    if (G[u] > max_G)
+      max_G = G[u];
   }
 
   const uint64_t num_scrambling_bytes = group_size * (max_G + 96) * sizeof(int16_t);
@@ -685,16 +1029,20 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   for (int u = 0; u < group_size; u++) {
     scrambling_sequences_arr[u] = scrambling_sequences[u];
     const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
-    int G_u = nr_get_G(p->rb_size, p->nr_of_symbols, nb_re_dmrs, number_dmrs_symbols, unav_res, p->qam_mod_order, p->nrOfLayers);
-    nr_codeword_unscrambling_init(scrambling_sequences_arr[u], G_u, 0, p->data_scrambling_id, p->rnti);
+    nr_codeword_unscrambling_init(scrambling_sequences_arr[u], G[u], 0, p->data_scrambling_id, p->rnti);
   }
 
-  // Computation of channel levels
-  int nb_re_pusch = 0, meas_symbol = -1;
-  for (meas_symbol = rel15_ul_ref->start_symbol_index; meas_symbol < end_symbol; meas_symbol++)
-    if ((nb_re_pusch = get_nb_re_pusch(frame_parms, &joint_pdu, meas_symbol)) > 0)
-      break;
+  int meas_symbol = -1;
+  for (int sym = 0; sym < frame_parms->symbols_per_slot; sym++) {
+    if (sym >= rel15_ul_ref->start_symbol_index && sym < rel15_ul_ref->start_symbol_index + rel15_ul_ref->nr_of_symbols) {
+      joint_pv->ul_valid_re_per_slot[sym] = get_nb_re_pusch(frame_parms, &joint_pdu, sym, &ptrs_info);
+      if (meas_symbol == -1 && joint_pv->ul_valid_re_per_slot[sym] != 0)
+        meas_symbol = sym;
+    } else
+      joint_pv->ul_valid_re_per_slot[sym] = 0;
+  }
 
+  int nb_re_pusch = joint_pv->ul_valid_re_per_slot[meas_symbol];
   AssertFatal(nb_re_pusch > 0 && meas_symbol >= 0,
               "nb_re_pusch %d cannot be 0 or meas_symbol %d cannot be negative here\n",
               nb_re_pusch,
@@ -727,7 +1075,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                            &joint_pdu,
                            frame_parms,
                            rel15_ul_ref->rnti,
-                           IS_BIT_SET(ptrs_symb_pos, meas_symbol));
+                           IS_BIT_SET(ptrs_info.ptrs_symbols, meas_symbol));
       stop_meas(&gNB->pusch_extraction_stats);
     }
 
@@ -756,6 +1104,11 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   else if (joint_pv->log2_maxh > 14)
     joint_pv->log2_maxh = 14;
 
+  nr_uci_mapping_t map_uci[group_size];
+  for (int u = 0; u < group_size; u++) {
+    pusch_vars_group[u]->uci_info = get_uci_on_pusch_info(rel15_ul_group[u], &ptrs_info, G[u]);
+    map_uci[u] = init_nr_uci_pusch_demux(rel15_ul_group[u], &pusch_vars_group[u]->uci_info, frame_parms, joint_pv);
+  }
   stop_meas(&gNB->rx_pusch_init_stats);
 
   start_meas(&gNB->rx_pusch_symbol_processing_stats);
@@ -772,8 +1125,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     int res_per_task = 0;
     for (int s = 0; s < numSymbols && s + symbol < end_symbol; s++) {
       int curr_sym = symbol + s;
-      joint_pv->ul_valid_re_per_slot[curr_sym] =
-          get_nb_re_pusch(frame_parms, &joint_pdu, curr_sym) - (IS_BIT_SET(ptrs_symb_pos, (symbol + s)) ? ptrs_re_symbol : 0);
       if (curr_sym == rel15_ul_ref->start_symbol_index) {
         joint_pv->llr_offset[curr_sym] = 0;
       } else {
@@ -799,8 +1150,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       // Last task processes remainder symbols
       rdata->numSymbols = task_index == loop_iter - 1 ? rel15_ul_ref->nr_of_symbols - (loop_iter - 1) * numSymbols : numSymbols;
       rdata->pusch_vars = joint_pv;
-      rdata->llr = joint_pv->llr;
-      rdata->ptrs_symb_pos = ptrs_symb_pos;
+      rdata->ptrs_symb_pos = ptrs_info.ptrs_symbols;
       rdata->ptrs_cpe = cpe;
       rdata->nvar = nvar;
       rdata->ant_port_start = ant_port_start;
@@ -812,13 +1162,10 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       rdata->scrambling_sequences = scrambling_sequences_arr;
       rdata->layer_offsets = layer_offset;
       rdata->layers_attenuation = total_layers ? log2_approx(max_ch >> 11) : 0;
+      rdata->map_uci = map_uci;
 
-      if (rel15_ul_ref->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
-        nr_pusch_symbol_processing(rdata);
-      } else {
-        task_t t = {.func = &nr_pusch_symbol_processing, .args = rdata};
-        pushTpool(&gNB->threadPool, t);
-      }
+      task_t t = {.func = &nr_pusch_symbol_processing, .args = rdata};
+      pushTpool(&gNB->threadPool, t);
 
       LOG_D(PHY, "%d.%d Added symbol %d to process, in pipe\n", frame, slot, symbol);
     } else {
@@ -904,6 +1251,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     gNBunlockScopeData(gNB, gNBPuschRxIq)
   }
   uint32_t total_llrs = total_res * rel15_ul_ref->qam_mod_order * rel15_ul_ref->nrOfLayers;
-  gNBscopeCopyWithMetadata(gNB, gNBPuschLlr, pusch_vars_group[0]->llr, sizeof(c16_t), 1, total_llrs, 0, &mt);
+  gNBscopeCopyWithMetadata(gNB, gNBPuschLlr, pusch_vars_group[0]->ulsch_llrs, sizeof(c16_t), 1, total_llrs, 0, &mt);
   return 0;
 }

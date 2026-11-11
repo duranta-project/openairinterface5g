@@ -55,6 +55,30 @@ void *ldpc_lib_handle; // corresponding dlsym() handle, see also below
 
 extern int nrLDPC_coding_encoder32(nrLDPC_slot_encoding_parameters_t *nrLDPC_slot_encoding_parameters,
                                    nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_parameters);
+
+/* the lifting sizes for which a parity check kernel has been generated, see
+   the ldpc_BG1_Zc*_32bit.cu in this directory and encode_parity_check_part_cuda() */
+static bool cuda_encoder_supports(const nrLDPC_TB_encoding_parameters_t *tbp)
+{
+  if (tbp->BG != 1)
+    return false;
+  switch (tbp->Z) {
+    case 176:
+    case 192:
+    case 208:
+    case 224:
+    case 240:
+    case 256:
+    case 288:
+    case 320:
+    case 352:
+    case 384:
+      return true;
+    default:
+      return false;
+  }
+}
+
 int nrLDPC_coding_encoder(nrLDPC_slot_encoding_parameters_t *slot_params)
 {
   // this should be the same as previous nrLDPC_coding_encoder() in nrLDPC_coding_segment_encoder.c
@@ -69,7 +93,7 @@ int nrLDPC_coding_encoder(nrLDPC_slot_encoding_parameters_t *slot_params)
   int offset[32];
   for (int dlsch_id = 0; dlsch_id < slot_params->nb_TBs; dlsch_id++) {
     nrLDPC_TB_encoding_parameters_t *tbp = &slot_params->TBs[dlsch_id];
-    if (tbp->BG == 1 && tbp->C > 8 && tbp->Z == 384) {
+    if (cuda_encoder_supports(tbp) && tbp->C > 8) {
       nrLDPC_coding_encoder32(slot_params, tbp);
     } else {
       // this is not handled by CUDA, handle with CPU

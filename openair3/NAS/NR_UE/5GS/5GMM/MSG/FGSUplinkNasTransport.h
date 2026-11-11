@@ -6,6 +6,7 @@
  * \brief uplink nas transport procedures
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 #include "MessageType.h"
 #include "OctetString.h"
@@ -38,6 +39,10 @@ typedef struct fgs_uplink_nas_transport_msg_tag {
   uint8_t requesttype;
   OctetString snssai;
   OctetString dnn;
+  /* Presence flags for optional fields */
+  bool requesttype_present;
+  bool snssai_present;
+  bool dnn_present;
 } fgs_uplink_nas_transport_msg;
 
 int encode_fgs_uplink_nas_transport(const fgs_uplink_nas_transport_msg *fgs_security_mode_comp, uint8_t *buffer, uint32_t len);

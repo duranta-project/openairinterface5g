@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>5gc-start-tab</htmlTabRef>
   <htmlTabName>5GC-Start</htmlTabName>
-  <htmlTabIcon>log-in</htmlTabIcon>
 
   <testCase>
     <class>DeployCoreNetwork</class>

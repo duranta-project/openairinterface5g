@@ -1,9 +1,14 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>PHY-Test-40-vrtsim</htmlTabRef>
   <htmlTabName>Timing phytest 40 MHz with vrtsim</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Disable Sleep States</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -D 0</command>
+  </testCase>
 
   <testCase>
     <class>Pull_Cluster_Image</class>
@@ -43,6 +48,7 @@
   <testCase>
     <class>AnalyzeRTStats_Object</class>
     <desc>Analyze Real-Time Stats on gNB</desc>
+    <yaml_path>ci-scripts/yaml_files/phytest_vrtsim_40MHz</yaml_path>
     <always_exec>true</always_exec>
     <stats_cfg>datalog_rt_stats.gnb.40.vrtsim.yaml</stats_cfg>
     <service>oai-gnb</service>
@@ -53,6 +59,7 @@
   <testCase>
     <class>AnalyzeRTStats_Object</class>
     <desc>Analyze Real-Time Stats on UE</desc>
+    <yaml_path>ci-scripts/yaml_files/phytest_vrtsim_40MHz</yaml_path>
     <always_exec>true</always_exec>
     <stats_cfg>datalog_rt_stats.ue.40.vrtsim.yaml</stats_cfg>
     <service>oai-nr-ue</service>
@@ -77,6 +84,14 @@
     <desc>Clean Test Images on Test Server</desc>
     <node>caracal</node>
     <images>oai-nr-ue oai-gnb</images>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <always_exec>true</always_exec>
+    <desc>Enable Sleep States</desc>
+    <node>caracal</node>
+    <command>sudo cpupower idle-set -E</command>
   </testCase>
 
 </testCaseList>

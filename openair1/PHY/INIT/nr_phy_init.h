@@ -29,7 +29,7 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
 void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb, int num_ant_tx);
 void free_nr_ue_dl_harq(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb);
 void free_nr_ue_ul_harq(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb, int num_ant_tx);
-void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp);
+void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp, bool do_ml);
 void free_nr_ue_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors);
 
 void phy_init_nr_top(PHY_VARS_NR_UE *ue);

@@ -1,9 +1,7 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 
 <testCaseList>
-  <htmlTabRef>test-tdd-20-tm1-def-sched</htmlTabRef>
   <htmlTabName>Test-TDD-20MHz-TM1-Default-Scheduler</htmlTabName>
-  <htmlTabIcon>tasks</htmlTabIcon>
 
   <testCase>
     <class>Custom_Command</class>

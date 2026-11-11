@@ -4,15 +4,14 @@
 
 #include "assertions.h"
 
-#include "NR_MAC_gNB/mac_proto.h"
+#include "mac_proto.h"
+#ifdef E3_AGENT
+#include "openair2/E3AP/ran_func_spectrum_extern.h"
+#endif /* E3_AGENT */
 
 #include "common/utils/LOG/log.h"
 #include "common/utils/nr/nr_common.h"
 #include "UTIL/OPT/opt.h"
-
-#include "openair2/X2AP/x2ap_eNB.h"
-
-#include "nr_pdcp/nr_pdcp_oai_api.h"
 
 #include "intertask_interface.h"
 
@@ -63,7 +62,7 @@ static void clear_beam_information(NR_beam_info_t *beam_info, int frame, int slo
 {
   // for now we use the same logic of UL_tti_req_ahead
   // reset after 1 frame with the exception of 15kHz
-  if (beam_info->beam_mode == NO_BEAM_MODE)
+  if (beam_info->bf_method == BF_METHOD_STRAIGHT_WIRE)
     return;
   // initialization done only once
   AssertFatal(beam_info->beam_allocation_size >= 0, "Beam information not initialized\n");
@@ -147,7 +146,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   start_meas(&cell->gNB_scheduler);
 
   int num_beams = 1;
-  if (cell->beam_info.beam_mode != NO_BEAM_MODE)
+  if (cell->beam_info.bf_method != BF_METHOD_STRAIGHT_WIRE)
     num_beams = cell->beam_info.beams_per_period;
   // clear vrb_maps
   for (int i = 0; i < num_beams; i++)
@@ -159,6 +158,10 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
     uint16_t *vrb_map_UL = cell->common_channels.vrb_map_UL[i];
     memcpy(&vrb_map_UL[prev_slot % size * MAX_BWP_SIZE], &cell->ulprbbl, sizeof(uint16_t) * MAX_BWP_SIZE);
   }
+  /* Hard-reserve prev_slot's UL for sensing so no UE allocator claims it. */
+#ifdef E3_AGENT
+  nr_mac_sensing_reserve_ul_slot(cell, prev_slot, frame);
+#endif /* E3_AGENT */
   clear_nr_nfapi_information(cell, frame, slot);
 
   bool wait_prach_completed = cell->num_scheduled_prach_rx >= NUM_PRACH_RX_FOR_NOISE_ESTIMATE;
@@ -240,6 +243,13 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, const int cell_id, frame_
   stop_meas(&cell->schedule_dlsch);
 
   nr_schedule_pucch(gNB, cell, frame, slot);
+
+  /* Now that all UE UL scheduling is done: restore the reserved slot and run the
+   * scan + publish against the final vrb_map. Both no-ops unless sensing is on. */
+#ifdef E3_AGENT
+  nr_mac_sensing_restore_ul_slot(cell, frame, slot);
+  nr_mac_sensing_scan_and_publish(gNB, cell, frame, slot);
+#endif /* E3_AGENT */
 
   const int current_index = ul_buffer_index(frame, slot, slots_frame, cell->UL_tti_req_ahead_size);
   copy_ul_tti_req(&sched_info->UL_tti_req, &cell->UL_tti_req_ahead[current_index]);

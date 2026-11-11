@@ -22,7 +22,7 @@ This will create the `libtelnetsrv.so` and `libtelnetsrv_<app>` file in the `cma
 | `libtelnetsrv_ci`         | gNB specific CI functions           |
 | `libtelnetsrv_ciUE`       | UE specific CI functions            |
 
-When starting the softmodem, you must specify the **_\-\-telnetsrv_** option to load and start the telnet server. The telnet server is loaded via the [oai shared library loader](loader).
+When starting the softmodem, you must specify the **_\-\-telnetsrv_** option to load and start the telnet server. The telnet server is loaded via the [oai shared library loader](../../DOC/loader.md).
 
 # using the Command Line Interface
 By default the telnet server listen on all the ip addresses configured on the system and on port 9090.  This behavior can be changed using the `listenaddr` and `listenport` parameters.

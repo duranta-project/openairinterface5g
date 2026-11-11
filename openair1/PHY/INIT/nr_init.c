@@ -28,7 +28,8 @@
 #include "nr_phy_common.h"
 
 #ifdef LDPC_CUDA
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
+#include "PHY/gpu_alloc.h"
 #endif
 
 static void init_DLSCH_struct(PHY_VARS_gNB *gNB);
@@ -99,7 +100,6 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   common_vars->analog_bf = cfg->analog_beamforming_ve.analog_bf_vendor_ext.value;
   LOG_I(PHY, "L1 configured with%s analog beamforming\n", common_vars->analog_bf ? "" : "out");
   if (common_vars->analog_bf) {
-    // True only if nrmac->beam_info.beam_mode == FAPI_ANALOG_BEAM, thus analog_beamforming=2
     common_vars->num_beams_period = cfg->analog_beamforming_ve.num_beams_period_vendor_ext.value;
     LOG_I(PHY, "Max number of concurrent beams: %d\n", common_vars->num_beams_period);
   } else
@@ -189,15 +189,16 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
       pusch->rxdataF_comp[i] = (c16_t *)malloc16_clear(sizeof(**pusch->rxdataF_comp) * nb_re_pusch2 * fp->symbols_per_slot);
     }
 #ifdef LDPC_CUDA
-    cudaError_t err = cudaHostAlloc((void **)&pusch->llr,
-                                    (144 * 3 * 8448) * sizeof(int16_t),
-                                    cudaHostAllocMapped); // 144 segments 8448*3 coded bits per segment
-    AssertFatal(err == cudaSuccess, "CUDA Error (pusch_llr): %s\n", cudaGetErrorString(err));
-    err = cudaHostGetDevicePointer((void **)&pusch->llr_dev, pusch->llr, 0);
-    AssertFatal(err == cudaSuccess, "CUDA Error (harq_f_dev): %s\n", cudaGetErrorString(err));
+    // 144 segments 8448*3 coded bits per segment
+    pusch->ulsch_llrs = gpuHostAlloc_or_fail((144 * 3 * 8448) * sizeof(int16_t), gpuHostAllocMapped);
+    pusch->llr_dev = gpuHostGetDevicePointer_or_fail(pusch->ulsch_llrs);
 #else
-    pusch->llr = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t)); // 144 segments 3*8448 coded bits per segment
+    pusch->ulsch_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t)); // 144 segments 3*8448 coded bits per segment
 #endif
+    // TODO refine the size
+    pusch->ack_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
+    pusch->csi1_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
+    pusch->csi2_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
     pusch->ul_valid_re_per_slot = (int16_t *)malloc16_clear(sizeof(int16_t) * fp->symbols_per_slot);
   } // ulsch_id
 }
@@ -251,10 +252,13 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
     free_and_zero(pusch_vars->rxdataF_comp);
 
 #ifdef LDPC_CUDA
-    cudaFreeHost(pusch_vars->llr_dev);
+    gpuFreeHost(pusch_vars->llr_dev);
 #else
-    free_and_zero(pusch_vars->llr);
+    free_and_zero(pusch_vars->ulsch_llrs);
 #endif
+    free_and_zero(pusch_vars->ack_llrs);
+    free_and_zero(pusch_vars->csi1_llrs);
+    free_and_zero(pusch_vars->csi2_llrs);
   } // ULSCH_id
   free(gNB->pusch_vars);
 
@@ -447,7 +451,7 @@ void init_nr_transport(PHY_VARS_gNB *gNB)
   ret = spsc_q_alloc(&gNB->pusch_queue, gNB->max_nb_pusch, sizeof(NR_gNB_PUSCH_job_t));
   DevAssert(ret);
 
-  int max_nb_srs = buffer_ul_slots ? buffer_ul_slots << 1 : 1; // assuming at most 2 SRS per slot
+  int max_nb_srs = buffer_ul_slots ? MAX_MOBILES_PER_GNB * buffer_ul_slots : 1;
   ret = spsc_q_alloc(&gNB->srs_queue, max_nb_srs, sizeof(NR_gNB_SRS_job_t));
   DevAssert(ret);
 

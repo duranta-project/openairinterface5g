@@ -8,9 +8,9 @@
 
 OAI's GTP-U implementation lives in `openair3/ocp-gtpu/`. It provides the UDP/GTP-U
 user-plane (UP) tunnels used for S1-U (eNB-S-GW), N3 (gNB-UPF), F1-U (CU-DU), and related paths.
-This document covers module layout, GTP-U extension headers, G-PDU RX, and Error
-Indication. A shorter overview of the GTP thread and tunnel API remains
-in [SW_archi.md](../SW_archi.md) (section "GTP" / "New GTP").
+This document covers module layout, tunnel TEID mapping, GTP-U extension headers,
+G-PDU RX, and Error Indication. A shorter overview of the GTP thread and tunnel API
+remains in [SW_archi.md](../SW_archi.md) (section "GTP" / "New GTP").
 
 ### Relevant Specs
 
@@ -137,6 +137,32 @@ flowchart TD
   I --> J
 ```
 
+## Tunnel mapping (`te2ue_mapping`)
+
+`globGtp.te2ue_mapping` (locked by `gtp_lock`) holds one `ueidData_t` per local
+tunnel in `gtp_itf.cpp`.
+
+| Field | Role |
+|-------|------|
+| `incoming_teid` (map key) | Local TEID peers use in the GTP-U header when sending to this endpoint, G-PDU RX fetches the tunnel by this value (`Gtpv1uHandleGpdu` does `find(header TEID)`, same value as bearer `teid_incoming`) |
+| `outgoing_teid` | TEID this endpoint puts in UL/TX G-PDUs toward the remote peer (`newGtpuCreateTunnel` / `GtpuUpdateTunnelOutgoingAddressAndTeid`), Error Indication RX matches TEID-I to this (`gtpv1u_find_tunnel_by_outgoing_teid`) |
+| `ue_id`, `pdusession_id`, `incoming_rb_id` | UE / PDU session / bearer context for callbacks |
+| `callBack` | Delivery without QFI (5G F1-U, 4G S1-U, etc.) |
+| `callBackSDAP` | Delivery with QFI (5G N3 / SDAP) |
+| `errorIndicationCallBack` | Error Indication callback (N3 only for now) |
+
+Same tunnel uses two TEIDs (any GTP-U peer: N3, F1-U, S1-U, etc):
+
+```mermaid
+flowchart LR
+  subgraph Local["local GTP-U"]
+    M["te2ue_mapping<br/>key = incoming_teid<br/>value.outgoing_teid"]
+  end
+  Peer["GTP-U peer"]
+  Peer -->|"RX G-PDU<br/>header TEID = incoming_teid"| M
+  M -->|"TX G-PDU<br/>header TEID = outgoing_teid"| Peer
+```
+
 ## Error Indication
 
 Message type 26 (TS 29.281). Body is an IE list after the GTP-U header
@@ -147,23 +173,20 @@ Typical layout (TS 29.281 clause 7.3.1, header description in
 [GTP-U header layout](#gtp-u-header-layout)):
 
 * `S=1`, `E=0`, `PN=0`, header TEID = `0` (clause 5.1, not tunnel-scoped).
-* Failed TEID is only in **TEID Data I** (TV, clause 8.3).
-* **Peer Address** (TLV, clause 8.4): GTP-U IP of the node that detected the
-  error.
+* Failed TEID is only in **TEID Data I** (TV, clause 8.3): TEID of the triggering
+  G-PDU.
+* **Peer Address** (TLV, clause 8.4): destination address of that G-PDU
+  (clause 7.3.1), the GTP-U endpoint that received it / detected the error.
 * Optional Recovery Time Stamp / Private Extension (not implemented in OAI).
 * RX compatibility (`gtpv1u_decode_error_indication()` only): if `S=0` or header
   TEID is non-zero, log a warning and continue.
 
 ```text
 Header: type=26, TEID=0, S=1 -> IEs from octet 13
-  TEID Data I (TV, 8.3)      - TEID in error
-  Peer Address (TLV, 8.4)    - IPv4 or IPv6
+  TEID Data I (TV, 8.3)      - TEID of the triggering G-PDU
+  Peer Address (TLV, 8.4)    - destination IP of that G-PDU
   Recovery / Private Ext.    - optional; OAI TX omits
 ```
-
-Trigger: with unknown TEID in `te2ue_mapping` always drop the inbound G-PDU,
-if TEID is not 0 also TX Error Indication to the UDP originator, if TEID = 0
-drop only with no Error Indication (TS 29.281 §7.3.1 / TS 23.527 §5.2.1).
 
 ### APIs (`gtp_itf.h`)
 
@@ -171,7 +194,51 @@ drop only with no Error Indication (TS 29.281 §7.3.1 / TS 23.527 §5.2.1).
 * Per-tunnel `errorIndicationCallBack` on tunnel create (`newGtpuCreateTunnel` /
   `gtpv1u_create_ngu_tunnel`)
 
-### Implementation
+### TS 29.281 clause 7.3.1 implementation
+
+Error Indication TX and RX below follow TS 29.281 clause 7.3.1 for any
+GTP-U peer pair (N3, F1-U, etc.) in the gNB.
+
+**TX** (unknown inbound G-PDU, TS 23.527 clause 5.2.1):
+`Gtpv1uHandleGpdu()` always drops the G-PDU. If header TEID is not all zeros it
+also calls `gtpv1uSendErrorIndication()`. Peer Address is the local endpoint
+(destination of the inbound G-PDU).
+
+```mermaid
+sequenceDiagram
+  participant Peer as GTP-U peer
+  participant GTP as local GTP-U
+
+  Peer->>GTP: G-PDU header TEID=T (unknown)
+  GTP->>GTP: te2ue_mapping.find(T) miss, drop G-PDU
+  GTP->>Peer: Error Indication<br/>TEID-I=T<br/>Peer Address=local (G-PDU destination)
+```
+
+**RX:** TEID-I is the TEID of the triggering G-PDU (= local `outgoing_teid`
+toward that peer). Peer Address is the destination address of the G-PDU that
+triggered the Error Indication. The Error Indication IP Destination Address is
+the source address of the G-PDU that triggered the Error Indication, while the
+IP Source Address is the address of the source GTP-U entity from which the message
+is originated (TS 29.281 clause 4.4.3.4).
+
+`Gtpv1uHandleError()` uses `gtpv1u_find_tunnel_by_outgoing_teid()`
+(`outgoing_teid == TEID-I`), then invokes `errorIndicationCallBack` when set
+(only N3 as of today).
+
+```mermaid
+sequenceDiagram
+  participant Peer as GTP-U peer
+  participant GTP as local GTP-U
+
+  Note over GTP: tunnel: key=incoming_teid, outgoing_teid=OUT
+  GTP->>Peer: G-PDU header TEID=OUT
+  Peer-->>GTP: Error Indication<br/>TEID-I=OUT, Peer Address=peer GTP-U
+  GTP->>GTP: gtpv1u_decode_error_indication()
+  GTP->>GTP: gtpv1u_find_tunnel_by_outgoing_teid()
+  GTP->>GTP: errorIndicationCallBack()
+```
+
+#### N3 path
 
 **Spec (TS 23.527 §5.3.3.1):** on N3 Error Indication from the UPF, the 5G-AN
 shall release PDU session resources immediately and shall send NGAP PDU Session
@@ -180,24 +247,7 @@ N3 GTP-U (29.281) belongs to CUUP so has no NGAP binding, therefore in OAI
 the indication is forwarded to CU-CP **Bearer Context Modification Required**
 (§8.3.3) which is used by CU-UP to inform CU-CP about issues in the UP.
 
-TX: unknown inbound G-PDU TEID (TS 29.281 clause 7.3.1 / TS 23.527 clause 5.2.1):
-`Gtpv1uHandleGpdu()` always drops the G-PDU and if header TEID is not all zeros
-it also calls `gtpv1uSendErrorIndication()`.
-
-**Not implemented:** F1-U Error Indication transmission and handling
-
-```mermaid
-sequenceDiagram
-  participant Peer as UDP peer
-  participant GTP as GTP-U
-
-  Peer->>GTP: G-PDU (unknown TEID)
-  GTP->>GTP: drop G-PDU
-  GTP->>Peer: Error Indication (TEID-I in IE body)
-```
-
-RX (N3 Error Indication from UPF). CU-UP to CU-CP direct/e1ap deployment
-(`cuup_cucp_direct` vs `cuup_cucp_e1ap`):
+RX CU-UP to CU-CP (`cuup_cucp_direct` vs `cuup_cucp_e1ap`):
 
 ```mermaid
 sequenceDiagram
@@ -209,9 +259,10 @@ sequenceDiagram
   participant DU as gNB-DU
   participant UE as UE
 
-  UPF->>GTP: Error Indication (N3)
+  UPF->>GTP: Error Indication (N3)<br/>TEID-I=OUT
   GTP->>GTP: Gtpv1uHandleError()
   GTP->>GTP: gtpv1u_decode_error_indication()
+  GTP->>GTP: gtpv1u_find_tunnel_by_outgoing_teid()
   GTP->>CUUP: n3_error_indication()<br/>release N3 / F1-U / SDAP
   alt mono / F1 integrated (nr-softmodem)
     CUUP->>CUCP: bearer_mod_required_direct()<br/>Bearer Context Modification Required
@@ -228,6 +279,10 @@ sequenceDiagram
   CUCP->>CUCP: handle_rrcReconfigurationComplete()
   CUCP->>AMF: NGAP PDU Session Resource Notify
 ```
+
+#### F1 path
+
+F1-U Error Indication application handling is not implemented (no callback).
 
 ## Tests
 

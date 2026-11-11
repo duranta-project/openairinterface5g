@@ -14,11 +14,9 @@
 #include <unistd.h>
 #include "NR_DRB-ToAddMod.h"
 #include "NR_DRB-ToAddModList.h"
-#include "NR_MAC_COMMON/nr_mac.h"
-#include "NR_MAC_COMMON/nr_mac_common.h"
-#include "NR_MAC_gNB/mac_proto.h"
-#include "NR_MAC_gNB/mac_rrc_ul.h"
-#include "NR_MAC_gNB/nr_mac_gNB.h"
+#include "mac_proto.h"
+#include "mac_rrc_ul.h"
+#include "nr_mac_gNB.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "NR_RLC-BearerConfig.h"
 #include "NR_RadioBearerConfig.h"
@@ -30,15 +28,18 @@
 #include "common/ran_context.h"
 #include "executables/softmodem-common.h"
 #include "linear_alloc.h"
-#include "nr_pdcp/nr_pdcp_entity.h"
-#include "nr_pdcp/nr_pdcp_oai_api.h"
-#include "nr_rlc/nr_rlc_oai_api.h"
+#include "LAYER2/nr_pdcp/nr_pdcp_entity.h"
+#include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
+#include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/F1AP/lib/f1ap_interface_management.h"
 #include "seq_arr.h"
 #include "system.h"
 #include "time_meas.h"
 #include "utils.h"
+#ifdef E3_AGENT
+#include "openair2/E3AP/ran_func_spectrum_extern.h"
+#endif /* E3_AGENT */
 
 #define MACSTATSSTRLEN 36256
 
@@ -288,6 +289,9 @@ void mac_top_init_gNB(ngran_node_t node_type,
         cell->sib1_pdsch[n].time_domain_allocation = -1;
       cell->common_channels.ServingCellConfigCommon = scc;
       cell->radio_config = *config;
+      // simulators and tests build nr_mac_config_t without the config parser and leave srs zeroed
+      if (cell->radio_config.srs.comb == 0)
+        cell->radio_config.srs = (nr_srs_config_t){.comb = 2, .ue_per_symbol = 1, .symbols_per_slot = 1, .last_symbol = 12};
       RC.nrmac[i]->rlc_config = *default_rlc_config;
 
       cell->first_MIB = true;
@@ -358,11 +362,30 @@ void mac_top_init_gNB(ngran_node_t node_type,
   srand48(0);
 }
 
+periodic_ue_sched_t create_period_structure(nr_cell_sched_t *cell, nr_periodic_channel_t channel)
+{
+  int max_period = get_ideal_period(cell, SRS, 0);
+  const frame_structure_t *fs = &cell->frame_structure;
+  AssertFatal(max_period > 0 && max_period % fs->numb_slots_period == 0, "Invalid SRS periodicity\n");
+
+  bool count_mixed = channel != SRS;
+  int valid_slots_per_period = count_mixed ? get_ul_slots_per_period(fs) : get_full_ul_slots_per_period(fs);
+  int nb_slots = (max_period / fs->numb_slots_period) * valid_slots_per_period;
+  periodic_ue_sched_t p = {.max_period = max_period, .max_ue_per_slot = nr_srs_ue_per_slot(&cell->radio_config)};
+  p.list = calloc_or_fail(nb_slots * p.max_ue_per_slot, sizeof(NR_UE_info_t *));
+  return p;
+}
+
+static void destroy_periodic_sched(periodic_ue_sched_t p)
+{
+  free(p.list);
+}
+
 void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 {
   for (size_t i = 0; i < sizeofArray(mac->cells); i++) {
     nr_cell_sched_t *cell = &mac->cells[i];
-    free(cell->radio_config.bw_list);
+    free(cell->radio_config.ssb_beams);
     if (cell->common_channels.ServingCellConfigCommon == NULL)
       continue;
     NR_COMMON_channels_t *cc = &cell->common_channels;
@@ -370,18 +393,26 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, cc->mib);
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, cc->sib1);
     ASN_STRUCT_FREE(asn_DEF_NR_ServingCellConfigCommon, cc->ServingCellConfigCommon);
+#ifdef E3_AGENT
+    e3_spectrum_mac_detach_cell(cell);
+#endif /* E3_AGENT */
   }
   NR_UEs_t *UE_info = &mac->UE_info;
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
     if (UE_info->connected_ue_list[i])
-      delete_nr_ue_data(UE_info->connected_ue_list[i], &UE_info->uid_allocator);
+      delete_nr_ue_data(mac, UE_info->connected_ue_list[i]);
   for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
     if (UE_info->access_ue_list[i])
-      delete_nr_ue_data(UE_info->access_ue_list[i], &UE_info->uid_allocator);
+      delete_nr_ue_data(mac, UE_info->access_ue_list[i]);
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);
   free(mac->positioning_config);
+
+  for (size_t i = 0; i < sizeofArray(mac->cells); i++) {
+    nr_cell_sched_t *cell = &mac->cells[i];
+    destroy_periodic_sched(cell->periodic_srs_config);
+  }
 }
 
 void nr_mac_send_f1_setup_req(void)

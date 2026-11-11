@@ -23,9 +23,13 @@
     int ret = sem_post(&sem);                                                                  \
     AssertFatal(ret == 0, "sem_post(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno)); \
   }
+/* POSIX sem_wait(), ERRORS: retry EINTR before treating the task as complete. */
 #define semwait(sem)                                                                           \
   {                                                                                            \
-    int ret = sem_wait(&sem);                                                                  \
+    int ret;                                                                                 \
+    do {                                                                                     \
+      ret = sem_wait(&sem);                                                                   \
+    } while (ret == -1 && errno == EINTR);                                                     \
     AssertFatal(ret == 0, "sem_wait(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno)); \
   }
 #define semdestroy(sem)                                                                           \
@@ -44,7 +48,7 @@ void completed_many_task_ans(task_ans_t* ans, uint num_completed_jobs)
 {
   DevAssert(ans != NULL);
   // Using atomic counter in contention scenario to avoid locking in producers
-  int num_jobs = atomic_fetch_sub_explicit(&ans->counter, num_completed_jobs, memory_order_relaxed);
+  int num_jobs = atomic_fetch_sub_explicit(&ans->counter, num_completed_jobs, memory_order_acq_rel);
   if (num_jobs == num_completed_jobs) {
     // Using semaphore to enable blocking call in join_task_ans
     sempost(ans->sem);

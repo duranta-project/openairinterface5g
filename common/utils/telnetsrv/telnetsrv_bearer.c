@@ -56,7 +56,7 @@ int add_bearer(char *buf, int debug, telnet_printfunc_t prnt)
   }
 
   // verify it exists in RRC as well
-  rrc_gNB_ue_context_t *rrcue = rrc_gNB_get_ue_context_by_rnti_any_du(RC.nrrrc[0], rnti);
+  rrc_gNB_ue_context_t *rrcue = rrc_gNB_get_ue_context_by_rnti_any_du(RC.nrrrc[0], rnti, -1);
   if (!rrcue)
     ERROR_MSG_RET("could not find UE with RNTI %04x\n", rnti);
 
@@ -82,7 +82,7 @@ int release_bearer(char *buf, int debug, telnet_printfunc_t prnt)
   }
 
   // verify it exists in RRC as well
-  rrc_gNB_ue_context_t *rrcue = rrc_gNB_get_ue_context_by_rnti_any_du(RC.nrrrc[0], rnti);
+  rrc_gNB_ue_context_t *rrcue = rrc_gNB_get_ue_context_by_rnti_any_du(RC.nrrrc[0], rnti, -1);
   if (!rrcue)
     ERROR_MSG_RET("could not find UE with RNTI %04x\n", rnti);
 

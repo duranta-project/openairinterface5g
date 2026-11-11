@@ -1,8 +1,6 @@
 <!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
 <testCaseList>
-  <htmlTabRef>physim-timed-tab</htmlTabRef>
   <htmlTabName>PhySim with timing check</htmlTabName>
-  <htmlTabIcon>wrench</htmlTabIcon>
 
   <testCase>
     <class>Create_Workspace</class>

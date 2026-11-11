@@ -58,7 +58,6 @@ PHY_VARS_gNB *gNB;
 PHY_VARS_NR_UE *UE;
 RAN_CONTEXT_t RC;
 RU_t *ru;
-double cpuf;
 //uint8_t nfapi_mode=0;
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
@@ -134,7 +133,6 @@ int main(int argc, char **argv){
 
   channel_desc_t *UE2gNB;
   SCM_t channel_model = Rayleigh1;
-  cpuf = get_cpu_freq_GHz();
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
     exit_fun("[SOFTMODEM] Error, configuration module init failed\n");
@@ -545,7 +543,7 @@ int main(int argc, char **argv){
 
   nfapi_nr_prach_pdu_t prach_pdu = {0};
   prach_pdu.num_cs                                                                      = get_NCS(NCS_config, format0, restrictedSetConfig);
-  prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value        = 1+(64/(N_ZC/prach_pdu.num_cs));
+  prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value        = prach_pdu.num_cs == 0 ? 64 : (64 + N_ZC / prach_pdu.num_cs - 1) / (N_ZC / prach_pdu.num_cs);
   prach_pdu.prach_format                                                                = prach_format;
 
   // Configure UE

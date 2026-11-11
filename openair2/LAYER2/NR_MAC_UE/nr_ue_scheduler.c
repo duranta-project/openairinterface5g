@@ -14,9 +14,9 @@
 #include <common/utils/nr/nr_common.h>
 
 /* MAC */
-#include "NR_MAC_COMMON/nr_mac.h"
-#include "NR_MAC_COMMON/nr_mac_common.h"
-#include "NR_MAC_UE/mac_proto.h"
+#include "LAYER2/NR_MAC_COMMON/nr_mac.h"
+#include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
+#include "LAYER2/NR_MAC_UE/mac_proto.h"
 
 /* utils */
 #include "assertions.h"
@@ -378,29 +378,19 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
   int dmrslength = 1;
   NR_PUSCH_Config_t *pusch_Config = current_UL_BWP->pusch_Config;
 
-  AssertFatal(!((mac->ra.ra_state < nrRA_SUCCEEDED && mac->ra.ra_type == RA_2_STEP) && rar_grant), "logic error: Is not possible to have both msgA_pusch_resource and rar_grant\n");
+  AssertFatal(!((mac->ra.ra_state < nrRA_SUCCEEDED && mac->ra.ra_type == RA_2_STEP) && rar_grant),
+              "logic error: Is not possible to have both msgA_pusch_resource and rar_grant\n");
 
   if (mac->ra.ra_state < nrRA_SUCCEEDED && mac->ra.ra_type == RA_2_STEP) {
     NR_MsgA_PUSCH_Resource_r16_t *msgA_PUSCH_Resource =
         current_UL_BWP->msgA_ConfigCommon_r16->msgA_PUSCH_Config_r16->msgA_PUSCH_ResourceGroupA_r16;
+    int mapping_type = *msgA_PUSCH_Resource->mappingTypeMsgA_PUSCH_r16;
     int S = 0;
     int L = 0;
     SLIV2SL(*msgA_PUSCH_Resource->startSymbolAndLengthMsgA_PO_r16, &S, &L);
     tda_info->k2 = msgA_PUSCH_Resource->msgA_PUSCH_TimeDomainOffset_r16;
-    tda_info->startSymbolIndex = S;
-    tda_info->nrOfSymbols = L;
-    l_prime_mask = get_l_prime(tda_info->nrOfSymbols,
-                               tda_info->mapping_type,
-                               add_pos,
-                               dmrslength,
-                               tda_info->startSymbolIndex,
-                               mac->dmrs_TypeA_Position);
-    LOG_I(NR_MAC,
-          "MSGA PUSCH start_sym:%d NR Symb:%d mappingtype:%d, DMRS_MASK:%x\n",
-          pusch_config_pdu->start_symbol_index,
-          pusch_config_pdu->nr_of_symbols,
-          tda_info->mapping_type,
-          l_prime_mask);
+    l_prime_mask = get_l_prime(L, mapping_type, add_pos, dmrslength, S, 0);
+    LOG_I(NR_MAC, "MSGA PUSCH start_sym:%d NR Symb:%d mappingtype:%d, DMRS_MASK:%x\n", S, L, mapping_type, l_prime_mask);
 
     LOG_D(NR_MAC,
           "sc_info->initial_ul_BWPStart = %d  sc_info->initial_ul_BWPSize = %d\n",
@@ -409,12 +399,12 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     pusch_config_pdu->handle = 0;
     pusch_config_pdu->rb_size = msgA_PUSCH_Resource->nrofPRBs_PerMsgA_PO_r16;
     pusch_config_pdu->mcs_table = 0;
-    pusch_config_pdu->frequency_hopping = msgA_PUSCH_Resource->msgA_IntraSlotFrequencyHopping_r16 ? *msgA_PUSCH_Resource->msgA_IntraSlotFrequencyHopping_r16 : 0;
+    pusch_config_pdu->frequency_hopping =
+        msgA_PUSCH_Resource->msgA_IntraSlotFrequencyHopping_r16 ? *msgA_PUSCH_Resource->msgA_IntraSlotFrequencyHopping_r16 : 0;
     pusch_config_pdu->pusch_data.new_data_indicator = 1; // new data
     pusch_config_pdu->num_dmrs_cdm_grps_no_data = 2;
-    pusch_config_pdu->ul_dmrs_symb_pos = get_l_prime(3, 0, pusch_dmrs_pos2, pusch_len1, 10, mac->dmrs_TypeA_Position);
     pusch_config_pdu->transform_precoding =
-           *mac->current_UL_BWP->msgA_ConfigCommon_r16->msgA_PUSCH_Config_r16->msgA_TransformPrecoder_r16;
+        *mac->current_UL_BWP->msgA_ConfigCommon_r16->msgA_PUSCH_Config_r16->msgA_TransformPrecoder_r16;
     pusch_config_pdu->rb_bitmap[0] = 0;
     pusch_config_pdu->rb_start = msgA_PUSCH_Resource->frequencyStartMsgA_PUSCH_r16; // rb_start depends on the RO
     pusch_config_pdu->bwp_size = sc_info->initial_ul_BWPSize;
@@ -425,19 +415,52 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     pusch_config_pdu->vrb_to_prb_mapping = 0;
     pusch_config_pdu->dmrs_config_type = 0;
     pusch_config_pdu->data_scrambling_id = mac->physCellId;
-    pusch_config_pdu->ul_dmrs_scrambling_id = mac->physCellId;
-    pusch_config_pdu->scid = 0;
+    NR_MsgA_PUSCH_Config_r16_t *msgA_pusch_cfg = current_UL_BWP->msgA_ConfigCommon_r16->msgA_PUSCH_Config_r16;
+    pusch_config_pdu->data_scrambling_id =
+        msgA_pusch_cfg->msgA_DataScramblingIndex_r16 ? *msgA_pusch_cfg->msgA_DataScramblingIndex_r16 : mac->physCellId;
+    pusch_config_pdu->ul_dmrs_scrambling_id = msgA_PUSCH_Resource->msgA_DMRS_Config_r16.msgA_ScramblingID0_r16
+                                                  ? *msgA_PUSCH_Resource->msgA_DMRS_Config_r16.msgA_ScramblingID0_r16
+                                                  : mac->physCellId;
+    pusch_config_pdu->scid =
+        0; // n_SCID from DMRS resource mapping (TS 38.213 8.1A); only resource 0 scheduled (nrofDMRS-Sequences = 1)
     pusch_config_pdu->resource_alloc = 1;
     pusch_config_pdu->tx_direct_current_location = 0;
     pusch_config_pdu->mcs_index = msgA_PUSCH_Resource->msgA_MCS_r16;
-    pusch_config_pdu->qam_mod_order = nr_get_Qm_dl(pusch_config_pdu->mcs_index, 0);
     pusch_config_pdu->start_symbol_index = S;
     pusch_config_pdu->nr_of_symbols = L;
     pusch_config_pdu->pusch_data.rv_index = 0; // 8.3 in 38.213
     pusch_config_pdu->pusch_data.harq_process_id = 0;
     pusch_config_pdu->pusch_data.num_cb = 0;
     pusch_config_pdu->tbslbrm = 0;
-    pusch_config_pdu->target_code_rate = nr_get_code_rate_ul(pusch_config_pdu->mcs_index, 0);
+
+    LOG_D(NR_MAC,
+          "pdu_bit_map %d rnti %d handle %d rb_size %d mcs_table %d frequency_hopping %d dmrs_ports %d start_symbol_index %d "
+          "nr_of_symbols %d new_data_indicator %d num_dmrs_cdm_grps_no_data %d ul_dmrs_symb_pos %d transform_precoding %d rb_start "
+          "%d bwp_size %d bwp_start %d subcarrier_spacing %d data_scrambling_id %d ul_dmrs_scrambling_id %d mcs_index %d "
+          "qam_mod_order %d target_code_rate %d tb_size %d\n",
+          pusch_config_pdu->pdu_bit_map,
+          pusch_config_pdu->rnti,
+          pusch_config_pdu->handle,
+          pusch_config_pdu->rb_size,
+          pusch_config_pdu->mcs_table,
+          pusch_config_pdu->frequency_hopping,
+          pusch_config_pdu->dmrs_ports,
+          pusch_config_pdu->start_symbol_index,
+          pusch_config_pdu->nr_of_symbols,
+          pusch_config_pdu->pusch_data.new_data_indicator,
+          pusch_config_pdu->num_dmrs_cdm_grps_no_data,
+          pusch_config_pdu->ul_dmrs_symb_pos,
+          pusch_config_pdu->transform_precoding,
+          pusch_config_pdu->rb_start,
+          pusch_config_pdu->bwp_size,
+          pusch_config_pdu->bwp_start,
+          pusch_config_pdu->subcarrier_spacing,
+          pusch_config_pdu->data_scrambling_id,
+          pusch_config_pdu->ul_dmrs_scrambling_id,
+          pusch_config_pdu->mcs_index,
+          pusch_config_pdu->qam_mod_order,
+          pusch_config_pdu->target_code_rate,
+          pusch_config_pdu->pusch_data.tb_size);
 
   } else if (rar_grant) {
     // Note: for Msg3 or MsgA PUSCH transmission the N_PRB_oh is always set to 0
@@ -687,8 +710,10 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     /* HARQ_PROCESS_NUMBER */
     pusch_config_pdu->pusch_data.harq_process_id = pid;
 
-    if (NR_DMRS_ulconfig != NULL)
-      add_pos = (NR_DMRS_ulconfig->dmrs_AdditionalPosition == NULL) ? 2 : *NR_DMRS_ulconfig->dmrs_AdditionalPosition;
+    if (dci_format == NR_UL_DCI_FORMAT_0_0)
+      add_pos = pusch_config_pdu->frequency_hopping ? pusch_dmrs_pos1 : pusch_dmrs_pos2;
+    else if (NR_DMRS_ulconfig != NULL)
+      add_pos = get_pusch_dmrs_pos(NR_DMRS_ulconfig->dmrs_AdditionalPosition);
 
     /* DMRS */
     l_prime_mask = get_l_prime(pusch_config_pdu->nr_of_symbols,
@@ -1021,10 +1046,10 @@ void nr_ue_aperiodic_srs_scheduling(NR_UE_MAC_INST_t *mac, long resource_trigger
   }
 
   int scs = mac->current_UL_BWP->scs;
-  AssertFatal(slot_offset > GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, scs),
+  AssertFatal(slot_offset > GET_DURATION_RX_TO_TX(mac, scs),
               "Slot offset between DCI and aperiodic SRS (%d) needs to be higher than DURATION_RX_TO_TX (%ld)\n",
               slot_offset,
-              GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, scs));
+              GET_DURATION_RX_TO_TX(mac, scs));
   int n_slots_frame = mac->frame_structure.numb_slots_frame;
   int sched_slot = (slot + slot_offset) % n_slots_frame;
   if (!is_ul_slot(sched_slot, &mac->frame_structure)) {
@@ -1080,11 +1105,13 @@ static bool nr_ue_periodic_srs_scheduling(NR_UE_MAC_INST_t *mac, frame_t frame, 
     }
 
     uint16_t period = srs_period[srs_resource->resourceType.choice.periodic->periodicityAndOffset_p.present];
-    uint16_t offset = get_nr_srs_offset(srs_resource->resourceType.choice.periodic->periodicityAndOffset_p);
+    int offset = get_nr_srs_offset(srs_resource->resourceType.choice.periodic->periodicityAndOffset_p);
+    if (offset < 0)
+      continue;
     int n_slots_frame = mac->frame_structure.numb_slots_frame;
 
     // Check if UE should transmit the SRS
-    if((frame*n_slots_frame+slot-offset)%period == 0) {
+    if (is_periodic_occasion(frame, slot, n_slots_frame, period, offset)) {
       fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, frame, slot, FAPI_NR_UL_CONFIG_TYPE_SRS);
       if (!pdu)
         return false;
@@ -1215,7 +1242,7 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
     NR_NZP_CSI_RS_Resource_t *nzpcsi = csi_measconfig->nzp_CSI_RS_ResourceToAddModList->list.array[id];
     int period, offset;
     csi_period_offset(NULL, nzpcsi->periodicityAndOffset, &period, &offset);
-    if((frame * mac->frame_structure.numb_slots_frame + slot-offset) % period != 0)
+    if (!is_periodic_occasion(frame, slot, mac->frame_structure.numb_slots_frame, period, offset))
       continue;
     bool is_last_res = false;
     NR_CSI_ResourceConfigId_t csi_res_id = find_CSI_resourceconfig(csi_measconfig, dl_bwp_id, nzpcsi->nzp_CSI_RS_ResourceId, &is_last_res);
@@ -1272,7 +1299,7 @@ static void nr_schedule_csi_for_im(NR_UE_MAC_INST_t *mac, int frame, int slot)
   for (int id = 0; id < csi_measconfig->csi_IM_ResourceToAddModList->list.count; id++){
     imcsi = csi_measconfig->csi_IM_ResourceToAddModList->list.array[id];
     csi_period_offset(NULL,imcsi->periodicityAndOffset,&period,&offset);
-    if((frame * mac->frame_structure.numb_slots_frame + slot - offset ) %period != 0)
+    if (!is_periodic_occasion(frame, slot, mac->frame_structure.numb_slots_frame, period, offset))
       continue;
     fapi_nr_dl_config_csiim_pdu_rel15_t *csiim_config_pdu = &dl_config->dl_config_list[dl_config->number_pdus].csiim_config_pdu.csiim_config_rel15;
     csiim_config_pdu->bwp_size = bwp_size;
@@ -1331,7 +1358,6 @@ void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info
 
   nr_scheduled_response_t scheduled_response = {.dl_config = dl_config,
                                                 .module_id = mac->ue_id,
-                                                .CC_id = dl_info->cc_id,
                                                 .phy_data = dl_info->phy_data,
                                                 .mac = mac};
   if (mac->if_module != NULL && mac->if_module->scheduled_response != NULL)
@@ -1617,8 +1643,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
       release_ul_config(pdu, false);
       nr_scheduled_response_t scheduled_response = {.ul_config = mac->ul_config_request + slotP,
                                                     .mac = mac,
-                                                    .module_id = mac->ue_id,
-                                                    .CC_id = 0 /*TBR fix*/};
+                                                    .module_id = mac->ue_id};
       if(mac->if_module != NULL && mac->if_module->scheduled_response != NULL)
         mac->if_module->scheduled_response(&scheduled_response);
 
@@ -1644,7 +1669,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
           next_slot = temp_slot;
           add_slots++;
         }
-        add_slots += GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mac->current_DL_BWP->scs);
+        add_slots += GET_DURATION_RX_TO_TX(mac, mac->current_DL_BWP->scs);
         nr_timer_setup(&ra->response_window_timer, ra->response_window_setup_time + add_slots, 1);
         nr_timer_start(&ra->response_window_timer);
       } else if (ra->ra_type == RA_2_STEP) {
@@ -1683,6 +1708,31 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
         ra->t_crnti = 0;
         mac->crnti = 0;
         ra->ra_rnti = 0;
+
+        // start MsgB response window timer
+        int next_slot = (slotP + 1) % n_slots_frame;
+        int next_frame = (frameP + (next_slot < slotP)) % MAX_FRAME_NUMBER;
+        int add_slots = 1;
+        NR_BWP_PDCCH_t *pdcch_config = &mac->config_BWP_PDCCH[mac->current_DL_BWP->bwp_id];
+        const NR_SearchSpace_t *ra_SS = get_common_search_space(mac, pdcch_config->ra_SS_id);
+        int max_slots = n_slots_frame * MAX_FRAME_NUMBER;
+        int i = 0;
+        for (i = 0; i < max_slots
+                    && (!is_dl_slot(next_slot, &mac->frame_structure)
+                        || !is_ss_monitor_occasion(next_frame, next_slot, n_slots_frame, ra_SS));
+             i++) {
+          int temp_slot = (next_slot + 1) % n_slots_frame;
+          next_frame = (next_frame + (temp_slot < next_slot)) % MAX_FRAME_NUMBER;
+          next_slot = temp_slot;
+          add_slots++;
+        }
+        AssertFatal(i < max_slots,
+                    "No DL slot matches RA search space %ld monitoring occasion (check TDD / ra-SearchSpace config)\n",
+                    ra_SS->searchSpaceId);
+
+        add_slots += GET_DURATION_RX_TO_TX(mac, mac->current_DL_BWP->scs);
+        nr_timer_setup(&ra->response_window_timer, ra->response_window_setup_time + add_slots, 1);
+        nr_timer_start(&ra->response_window_timer);
       } else {
         AssertFatal(false, "RA type %d not implemented!\n", ra->ra_type);
       }
@@ -1690,6 +1740,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
   } // if is_nr_UL_slot
 }
 
+/** @brief Schedule UCI from an overlapping PUCCH onto PUSCH (TS 38.213 clause 9.2.5.3) */
 static bool schedule_uci_on_pusch(NR_UE_MAC_INST_t *mac,
                                   frame_t frame_tx,
                                   int slot_tx,
@@ -1710,8 +1761,8 @@ static bool schedule_uci_on_pusch(NR_UE_MAC_INST_t *mac,
       int nr_of_symbols = 0;
       int start_symbol_index = 0;
       if (pucch->initial_pucch_id > -1 && pucch->pucch_resource == NULL) {
-        const int idx = *current_UL_BWP->pucch_ConfigCommon->pucch_ResourceCommon;
-        const initial_pucch_resource_t pucch_resourcecommon = get_initial_pucch_resource(idx);
+        // Common HARQ: symbols from Table 9.2.1-1 row on the occasion (frozen at DCI)
+        const initial_pucch_resource_t pucch_resourcecommon = get_initial_pucch_resource(pucch->pucch_ResourceCommon);
         start_symbol_index = pucch_resourcecommon.startingSymbolIndex;
         nr_of_symbols = pucch_resourcecommon.nrofSymbols;
       }
@@ -1855,8 +1906,23 @@ static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frame, int slot
   if (num_res == 1 && pucch[0].n_sr > 0 && pucch[0].sr_payload == 0)
     return;
 
-  if (num_res > 1)
+  // Common HARQ (TS 38.213 clause 9.2.1, Table 9.2.1-1): keep only ACK in this slot, drop dedicated resources
+  int common_harq = -1;
+  for (int i = 0; i < num_res; i++) {
+    if (pucch[i].pucch_resource == NULL && pucch[i].n_harq > 0) {
+      common_harq = i;
+      break;
+    }
+  }
+  if (common_harq >= 0) {
+    const PUCCH_sched_t harq = pucch[common_harq];
+    memset(pucch, 0, sizeof(pucch));
+    pucch[0] = harq;
+    num_res = 1;
+  } else if (num_res > 1) {
+    // multiplex dedicated PUCCH-Resource (TS 38.213 clause 9.2.5.1 / 9.2.5.2)
     multiplex_pucch_resource(mac, pucch, num_res);
+  }
 
   for (int j = 0; j < num_res; j++) {
     if (pucch[j].n_harq + pucch[j].n_sr + pucch[j].csi_payload.p1_bits != 0) {
@@ -2755,24 +2821,24 @@ int nr_ue_pusch_scheduler(const NR_UE_MAC_INST_t *mac,
 
     delta = get_delta_for_k2(mu);
 
-    AssertFatal((k2 + delta) > GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mu),
+    AssertFatal((k2 + delta) > GET_DURATION_RX_TO_TX(mac, mu),
                 "Slot offset (%ld) for Msg3 needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to "
                 "%ld in gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
                 k2,
-                GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mu),
-                GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mu),
-                GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mu));
+                GET_DURATION_RX_TO_TX(mac, mu),
+                GET_DURATION_RX_TO_TX(mac, mu),
+                GET_DURATION_RX_TO_TX(mac, mu));
 
 
     get_pusch_frame_slot(current_frame, current_slot, k2, delta, slots_per_frame, frame_tx, slot_tx);
   } else {
-    AssertFatal(k2 >= GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mu),
+    AssertFatal(k2 >= GET_DURATION_RX_TO_TX(mac, mu),
                 "Slot offset K2 (%ld) needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to %ld in "
                 "gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
                 k2,
-                GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mu),
-                GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mu),
-                GET_DURATION_RX_TO_TX(&mac->phy_config.config_req.ntn_config, mu));
+                GET_DURATION_RX_TO_TX(mac, mu),
+                GET_DURATION_RX_TO_TX(mac, mu),
+                GET_DURATION_RX_TO_TX(mac, mu));
 
 
     if (k2 < 0) { // This can happen when a false DCI is received
