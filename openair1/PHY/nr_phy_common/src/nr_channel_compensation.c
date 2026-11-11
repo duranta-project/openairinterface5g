@@ -5,6 +5,7 @@
 #include "nr_channel_compensation.h"
 #include "nr_compute_llr.h"
 #include "nr_layer_demapping.h"
+#include "nr_lbest_simd.h"
 #include <stdlib.h>
 #include <string.h>
 #include "PHY/sse_intrin.h"
@@ -407,6 +408,13 @@ bool nr_inner_rx(uint32_t length,
 
   if (nb_layer == 2 && ml2) {
     if (fuse) {
+#if defined(__aarch64__)
+      if (mod_order >= 6 && length >= 8 && nr_lbest_f16_enabled()) { // MRC, Gram and detector in FP16
+        nr_inner_rx_2layer_f16(length, buffer_length, nb_rx_ant, &rxFext[0][0], &chFext[0][0][0], cpe, mod_order, lbest, lambda,
+                               output_shift, cw ? NULL : layer_scratch[0], cw ? NULL : layer_scratch[1], llr_cw, cw ? scramble : NULL);
+        return true;
+      }
+#endif
       nr_inner_rx_2layer_ml(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, lambda, output_shift,
                             cw ? NULL : layer_scratch[0], cw ? NULL : layer_scratch[1], llr_cw, cw ? scramble : NULL);
       return true;

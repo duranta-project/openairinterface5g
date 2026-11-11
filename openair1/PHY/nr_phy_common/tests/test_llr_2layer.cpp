@@ -50,7 +50,9 @@ void nr_llr_2layer_mmse_simd_w128(const c16_t *, const c16_t *, const c16_t *, c
 void nr_llr_2layer_mmse_simd_w256(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_ref(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_channel_compensation(uint32_t, uint32_t, int, int, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t **, c16_t *, c16_t, int, uint32_t, uint32_t);
+bool nr_inner_rx(uint32_t, uint32_t, int, int, int, c16_t *, c16_t *, c16_t, c16_t **, c16_t **, c16_t **, c16_t **, c16_t *, c16_t *, int, bool, bool, int, float, int16_t **, const int16_t *, int16_t *);
 #if defined(__aarch64__)
+void nr_inner_rx_2layer_f16(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, int, int, float, int, int16_t *, int16_t *, int16_t *, const int16_t *);
 void nr_qam64_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 #endif
@@ -693,6 +695,72 @@ TEST(test_llr_2layer, f16_close_to_f32)
           k.f16(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), d.data(), in.rho.data(), 5, pattern, lambda);
           EXPECT_EQ(0, memcmp(b.data(), d.data(), (size_t)5 * k.qm * sizeof(int16_t))) << "short call differs from the long one";
         }
+}
+
+// fused FP16 inner RX against the int16 compensation + detector chain (unfused nr_inner_rx) on noisy 2-layer channels:
+// at a normal input level the same LLR units (best-fit scale ~1) and decisions; at 3x that level, where the int16 MRC
+// sums wrap at this output_shift, the FP16 path still decides the MSBs right
+TEST(test_llr_2layer, fused_f16_units)
+{
+  if (!(getauxval(AT_HWCAP) & HWCAP_ASIMDHP))
+    GTEST_SKIP() << "no FP16 vector arithmetic";
+  std::mt19937 rng(0xFE16);
+  std::normal_distribution<double> g(0, 1);
+  for (double amp : {400.0, 1200.0})
+  for (int qm : {6, 8})
+    for (int nb_rx : {2, 4})
+      for (int lbest : {0, 1}) {
+        const uint32_t n = 1272 + 3, bl = (n + 15) & ~15u;
+        const int shift = nb_rx == 2 ? 8 : 9;
+        std::vector<int> sgn[2];
+        AlignedVector512<c16_t> rx(nb_rx * bl), ch(2 * nb_rx * bl);
+        for (uint32_t i = 0; i < n; i++) {
+          double h[2][8][2], x[2][2];
+          for (int l = 0; l < 2; l++) {
+            x[l][0] = (2 * (int)(rng() % (1 << (qm / 2))) - (1 << (qm / 2)) + 1) / (qm == 6 ? 6.48 : 13.04);
+            x[l][1] = (2 * (int)(rng() % (1 << (qm / 2))) - (1 << (qm / 2)) + 1) / (qm == 6 ? 6.48 : 13.04);
+            sgn[l].push_back(x[l][0] > 0 ? 1 : -1);
+            for (int a = 0; a < nb_rx; a++) {
+              h[l][a][0] = g(rng) * amp;
+              h[l][a][1] = g(rng) * amp;
+              ch[(l * nb_rx + a) * bl + i] = {(int16_t)lrint(h[l][a][0]), (int16_t)lrint(h[l][a][1])};
+            }
+          }
+          for (int a = 0; a < nb_rx; a++) {
+            double yr = g(rng) * amp * 0.05, yi = g(rng) * amp * 0.05;
+            for (int l = 0; l < 2; l++) {
+              yr += h[l][a][0] * x[l][0] - h[l][a][1] * x[l][1];
+              yi += h[l][a][0] * x[l][1] + h[l][a][1] * x[l][0];
+            }
+            rx[a * bl + i] = {(int16_t)lrint(yr), (int16_t)lrint(yi)};
+          }
+        }
+        AlignedVector512<c16_t> comp0(bl), comp1(bl), maga(2 * bl), magb(2 * bl), magc(2 * bl), rho(4 * bl);
+        c16_t *rxComp[2] = {comp0.data(), comp1.data()};
+        c16_t *ma[2] = {maga.data(), maga.data() + bl}, *mb[2] = {magb.data(), magb.data() + bl}, *mc[2] = {magc.data(), magc.data() + bl};
+        AlignedVector512<int16_t> r0(bl * qm + 64), r1(bl * qm + 64), f0(bl * qm + 64), f1(bl * qm + 64);
+        int16_t *ref[2] = {r0.data(), r1.data()};
+        nr_channel_compensation(bl, bl, nb_rx, 2, rx.data(), ch.data(), maga.data(), magb.data(), magc.data(), rxComp, rho.data(), (c16_t){32767, 0}, qm, 0, shift);
+        ASSERT_TRUE(nr_inner_rx(n, bl, nb_rx, 2, qm, rx.data(), ch.data(), (c16_t){32767, 0}, rxComp, ma, mb, mc, rho.data() + bl, rho.data() + 2 * bl, shift, false, true, lbest, 1.0f, ref, nullptr, nullptr));
+        nr_inner_rx_2layer_f16(n, bl, nb_rx, rx.data(), ch.data(), (c16_t){32767, 0}, qm, lbest, 1.0f, shift, f0.data(), f1.data(), nullptr, nullptr);
+        for (int l = 0; l < 2; l++) {
+          const Fit f = fit_stats(l ? f1.data() : f0.data(), ref[l], (size_t)n * qm);
+          int er = 0, ef = 0;
+          for (uint32_t i = 0; i < n; i++) {
+            er += (ref[l][i * qm] > 0 ? 1 : -1) != sgn[l][i];
+            ef += ((l ? f1 : f0)[i * qm] > 0 ? 1 : -1) != sgn[l][i];
+          }
+          const char *what = lbest ? "lbest" : "ml";
+          if (amp < 1000) {
+            EXPECT_NEAR(f.fitScale, 1.0, 0.01) << "Qm=" << qm << " nb_rx=" << nb_rx << " " << what << " layer " << l;
+            EXPECT_LT(f.residFrac, 0.01) << "Qm=" << qm << " nb_rx=" << nb_rx << " " << what << " layer " << l;
+            EXPECT_LT(f.signDisagree_pct, 0.5) << "Qm=" << qm << " nb_rx=" << nb_rx << " " << what << " layer " << l;
+            EXPECT_LE(ef, er + 5) << "Qm=" << qm << " nb_rx=" << nb_rx << " " << what << " layer " << l;
+          } else {
+            EXPECT_LT(ef, (int)n / 50) << "high level: Qm=" << qm << " nb_rx=" << nb_rx << " " << what << " layer " << l;
+          }
+        }
+      }
 }
 #endif
 

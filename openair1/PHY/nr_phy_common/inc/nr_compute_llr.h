@@ -28,6 +28,8 @@ void nr_256qam_llr(const c16_t *rxdataF_comp,
 int nr_ml_llr_maxh_off(int mod_order, int lbest);
 /// L-best / MMSE seed regularization (noise variance in the compensated Pp/rho units) for log2_maxh = shift
 float nr_2layer_seed_lambda(uint32_t nvar, int shift);
+/// the 2-layer 64/256QAM L-best / full ML run in FP16 (aarch64 CPUs with FP16 vector arithmetic, OAI_LBEST_F16 != 0)
+bool nr_lbest_f16_enabled(void);
 /// Channel-estimation error relative to the channel power. The 2-layer MMSE seeds and the MMSE receiver regularize
 /// with lambda + eps * (P0 + P1) / 2 per RE: at high SNR this error, not the thermal noise, limits the linear
 /// estimate (TDL-A, 2 Rx, 64QAM MCS 27: +3-5 points of L-best throughput at 26-30 dB; neutral with 4 Rx).
