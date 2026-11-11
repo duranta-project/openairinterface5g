@@ -3973,6 +3973,15 @@ static bool nr_lbest_f16(void)
 }
 #endif
 
+bool nr_lbest_f16_enabled(void)
+{
+#if defined(__aarch64__)
+  return nr_lbest_f16();
+#else
+  return false;
+#endif
+}
+
 void nr_qam64_llr_2layer_lbest_f32_simd16(c16_t *stream0_in,
                                           c16_t *stream1_in,
                                           c16_t *ch_mag,

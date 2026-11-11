@@ -939,8 +939,9 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   // Fused 2-layer near-ML (nr_inner_rx_2layer_ml): the joint ML-LLR path below, QPSK/16QAM/64QAM
   // or 256QAM under the L-best (ml256) gate. The 256QAM-MMSE and do_ml-off paths are not fused.
   const uint8_t qam_fuse = dlsch->cw_info.qamModOrder;
-  const bool fuse_2layer_ml = fuse_env && (nl == 2) && do_ml && (qam_fuse <= 6 || (qam_fuse == 8 && ml256))
-                              && !scope_req->copy_rxdataF_comp_to_scope;
+  // CPUs running the 2-layer detector in FP16 fuse 64/256QAM by default (nr_inner_rx_2layer_f16: no int16 compensation)
+  const bool fuse_2layer_ml = (fuse_env || (nr_lbest_f16_enabled() && qam_fuse >= 6)) && (nl == 2) && do_ml
+                              && (qam_fuse <= 6 || (qam_fuse == 8 && ml256)) && !scope_req->copy_rxdataF_comp_to_scope;
 
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
   if (!fuse_1layer && !fuse_2layer_ml)

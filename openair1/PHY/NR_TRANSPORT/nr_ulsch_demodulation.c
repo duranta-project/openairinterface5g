@@ -273,7 +273,9 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
   // 2-layer near-ML (pusch_mimo_receiver = lbest | ml) fuses MRC + rho + joint ML-LLR the same way;
   // the 2-layer MMSE receiver is not fused.
   const nr_pusch_mimo_rx_t mimo_rx = nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul->qam_mod_order, nb_rx_ant);
-  const bool fuse_2layer_ml = fuse_env && (nb_layer == 2) && (mimo_rx != NR_PUSCH_RX_MMSE);
+  // CPUs running the 2-layer detector in FP16 fuse 64/256QAM by default (nr_inner_rx_2layer_f16: no int16 compensation)
+  const bool fuse_2layer_ml = (fuse_env || (nr_lbest_f16_enabled() && rel15_ul->qam_mod_order >= 6)) && (nb_layer == 2)
+                              && (mimo_rx != NR_PUSCH_RX_MMSE);
 
   if (!fuse_1layer && !fuse_2layer_ml) {
     memset(rho, 0, sizeof(rho));

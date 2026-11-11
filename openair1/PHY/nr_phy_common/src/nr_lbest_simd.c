@@ -1469,6 +1469,244 @@ void NRLB_NAME(nr_qam64_llr_2layer_lbest_f16_simd)(c16_t *stream0_in,
 {
   nrlbh_lbest_any(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda, 3);
 }
+
+// ============================================================================
+// Fused FP16 2-layer inner RX (64/256QAM L-best or full ML) from the extracted RX and channel: MRC and Gram in FP16
+// (vld2 deinterleave + FMA), then the FP16 seed, window centre, graded fallback and seed-centred grid above, 8 REs
+// per vector, never through the int16 compensation outputs. Each RE is scaled by a power of two from its largest RX
+// or channel component (|x| < 2), then again so that max(P0, P1) is in [8, 16); its LLRs are brought back to the
+// units of the int16 compensation at output_shift (nr_compute_ML_llr), so the decoder input does not change.
+// ============================================================================
+// fp16 power of two 2^k for a vector of int16 exponents k (fp16 field 15 + k, clamped to the normal range)
+static inline float16x8_t nrlbh_pow2_f16(int16x8_t k)
+{
+  const int16x8_t f = vmaxq_s16(vminq_s16(vaddq_s16(k, vdupq_n_s16(15)), vdupq_n_s16(30)), vdupq_n_s16(1));
+  return vreinterpretq_f16_s16(vshlq_n_s16(f, 10));
+}
+
+// fp32 powers of two 2^k for the low / high halves of an int16 exponent vector
+static inline void nrlbh_pow2_f32(int16x8_t k, float32x4_t *lo, float32x4_t *hi)
+{
+  *lo = vreinterpretq_f32_s32(vshlq_n_s32(vaddq_s32(vmovl_s16(vget_low_s16(k)), vdupq_n_s32(127)), 23));
+  *hi = vreinterpretq_f32_s32(vshlq_n_s32(vaddq_s32(vmovl_high_s16(k), vdupq_n_s32(127)), 23));
+}
+
+// squared distance (lvl - ref)^2
+static inline float16x8_t nrlbh_dsq(float16x8_t lvl, float16x8_t ref)
+{
+  const float16x8_t d = vsubq_f16(lvl, ref);
+  return vmulq_f16(d, d);
+}
+
+static inline float16x8_t nrlbh_clamp2(float16x8_t x, float lo, float hi)
+{
+  return vminq_f16(vmaxq_f16(x, vdupq_n_f16(lo)), vdupq_n_f16(hi));
+}
+
+// graded per-axis PAM LLRs of the target layer from its soft level estimate (nrlbw_axis_llr / nrlbw_axis_llr64): the
+// fallback of the bits the 3x3 window does not span (the LSB is always spanned)
+static inline void nrlbh_axis_llr(float16x8_t est, float16x8_t g, int nb, float16x8_t out[4])
+{
+  const float16x8_t a = vabsq_f16(est);
+  const float16x8_t o = nrlbh_round_odd(est), oa = nrlbh_round_odd(a);
+  const float L = (float)((1 << nb) - 1), H = (float)(1 << (nb - 1)); // top level, MSB-1 threshold
+  out[0] = vmulq_f16(g, vsubq_f16(nrlbh_dsq(nrlbh_clamp2(o, -L, -1.0f), est), nrlbh_dsq(nrlbh_clamp2(o, 1.0f, L), est)));
+  out[1] = vmulq_f16(g, vsubq_f16(nrlbh_dsq(nrlbh_clamp2(oa, H + 1.0f, L), a), nrlbh_dsq(nrlbh_clamp2(oa, 1.0f, H - 1.0f), a)));
+  if (nb == 4) {
+    const float16x8_t d0 = nrlbh_dsq(nrlbh_clamp2(oa, 5.0f, 11.0f), a);
+    const float16x8_t d1 = vminq_f16(nrlbh_dsq(nrlbh_clamp2(oa, 1.0f, 3.0f), a), nrlbh_dsq(nrlbh_clamp2(oa, 13.0f, 15.0f), a));
+    out[2] = vmulq_f16(g, vsubq_f16(d1, d0));
+  } else {
+    out[2] = vdupq_n_f16(0.0f);
+  }
+  out[3] = vdupq_n_f16(0.0f);
+}
+
+// one layer of a block: z_t / z_o target / other MRC, P_t / P_o, rho = h_t^H h_o; lam: lambda in the block units;
+// LLRs -> int16 res[p] (per-layer order), inv: the per-RE units factor
+static inline void nrlbh_layer(float16x8_t ztr,
+                               float16x8_t zti,
+                               float16x8_t zor,
+                               float16x8_t zoi,
+                               float16x8_t Pt,
+                               float16x8_t Po,
+                               float16x8_t rr,
+                               float16x8_t ri,
+                               float16x8_t lam,
+                               int full,
+                               int nb,
+                               float32x4_t inv_lo,
+                               float32x4_t inv_hi,
+                               int16x8_t res[8])
+{
+  const int M = 1 << nb, Qm = 2 * nb;
+  const float sqK = nb == 3 ? 6.48074069840786f : 13.038404810405298f;
+  const float16x8_t SK = vdupq_n_f16(sqK), NA = vdupq_n_f16(1.0f / sqK), LMAX = vdupq_n_f16((float)(M - 1));
+  const float16x8_t ZERO = vdupq_n_f16(0.0f), HALF = vdupq_n_f16(0.5f), EPSH = vdupq_n_f16(0.5f * NR_2LAYER_CSI_EPS);
+  const float16x8_t FLOOR = vdupq_n_f16(1.0f / 256.0f); // det / P1s floors (P in [8, 16): ~1e-4 relative)
+  // unbiased MMSE seed: x1 = ((P_o + lame) z_t - rho z_o) / det, lame = lambda + eps (P_t + P_o) / 2
+  const float16x8_t lame = vfmaq_f16(lam, EPSH, vaddq_f16(Pt, Po));
+  const float16x8_t P1s = vaddq_f16(Po, lame);
+  const float16x8_t det = vmaxq_f16(vsubq_f16(vmulq_f16(Pt, P1s), vfmaq_f16(vmulq_f16(rr, rr), ri, ri)), FLOOR);
+  const float16x8_t idet = vdivq_f16(SK, det);
+  const float16x8_t estI = vmulq_f16(vsubq_f16(vmulq_f16(P1s, ztr), vfmsq_f16(vmulq_f16(rr, zor), ri, zoi)), idet);
+  const float16x8_t estQ = vmulq_f16(vsubq_f16(vmulq_f16(P1s, zti), vfmaq_f16(vmulq_f16(rr, zoi), ri, zor)), idet);
+  nrlbh_re_t e;
+  e.rr = rr;
+  e.ri = ri;
+  e.hP0 = vmulq_f16(HALF, Pt);
+  e.hP1 = vmulq_f16(HALF, Po);
+  e.sl = vbslq_f16(vceqq_f16(Po, ZERO), ZERO, vdivq_f16(SK, Po));
+  e.cI = nrlbh_clamp(nrlbh_round_odd(estI), LMAX);
+  e.cQ = nrlbh_clamp(nrlbh_round_odd(estQ), LMAX);
+  const float16x8_t x1r = vmulq_f16(e.cI, NA), x1i = vmulq_f16(e.cQ, NA);
+  const float16x8_t cr = vfmaq_f16(vmulq_f16(rr, x1r), ri, x1i), ci = vfmsq_f16(vmulq_f16(rr, x1i), ri, x1r);
+  e.c2I = nrlbh_clamp(nrlbh_round_odd(vmulq_f16(vsubq_f16(zor, cr), e.sl)), LMAX);
+  e.c2Q = nrlbh_clamp(nrlbh_round_odd(vmulq_f16(vsubq_f16(zoi, ci), e.sl)), LMAX);
+  const float16x8_t x2r = vmulq_f16(e.c2I, NA), x2i = vmulq_f16(e.c2Q, NA);
+  e.r1r = vsubq_f16(vfmsq_f16(ztr, Pt, x1r), vfmsq_f16(vmulq_f16(rr, x2r), ri, x2i));
+  e.r1i = vsubq_f16(vfmsq_f16(zti, Pt, x1i), vfmaq_f16(vmulq_f16(rr, x2i), ri, x2r));
+  e.r2r = vfmsq_f16(vsubq_f16(zor, cr), Po, x2r);
+  e.r2i = vfmsq_f16(vsubq_f16(zoi, ci), Po, x2i);
+
+  float16x8_t l[8];
+  uint16x8_t u[8];
+  nrlbh_grid(&e, full, nb, l, u);
+  float16x8_t axis[8];
+  if (!full) {
+    const uint16x8_t wide = vcltq_f16(det, vmulq_f16(vdupq_n_f16(nb == 4 ? NR_LBEST_WIDE_SINR256 : NR_LBEST_WIDE_SINR64), vmulq_f16(lame, P1s)));
+    if (vmaxvq_u16(wide)) {
+      float16x8_t lf[8];
+      uint16x8_t uf[8];
+      nrlbh_grid(&e, 1, nb, lf, uf);
+      for (int p = 0; p < Qm; p++) {
+        l[p] = vbslq_f16(wide, lf[p], l[p]);
+        u[p] = vbicq_u16(u[p], wide);
+      }
+    }
+    // graded fallback, g = 0.5 Peff / K, Peff = det / P1s
+    const float16x8_t g = vmulq_f16(vdupq_n_f16(0.5f / (nb == 4 ? 170.0f : 42.0f)), vdivq_f16(det, vmaxq_f16(P1s, FLOOR)));
+    float16x8_t aI[4], aQ[4];
+    nrlbh_axis_llr(estI, g, nb, aI);
+    nrlbh_axis_llr(estQ, g, nb, aQ);
+    for (int b = 0; b < nb; b++) {
+      axis[2 * b] = aI[b];
+      axis[2 * b + 1] = aQ[b];
+    }
+  }
+  for (int p = 0; p < Qm; p++) {
+    const int16x8_t v = nrlbh_llr16(l[p], inv_lo, inv_hi);
+    res[p] = full ? v : vbslq_s16(u[p], nrlbh_llr16(axis[p], inv_lo, inv_hi), v);
+  }
+}
+
+void nr_inner_rx_2layer_f16(uint32_t length,
+                            uint32_t buffer_length,
+                            int nb_rx_ant,
+                            const c16_t *rxFext,
+                            const c16_t *chFext,
+                            c16_t cpe,
+                            int mod_order,
+                            int lbest,
+                            float lambda,
+                            int output_shift,
+                            int16_t *llr0,
+                            int16_t *llr1,
+                            int16_t *llr_cw,
+                            const int16_t *scramble)
+{
+  // rxFext [nb_rx_ant][buffer_length], chFext [2][nb_rx_ant][buffer_length]
+#define NRLBH_RX(a, i) rxFext[(size_t)(a) * buffer_length + (i)]
+#define NRLBH_CH(l, a, i) chFext[((size_t)(l) * nb_rx_ant + (a)) * buffer_length + (i)]
+  const int nb = mod_order / 2, Qm = mod_order, full = lbest == 0;
+  // PTRS common phase error on the RX side: conj(c cpe) y = conj(c) (conj(cpe) y)
+  const bool rot = !(cpe.r == 32767 && cpe.i == 0);
+  const float16x8_t CR = vdupq_n_f16(cpe.r / 32768.0f), CI = vdupq_n_f16(cpe.i / 32768.0f);
+  for (uint32_t re = 0; re < length; re += NRLB_N) {
+    if (re + NRLB_N > length)
+      re = length - NRLB_N; // overlaps the previous block: the REs are independent
+    // input scale 2^(1 - e): e = bit length of the largest |component| of the RE's RX and channels
+    int16x8_t amax = vdupq_n_s16(1);
+    for (int a = 0; a < nb_rx_ant; a++) {
+      const int16x8x2_t y = vld2q_s16(&NRLBH_RX(a, re).r), h0 = vld2q_s16(&NRLBH_CH(0, a, re).r), h1 = vld2q_s16(&NRLBH_CH(1, a, re).r);
+      amax = vmaxq_s16(amax, vmaxq_s16(vqabsq_s16(y.val[0]), vqabsq_s16(y.val[1])));
+      amax = vmaxq_s16(amax, vmaxq_s16(vqabsq_s16(h0.val[0]), vqabsq_s16(h0.val[1])));
+      amax = vmaxq_s16(amax, vmaxq_s16(vqabsq_s16(h1.val[0]), vqabsq_s16(h1.val[1])));
+    }
+    const int16x8_t ls = vsubq_s16(vclzq_s16(amax), vdupq_n_s16(15)); // log2 s = 1 - e = clz - 15
+    const float16x8_t S = nrlbh_pow2_f16(ls);
+    float16x8_t z0r = vdupq_n_f16(0.0f), z0i = z0r, z1r = z0r, z1i = z0r, P0 = z0r, P1 = z0r, rr = z0r, ri = z0r;
+    for (int a = 0; a < nb_rx_ant; a++) {
+      const int16x8x2_t y = vld2q_s16(&NRLBH_RX(a, re).r), h0 = vld2q_s16(&NRLBH_CH(0, a, re).r), h1 = vld2q_s16(&NRLBH_CH(1, a, re).r);
+      float16x8_t yr = vmulq_f16(vcvtq_f16_s16(y.val[0]), S), yi = vmulq_f16(vcvtq_f16_s16(y.val[1]), S);
+      if (rot) {
+        const float16x8_t tr = vfmaq_f16(vmulq_f16(CR, yr), CI, yi);
+        yi = vfmsq_f16(vmulq_f16(CR, yi), CI, yr);
+        yr = tr;
+      }
+      const float16x8_t a0r = vmulq_f16(vcvtq_f16_s16(h0.val[0]), S), a0i = vmulq_f16(vcvtq_f16_s16(h0.val[1]), S);
+      const float16x8_t a1r = vmulq_f16(vcvtq_f16_s16(h1.val[0]), S), a1i = vmulq_f16(vcvtq_f16_s16(h1.val[1]), S);
+      z0r = vfmaq_f16(vfmaq_f16(z0r, a0r, yr), a0i, yi);
+      z0i = vfmsq_f16(vfmaq_f16(z0i, a0r, yi), a0i, yr);
+      z1r = vfmaq_f16(vfmaq_f16(z1r, a1r, yr), a1i, yi);
+      z1i = vfmsq_f16(vfmaq_f16(z1i, a1r, yi), a1i, yr);
+      P0 = vfmaq_f16(vfmaq_f16(P0, a0r, a0r), a0i, a0i);
+      P1 = vfmaq_f16(vfmaq_f16(P1, a1r, a1r), a1i, a1i);
+      rr = vfmaq_f16(vfmaq_f16(rr, a0r, a1r), a0i, a1i);
+      ri = vfmsq_f16(vfmaq_f16(ri, a0r, a1i), a0i, a1r);
+    }
+    // rescale 2^lt: max(P0, P1) in [8, 16) (fp16 exponent field E of the max: lt = 18 - E)
+    const int16x8_t E = vshrq_n_s16(vreinterpretq_s16_f16(vmaxq_f16(P0, P1)), 10);
+    const int16x8_t lt = vminq_s16(vsubq_s16(vdupq_n_s16(18), E), vdupq_n_s16(15));
+    const float16x8_t T = nrlbh_pow2_f16(lt);
+    z0r = vmulq_f16(z0r, T);
+    z0i = vmulq_f16(z0i, T);
+    z1r = vmulq_f16(z1r, T);
+    z1i = vmulq_f16(z1i, T);
+    P0 = vmulq_f16(P0, T);
+    P1 = vmulq_f16(P1, T);
+    rr = vmulq_f16(rr, T);
+    ri = vmulq_f16(ri, T);
+    // block units = int16 compensation units * 2^k, k = 2 log2 s + log2 t + output_shift; LLRs * 2^-k, lambda * 2^k
+    const int16x8_t k = vaddq_s16(vaddq_s16(vshlq_n_s16(ls, 1), lt), vdupq_n_s16(output_shift));
+    float32x4_t inv_lo, inv_hi, up_lo, up_hi;
+    nrlbh_pow2_f32(vnegq_s16(k), &inv_lo, &inv_hi);
+    nrlbh_pow2_f32(k, &up_lo, &up_hi);
+    const float16x8_t lam = vcombine_f16(vcvt_f16_f32(vmulq_n_f32(up_lo, lambda)), vcvt_f16_f32(vmulq_n_f32(up_hi, lambda)));
+
+    int16x8_t res[2][8];
+    nrlbh_layer(z0r, z0i, z1r, z1i, P0, P1, rr, ri, lam, full, nb, inv_lo, inv_hi, res[0]);
+    nrlbh_layer(z1r, z1i, z0r, z0i, P1, P0, rr, vnegq_f16(ri), lam, full, nb, inv_lo, inv_hi, res[1]);
+    if (nb == 3) // 64QAM: the one-bit cooling of nr_compute_ML_llr
+      for (int t = 0; t < 2; t++)
+        for (int p = 0; p < Qm; p++)
+          res[t][p] = vshrq_n_s16(res[t][p], 1);
+    int16_t tl[2][NRLB_N * 8] __attribute__((aligned(16)));
+    for (int t = 0; t < 2; t++) {
+      NRLB_VI r[8];
+      for (int p = 0; p < Qm; p++)
+        r[p] = simde__m128i_from_neon_i16(res[t][p]);
+      NRLB_NAME(nrlbw_store_llr)(tl[t], 0, r, Qm);
+    }
+    if (llr_cw) { // layer demap (per RE: layer 0 then layer 1) and descrambling
+      int16_t *cw = llr_cw + (size_t)re * 2 * Qm;
+      for (int i = 0; i < NRLB_N; i++) {
+        memcpy(&cw[(2 * i) * Qm], &tl[0][i * Qm], Qm * sizeof(int16_t));
+        memcpy(&cw[(2 * i + 1) * Qm], &tl[1][i * Qm], Qm * sizeof(int16_t));
+      }
+      if (scramble) {
+        const int16_t *s = scramble + (size_t)re * 2 * Qm;
+        for (int k2 = 0; k2 < NRLB_N * 2 * Qm; k2 += 8)
+          vst1q_s16(&cw[k2], vmulq_s16(vld1q_s16(&cw[k2]), vld1q_s16(&s[k2])));
+      }
+    } else {
+      memcpy(llr0 + (size_t)re * Qm, tl[0], NRLB_N * Qm * sizeof(int16_t));
+      memcpy(llr1 + (size_t)re * Qm, tl[1], NRLB_N * Qm * sizeof(int16_t));
+    }
+  }
+}
+#undef NRLBH_RX
+#undef NRLBH_CH
 #endif
 
 #endif

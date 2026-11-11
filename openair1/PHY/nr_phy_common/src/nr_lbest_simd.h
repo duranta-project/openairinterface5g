@@ -88,6 +88,22 @@ NR_LBEST_SIMD_PROTOTYPES(256)
 // FP16 seed-centred L-best / full ML (nr_lbest_simd.c, NRLB_F16 object, ARMv8.2 FP16 vector arithmetic)
 void nr_qam64_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest_f16_simd_w128(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+// fused FP16 2-layer inner RX (MRC + Gram + FP16 L-best / full ML), 64/256QAM, length >= 8: the arguments of
+// nr_inner_rx_2layer_ml, rxFext [nb_rx_ant][buffer_length], chFext [2][nb_rx_ant][buffer_length]
+void nr_inner_rx_2layer_f16(uint32_t length,
+                            uint32_t buffer_length,
+                            int nb_rx_ant,
+                            const c16_t *rxFext,
+                            const c16_t *chFext,
+                            c16_t cpe,
+                            int mod_order,
+                            int lbest,
+                            float lambda,
+                            int output_shift,
+                            int16_t *llr0,
+                            int16_t *llr1,
+                            int16_t *llr_cw,
+                            const int16_t *scramble);
 #endif
 NR_LBEST_SIMD_PROTOTYPES(512)
 #undef NR_LBEST_SIMD_PROTOTYPES
