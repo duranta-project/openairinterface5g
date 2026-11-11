@@ -1948,8 +1948,8 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int instance_id, int num_ant_
   rrc->sched_reconfsync_sib1 = false;
   rrc->detach_after_release = false;
   rrc->reconfig_after_reestab = false;
-  /* 5G-S-TMSI starts unset (sentinel UINT64_MAX). NAS_5GMM_IND populates it on registration */
-  rrc->fiveG_S_TMSI = UINT64_MAX;
+  /* 5G-S-TMSI starts unset (sentinel NO_5G_S_TMSI). NAS_5GMM_IND populates it on registration */
+  rrc->fiveG_S_TMSI = NO_5G_S_TMSI;
   rrc->access_barred = false;
 
   FILE *f = NULL;
@@ -2620,12 +2620,14 @@ static int8_t nr_rrc_ue_decode_pcch(NR_UE_RRC_INST_t *rrc, const byte_array_t pc
 
   RRCLOG_D("Received Paging message with %d record(s)\n", count);
 
-  const uint64_t ue_fiveg_s_tmsi = rrc->fiveG_S_TMSI & ((1ULL << 48) - 1);
-  for (int i = 0; i < count; i++) {
-    if (params[i].ue_identity_type == NR_PagingUE_Identity_PR_ng_5G_S_TMSI
-        && params[i].ue_identity.fiveg_s_tmsi == ue_fiveg_s_tmsi) {
-      RRCLOG_I("Paging record %d matches 5G-S-TMSI=0x%012lu\n", i, ue_fiveg_s_tmsi);
-      return 1;
+  if (rrc->fiveG_S_TMSI != NO_5G_S_TMSI) {
+    const uint64_t ue_fiveg_s_tmsi = rrc->fiveG_S_TMSI & ((1ULL << 48) - 1);
+    for (int i = 0; i < count; i++) {
+      if (params[i].ue_identity_type == NR_PagingUE_Identity_PR_ng_5G_S_TMSI
+          && params[i].ue_identity.fiveg_s_tmsi == ue_fiveg_s_tmsi) {
+        RRCLOG_I("Paging record %d matches 5G-S-TMSI=0x%012lu\n", i, ue_fiveg_s_tmsi);
+        return 1;
+      }
     }
   }
 
