@@ -441,7 +441,8 @@ static inline bool nr_ue_has_dedicated_pucch_resource_set(const NR_PUCCH_Config_
 static void set_harq_status(NR_UE_MAC_INST_t *mac,
                             uint8_t pucch_id,
                             uint8_t harq_id,
-                            int cw_id,
+                            int tb_idx,
+                            int cw_idx,
                             int8_t delta_pucch,
                             uint16_t data_toul_fb,
                             uint8_t dai,
@@ -450,9 +451,10 @@ static void set_harq_status(NR_UE_MAC_INST_t *mac,
                             frame_t frame,
                             int slot)
 {
-  NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[harq_id][cw_id];
+  NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[harq_id][tb_idx];
   const NR_PUCCH_Config_t *pucch_Config = mac->current_UL_BWP ? mac->current_UL_BWP->pucch_Config : NULL;
   const NR_PUCCH_ConfigCommon_t *pucch_ConfigCommon = mac->current_UL_BWP ? mac->current_UL_BWP->pucch_ConfigCommon : NULL;
+  current_harq->feedback_cw_idx = cw_idx;
   current_harq->active = true;
   current_harq->ack_received = false;
   current_harq->pucch_resource_indicator = pucch_id;
@@ -800,6 +802,14 @@ static void accumulate_dl_stats(NR_UE_MAC_INST_t *mac,
   mac->stats.dl.nr_of_symbols += dlsch_pdu->number_symbols;
 }
 
+static void commit_dl_harq_history(NR_UE_DL_HARQ_STATUS_t *current_harq, const NR_UE_DL_HARQ_STATUS_t *history)
+{
+  current_harq->R = history->R;
+  current_harq->TBS = history->TBS;
+  current_harq->last_ndi = history->last_ndi;
+  current_harq->round = history->round;
+}
+
 static int nr_ue_process_dci_dl_10_p_rnti(NR_UE_MAC_INST_t *mac,
                                           frame_t frame,
                                           int slot,
@@ -811,6 +821,7 @@ static int nr_ue_process_dci_dl_10_p_rnti(NR_UE_MAC_INST_t *mac,
 
   const int nb_rb_oh = mac->sc_info.xOverhead_PDSCH ? 6 * (1 + *mac->sc_info.xOverhead_PDSCH) : 0;
   const int nb_re_dmrs = ((dlsch_pdu->dmrsConfigType == NFAPI_NR_DMRS_TYPE1) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
+  dlsch_pdu->cw_info[0].tb_idx = 0;
   if (!get_cw_info(&prnti_harq,
                    dlsch_pdu,
                    FAPI_NR_DL_CONFIG_TYPE_P_DLSCH,
@@ -1101,7 +1112,9 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   int nb_re_dmrs = ((dlsch_pdu->dmrsConfigType == NFAPI_NR_DMRS_TYPE1) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
   int nb_rb_oh = mac->sc_info.xOverhead_PDSCH ? nb_rb_oh = 6 * (1 + *mac->sc_info.xOverhead_PDSCH) : 0;
   NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[dci->harq_pid.val][0];
-  if (!get_cw_info(current_harq,
+  NR_UE_DL_HARQ_STATUS_t harq_history = *current_harq;
+  dlsch_pdu->cw_info[0].tb_idx = 0;
+  if (!get_cw_info(&harq_history,
                    dlsch_pdu,
                    dl_conf_req->pdu_type,
                    &dlsch_pdu->cw_info[0],
@@ -1159,6 +1172,8 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
     return -1;
   }
 
+  commit_dl_harq_history(current_harq, &harq_history);
+
   /* PDSCH_TO_HARQ_FEEDBACK_TIME_IND */
   // according to TS 38.213 9.2.3
   const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, dlsch_pdu->SubcarrierSpacing);
@@ -1185,6 +1200,7 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
       set_harq_status(mac,
                       dci->pucch_resource_indicator,
                       dci->harq_pid.val,
+                      0,
                       0,
                       tpc[dci->tpc],
                       feedback_ti,
@@ -1439,17 +1455,24 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   // In case the higher layer parameter maxNrofCodeWordsScheduledByDCI indicates that two codeword transmission is enabled,
   // then one of the two transport blocks is disabled by DCI format 1_1
   // if IMCS = 26 and if rvid = 1 for the corresponding transport block
-  bool cw0 = true;
-  bool cw1 = true;
+  bool tb_enabled[NR_DL_MAX_NB_CW] = {true, false};
   if (pdsch_Config->maxNrofCodeWordsScheduledByDCI
       && *pdsch_Config->maxNrofCodeWordsScheduledByDCI == NR_PDSCH_Config__maxNrofCodeWordsScheduledByDCI_n2) {
-    cw0 = dci->rv != 1 || dci->mcs != 26;
-    cw1 = dci->rv2.val != 1 || dci->mcs2.val != 26;
-  } else
-    cw1 = false;
+    tb_enabled[0] = dci->rv != 1 || dci->mcs != 26;
+    tb_enabled[1] = dci->rv2.val != 1 || dci->mcs2.val != 26;
+  }
+  // The current receiver allocates an LLR buffer only for codeword 0.
+  if (tb_enabled[0] && tb_enabled[1]) {
+    LOG_W(NR_MAC, "Rejecting DL grant with two codewords: reception is not supported\n");
+    return -1;
+  }
+  if (!tb_enabled[0] && !tb_enabled[1]) {
+    LOG_W(NR_MAC, "Rejecting DL grant with both transport blocks disabled\n");
+    return -1;
+  }
 
   dlsch_pdu->n_front_load_symb = 1; // default value
-  set_antenna_port_parameters(dlsch_pdu, cw0 + cw1, max_length, dmrs_type, dci->antenna_ports.val);
+  set_antenna_port_parameters(dlsch_pdu, tb_enabled[0] + tb_enabled[1], max_length, dmrs_type, dci->antenna_ports.val);
   int nb_re_dmrs = ((dmrs_type == NULL) ? 6 : 4) * dlsch_pdu->n_dmrs_cdm_groups;
 
   /* dmrs symbol positions*/
@@ -1494,71 +1517,50 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   }
 
   int cw_idx = 0;
-  NR_UE_DL_HARQ_STATUS_t *current_harq = NULL;
-  if (cw0) {
-    current_harq = &mac->dl_harq_info[dci->harq_pid.val][0];
-    if (get_cw_info(current_harq,
-                    dlsch_pdu,
-                    dl_conf_req->pdu_type,
-                    &dlsch_pdu->cw_info[0],
-                    number_rbs,
-                    nb_re_dmrs,
-                    nb_rb_oh,
-                    dci->rv,
-                    dci->mcs,
-                    dci->ndi,
-                    cw_idx)) {
-      if (current_harq->round < sizeofArray(mac->stats.dl.rounds))
-        mac->stats.dl.rounds[current_harq->round]++;
-      accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[0], number_rbs);
-      // set the harq status at MAC for feedback
-      set_harq_status(mac,
-                      dci->pucch_resource_indicator,
-                      dci->harq_pid.val,
-                      0,
-                      tpc[dci->tpc],
-                      feedback_ti,
-                      dci->dai[0].val,
-                      dci_ind->n_CCE,
-                      dci_ind->N_CCE,
-                      frame,
-                      slot);
-      cw_idx++;
-    } else
+  NR_UE_DL_HARQ_STATUS_t harq_history[NR_DL_MAX_NB_CW];
+  for (int tb_idx = 0; tb_idx < NR_DL_MAX_NB_CW; tb_idx++) {
+    if (!tb_enabled[tb_idx])
+      continue;
+    // TS 38.214 clause 5.1.3.2: either transport block alone maps to codeword 0.
+    harq_history[cw_idx] = mac->dl_harq_info[dci->harq_pid.val][tb_idx];
+    fapi_nr_dl_cw_info_t *cw_info = &dlsch_pdu->cw_info[cw_idx];
+    cw_info->tb_idx = tb_idx;
+    if (!get_cw_info(&harq_history[cw_idx],
+                     dlsch_pdu,
+                     dl_conf_req->pdu_type,
+                     cw_info,
+                     number_rbs,
+                     nb_re_dmrs,
+                     nb_rb_oh,
+                     tb_idx == 0 ? dci->rv : dci->rv2.val,
+                     tb_idx == 0 ? dci->mcs : dci->mcs2.val,
+                     tb_idx == 0 ? dci->ndi : dci->ndi2.val,
+                     cw_idx))
       return -1;
+    cw_idx++;
   }
 
-  if (cw1) {
-    current_harq = &mac->dl_harq_info[dci->harq_pid.val][cw_idx];
-    if (get_cw_info(current_harq,
-                    dlsch_pdu,
-                    dl_conf_req->pdu_type,
-                    &dlsch_pdu->cw_info[1],
-                    number_rbs,
-                    nb_re_dmrs,
-                    nb_rb_oh,
-                    dci->rv2.val,
-                    dci->mcs2.val,
-                    dci->ndi2.val,
-                    cw_idx)) {
-      if (current_harq->round < sizeofArray(mac->stats.dl.rounds))
-        mac->stats.dl.rounds[current_harq->round]++;
-      accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[1], number_rbs);
-      // set the harq status at MAC for feedback
-      set_harq_status(mac,
-                      dci->pucch_resource_indicator,
-                      dci->harq_pid.val,
-                      1,
-                      tpc[dci->tpc],
-                      feedback_ti,
-                      dci->dai[0].val,
-                      dci_ind->n_CCE,
-                      dci_ind->N_CCE,
-                      frame,
-                      slot);
-      cw_idx++;
-    } else
-      return -1;
+  // Rejecting either codeword must leave the accepted HARQ history and feedback unchanged.
+  for (int cw = 0; cw < cw_idx; cw++) {
+    const int tb_idx = dlsch_pdu->cw_info[cw].tb_idx;
+    NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[dci->harq_pid.val][tb_idx];
+    commit_dl_harq_history(current_harq, &harq_history[cw]);
+    if (current_harq->round < sizeofArray(mac->stats.dl.rounds))
+      mac->stats.dl.rounds[current_harq->round]++;
+    accumulate_dl_stats(mac, dlsch_pdu, &dlsch_pdu->cw_info[cw], number_rbs);
+    // set the harq status at MAC for feedback
+    set_harq_status(mac,
+                    dci->pucch_resource_indicator,
+                    dci->harq_pid.val,
+                    tb_idx,
+                    cw,
+                    tpc[dci->tpc],
+                    feedback_ti,
+                    dci->dai[0].val,
+                    dci_ind->n_CCE,
+                    dci_ind->N_CCE,
+                    frame,
+                    slot);
   }
 
   dlsch_pdu->n_codewords = cw_idx;
@@ -2429,10 +2431,8 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
 
   bool two_transport_blocks = false;
   int number_of_code_word = 1;
-  if (current_DL_BWP
-      && current_DL_BWP->pdsch_Config
-      && current_DL_BWP->pdsch_Config->maxNrofCodeWordsScheduledByDCI
-      && current_DL_BWP->pdsch_Config->maxNrofCodeWordsScheduledByDCI[0] == 2) {
+  if (current_DL_BWP && current_DL_BWP->pdsch_Config && current_DL_BWP->pdsch_Config->maxNrofCodeWordsScheduledByDCI
+      && *current_DL_BWP->pdsch_Config->maxNrofCodeWordsScheduledByDCI == NR_PDSCH_Config__maxNrofCodeWordsScheduledByDCI_n2) {
     two_transport_blocks = true;
     number_of_code_word = 2;
   }
@@ -2441,9 +2441,9 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
   int res_ind = -1;
 
   /* look for dl acknowledgment which should be done on current uplink slot */
-  for (int code_word = 0; code_word < number_of_code_word; code_word++) {
+  for (int tb_idx = 0; tb_idx < NR_DL_MAX_NB_CW; tb_idx++) {
     for (int dl_harq_pid = 0; dl_harq_pid < num_dl_harq; dl_harq_pid++) {
-      NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[dl_harq_pid][code_word];
+      NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[dl_harq_pid][tb_idx];
       if (current_harq->active) {
         LOG_D(PHY, "HARQ pid %d is active for %d.%d\n",
               dl_harq_pid, current_harq->ul_frame, current_harq->ul_slot);
@@ -2465,7 +2465,9 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
               continue;
             }
 
-            if (current_harq->dai_cumul == 0) {
+            const int code_word = current_harq->feedback_cw_idx;
+            if (code_word >= number_of_code_word || current_harq->dai_cumul <= 0 || current_harq->dai_cumul > NR_MAX_HARQ_PROCESSES
+                || current_harq->dai_cumul > sizeof(pucch->ack_payload) * 8 / number_of_code_word) {
               LOG_E(NR_MAC,"PUCCH Downlink DAI is invalid\n");
               return false;
             } else if (current_harq->dai_cumul > dai_max) {
@@ -2533,7 +2535,7 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
   uint32_t V_temp = 0;
   uint32_t V_temp2 = 0;
   int O_ACK = 0;
-  uint8_t o_ACK = 0;
+  uint32_t o_ACK = 0;
   int O_bit_number_cw0 = 0;
   int O_bit_number_cw1 = 0;
 

@@ -405,6 +405,7 @@ int main(int argc, char **argv)
   harq_process->activated_frame = proc.frame_rx;
   harq_process->activated_slot = proc.nr_slot_rx;
   fapi_nr_dl_config_dlsch_pdu_rel15_t dlsch_config;
+  dlsch_config.cw_info[0].tb_idx = 0;
   dlsch_config.cw_info[0].mcs = Imcs;
   dlsch_config.mcs_table = mcs_table;
   dlsch_config.number_rbs = nb_rb;
