@@ -24,6 +24,7 @@ from cls_ci_helper import TestCaseCtx
 import ran
 import cls_cmd
 import cls_oai_html
+import cls_verdict
 import args_parse
 
 
@@ -240,7 +241,7 @@ def ShowTestID(ctx, desc, file, line):
     logging.info(f'\u001B[1m {desc}                                 \u001B[0m')
     logging.info(f'\u001B[1m----------------------------------------\u001B[0m')
 
-def run_tests(g_ctx, logPath, HTML, all_tests, filename):
+def run_tests(g_ctx, logPath, HTML, all_tests, filename, classifier):
 	task_set_succeeded = True
 	for index, test in enumerate(all_tests, start=1):
 		if test_runner_abort:
@@ -261,20 +262,23 @@ def run_tests(g_ctx, logPath, HTML, all_tests, filename):
 			msg = f"skipping test due to prior error"
 			logging.warning(msg)
 			HTML.CreateHtmlTestRowQueue(msg, "SKIP", [])
+			classifier.classify(filename, test_case_idx, action, desc, False, skipped=True)
 			continue
+		HTML.failedChecks = []
 		try:
 			test_succeeded = ExecuteActionWithParam(action, test, ctx, node, oc, HTML)
-			if not test_succeeded and may_fail:
-				logging.warning(f"test ID {test_case_idx} action {action} may or may not fail, proceeding despite error")
-			elif not test_succeeded:
-				logging.error(f"test ID {test_case_idx} action {action} failed ({test_succeeded}), skipping next tests")
-				task_set_succeeded = False
+			r = classifier.classify(filename, test_case_idx, action, desc, test_succeeded, may_fail=may_fail,
+			                        failed_checks=HTML.failedChecks)
 		except Exception as e:
 			s = traceback.format_exc()
 			logging.error(f'while running CI, an exception occurred:\n{s}')
 			HTML.CreateHtmlTestRowQueue("N/A", 'KO', [f"CI test code encountered an exception:\n{s}"])
+			r = classifier.classify(filename, test_case_idx, action, desc, False, exception=True)
+		if r.verdict == cls_verdict.Verdict.KNOWN_FAIL:
+			logging.warning(f"test ID {test_case_idx} action {action} is a known failure ({r.issue or r.note}), proceeding despite error")
+		elif r.verdict in (cls_verdict.Verdict.NEW_FAIL, cls_verdict.Verdict.INFRA):
+			logging.error(f"test ID {test_case_idx} action {action} failed ({r.verdict.value}), skipping next tests")
 			task_set_succeeded = False
-			continue
 	return task_set_succeeded
 
 #-----------------------------------------------------------
@@ -316,6 +320,12 @@ if __name__ == "__main__":
 		t = TestXML(x, logPath, root.findtext('htmlTabName'))
 		test_xmls.append(t)
 
+	try:
+		classifier = cls_verdict.Classifier(cls_verdict.load_manifest())
+	except ValueError as e:
+		logging.error(f"invalid known failures manifest: {e}")
+		sys.exit(1)
+
 	HTML = cls_oai_html.HTMLManagement()
 	HTML.CreateHtmlHeader(g_ctx.repository, g_ctx.branch, test_xmls)
 
@@ -334,7 +344,7 @@ if __name__ == "__main__":
 		HTML.CreateHtmlTabHeader(xml.filename, i)
 		HTML.startTime=int(round(time.time() * 1000))
 
-		success = run_tests(g_ctx, xml.logPath, HTML, all_tests, xml.filename)
+		success = run_tests(g_ctx, xml.logPath, HTML, all_tests, xml.filename, classifier)
 
 		if not success:
 			logging.error(f'\u001B[1;37;41mScenario {xml.filename} failed\u001B[0m')
@@ -345,5 +355,8 @@ if __name__ == "__main__":
 			HTML.CreateHtmlTabFooter(True, i)
 
 	HTML.CreateHtmlFooter(final_status)
+	classifier.write_json('test_verdict.json')
+	classifier.write_markdown('test_verdict.md')
+	logging.info(f"verdict: {classifier.overall().value} {classifier.counts()}")
 	ret = 0 if final_status else 1
 	sys.exit(ret)

@@ -30,6 +30,8 @@ class HTMLManagement():
 		self.startTime = int(round(time.time() * 1000))
 		self.testCaseIdx = ''
 		self.desc = ''
+		# service:check names of failed log analyses in the current step
+		self.failedChecks = []
 
 #-----------------------------------------------------------
 # HTML structure creation functions
