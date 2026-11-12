@@ -32,6 +32,49 @@ struct {
   int size;
 } const idftFtab[] = {FOREACH_IDFTSZ(SZ_iPTR)};
 
+struct {
+  int size;
+} const dftAllFtab[] = {FOREACH_DFTSZ(SZ_PTR)};
+
+/* dft()/idft() do not copy a misaligned input: for every size, an input at sample offset 1..7 must give the
+ * same output as the same samples in an aligned buffer. Returns the number of mismatching sizes. */
+static int misaligned_input_errors(void)
+{
+  int bad = 0;
+  for (int dir = 0; dir < 2; dir++) {
+    const int nsz = dir ? sizeofArray(idftFtab) : sizeofArray(dftAllFtab);
+    for (int s = 0; s < nsz; s++) {
+      const int n = dir ? idftFtab[s].size : dftAllFtab[s].size;
+      c16_t *in = malloc16((n + 8) * sizeof(c16_t)), *src = malloc16(n * sizeof(c16_t));
+      c16_t *ref = malloc16(n * sizeof(c16_t)), *out = malloc16(n * sizeof(c16_t));
+      for (int i = 0; i < n + 8; i++)
+        in[i] = (c16_t){(int16_t)(taus() & 0x1fff) - 4096, (int16_t)(taus() & 0x1fff) - 4096};
+      int mismatch = 0;
+      for (int scale = 0; scale < 2; scale++)
+        for (int off = 1; off < 8; off++) {
+          memcpy(src, in + off, n * sizeof(c16_t));
+          if (dir) {
+            idft(get_idft(n), (int16_t *)src, (int16_t *)ref, scale);
+            idft(get_idft(n), (int16_t *)(in + off), (int16_t *)out, scale);
+          } else {
+            dft(get_dft(n), (int16_t *)src, (int16_t *)ref, scale);
+            dft(get_dft(n), (int16_t *)(in + off), (int16_t *)out, scale);
+          }
+          mismatch |= memcmp(ref, out, n * sizeof(c16_t)) != 0;
+        }
+      if (mismatch) {
+        printf("misaligned input: %s size %d differs from the aligned call\n", dir ? "idft" : "dft", n);
+        bad++;
+      }
+      free(in);
+      free(src);
+      free(ref);
+      free(out);
+    }
+  }
+  return bad;
+}
+
 bool error(c16_t v16, cd_t vd, double percent)
 {
   cd_t err = {abs(v16.r - vd.r), abs(v16.i - vd.i)};
@@ -164,6 +207,8 @@ int main(void)
   int n_simu = 4096;
   int ret = 0;
   load_dftslib();
+  if (misaligned_input_errors())
+    ret = 1;
   const int max_dft_size = dftFtab[sizeofArray(dftFtab) - 1].size;
   c16_t *d16 = malloc16(max_dft_size * sizeof(*d16));
   c16_t *o16 = malloc16(max_dft_size * sizeof(*o16));
