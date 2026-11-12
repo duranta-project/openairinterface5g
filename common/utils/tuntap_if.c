@@ -276,17 +276,46 @@ bool tap_config(const char* ifname)
   return success;
 }
 
+/*
+ * \brief Remove all IPv4 policy rules selecting a table, e.g., left by a
+ * previous run that did not exit cleanly. Rules are deleted one by one, as old
+ * iproute2 versions ignore the table selector of "ip rule flush".
+ * \param[in] table_id the routing table whose rules to remove
+ * \return true if no rule selects the table anymore, false otherwise
+ */
+static bool remove_ue_ipv4_route(int table_id)
+{
+  char command_line[256];
+  int res = snprintf(command_line,
+                     sizeof(command_line),
+                     "while ip -4 rule del table %d 2>/dev/null; do :; done; "
+                     "rules=$(ip -4 rule show table %d) && [ -z \"$rules\" ]",
+                     table_id,
+                     table_id);
+  if (res < 0 || res >= (int)sizeof(command_line)) {
+    LOG_E(UTIL, "Could not create ip rule removal command string\n");
+    return false;
+  }
+  return background_system(command_line) == 0;
+}
+
 void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id, const char *ipv4)
 {
   /* This needs to be unique per (instance_id, pdu_session_id) */
   // UE0, PDU1 = 10001, UE1, PDU1 = 10101, UE15, PDU15 = 11515 ...
   int table_id = 10000 + instance_id * 100 + pdu_session_id;
 
+  // avoid accumulating rules of this table across runs
+  if (!remove_ue_ipv4_route(table_id)) {
+    LOG_E(UTIL, "Could not remove IPv4 rules of table %d, not adding rules/route for %s\n", table_id, ifname);
+    return;
+  }
+
   char command_line[500];
   int res = sprintf(command_line,
                     "ip rule add from %s/32 table %d && "
                     "ip rule add to %s/32 table %d && "
-                    "ip route add default dev %s table %d",
+                    "ip route replace default dev %s table %d",
                     ipv4,
                     table_id,
                     ipv4,
