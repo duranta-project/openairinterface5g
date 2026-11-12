@@ -1320,6 +1320,26 @@ void nrdc_scg_ue_release(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue)
 
 void nrdc_handle_scg_failure_information(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue, NR_SCGFailureInformation_t *msg)
 {
+  /* failureReportSCG is optional, and criticalExtensions may be criticalExtensionsFuture */
+  if (msg->criticalExtensions.present != NR_SCGFailureInformation__criticalExtensions_PR_scgFailureInformation
+      || !msg->criticalExtensions.choice.scgFailureInformation->failureReportSCG) {
+    LOG_E(NR_RRC, "UE %d: SCGFailureInformation without failureReportSCG, ignoring it\n", ue->rrc_ue_id);
+    return;
+  }
+  const NR_FailureReportSCG_t *report = msg->criticalExtensions.choice.scgFailureInformation->failureReportSCG;
+  const long type = report->failureType;
+  const char *cause[] = {"NR_FailureReportSCG__failureType_t310_Expiry",
+                         "NR_FailureReportSCG__failureType_randomAccessProblem",
+                         "NR_FailureReportSCG__failureType_rlc_MaxNumRetx",
+                         "NR_FailureReportSCG__failureType_synchReconfigFailureSCG",
+                         "NR_FailureReportSCG__failureType_scg_ReconfigFailure",
+                         "NR_FailureReportSCG__failureType_srb3_IntegrityFailure",
+                         "NR_FailureReportSCG__failureType_other_r16",
+                         "NR_FailureReportSCG__failureType_spare1"};
+  const char *cause_str = type >= 0 && type < (long)sizeofArray(cause) ? cause[type] : "unknown";
+  LOG_E(NR_RRC, "scg failure cause %s\n", cause_str);
+  LOG_UE_UL_EVENT(ue, "received scg failure cause %s\n", cause_str);
+
   if (ue->nrdc == NULL)
     return;
   nrdc_ue_state_t *nrdc = ue->nrdc;
