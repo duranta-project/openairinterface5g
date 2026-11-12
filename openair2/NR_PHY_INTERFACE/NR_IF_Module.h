@@ -61,9 +61,6 @@ typedef struct {
 
 } NR_UL_IND_t;
 
-// Downlink slot P7
-
-
 typedef struct NR_Sched_Rsp {
   /// Module ID
   module_id_t module_id;
@@ -90,10 +87,17 @@ typedef struct {
 } NR_PHY_Config_t;
 
 typedef struct NR_IF_Module_s {
-  //define the function pointer
-  void (*NR_UL_indication)(NR_UL_IND_t *UL_INFO);
-  void (*NR_slot_indication)(const nfapi_nr_slot_indication_scf_t *ind, NR_Sched_Rsp_t *rsp);
   void (*NR_PHY_config_req)(NR_PHY_Config_t *config_INFO);
+
+  int (*NR_slot_indication)(const nfapi_nr_slot_indication_scf_t *ind, NR_Sched_Rsp_t *rsp);
+
+  // TODO order of FAPI
+  int (*nr_rx_data_indication)(const nfapi_nr_rx_data_indication_t *ind);
+  int (*nr_crc_indication)(const nfapi_nr_crc_indication_t *ind);
+  int (*nr_srs_indication)(const nfapi_nr_srs_indication_t *ind);
+  int (*nr_srs_toa_vendor_ext_indication)(const nfapi_nr_srs_toa_vendor_ext_indication_t *ind);
+  int (*nr_uci_indication)(const nfapi_nr_uci_indication_t *ind);
+  int (*nr_rach_indication)(const nfapi_nr_rach_indication_t *ind);
 } NR_IF_Module_t;
 
 /*Initial */

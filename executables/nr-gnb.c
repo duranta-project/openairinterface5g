@@ -255,7 +255,12 @@ static void rx_func(processingData_L1_t *info)
 
     // Call the scheduler
     START_MEAS_FULL_SLOT(&gNB->ul_indication_stats, rx_slot_type, NR_UPLINK_SLOT);
-    gNB->if_inst->NR_UL_indication(&UL_INFO);
+    gNB->if_inst->nr_rach_indication(&UL_INFO.rach_ind);
+    gNB->if_inst->nr_uci_indication(&UL_INFO.uci_ind);
+    gNB->if_inst->nr_crc_indication(&UL_INFO.crc_ind);
+    gNB->if_inst->nr_rx_data_indication(&UL_INFO.rx_ind);
+    gNB->if_inst->nr_srs_indication(&UL_INFO.srs_ind);
+    gNB->if_inst->nr_srs_toa_vendor_ext_indication(&UL_INFO.srs_toa_vendor_ext_ind);
     STOP_MEAS_FULL_SLOT(&gNB->ul_indication_stats, rx_slot_type, NR_UPLINK_SLOT);
 
     // Signal the ru_thread on completion of using rxdataF in this slot
