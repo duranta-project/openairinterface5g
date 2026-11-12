@@ -2482,17 +2482,24 @@ static void nr_rrc_rrcsetup_fallback(NR_UE_RRC_INST_t *rrc)
 
 static void nr_rrc_process_rrcsetup(NR_UE_RRC_INST_t *rrc, const NR_RRCSetup_t *rrcSetup)
 {
+  if (rrcSetup->criticalExtensions.present != NR_RRCSetup__criticalExtensions_PR_rrcSetup) {
+    RRCLOG_E("Received RRCSetup with unsupported criticalExtensions choice %d\n",
+             rrcSetup->criticalExtensions.present);
+    return;
+  }
+  const struct NR_RRCSetup_IEs *rrcSetupIEs = rrcSetup->criticalExtensions.choice.rrcSetup;
+
   // if the RRCSetup is received in response to an RRCReestablishmentRequest
   // or RRCResumeRequest or RRCResumeRequest1
   if (rrc->ra_trigger == RRC_CONNECTION_REESTABLISHMENT || rrc->ra_trigger == RRC_RESUME_REQUEST)
     nr_rrc_rrcsetup_fallback(rrc);
 
   // perform the cell group configuration procedure in accordance with the received masterCellGroup
-  bool ret = nr_rrc_ue_process_masterCellGroup(rrc, &rrcSetup->criticalExtensions.choice.rrcSetup->masterCellGroup, NULL, 0, false, NULL);
+  bool ret = nr_rrc_ue_process_masterCellGroup(rrc, &rrcSetupIEs->masterCellGroup, NULL, 0, false, NULL);
   if (!ret)
     return;
   // perform the radio bearer configuration procedure in accordance with the received radioBearerConfig
-  nr_rrc_ue_process_RadioBearerConfig(rrc, &rrcSetup->criticalExtensions.choice.rrcSetup->radioBearerConfig);
+  nr_rrc_ue_process_RadioBearerConfig(rrc, &rrcSetupIEs->radioBearerConfig);
 
   // TODO (not handled) if stored, discard the cell reselection priority information provided by
   // the cellReselectionPriorities or inherited from another RAT
