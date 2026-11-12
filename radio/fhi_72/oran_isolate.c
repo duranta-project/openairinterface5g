@@ -139,17 +139,11 @@ static int trx_oran_get_stats(oran_eth_state_t *s)
 static void oran_prec_bf(struct PHY_VARS_gNB_s *gNB, int frame, int slot)
 {
   split7_config_t *s7cfg = &gNB->fhi72_transport->s7cfg;
-  const uint8_t nb_tx = gNB->frame_parms.nb_antennas_tx;
   const uint32_t samples_per_slot_wCP = gNB->frame_parms.samples_per_slot_wCP;
   START_MEAS_FULL_SLOT(&s7cfg->prec_bf, s7cfg->slot_dir[slot], NR_DOWNLINK_SLOT);
-  // If there is no digital beamforming we just need to copy the data to RU
-  if (gNB->gNB_config.dbt_config.num_dig_beams == 0 || gNB->common_vars.analog_bf) {
-    for (int i = 0; i < nb_tx; ++i) {
-      memcpy(s7cfg->txdataF_BF[i], gNB->common_vars.txdataF[i], samples_per_slot_wCP * sizeof(int32_t));
-    }
-  }  else {
-    AssertFatal(false, "This needs to be fixed by using appropriate beams from config\n");
-  }
+  // L1 already applied any digital beamforming: txdataF holds the baseband ports
+  for (int i = 0; i < gNB->common_vars.num_tx_bb; ++i)
+    memcpy(s7cfg->txdataF_BF[i], gNB->common_vars.txdataF[i], samples_per_slot_wCP * sizeof(int32_t));
   STOP_MEAS_FULL_SLOT(&s7cfg->prec_bf, s7cfg->slot_dir[slot], NR_DOWNLINK_SLOT);
 }
 

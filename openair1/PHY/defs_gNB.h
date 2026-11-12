@@ -12,6 +12,7 @@
 #include "common/platform_constants.h"
 #include "defs_nr_common.h"
 #include "common/utils/bits.h"
+#include "common/utils/nr/nr_common.h"
 #include "CODING/nrPolar_tools/nr_polar_pbch_defs.h"
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
@@ -221,13 +222,27 @@ typedef struct {
   /// For IFFT_FPGA this points to the same memory as PHY_vars->rx_vars[a].RX_DMA_BUFFER. //?
   /// - first index: tx antenna [0..16) where 16 is the total supported antenna ports.
   /// - second index: sample [0..ofdm_symbol_size*symbols_per_frame)
+  /// With a digital beam table, these are the num_tx_bb baseband ports: a PDU L1 beamforms with the table
+  /// (nr_dbt_pdu()) is generated on its logical antenna ports in a temporary buffer and beamformed onto them
+  /// (nr_dbt_beamform()); any other PDU is written onto the baseband ports of its spatial stream indices.
   c16_t **txdataF;
-  /// \brief Analogue beam ID for each [symbol, antenna] pair
+  /// number of txdataF buffers: the baseband ports of the digital beam table, or nb_antennas_tx
+  int num_tx_bb;
+  /// with a digital beam table: scratch buffer the CSI-RS ports are generated in before being beamformed,
+  /// nb_antennas_tx slots long. NULL otherwise.
+  c16_t *csirs_scratch;
+  /// \brief Beam ID for each [symbol, antenna] pair, forwarded to the radio or fronthaul
+  /// (analog beamforming, FAPI beam IDs with the MSB set). NULL otherwise. A PDU whose beam IDs
+  /// have the MSB clear is beamformed by L1 with dbt_lut and leaves no beam ID here.
   /// - first index: symbol [slot * fp->symbols_per_slot + sym_idx]
   /// - second index: logical antenna [0..nb_rx/nb_tx]
   uint16_t **beam_id;
   int num_beams_period;
+  /// beam IDs are forwarded to the radio or fronthaul
   bool analog_bf;
+  /// with a digital beam table: its entry for each of the NR_MAX_DBT_BEAM_IDX beam IDs, NULL if the ID is
+  /// not in the table. NULL without a table.
+  const nfapi_nr_dig_beam_t **dbt_lut;
 } NR_gNB_COMMON;
 
 typedef struct {
