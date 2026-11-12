@@ -560,6 +560,15 @@ void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
                         const uint8_t cdm_type,
                         c16_t **dataF)
 {
+  if (start_rb >= frame_parms->N_RB_DL || nr_of_rbs > frame_parms->N_RB_DL - start_rb) {
+    LOG_E(NR_PHY,
+          "CSI-RS resource outside the configured PRB grid: start_rb %u, nr_of_rbs %u, N_RB_DL %d\n",
+          start_rb,
+          nr_of_rbs,
+          frame_parms->N_RB_DL);
+    return;
+  }
+
 #ifdef NR_CSIRS_DEBUG
   LOG_I(NR_PHY,
         "CSI Params: start_rb = %i, nr_of_rbs = %i, row = %i, symb_l0 = %i, symb_l1 = %i, cdm_type = %i, freq_density = %i (0: "
