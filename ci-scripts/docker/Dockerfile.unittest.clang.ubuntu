@@ -30,7 +30,7 @@ WORKDIR /oai-ran/build
 RUN --mount=type=cache,target=/root/.cache/ccache/,id=ccache_clang \
     --mount=type=cache,target=/root/.cache/cpm/ \
     CC=clang CXX=clang++ cmake .. -GNinja \
-      -DENABLE_TESTS=ON -DOAI_ZMQ=ON -DCMAKE_BUILD_TYPE=Debug \
+      -DENABLE_TESTS=ON -DOAI_ZMQ=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
       -DSANITIZE_ADDRESS=True -DOAI_VRTSIM_TAPS_CLIENT=ON -DOAI_RU_FRONTHAUL=ON \
     && \
     ninja
