@@ -42,6 +42,7 @@ struct F1AP_F1AP_PDU *encode_f1ap_setup_failure(const f1ap_setup_failure_t *msg)
 bool decode_f1ap_setup_failure(const struct F1AP_F1AP_PDU *pdu, f1ap_setup_failure_t *out);
 bool eq_f1ap_setup_failure(const f1ap_setup_failure_t *a, const f1ap_setup_failure_t *b);
 f1ap_setup_failure_t cp_f1ap_setup_failure(const f1ap_setup_failure_t *msg);
+void free_f1ap_setup_failure(const f1ap_setup_failure_t *msg);
 
 /* F1 gNB-DU Configuration Update */
 struct F1AP_F1AP_PDU *encode_f1ap_du_configuration_update(const f1ap_gnb_du_configuration_update_t *msg);

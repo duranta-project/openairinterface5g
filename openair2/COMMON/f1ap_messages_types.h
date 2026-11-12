@@ -214,12 +214,22 @@ typedef struct f1ap_gnb_cu_configuration_update_s {
   served_cells_to_activate_t *cells_to_activate;
 } f1ap_gnb_cu_configuration_update_t;
 
+typedef enum F1ap_Cause_e {
+  F1AP_CAUSE_NOTHING,  /* No components present */
+  F1AP_CAUSE_RADIO_NETWORK,
+  F1AP_CAUSE_TRANSPORT,
+  F1AP_CAUSE_PROTOCOL,
+  F1AP_CAUSE_MISC,
+} f1ap_Cause_t;
+
 typedef struct f1ap_setup_failure_s {
-  uint16_t cause;
-  uint16_t time_to_wait;
-  uint16_t criticality_diagnostics;
   /// Transaction ID (M)
   uint64_t transaction_id;
+  /// Cause (M): CHOICE and the value within it
+  f1ap_Cause_t cause;
+  long cause_value;
+  /// Time To Wait (O), an F1AP_TimeToWait_t value
+  int *time_to_wait;
 } f1ap_setup_failure_t;
 
 typedef struct f1ap_gnb_cu_configuration_update_acknowledge_s {
@@ -575,14 +585,6 @@ typedef struct f1ap_ue_context_mod_resp_s {
   int srbs_len;
   f1ap_srb_setup_t *srbs;
 } f1ap_ue_context_mod_resp_t;
-
-typedef enum F1ap_Cause_e {
-  F1AP_CAUSE_NOTHING,  /* No components present */
-  F1AP_CAUSE_RADIO_NETWORK,
-  F1AP_CAUSE_TRANSPORT,
-  F1AP_CAUSE_PROTOCOL,
-  F1AP_CAUSE_MISC,
-} f1ap_Cause_t;
 
 typedef struct f1ap_ue_context_modif_required_s {
   uint32_t gNB_CU_ue_id;

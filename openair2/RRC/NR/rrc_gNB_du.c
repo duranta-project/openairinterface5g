@@ -656,8 +656,8 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
   DevAssert(rrc);
 
   LOG_I(NR_RRC, "Received F1 Setup Request from gNB_DU %lu (%s) on assoc_id %d\n", req->gNB_DU_id, req->gNB_DU_name, assoc_id);
-  // pre-fill F1 Setup Failure message
-  f1ap_setup_failure_t fail = {.transaction_id = F1AP_get_next_transaction_identifier(0, 0)};
+  // pre-fill F1 Setup Failure message: it answers the request, so it carries its Transaction ID (TS 38.473 §9.3.1.23)
+  f1ap_setup_failure_t fail = {.transaction_id = req->transaction_id};
 
   // check:
   // - PLMN and Cell ID matches
@@ -671,7 +671,8 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
             it->gNB_DU_name,
             it->assoc_id,
             it->gNB_DU_id);
-      fail.cause = F1AP_CauseMisc_unspecified;
+      fail.cause = F1AP_CAUSE_MISC;
+      fail.cause_value = F1AP_CauseMisc_unspecified;
       rrc->mac_rrc.f1_setup_failure(assoc_id, &fail);
       return;
     }
@@ -710,7 +711,8 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
             cell_info->plmn.mcc,
             cell_info->plmn.mnc_digit_length,
             cell_info->plmn.mnc);
-      fail.cause = F1AP_CauseRadioNetwork_plmn_not_served_by_the_gNB_CU;
+      fail.cause = F1AP_CAUSE_RADIO_NETWORK;
+      fail.cause_value = F1AP_CauseRadioNetwork_plmn_not_served_by_the_gNB_CU;
       rrc->mac_rrc.f1_setup_failure(assoc_id, &fail);
       free_f1ap_setup_response(&resp);
       return;
@@ -718,7 +720,8 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
 
     if (rrc->neighbour_cell_configuration && !valid_du_in_neighbour_configs(rrc->neighbour_cell_configuration, cell_info)) {
       LOG_E(NR_RRC, "problem with DU %ld in neighbor configuration, rejecting DU\n", req->gNB_DU_id);
-      f1ap_setup_failure_t fail = {.cause = F1AP_CauseMisc_unspecified};
+      fail.cause = F1AP_CAUSE_MISC;
+      fail.cause_value = F1AP_CauseMisc_unspecified;
       rrc->mac_rrc.f1_setup_failure(assoc_id, &fail);
       free_f1ap_setup_response(&resp);
       return;
@@ -730,7 +733,8 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
     if (sys_info != NULL && sys_info->mib != NULL && !(sys_info->sib1 == NULL && IS_SA_MODE(get_softmodem_params()))) {
       if (!extract_sys_info(sys_info, &mib, &sib1)) {
         LOG_W(NR_RRC, "rejecting DU ID %ld\n", req->gNB_DU_id);
-        fail.cause = F1AP_CauseProtocol_semantic_error;
+        fail.cause = F1AP_CAUSE_PROTOCOL;
+        fail.cause_value = F1AP_CauseProtocol_semantic_error;
         rrc->mac_rrc.f1_setup_failure(assoc_id, &fail);
         free_f1ap_setup_response(&resp);
         return;
@@ -754,7 +758,8 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
             du_name,
             collision->assoc_id);
       rrc_free_cell_container(new);
-      fail.cause = F1AP_CauseRadioNetwork_cell_not_available;
+      fail.cause = F1AP_CAUSE_RADIO_NETWORK;
+      fail.cause_value = F1AP_CauseRadioNetwork_cell_not_available;
       rrc->mac_rrc.f1_setup_failure(assoc_id, &fail);
       free_f1ap_setup_response(&resp);
       return;

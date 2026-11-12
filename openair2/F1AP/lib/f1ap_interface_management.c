@@ -1261,28 +1261,15 @@ F1AP_F1AP_PDU_t *encode_f1ap_setup_failure(const f1ap_setup_failure_t *msg)
   ie2->id = F1AP_ProtocolIE_ID_id_Cause;
   ie2->criticality = F1AP_Criticality_ignore;
   ie2->value.present = F1AP_F1SetupFailureIEs__value_PR_Cause;
-  ie2->value.choice.Cause.present = F1AP_Cause_PR_radioNetwork;
-  ie2->value.choice.Cause.choice.radioNetwork = msg->cause;
+  ie2->value.choice.Cause = encode_f1ap_cause(msg->cause, msg->cause_value);
   /* optional */
   /* c3. TimeToWait */
-  if (msg->time_to_wait > 0) {
+  if (msg->time_to_wait) {
     asn1cSequenceAdd(out->protocolIEs.list, F1AP_F1SetupFailureIEs_t, ie3);
     ie3->id = F1AP_ProtocolIE_ID_id_TimeToWait;
     ie3->criticality = F1AP_Criticality_ignore;
     ie3->value.present = F1AP_F1SetupFailureIEs__value_PR_TimeToWait;
-    ie3->value.choice.TimeToWait = F1AP_TimeToWait_v10s;
-  }
-  /* optional */
-  /* c4. CriticalityDiagnostics*/
-  if (msg->criticality_diagnostics) {
-    asn1cSequenceAdd(out->protocolIEs.list, F1AP_F1SetupFailureIEs_t, ie4);
-    ie4->id = F1AP_ProtocolIE_ID_id_CriticalityDiagnostics;
-    ie4->criticality = F1AP_Criticality_ignore;
-    ie4->value.present = F1AP_F1SetupFailureIEs__value_PR_CriticalityDiagnostics;
-    asn1cCallocOne(ie4->value.choice.CriticalityDiagnostics.procedureCode, F1AP_ProcedureCode_id_UEContextSetup);
-    asn1cCallocOne(ie4->value.choice.CriticalityDiagnostics.triggeringMessage, F1AP_TriggeringMessage_initiating_message);
-    asn1cCallocOne(ie4->value.choice.CriticalityDiagnostics.procedureCriticality, F1AP_Criticality_reject);
-    asn1cCallocOne(ie4->value.choice.CriticalityDiagnostics.transactionID, 0);
+    ie3->value.choice.TimeToWait = *msg->time_to_wait;
   }
   return pdu;
 }
@@ -1307,13 +1294,17 @@ bool decode_f1ap_setup_failure(const F1AP_F1AP_PDU_t *pdu, f1ap_setup_failure_t 
         break;
       case F1AP_ProtocolIE_ID_id_Cause:
         /* Cause (M) */
-        out->cause = ie->value.choice.Cause.choice.radioNetwork;
+        if (!decode_f1ap_cause(ie->value.choice.Cause, &out->cause, &out->cause_value))
+          return false;
         break;
       case F1AP_ProtocolIE_ID_id_TimeToWait:
-        out->time_to_wait = ie->value.choice.TimeToWait;
+        /* Time To Wait (O) */
+        _EQ_CHECK_INT(ie->value.present, F1AP_F1SetupFailureIEs__value_PR_TimeToWait);
+        out->time_to_wait = malloc_or_fail(sizeof(*out->time_to_wait));
+        *out->time_to_wait = ie->value.choice.TimeToWait;
         break;
       case F1AP_ProtocolIE_ID_id_CriticalityDiagnostics:
-        AssertError(1 == 0, return false, "F1AP_ProtocolIE_ID_id_CriticalityDiagnostics is not supported");
+        /* Criticality Diagnostics (O): not decoded */
         break;
       default:
         AssertError(1 == 0, return false, "F1AP_ProtocolIE_ID_id %ld unknown\n", ie->id);
@@ -1329,6 +1320,9 @@ bool decode_f1ap_setup_failure(const F1AP_F1AP_PDU_t *pdu, f1ap_setup_failure_t 
 bool eq_f1ap_setup_failure(const f1ap_setup_failure_t *a, const f1ap_setup_failure_t *b)
 {
   _EQ_CHECK_LONG(a->transaction_id, b->transaction_id);
+  _EQ_CHECK_INT(a->cause, b->cause);
+  _EQ_CHECK_LONG(a->cause_value, b->cause_value);
+  _EQ_CHECK_OPTIONAL_IE(a, b, time_to_wait, _EQ_CHECK_INT);
   return true;
 }
 
@@ -1337,10 +1331,25 @@ bool eq_f1ap_setup_failure(const f1ap_setup_failure_t *a, const f1ap_setup_failu
  */
 f1ap_setup_failure_t cp_f1ap_setup_failure(const f1ap_setup_failure_t *msg)
 {
-  f1ap_setup_failure_t cp = {0};
-  /* transaction_id */
-  cp.transaction_id = msg->transaction_id;
+  f1ap_setup_failure_t cp = {
+      .transaction_id = msg->transaction_id,
+      .cause = msg->cause,
+      .cause_value = msg->cause_value,
+  };
+  if (msg->time_to_wait) {
+    cp.time_to_wait = malloc_or_fail(sizeof(*cp.time_to_wait));
+    *cp.time_to_wait = *msg->time_to_wait;
+  }
   return cp;
+}
+
+/**
+ * @brief F1AP Setup Failure memory management
+ */
+void free_f1ap_setup_failure(const f1ap_setup_failure_t *msg)
+{
+  DevAssert(msg != NULL);
+  free(msg->time_to_wait);
 }
 
 /* ====================================
