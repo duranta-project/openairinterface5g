@@ -387,13 +387,22 @@ static inline hi nrh_rescale_exp(hv P0, hv P1)
   return hi_min(hi_sub(hi_set1(18), hv_expo(hv_max(P0, P1))), hi_set1(15));
 }
 
-// res[p] lane i -> out[i * Qm + p] (the SIMD transpose of the int16 kernels)
+// res[p] lane i -> out[i * Qm + p]: the SIMD transpose of the int16 kernels (Qm 6 / 8 only), a scalar interleave below
 static inline void nrh_store(int16_t *out, const hi res[8], int Qm)
 {
   NRLB_VI r[8];
   for (int p = 0; p < Qm; p++)
     r[p] = hi_simde(res[p]);
-  NRLB_NAME(nrlbw_store_llr)(out, 0, r, Qm);
+  if (Qm >= 6) {
+    NRLB_NAME(nrlbw_store_llr)(out, 0, r, Qm);
+    return;
+  }
+  int16_t t[4][NRH_N] __attribute__((aligned(64)));
+  for (int p = 0; p < Qm; p++)
+    NRLB_STOREU(t[p], r[p]);
+  for (int i = 0; i < NRH_N; i++)
+    for (int p = 0; p < Qm; p++)
+      out[i * Qm + p] = t[p][i];
 }
 
 int nr_lbest_f16_lanes(void)
@@ -520,6 +529,38 @@ static inline hi nrh_front_end(const c16_t *rx, const c16_t *ch, uint32_t bl, in
   *f = (nrh_fe_t){z0r, z0i, z1r, z1i, P0, P1, rr, ri};
   return ls;
 }
+// single-layer front end: z = sum conj(c) y, P = sum |c|^2 (chF [nb_rx][bl]), the scaling of the 2-layer one
+static inline hi nrh_front_end_1l(const c16_t *rx, const c16_t *ch, uint32_t bl, int nb_rx, uint32_t re, c16_t cpe, hv *zr, hv *zi, hv *P)
+{
+  const bool rot = !(cpe.r == 32767 && cpe.i == 0);
+  const hv CR = hv_set1(cpe.r / 32768.0f), CI = hv_set1(cpe.i / 32768.0f);
+  int16x8_t amax = vdupq_n_s16(1);
+  for (int a = 0; a < nb_rx; a++) {
+    const int16x8x2_t y = vld2q_s16(&rx[(size_t)a * bl + re].r), h = vld2q_s16(&ch[(size_t)a * bl + re].r);
+    amax = vmaxq_s16(amax, vmaxq_s16(vqabsq_s16(y.val[0]), vqabsq_s16(y.val[1])));
+    amax = vmaxq_s16(amax, vmaxq_s16(vqabsq_s16(h.val[0]), vqabsq_s16(h.val[1])));
+  }
+  const hi ls = vsubq_s16(vclzq_s16(amax), vdupq_n_s16(15));
+  const hv S = hv_pow2(ls);
+  hv a_zr = hv_set1(0.0f), a_zi = a_zr, a_P = a_zr;
+  for (int a = 0; a < nb_rx; a++) {
+    const int16x8x2_t y = vld2q_s16(&rx[(size_t)a * bl + re].r), h = vld2q_s16(&ch[(size_t)a * bl + re].r);
+    hv yr = hv_mul(hv_cvt(y.val[0]), S), yi = hv_mul(hv_cvt(y.val[1]), S);
+    if (rot) {
+      const hv tr = hv_fma(hv_mul(CR, yr), CI, yi);
+      yi = hv_fms(hv_mul(CR, yi), CI, yr);
+      yr = tr;
+    }
+    const hv cr = hv_mul(hv_cvt(h.val[0]), S), ci = hv_mul(hv_cvt(h.val[1]), S);
+    a_zr = hv_fma(hv_fma(a_zr, cr, yr), ci, yi);
+    a_zi = hv_fms(hv_fma(a_zi, cr, yi), ci, yr);
+    a_P = hv_fma(hv_fma(a_P, cr, cr), ci, ci);
+  }
+  *zr = a_zr;
+  *zi = a_zi;
+  *P = a_P;
+  return ls;
+}
 #else
 // AVX512-FP16: complex FMAs on the interleaved data (y conj(h) accumulate, no deinterleave on load), deinterleaved
 // once at the end; two vectors of 16 complex per quantity
@@ -569,6 +610,41 @@ static inline hi nrh_front_end(const c16_t *rx, const c16_t *ch, uint32_t bl, in
   *f = (nrh_fe_t){NRH_RE(z0), NRH_IM(z0), NRH_RE(z1), NRH_IM(z1), NRH_RE(g00), NRH_RE(g11), NRH_RE(g01), NRH_IM(g01)};
 #undef NRH_RE
 #undef NRH_IM
+  return hi_even(ls32[0], ls32[1]);
+}
+static inline hi nrh_front_end_1l(const c16_t *rx, const c16_t *ch, uint32_t bl, int nb_rx, uint32_t re, c16_t cpe, hv *zr, hv *zi, hv *P)
+{
+  const bool rot = !(cpe.r == 32767 && cpe.i == 0);
+  _Float16 cp[2] = {(_Float16)(cpe.r / 32768.0f), (_Float16)(cpe.i / 32768.0f)};
+  int32_t cpbits;
+  memcpy(&cpbits, cp, sizeof(cpbits));
+  const __m512h CPE = _mm512_castsi512_ph(_mm512_set1_epi32(cpbits));
+  __m512i ls32[2];
+  __m512h z[2], g[2];
+  for (int h = 0; h < 2; h++) {
+    __m512i m = _mm512_set1_epi32(1);
+    for (int a = 0; a < nb_rx; a++) {
+      const __m512i y = _mm512_loadu_si512(&rx[(size_t)a * bl + re + 16 * h]), c = _mm512_loadu_si512(&ch[(size_t)a * bl + re + 16 * h]);
+      m = _mm512_max_epu16(m, _mm512_max_epu16(_mm512_abs_epi16(y), _mm512_abs_epi16(c))); // unsigned: |-32768| = 0x8000
+    }
+    m = _mm512_and_si512(_mm512_max_epu16(m, _mm512_srli_epi32(m, 16)), _mm512_set1_epi32(0xffff));
+    m = _mm512_min_epu32(m, _mm512_set1_epi32(32767));
+    ls32[h] = _mm512_sub_epi32(_mm512_lzcnt_epi32(m), _mm512_set1_epi32(31));
+    const __m512i fbits = _mm512_slli_epi32(_mm512_add_epi32(ls32[h], _mm512_set1_epi32(15)), 10);
+    const __m512h S = _mm512_castsi512_ph(_mm512_or_si512(fbits, _mm512_slli_epi32(fbits, 16)));
+    z[h] = g[h] = _mm512_setzero_ph();
+    for (int a = 0; a < nb_rx; a++) {
+      __m512h y = _mm512_mul_ph(_mm512_cvtepi16_ph(_mm512_loadu_si512(&rx[(size_t)a * bl + re + 16 * h])), S);
+      if (rot)
+        y = _mm512_fcmul_pch(y, CPE);
+      const __m512h c = _mm512_mul_ph(_mm512_cvtepi16_ph(_mm512_loadu_si512(&ch[(size_t)a * bl + re + 16 * h])), S);
+      z[h] = _mm512_fcmadd_pch(y, c, z[h]);
+      g[h] = _mm512_fcmadd_pch(c, c, g[h]);
+    }
+  }
+  *zr = _mm512_castsi512_ph(hi_even(_mm512_castph_si512(z[0]), _mm512_castph_si512(z[1])));
+  *zi = _mm512_castsi512_ph(hi_odd(_mm512_castph_si512(z[0]), _mm512_castph_si512(z[1])));
+  *P = _mm512_castsi512_ph(hi_even(_mm512_castph_si512(g[0]), _mm512_castph_si512(g[1])));
   return hi_even(ls32[0], ls32[1]);
 }
 #endif
@@ -663,4 +739,86 @@ void nr_inner_rx_2layer_f16(uint32_t length,
     (full ? nrh_fused_3_1 : nrh_fused_3_0)(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, lambda, output_shift, llr0, llr1, llr_cw, scramble);
   else
     (full ? nrh_fused_4_1 : nrh_fused_4_0)(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, lambda, output_shift, llr0, llr1, llr_cw, scramble);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// fused single-layer inner RX: MRC in FP16, the PAM LLRs of nr_compute_llr (level 0 the MRC output, level b
+// m_b - |level b-1| with m_b = ||h||^2 QAM_n_b), in the units of the int16 compensation at output_shift (QPSK: >> 4)
+// ---------------------------------------------------------------------------------------------------------------------
+static inline __attribute__((always_inline)) void nrh_1layer(uint32_t length,
+                                                            uint32_t bl,
+                                                            int nb_rx,
+                                                            const c16_t *rx,
+                                                            const c16_t *ch,
+                                                            c16_t cpe,
+                                                            int nb,
+                                                            int output_shift,
+                                                            int16_t *llr,
+                                                            const int16_t *scramble)
+{
+  // QAM16_n1, QAM64_n1/n2, QAM256_n1/n2/n3 of PHY/impl_defs_top.h (Q15)
+  static const float amp[5][3] = {{0},
+                                  {0},
+                                  {20724.0f / 32768, 0, 0},
+                                  {20225.0f / 32768, 10112.0f / 32768, 0},
+                                  {20106.0f / 32768, 10053.0f / 32768, 5026.0f / 32768}};
+  const int Qm = 2 * nb;
+  for (uint32_t re = 0; re < length; re += NRH_N) {
+    if (re + NRH_N > length)
+      re = length - NRH_N; // overlaps the previous vector: the REs are independent
+    hv zr, zi, P;
+    const hi ls = nrh_front_end_1l(rx, ch, bl, nb_rx, re, cpe, &zr, &zi, &P);
+    const hi lt = nrh_rescale_exp(P, P);
+    const hv T = hv_pow2(lt);
+    // vector units = int16 compensation units 2^k, k = 2 ls + lt + output_shift (+ 4: the QPSK LLR is z >> 4)
+    const hi k = hi_add(hi_add(hi_shl1(ls), lt), hi_set1(output_shift + (nb == 1 ? 4 : 0)));
+    const hs inv = hs_pow2(hi_sub(hi_set1(0), k));
+    hv l[8];
+    l[0] = hv_mul(zr, T);
+    l[1] = hv_mul(zi, T);
+    P = hv_mul(P, T);
+    for (int b = 1; b < nb; b++) {
+      const hv m = hv_mul(P, hv_set1(amp[nb][b - 1]));
+      l[2 * b] = hv_sub(m, hv_abs(l[2 * b - 2]));
+      l[2 * b + 1] = hv_sub(m, hv_abs(l[2 * b - 1]));
+    }
+    hi res[8];
+    for (int p = 0; p < Qm; p++)
+      res[p] = hv_llr16(l[p], &inv);
+    int16_t *out = llr + (size_t)re * Qm;
+    nrh_store(out, res, Qm);
+    if (scramble) {
+      const int16_t *sc = scramble + (size_t)re * Qm;
+      for (int i = 0; i < NRH_N * Qm; i++)
+        out[i] = (int16_t)(out[i] * sc[i]);
+    }
+  }
+}
+
+#define NRH_1LAYER_SPEC(NB)                                                                                                 \
+  static void nrh_1layer_##NB(uint32_t length, uint32_t bl, int nb_rx, const c16_t *rx, const c16_t *ch, c16_t cpe, int shift, int16_t *llr, \
+                              const int16_t *scr)                                                                           \
+  {                                                                                                                         \
+    nrh_1layer(length, bl, nb_rx, rx, ch, cpe, NB, shift, llr, scr);                                                       \
+  }
+NRH_1LAYER_SPEC(1)
+NRH_1LAYER_SPEC(2)
+NRH_1LAYER_SPEC(3)
+NRH_1LAYER_SPEC(4)
+#undef NRH_1LAYER_SPEC
+
+void nr_inner_rx_1layer_f16(uint32_t length,
+                            uint32_t buffer_length,
+                            int nb_rx_ant,
+                            const c16_t *rxFext,
+                            const c16_t *chFext,
+                            c16_t cpe,
+                            int mod_order,
+                            int output_shift,
+                            int16_t *llr,
+                            const int16_t *scramble)
+{
+  static void (*const f[5])(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, int, int16_t *, const int16_t *) =
+      {NULL, nrh_1layer_1, nrh_1layer_2, nrh_1layer_3, nrh_1layer_4};
+  f[mod_order / 2](length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, output_shift, llr, scramble);
 }

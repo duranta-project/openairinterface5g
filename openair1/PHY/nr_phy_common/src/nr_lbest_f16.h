@@ -32,6 +32,19 @@ void nr_inner_rx_2layer_f16(uint32_t length,
                             int16_t *llr1,
                             int16_t *llr_cw,
                             const int16_t *scramble);
+/// fused single-layer inner RX (MRC + PAM LLRs of nr_compute_llr), Qm 2-8: the arguments of nr_inner_rx_1layer,
+/// rxFext / chFext [nb_rx_ant][buffer_length]; length >= one vector of REs. Used with OAI_FUSE only: slower than the
+/// int16 chain from int16 inputs (the conversions dominate a few operations per LLR) for the same BLER
+void nr_inner_rx_1layer_f16(uint32_t length,
+                            uint32_t buffer_length,
+                            int nb_rx_ant,
+                            const c16_t *rxFext,
+                            const c16_t *chFext,
+                            c16_t cpe,
+                            int mod_order,
+                            int output_shift,
+                            int16_t *llr,
+                            const int16_t *scramble);
 /// REs per vector of the FP16 kernels (the minimum length of nr_inner_rx_2layer_f16)
 int nr_lbest_f16_lanes(void);
 
