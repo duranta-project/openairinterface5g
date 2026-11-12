@@ -5,6 +5,8 @@
 #include "PHY/defs_nr_common.h"
 #include "PHY/impl_defs_nr.h"
 #define _GNU_SOURCE // For pthread_setname_np
+#include <limits.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -873,6 +875,23 @@ static void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_
           have > need + 1 ? " (extra cores unused)" : "");
 }
 
+static int nrue_consume_timing_shift(int measured_shift, bool holdover, double drift, double *remainder)
+{
+  if (!holdover) {
+    // Fresh feedback includes P+I; keep its integer correction unchanged.
+    *remainder = 0.0;
+    return measured_shift;
+  }
+
+  // Carry fractional samples between consumed frames, not queued commands:
+  // fresh PBCH feedback can replace a queued holdover command before use.
+  const double requested = drift + *remainder;
+  const double applied = round(requested);
+  AssertFatal(isfinite(applied) && applied >= INT_MIN && applied <= INT_MAX, "Invalid timing shift %f\n", applied);
+  *remainder = requested - applied;
+  return (int)applied;
+}
+
 void *UE_thread(void *arg)
 {
   //this thread should be over the processing thread to keep in real time
@@ -931,6 +950,9 @@ void *UE_thread(void *arg)
     dynamic_barrier_init(&UE->process_slot_tx_barriers[i]);
   }
   int shiftForNextFrame = 0;
+  bool timing_holdover_pending = false;
+  double timing_holdover_drift = 0.0;
+  double timing_holdover_remainder = 0.0;
   int intialSyncOffset = 0;
   openair0_timestamp_t sync_timestamp;
   bool stats_printed = false;
@@ -1046,6 +1068,8 @@ void *UE_thread(void *arg)
       nrue_ru_write_reorder_clear_context(UE);
       shiftForNextFrame = -(skipped_frames)*UE->max_pos_acc
                           * get_nrUE_params()->time_sync_I; // compensate for the time drift that happened during initial sync
+      timing_holdover_pending = false;
+      timing_holdover_remainder = 0.0;
       LOG_I(PHY, "max_pos_acc = %d, shiftForNextFrame = %d\n", UE->max_pos_acc, shiftForNextFrame);
       // read in first symbol
       int ret = nrue_ru_read(UE,
@@ -1133,11 +1157,15 @@ void *UE_thread(void *arg)
     int iq_shift_to_apply = 0;
     if (slot_nr == nb_slot_frame - 1) {
       // we shift of half of measured drift, at each beginning of frame for both rx and tx
-      iq_shift_to_apply = shiftForNextFrame;
+      iq_shift_to_apply =
+          nrue_consume_timing_shift(shiftForNextFrame, timing_holdover_pending, timing_holdover_drift, &timing_holdover_remainder);
       // autonomous timing advance calculation, which does not use SIB19 information
       if (ntn_koffset && get_nrUE_params()->autonomous_ta)
-        UE->timing_advance_ntn -= 2 * shiftForNextFrame;
-      shiftForNextFrame = -round(UE->max_pos_acc * get_nrUE_params()->time_sync_I);
+        UE->timing_advance_ntn -= 2 * iq_shift_to_apply;
+      timing_holdover_pending = !UE->sl_mode;
+      timing_holdover_drift = -(UE->max_pos_acc * get_nrUE_params()->time_sync_I);
+      if (!timing_holdover_pending)
+        shiftForNextFrame = -round(UE->max_pos_acc * get_nrUE_params()->time_sync_I);
     }
 
     // Calculate new TA based on SIB19 information for each subframe in NTN mode, if "autonomous_ta" is not enabled
@@ -1218,8 +1246,10 @@ void *UE_thread(void *arg)
     phy_data_rx->phy_pdcch_config.nb_search_space = 0;
     memset(&phy_data_rx->dlsch_config, 0, sizeof(*phy_data_rx) - offsetof(nr_phy_data_t, dlsch_config));
     int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed);
-    if (ret != INT_MAX)
+    if (ret != INT_MAX) {
       shiftForNextFrame = ret;
+      timing_holdover_pending = false;
+    }
     if (num_dl_actors > 0) {
       pushNotifiedFIFO(&dl_actors[curMsg.proc.nr_slot_rx % num_dl_actors].fifo, newRx);
     } else {
