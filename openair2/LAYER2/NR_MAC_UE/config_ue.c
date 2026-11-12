@@ -2331,8 +2331,6 @@ static void handle_reconfiguration_with_sync(NR_UE_MAC_INST_t *mac,
   RA_config_t *ra = &mac->ra;
   bool is_cfra = false;
   if (reconfWithSync->rach_ConfigDedicated) {
-    AssertFatal(reconfWithSync->rach_ConfigDedicated->present == NR_ReconfigurationWithSync__rach_ConfigDedicated_PR_uplink,
-                "RACH on supplementaryUplink not supported\n");
     NR_RACH_ConfigDedicated_t *rach_ConfigDedicated = reconfWithSync->rach_ConfigDedicated->choice.uplink;
     if (rach_ConfigDedicated->cfra)
       is_cfra = true;
@@ -3121,7 +3119,7 @@ static void handle_mac_uecap_info(NR_UE_MAC_INST_t *mac, NR_UE_NR_Capability_t *
   }
 }
 
-void nr_rrc_mac_config_req_cg(module_id_t module_id,
+bool nr_rrc_mac_config_req_cg(module_id_t module_id,
                               int cc_idP,
                               int hfn,
                               int frame,
@@ -3134,11 +3132,24 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
   AssertFatal(!ret, "mutex failed %d\n", ret);
   AssertFatal(cell_group_config, "CellGroupConfig should not be NULL\n");
 
+  NR_SpCellConfig_t *spCellConfig = cell_group_config->spCellConfig;
+  if (spCellConfig && spCellConfig->reconfigurationWithSync) {
+    const NR_ReconfigurationWithSync_t *reconfWithSync = spCellConfig->reconfigurationWithSync;
+    if (reconfWithSync->rach_ConfigDedicated
+        && reconfWithSync->rach_ConfigDedicated->present != NR_ReconfigurationWithSync__rach_ConfigDedicated_PR_uplink) {
+      LOG_E(NR_MAC,
+            "Unsupported rach-ConfigDedicated alternative %d, only uplink is supported\n",
+            reconfWithSync->rach_ConfigDedicated->present);
+      ret = pthread_mutex_unlock(&mac->if_mutex);
+      AssertFatal(!ret, "mutex failed %d\n", ret);
+      return false;
+    }
+  }
+
   if (cell_group_config->physicalCellGroupConfig)
     configure_physicalcellgroup(mac, cell_group_config->physicalCellGroupConfig);
 
   if (cell_group_config->spCellConfig) {
-    NR_SpCellConfig_t *spCellConfig = cell_group_config->spCellConfig;
     NR_ServingCellConfig_t *scd = spCellConfig->spCellConfigDedicated;
     mac->servCellIndex = spCellConfig->servCellIndex ? *spCellConfig->servCellIndex : 0;
     if (spCellConfig->reconfigurationWithSync) {
@@ -3176,6 +3187,7 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
     ue_init_config_request(mac, mac->frame_structure.numb_slots_frame);
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
+  return true;
 }
 
 void nr_rrc_mac_config_req_meas(module_id_t module_id, const nr_neighbor_cell_info_t *neighbor_cells, int num_neighbors)
