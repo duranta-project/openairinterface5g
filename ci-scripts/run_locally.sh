@@ -4,7 +4,7 @@
 SHORT_COMMIT_SHA=$(git rev-parse --short=8 HEAD)
 COMMIT_SHA=$(git rev-parse HEAD)
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-REPO_PATH=$(dirname $(realpath $0))/../
+REPO_PATH=../
 
 if [ $# -eq 0 ]
   then
@@ -36,6 +36,7 @@ TESTCASES="$@"
 
 python3 main.py --repository=NONE --branch=${CURRENT_BRANCH} \
     --targetBranch=NONE \
+    --logdir logs \
     --workspace=${REPO_PATH} \
 	--local --datefmt="%H:%M:%S" \
     ${TESTCASES}
