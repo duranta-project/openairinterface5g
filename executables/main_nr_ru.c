@@ -184,6 +184,12 @@ int main(int argc, char **argv)
         oru.prach_info.format,
         oru.prach_info.start_symbol,
         oru.prach_info.N_dur);
+  if (oru.fh_config.prach_kbar < 0) {
+    // PRACH SCS: 5 = 5 kHz (format 3), 4 = 1.25 kHz (formats 0-2), else the numerology
+    const int prach_scs = oru.prach_info.format < 4 ? (oru.prach_info.format == 3 ? 5 : 4) : fp->numerology_index;
+    oru.fh_config.prach_kbar = 2 * get_PRACH_k_bar(prach_scs, fp->numerology_index);
+  }
+  LOG_A(PHY, "PRACH kbar %d (int16)\n", oru.fh_config.prach_kbar);
   prepare_prach_item(&oru);
 
   oru.fronthaul = oru_fh_init(&oru.fh_config);
