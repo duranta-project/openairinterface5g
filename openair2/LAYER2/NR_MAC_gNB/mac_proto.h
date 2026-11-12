@@ -387,8 +387,6 @@ void nr_rx_sdu(const module_id_t gnb_mod_idP,
 
 void reset_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
 
-void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
-
 uint8_t *allocate_transportBlock_buffer(byte_array_t *tb, uint32_t needed);
 void free_transportBlock_buffer(byte_array_t *tb);
 

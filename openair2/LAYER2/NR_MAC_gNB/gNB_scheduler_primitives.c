@@ -3371,37 +3371,18 @@ void reset_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl) {
   int harq;
   while ((harq = sched_ctrl->feedback_dl_harq.head) >= 0) {
     remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
-    add_tail_nr_list(&sched_ctrl->available_dl_harq, harq);
+    finish_nr_dl_harq(sched_ctrl, harq);
   }
 
   while ((harq = sched_ctrl->retrans_dl_harq.head) >= 0) {
     remove_front_nr_list(&sched_ctrl->retrans_dl_harq);
-    add_tail_nr_list(&sched_ctrl->available_dl_harq, harq);
+    finish_nr_dl_harq(sched_ctrl, harq);
   }
 
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
     sched_ctrl->harq_processes[i].feedback_slot = -1;
     sched_ctrl->harq_processes[i].round = 0;
     sched_ctrl->harq_processes[i].is_waiting = false;
-  }
-}
-
-void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl) {
-  int harq;
-  while ((harq = sched_ctrl->feedback_ul_harq.head) >= 0) {
-    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
-    add_tail_nr_list(&sched_ctrl->available_ul_harq, harq);
-  }
-
-  while ((harq = sched_ctrl->retrans_ul_harq.head) >= 0) {
-    remove_front_nr_list(&sched_ctrl->retrans_ul_harq);
-    add_tail_nr_list(&sched_ctrl->available_ul_harq, harq);
-  }
-
-  for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
-    sched_ctrl->ul_harq_processes[i].feedback_slot = -1;
-    sched_ctrl->ul_harq_processes[i].round = 0;
-    sched_ctrl->ul_harq_processes[i].is_waiting = false;
   }
 }
 
