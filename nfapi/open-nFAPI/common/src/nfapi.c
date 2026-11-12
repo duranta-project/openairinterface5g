@@ -268,13 +268,15 @@ uint8_t pullx32(uint8_t length, uint8_t **in, uint32_t *out, uint8_t *end)
     return 0;
   }
   if ((end - pIn) >= length) {
+    uint32_t val = 0;
     for (int i = 0; i < length; i++) {
 #ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
-      *out |= ((uint32_t)pIn[i] << (8 * i));
+      val |= (uint32_t)pIn[i] << (8 * i);
 #else
-      *out = ((uint32_t)pIn[i] << (8 * (length - 1 - i)));
+      val |= (uint32_t)pIn[i] << (8 * (length - 1 - i));
 #endif
     }
+    *out = val;
     (*in) += length;
     return length;
   } else {
