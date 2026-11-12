@@ -221,6 +221,100 @@ TEST(test_init_ra, four_step_cfra)
   EXPECT_EQ(mac.ra.cfra, 1);
 }
 
+TEST(test_config_common_ue, ssb_scs_absent_fdd)
+{
+  NR_UE_MAC_INST_t mac = {0};
+  NR_ServingCellConfigCommon_t scc = {0};
+  NR_DownlinkConfigCommon_t dl_common = {0};
+  NR_FrequencyInfoDL_t freq_dl = {0};
+  NR_SCS_SpecificCarrier_t scs_carrier = {0};
+  NR_SCS_SpecificCarrier_t *carrier_array[1] = {&scs_carrier};
+  NR_FreqBandIndicatorNR_t band = 1;
+  NR_FreqBandIndicatorNR_t *band_array[1] = {&band};
+
+  scs_carrier.subcarrierSpacing = NR_SubcarrierSpacing_kHz15;
+  scs_carrier.carrierBandwidth = 25;
+  scs_carrier.offsetToCarrier = 0;
+
+  freq_dl.frequencyBandList.list.count = 1;
+  freq_dl.frequencyBandList.list.array = band_array;
+  freq_dl.scs_SpecificCarrierList.list.count = 1;
+  freq_dl.scs_SpecificCarrierList.list.array = carrier_array;
+  freq_dl.absoluteFrequencyPointA = 422000;
+
+  dl_common.frequencyInfoDL = &freq_dl;
+  scc.downlinkConfigCommon = &dl_common;
+
+  NR_PhysCellId_t pci = 1;
+  scc.physCellId = &pci;
+
+  // ssbSubcarrierSpacing is absent (NULL), conforming to 3GPP TS 38.331 condition HOAndServCellWithSSB
+  scc.ssbSubcarrierSpacing = NULL;
+  scc.ssb_PositionsInBurst = NULL;
+  scc.ssb_periodicityServingCell = NULL;
+
+  config_common_ue(&mac, &scc, 0, 0, 0);
+
+  EXPECT_EQ(mac.numerology, NR_SubcarrierSpacing_kHz15);
+  EXPECT_EQ(mac.nr_band, 1);
+  EXPECT_EQ(mac.frame_structure.frame_type, FDD);
+  EXPECT_EQ(mac.phy_config.config_req.cell_config.phy_cell_id, 1);
+  EXPECT_GT(mac.phy_config.config_req.carrier_config.dl_frequency, 0);
+  EXPECT_EQ(mac.phy_config.config_req.ssb_config.scs_common, NR_SubcarrierSpacing_kHz15);
+}
+
+TEST(test_config_common_ue, ssb_scs_absent_tdd)
+{
+  NR_UE_MAC_INST_t mac = {0};
+  NR_ServingCellConfigCommon_t scc = {0};
+  NR_DownlinkConfigCommon_t dl_common = {0};
+  NR_FrequencyInfoDL_t freq_dl = {0};
+  NR_SCS_SpecificCarrier_t scs_carrier = {0};
+  NR_SCS_SpecificCarrier_t *carrier_array[1] = {&scs_carrier};
+  NR_FreqBandIndicatorNR_t band = 78;
+  NR_FreqBandIndicatorNR_t *band_array[1] = {&band};
+
+  scs_carrier.subcarrierSpacing = NR_SubcarrierSpacing_kHz30;
+  scs_carrier.carrierBandwidth = 106;
+  scs_carrier.offsetToCarrier = 0;
+
+  freq_dl.frequencyBandList.list.count = 1;
+  freq_dl.frequencyBandList.list.array = band_array;
+  freq_dl.scs_SpecificCarrierList.list.count = 1;
+  freq_dl.scs_SpecificCarrierList.list.array = carrier_array;
+  freq_dl.absoluteFrequencyPointA = 640000;
+
+  dl_common.frequencyInfoDL = &freq_dl;
+  scc.downlinkConfigCommon = &dl_common;
+
+  NR_PhysCellId_t pci = 42;
+  scc.physCellId = &pci;
+
+  NR_TDD_UL_DL_ConfigCommon_t tdd_config = {0};
+  tdd_config.referenceSubcarrierSpacing = NR_SubcarrierSpacing_kHz30;
+  tdd_config.pattern1.dl_UL_TransmissionPeriodicity = NR_TDD_UL_DL_Pattern__dl_UL_TransmissionPeriodicity_ms5;
+  tdd_config.pattern1.nrofDownlinkSlots = 7;
+  tdd_config.pattern1.nrofDownlinkSymbols = 6;
+  tdd_config.pattern1.nrofUplinkSlots = 2;
+  tdd_config.pattern1.nrofUplinkSymbols = 4;
+  scc.tdd_UL_DL_ConfigurationCommon = &tdd_config;
+  mac.tdd_UL_DL_ConfigurationCommon = &tdd_config;
+
+  // ssbSubcarrierSpacing is absent (NULL)
+  scc.ssbSubcarrierSpacing = NULL;
+  scc.ssb_PositionsInBurst = NULL;
+  scc.ssb_periodicityServingCell = NULL;
+
+  config_common_ue(&mac, &scc, 0, 0, 0);
+
+  EXPECT_EQ(mac.numerology, NR_SubcarrierSpacing_kHz30);
+  EXPECT_EQ(mac.nr_band, 78);
+  EXPECT_EQ(mac.frame_structure.frame_type, TDD);
+  EXPECT_EQ(mac.phy_config.config_req.cell_config.phy_cell_id, 42);
+  EXPECT_GT(mac.phy_config.config_req.carrier_config.dl_frequency, 0);
+  EXPECT_EQ(mac.phy_config.config_req.ssb_config.scs_common, NR_SubcarrierSpacing_kHz30);
+}
+
 int main(int argc, char **argv)
 {
   logInit();
