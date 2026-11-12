@@ -3,11 +3,10 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface BUILD service
-#   Valid for Rocky 9
+#   Valid for CentOS Stream 10
 #
 #---------------------------------------------------------------------
 
-ARG BASE_IMAGE=docker.io/rockylinux:9
 FROM ran-base:latest AS gnb-base
 
 FROM ran-build:latest AS gnb-build
@@ -21,8 +20,11 @@ RUN /bin/sh oaienv && \
     ./build_oai -w AW2SORI -t Ethernet
 
 #start from scratch for target executable
-FROM $BASE_IMAGE AS oai-gnb-aw2s
+FROM quay.io/centos/centos:stream10 AS oai-gnb-aw2s
 ENV TZ=Europe/Paris
+
+# Install EPEL for CentOS Stream 10
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm
 
 RUN dnf update -y && \
     dnf install -y \
@@ -58,8 +60,10 @@ COPY --from=gnb-build \
 
 COPY --from=gnb-base \
     /lib64/libconfig.so.11 \
-    /lib64/libforms.so.2 \
     /lib64/
+
+## Copy E2 SM models
+COPY --from=gnb-build /usr/local/lib64/flexric /usr/local/lib64/flexric
 
 RUN ln -s /usr/local/lib/libaw2sori_transpro.so /usr/local/lib/libthirdparty_transpro.so && \
     ln -s /usr/local/lib/liboai_eth_transpro.so /usr/local/lib/liboai_transpro.so && \

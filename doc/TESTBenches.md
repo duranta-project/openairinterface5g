@@ -60,7 +60,7 @@ please also refer to the [dedicated documentation](../docker/README.md).
     - base image from [`Dockerfile.base.ubuntu.cross-arm64`](../docker/Dockerfile.base.ubuntu.cross-arm64)
     - build image from [`Dockerfile.build.ubuntu.cross-arm64`](../docker/Dockerfile.build.ubuntu.cross-arm64) (no target images)
 - [RAN-RHEL-Cluster-Image-Builder](https://jenkins-oai.eurecom.fr/job/RAN-RHEL-Cluster-Image-Builder/)
-  - Purpose: RHEL image build using the OpenShift cluster (using gcc/clang)
+  - Purpose: CentOS Stream 10 image build using the OpenShift cluster (using gcc/clang)
   - Labels:
     https://github.com/duranta-project/openairinterface5g/labels/BUILD-ONLY
     https://github.com/duranta-project/openairinterface5g/labels/4G-LTE
@@ -68,19 +68,19 @@ please also refer to the [dedicated documentation](../docker/README.md).
     https://github.com/duranta-project/openairinterface5g/labels/nrUE
     https://github.com/duranta-project/openairinterface5g/labels/O-RU
   - Images:
-    - base image from [`Dockerfile.base.rhel9`](../docker/Dockerfile.base.rhel9)
-    - build image from [`Dockerfile.build.rhel9`](../docker/Dockerfile.build.rhel9), followed by
-      - target image from [`Dockerfile.eNB.rhel9`](../docker/Dockerfile.eNB.rhel9)
-      - target image from [`Dockerfile.gNB.rhel9`](../docker/Dockerfile.gNB.rhel9),
-      - target image from [`Dockerfile.gNB.aw2s.rhel9`](../docker/Dockerfile.gNB.aw2s.rhel9)
-      - target image from [`Dockerfile.nr-cuup.rhel9`](../docker/Dockerfile.nr-cuup.rhel9)
-      - target image from [`Dockerfile.lteUE.rhel9`](../docker/Dockerfile.lteUE.rhel9)
-      - target image from [`Dockerfile.nrUE.rhel9`](../docker/Dockerfile.nrUE.rhel9)
-    - build image from [`Dockerfile.build.fhi72.rhel9`](../docker/Dockerfile.build.fhi72.rhel9), followed by
-      - target image from [`Dockerfile.gNB.fhi72.rhel9`](../docker/Dockerfile.gNB.fhi72.rhel9)
-    - build image from [`Dockerfile.phySim.rhel9`](../docker/Dockerfile.phySim.rhel9) (creates as direct target physical simulator
+    - base image from [`Dockerfile.base.centos`](../docker/Dockerfile.base.centos)
+    - build image from [`Dockerfile.build.centos`](../docker/Dockerfile.build.centos), followed by
+      - target image from [`Dockerfile.eNB.centos`](../docker/Dockerfile.eNB.centos)
+      - target image from [`Dockerfile.gNB.centos`](../docker/Dockerfile.gNB.centos),
+      - target image from [`Dockerfile.gNB.aw2s.centos`](../docker/Dockerfile.gNB.aw2s.centos)
+      - target image from [`Dockerfile.nr-cuup.centos`](../docker/Dockerfile.nr-cuup.centos)
+      - target image from [`Dockerfile.lteUE.centos`](../docker/Dockerfile.lteUE.centos)
+      - target image from [`Dockerfile.nrUE.centos`](../docker/Dockerfile.nrUE.centos)
+    - build image from [`Dockerfile.build.fhi72.centos`](../docker/Dockerfile.build.fhi72.centos), followed by
+      - target image from [`Dockerfile.gNB.fhi72.centos`](../docker/Dockerfile.gNB.fhi72.centos)
+    - build image from [`Dockerfile.phySim.centos`](../docker/Dockerfile.phySim.centos) (creates as direct target physical simulator
       image)
-    - build image from [`Dockerfile.clang.rhel9`](../docker/Dockerfile.clang.rhel9) (compilation only, artifacts not used currently)
+    - build image from [`Dockerfile.clang.centos`](../docker/Dockerfile.clang.centos) (compilation only, artifacts not used currently)
 - [RAN-Ubuntu-Image-Builder](https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-Image-Builder/)
   - Purpose: Ubuntu image build using Docker
   - Labels:

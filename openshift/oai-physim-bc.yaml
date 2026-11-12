@@ -15,7 +15,7 @@ spec:
         type: "Binary"
     strategy:
         dockerStrategy:
-            dockerfilePath: "docker/Dockerfile.phySim.rhel9"
+            dockerfilePath: "docker/Dockerfile.phySim.centos"
     output:
         to:
             kind: "ImageStreamTag"

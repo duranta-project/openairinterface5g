@@ -20,7 +20,7 @@ spec:
         type: "Binary"
     strategy:
         dockerStrategy:
-            dockerfilePath: "docker/Dockerfile.lteUE.rhel9"
+            dockerfilePath: "docker/Dockerfile.lteUE.centos"
     output:
         to:
             kind: "ImageStreamTag"

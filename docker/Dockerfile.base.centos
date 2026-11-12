@@ -3,12 +3,12 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface BUILD service
-#   Valid for UBI9
+#   Valid for CentOS Stream 10
 #
 #---------------------------------------------------------------------
 
 
-FROM registry.redhat.io/ubi9/ubi:latest AS ran-base
+FROM quay.io/centos/centos:stream10 AS ran-base
 LABEL MAINTAINER OpenAirInterface <oaicicdteam@openairinterface.org>
 ARG NEEDED_GIT_PROXY
 ARG TARGETARCH
@@ -16,17 +16,16 @@ ENV TZ=Europe/Paris
 ENV BUILD_UHD_FROM_SOURCE=True
 ENV UHD_VERSION=4.8.0.0
 
-# Copy the entitlements
-COPY ./etc-pki-entitlement /etc/pki/entitlement
-
 ENV SMDEV_CONTAINER_OFF=1
 #install developers pkg/repo
-RUN rm -f /etc/rhsm-host && \
-    subscription-manager repos --enable codeready-builder-for-rhel-9-x86_64-rpms && \
+RUN dnf install -y 'dnf-command(config-manager)' && \
+    dnf config-manager --set-enabled crb && \
     dnf update -y && \
     cat /etc/os-release && \
     dnf install -y \
        #gcc needed for build_oai
+       gcc \
+       gcc-c++ \
        diffutils \
        file \
        psmisc \
@@ -40,9 +39,6 @@ RUN rm -f /etc/rhsm-host && \
        python3-devel \
        numactl-libs \
        numactl-devel \
-       #use gcc-13 to avoid problems of default gcc-11 in FlexRIC
-       gcc-toolset-13-gcc \
-       gcc-toolset-13-gcc-c++ \
        # python3-pip and pyyaml are used for conf template generation
        python3-pip && \
     pip3 install --ignore-installed \
@@ -80,6 +76,4 @@ COPY oaienv .
 RUN /bin/sh oaienv && \
     cd cmake_targets && \
     mkdir -p log && \
-    scl enable gcc-toolset-13 "\
-    ./build_oai -I --install-optional-packages -w USRP" && \
-    rm /etc/pki/entitlement/*pem
+    ./build_oai -I --install-optional-packages -w USRP

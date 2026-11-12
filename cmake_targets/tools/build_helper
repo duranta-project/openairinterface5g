@@ -12,9 +12,7 @@ OS_DISTRO=$(grep "^ID=" /etc/os-release | sed "s/ID=//" | sed "s/\"//g")
 OS_RELEASE=$(grep "^VERSION_ID=" /etc/os-release | sed "s/VERSION_ID=//" | sed "s/\"//g")
 case "$OS_DISTRO" in
   fedora) OS_BASEDISTRO="fedora"; INSTALLER="dnf"; CMAKE="cmake" ;;
-  rhel)   OS_BASEDISTRO="fedora"; INSTALLER="dnf"; CMAKE="cmake3" ;;
-  rocky)  OS_BASEDISTRO="fedora"; INSTALLER="dnf"; CMAKE="cmake" ;;
-  centos) OS_BASEDISTRO="fedora"; INSTALLER="dnf"; CMAKE="cmake3" ;; # CentOS Stream
+  centos) OS_BASEDISTRO="fedora"; INSTALLER="dnf"; CMAKE="cmake" ;; # CentOS Stream
   debian) OS_BASEDISTRO="debian"; INSTALLER="apt-get"; CMAKE="cmake" ;;
   ubuntu) OS_BASEDISTRO="debian"; INSTALLER="apt-get"; CMAKE="cmake" ;;
 esac
@@ -90,26 +88,7 @@ check_supported_distribution() {
         "debian12")    return 0 ;;
         "fedora43")    return 0 ;;
         "fedora44")    return 0 ;;
-        "rhel9.0")     return 0 ;;
-        "rhel9.1")     return 0 ;;
-        "rhel9.2")     return 0 ;;
-        "rhel9.3")     return 0 ;;
-        "rhel9.4")     return 0 ;;
-        "rhel9.5")     return 0 ;;
-        "rhel9.6")     return 0 ;;
-        "rhel9.7")     return 0 ;;
-        "rhel9.8")     return 0 ;;
-        "rhel9.9")     return 0 ;;
-        "centos9")     return 0 ;; # CentOS stream
-        "rocky9.1")    return 0 ;;
-        "rocky9.2")    return 0 ;;
-        "rocky9.3")    return 0 ;;
-        "rocky9.4")    return 0 ;;
-        "rocky9.5")    return 0 ;;
-        "rocky9.6")    return 0 ;;
-        "rocky9.7")    return 0 ;;
-        "rocky9.8")    return 0 ;;
-        "rocky9.9")    return 0 ;;
+        "centos10")    return 0 ;; # CentOS Stream
     esac
     return 1
 }
@@ -181,7 +160,7 @@ install_usrp_uhd_driver_from_source(){
         if [[ "$OS_DISTRO" == "ubuntu" ]]; then
             $SUDO /usr/local/lib/uhd/utils/uhd_images_downloader.py
         fi
-        if [[ "$OS_DISTRO" == "rhel" ]] || [[ "$OS_DISTRO" == "rocky" ]]; then
+        if [[ "$OS_DISTRO" == "centos" ]]; then
             $SUDO /usr/local/lib64/uhd/utils/uhd_images_downloader.py
         fi
     fi
@@ -220,7 +199,7 @@ check_install_usrp_uhd_driver(){
             $SUDO $INSTALLER -y install $boost_libs_fedora $CMAKE
             $SUDO pip3 install mako requests
         fi
-        if [[ "$OS_DISTRO" == "rhel" ]] || [[ "$OS_DISTRO" == "centos" ]] || [[ "$OS_DISTRO" == "rocky" ]]; then
+        if [[ "$OS_DISTRO" == "centos" ]]; then
             if [ $IS_CONTAINER -eq 0 ]
             then
                 # until EPEL repo hasn't bumped UHD driver to >=3.10 in EPEL, build driver from source
@@ -242,13 +221,13 @@ install_usrp_uhd_driver() {
     # quick workaround for below distributions
     local distribution=$(get_distribution_release)
     if [ -z $1 ]; then
-      if [[ "$OS_DISTRO" == "rhel" ]] || [[ "$OS_DISTRO" == "rocky" ]] || [[ "$OS_DISTRO" == "centos" ]]; then
+      if [[ "$OS_DISTRO" == "centos" ]]; then
           $SUDO /usr/local/bin/uhd_images_downloader
       else
           $SUDO uhd_images_downloader
       fi
     else
-      if [[ "$OS_DISTRO" == "rhel" ]] || [[ "$OS_DISTRO" == "rocky" ]] || [[ "$OS_DISTRO" == "centos" ]]; then
+      if [[ "$OS_DISTRO" == "centos" ]]; then
           $SUDO /usr/local/bin/uhd_images_downloader -i $1
       else
           $SUDO uhd_images_downloader -i $1
@@ -379,18 +358,19 @@ check_install_additional_tools (){
         libpcre3-dev \
         libssh-dev \
         libxml2-dev"
-  elif [[ "$OS_DISTRO" == "rhel" ]] || [[ "$OS_DISTRO" == "centos" ]] || [[ "$OS_DISTRO" == "rocky" ]] ||  [[ "$OS_DISTRO" == "fedora" ]]; then
+  elif [[ "$OS_DISTRO" == "centos" ]] || [[ "$OS_DISTRO" == "fedora" ]]; then
     PACKAGE_LIST="\
       doxygen \
       ctags \
       iperf3 \
       gnutls-devel \
       libXft-devel \
-      xforms \
-      xforms-devel \
-      pcre-devel \
       libssh-devel \
       libxml2-devel"
+    # xforms (scopes) and pcre are not packaged for EL10
+    if [[ "$OS_DISTRO" == "fedora" ]]; then
+      optional_packages="xforms xforms-devel pcre-devel"
+    fi
   fi
     $SUDO $INSTALLER install -y $PACKAGE_LIST $optional_packages
 }
@@ -429,12 +409,12 @@ check_install_oai_software() {
 	libyaml-cpp-dev
 
   elif [[ "$OS_BASEDISTRO" == "fedora" ]]; then
-    if [[ "$OS_DISTRO" == "rhel" ]] || [[ "$OS_DISTRO" == "centos" ]] || [[ "$OS_DISTRO" == "rocky" ]]; then
+    if [[ "$OS_DISTRO" == "centos" ]]; then
       if rpm -q epel-release > /dev/null; then
         echo "EPEL repos already present. Good."
       else
         echo "EPEL repos not present. Installing them."
-        $SUDO $INSTALLER install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+        $SUDO $INSTALLER install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm
       fi
     fi
 

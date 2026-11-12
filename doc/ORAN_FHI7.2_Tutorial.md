@@ -317,7 +317,7 @@ Download DPDK version 22.11.11 (K release).
 ```bash
 # on debian
 sudo apt install wget xz-utils libnuma-dev libibverbs-dev rdma-core python3-pyelftools meson
-# on Fedora/RHEL
+# on Fedora/CentOS
 sudo dnf install wget xz numactl-devel rdma-core-devel libibverbs-devel python3-pyelftools meson
 cd
 wget http://fast.dpdk.org/rel/dpdk-22.11.11.tar.xz # K release
@@ -749,7 +749,7 @@ only requires to change the bandwidth of the RU (see below).
 Requirements:
 - sshpass:
   ```bash
-  #RHEL
+  #Fedora/CentOS
   sudo dnf install sshpass -y
   #Ubuntu
   sudo apt install sshpass -y
