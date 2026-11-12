@@ -27,15 +27,6 @@
 #define MAX_NUM_NR_SRS_PDUS 8
 #define MAX_NUM_NR_UCI_PDUS MAX_MOBILES_PER_GNB
 typedef struct {
-  /// Module ID
-  module_id_t module_id;
-  /// PHY ID
-  int phy_id;
-  /// frame
-  frame_t frame;
-  /// slot
-  slot_t slot;
-
   /// crc indication list
   nfapi_nr_crc_indication_t crc_ind;
   /// RX indication

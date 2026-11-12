@@ -200,10 +200,6 @@ static void rx_func(processingData_L1_t *info)
     int phy_id = 0;
     // Intentionally not zero-initialized: each indication fills only its used PDUs.
     NR_UL_IND_t UL_INFO;
-    UL_INFO.frame = frame_rx;
-    UL_INFO.slot = slot_rx;
-    UL_INFO.module_id = gNB->Mod_id;
-    UL_INFO.phy_id = 0;
     UL_INFO.uci_ind.header = fapi_get_header(phy_id, NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION);
     UL_INFO.uci_ind.uci_list = UL_INFO.uci_pdu_list;
     UL_INFO.crc_ind.header = fapi_get_header(phy_id, NFAPI_NR_PHY_MSG_TYPE_CRC_INDICATION);
