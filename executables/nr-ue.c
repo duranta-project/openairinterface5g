@@ -961,11 +961,17 @@ void *UE_thread(void *arg)
           if (UE->sl_mode == SL_MODE2_SUPPORTED)
             decoded_frame_rx = UE->SL_UE_PHY_PARAMS.sync_params.DFN;
           else {
-            // We must wait the RRC layer decoded the MIB and sent us the frame number
-            notifiedFIFO_elt_t *elt = pullNotifiedFIFO(&mac->input_nf);
-            AssertFatal(elt != NULL, "fifo error while waiting for MIB");
-            process_msg_rcc_to_mac(NotifiedFifoData(elt), UE->Mod_id);
-            delNotifiedFIFO_elt(elt);
+            // Wait for RRC to send the decoded MIB with the frame number. Messages
+            // RRC queued during the search come first: process them in order.
+            bool mib_received = false;
+            while (!mib_received) {
+              notifiedFIFO_elt_t *elt = pullNotifiedFIFO(&mac->input_nf);
+              AssertFatal(elt != NULL, "fifo error while waiting for MIB");
+              nr_mac_rrc_message_t *msg = NotifiedFifoData(elt);
+              mib_received = msg->payload_type == NR_MAC_RRC_CONFIG_MIB;
+              process_msg_rcc_to_mac(msg, UE->Mod_id);
+              delNotifiedFIFO_elt(elt);
+            }
             decoded_frame_rx = mac->mib_frame;
           }
           LOG_A(PHY, "UE synchronized! decoded_frame_rx=%d skipped_frames=%d\n", decoded_frame_rx, skipped_frames);

@@ -3568,7 +3568,8 @@ void *rrc_nrue(void *notUsed)
       RRCLOG_I("Initial NAS UL: no SRB yet; buffered %u B for RRCSetupComplete dedicatedNAS (RRC state=%d)\n",
                req->nasMsg.length,
                rrc->nrRrcState);
-      if (rrc->nrRrcState == RRC_STATE_IDLE_NR) {
+      /* Without a valid SIB1, cell selection is ongoing: SIB1 reception starts RA (nr_rrc_process_sib1()). */
+      if (rrc->nrRrcState == RRC_STATE_IDLE_NR && rrc->perNB[0].SInfo.sib1_validity) {
         RA_trigger_t prev_trigger = rrc->ra_trigger;
         rrc->ra_trigger = RRC_CONNECTION_SETUP;
         nr_rrc_ue_prepare_RRCSetupRequest(rrc);
