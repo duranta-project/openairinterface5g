@@ -556,6 +556,18 @@ static ldpc_addr_cache_t g_addr_cache[LDPC_ADDR_CACHE_N];
 static const int LDPC_BNS_WRITE_BG1[NR_LDPC_NUM_CN_GROUPS_BG1] = {2, 3, 4, 5, 6, 7, 8, 9, 19};
 static const int LDPC_BNS_WRITE_BG2[NR_LDPC_NUM_CN_GROUPS_BG2] = {2, 3, 4, 5, 8, 10};
 
+/* Byte stride between the BN slabs of CN group g in cn_msg. The layout is the
+ * full-graph one at every code rate -- BG1 R13, BG2 R15 -- exactly as in OAI's
+ * llr2CnProcBuf, cnProc and bn2cnProcBuf; only the number of CNs USED per group
+ * shrinks with the rate. Taking the stride from the per-rate numCnInCnGroups
+ * instead read and wrote the wrong slabs in every group whose count differs from
+ * the full graph's: BG1 R23 (group 4) and BG2 R13/R23 decoded to noise, while
+ * R13, R15 and BG1 R89 (only groups 0 and 8, unchanged) were unaffected. */
+static inline int32_t ldpc_cn_slab_stride(uint8_t BG, int g)
+{
+  return (int32_t)((BG == 1) ? lut_numCnInCnGroups_BG1_R13[g] : lut_numCnInCnGroups_BG2_R15[g]) * NR_LDPC_ZMAX;
+}
+
 /* Fill the slot -> BN-group map. sa_bn[] and lut_sb[] are always ZMAX-relative (multiples
  * of NR_LDPC_ZMAX) whatever Z is, so dividing by NR_LDPC_ZMAX gives the exact slot index. */
 static void ldpc_build_slot_map(t_nrLDPC_lut *p_lut, uint8_t *slot_to_bngrp)
@@ -939,6 +951,9 @@ __attribute__((always_inline)) static inline void cnProc_fused_row(const int8_t 
                                                                    const uint16_t *lut_cs,
                                                                    const uint32_t *lut_sb,
                                                                    const uint8_t *lut_bp,
+                                                                   int cs_dim,
+                                                                   int sb_dim,
+                                                                   int bp_dim,
                                                                    HVX_Vector vzero,
                                                                    HVX_Vector vmax_ub,
                                                                    const int NV)
@@ -979,11 +994,11 @@ __attribute__((always_inline)) static inline void cnProc_fused_row(const int8_t 
 
   /* Pass 2, k-outer: extrinsic per chunk, rotated into bn_msg as it is produced. */
   for (int k = 0; k < numBN; k++) {
-    uint32_t bn_addr = lut_sb[k * numCN + i];
+    uint32_t bn_addr = lut_sb[k * sb_dim + i];
     if (lut_bp)
-      bn_addr += (uint32_t)lut_bp[k * numCN + i] * Z;
+      bn_addr += (uint32_t)lut_bp[k * bp_dim + i] * Z;
     int8_t *dst = &bn_msg[bn_addr];
-    const uint32_t cs = (uint32_t)lut_cs[k * numCN + i];
+    const uint32_t cs = (uint32_t)lut_cs[k * cs_dim + i];
     const uint32_t r = (cs == 0u) ? 0u : (uint32_t)Z - cs;
     const uint32_t sh = r / (uint32_t)HVX_VLEN; /* whole chunks; < NV */
     const uint32_t rr = r % (uint32_t)HVX_VLEN;
@@ -1024,12 +1039,20 @@ LDPC_KERNEL static void cnProc_fused_group(const int8_t *cn_msg,
                                            uint32_t startAddr,
                                            int numBN,
                                            int numCN,
+                                           int32_t bitOff, // ldpc_cn_slab_stride()
                                            uint16_t Z,
-                                           const uint16_t *lut_cs, // circShift[g].d:          index [k*numCN + i]
-                                           const uint32_t *lut_sb, // startAddrBnProcBuf[g].d: index [k*numCN + i]
-                                           const uint8_t *lut_bp) // bnPosBnProcBuf[g].d:     index [k*numCN + i]
+                                           const uint16_t *lut_cs, // circShift[g].d:          index [k*cs_dim + i]
+                                           const uint32_t *lut_sb, // startAddrBnProcBuf[g].d: index [k*sb_dim + i]
+                                           const uint8_t *lut_bp, // bnPosBnProcBuf[g].d:     index [k*bp_dim + i]
+                                           /* Row strides of those tables, their dim2 -- what OAI's arrPos()
+                                            * uses. NOT numCN: circShift is per Z and always full-graph width
+                                            * (20 for BG2 group 1), while numCN shrinks with the code rate (8
+                                            * at BG2 R13). Indexing it by numCN read the wrong edge's shift for
+                                            * every k > 0 at any rate below the full graph. */
+                                           int cs_dim,
+                                           int sb_dim,
+                                           int bp_dim)
 {
-  int32_t bitOff = (int32_t)numCN * NR_LDPC_ZMAX;
   /* Chunk count ROUNDED UP: process ceil(Z/128) whole vectors and let the last one run
    * past Z into padding, rather than dropping to a scalar tail for the Z % 128 bytes.
    *
@@ -1062,13 +1085,64 @@ LDPC_KERNEL static void cnProc_fused_group(const int8_t *cn_msg,
     /* Literal NV per call: see cnProc_fused_row. */
 #if LDPC_CNPROC_FOLD
     if (nv == 3) {
-      cnProc_fused_row(cn_msg, bn_msg, startAddr, numBN, numCN, i, Z, bitOff, row, lut_cs, lut_sb, lut_bp, vzero, vmax_ub, 3);
+      cnProc_fused_row(cn_msg,
+                       bn_msg,
+                       startAddr,
+                       numBN,
+                       numCN,
+                       i,
+                       Z,
+                       bitOff,
+                       row,
+                       lut_cs,
+                       lut_sb,
+                       lut_bp,
+                       cs_dim,
+                       sb_dim,
+                       bp_dim,
+                       vzero,
+                       vmax_ub,
+                       3);
       continue;
     } else if (nv == 2) {
-      cnProc_fused_row(cn_msg, bn_msg, startAddr, numBN, numCN, i, Z, bitOff, row, lut_cs, lut_sb, lut_bp, vzero, vmax_ub, 2);
+      cnProc_fused_row(cn_msg,
+                       bn_msg,
+                       startAddr,
+                       numBN,
+                       numCN,
+                       i,
+                       Z,
+                       bitOff,
+                       row,
+                       lut_cs,
+                       lut_sb,
+                       lut_bp,
+                       cs_dim,
+                       sb_dim,
+                       bp_dim,
+                       vzero,
+                       vmax_ub,
+                       2);
       continue;
     } else if (nv == 1) {
-      cnProc_fused_row(cn_msg, bn_msg, startAddr, numBN, numCN, i, Z, bitOff, row, lut_cs, lut_sb, lut_bp, vzero, vmax_ub, 1);
+      cnProc_fused_row(cn_msg,
+                       bn_msg,
+                       startAddr,
+                       numBN,
+                       numCN,
+                       i,
+                       Z,
+                       bitOff,
+                       row,
+                       lut_cs,
+                       lut_sb,
+                       lut_bp,
+                       cs_dim,
+                       sb_dim,
+                       bp_dim,
+                       vzero,
+                       vmax_ub,
+                       1);
       continue;
     }
 #else
@@ -1137,11 +1211,11 @@ LDPC_KERNEL static void cnProc_fused_group(const int8_t *cn_msg,
     // Scatter: inv_circ_memcpy from L1 tmp[k] → bn_msg at BN-indexed address
 #if (LDPC_CNPROC_STAGES & 8)
     for (int k = 0; k < numBN; k++) {
-      uint32_t bn_addr = lut_sb[k * numCN + i];
+      uint32_t bn_addr = lut_sb[k * sb_dim + i];
       if (lut_bp)
-        bn_addr += (uint32_t)lut_bp[k * numCN + i] * Z;
+        bn_addr += (uint32_t)lut_bp[k * bp_dim + i] * Z;
       int8_t *tsrc = tmp + (int32_t)k * LDPC_TMP_SLOT;
-      uint32_t cs = (uint32_t)lut_cs[k * numCN + i];
+      uint32_t cs = (uint32_t)lut_cs[k * cs_dim + i];
       uint32_t r = (cs == 0u) ? 0u : (uint32_t)Z - cs;
       if (Z % (uint16_t)HVX_VLEN == 0)
         hvx_circ_copy(&bn_msg[bn_addr], tsrc, r, Z);
@@ -1165,10 +1239,14 @@ static void cnProc_fused(const int8_t *cn_msg, int8_t *bn_msg, t_nrLDPC_lut *p_l
                        p_lut->startAddrCnGroups[g],
                        (int)tbl[g],
                        numCN,
+                       ldpc_cn_slab_stride(BG, g),
                        Z,
                        p_lut->circShift[g].d,
                        p_lut->startAddrBnProcBuf[g].d,
-                       p_lut->bnPosBnProcBuf[g].d);
+                       p_lut->bnPosBnProcBuf[g].d,
+                       p_lut->circShift[g].dim2,
+                       p_lut->startAddrBnProcBuf[g].dim2,
+                       p_lut->bnPosBnProcBuf[g].dim2);
   }
 }
 
@@ -1270,16 +1348,19 @@ static int32_t cnProcPc_ref(const int8_t *llrRes, t_nrLDPC_lut *p_lut, uint16_t 
     const uint16_t *lut_cs = p_lut->circShift[g].d;
     const uint32_t *lut_sb = p_lut->startAddrBnProcBuf[g].d;
     const uint8_t *lut_bp = p_lut->bnPosBnProcBuf[g].d;
+    const int cs_dim = p_lut->circShift[g].dim2; /* row strides: see cnProc_fused_group */
+    const int sb_dim = p_lut->startAddrBnProcBuf[g].dim2;
+    const int bp_dim = p_lut->bnPosBnProcBuf[g].dim2;
 
     for (int i = 0; i < nc; i++) {
       for (uint32_t z = 0; z < (uint32_t)Z; z++) {
         int8_t par = 0;
         for (int k = 0; k < nb; k++) {
-          uint32_t bn_base = lut_sb[k * nc + i];
-          uint8_t bnPos = lut_bp ? lut_bp[k * nc + i] : 0;
+          uint32_t bn_base = lut_sb[k * sb_dim + i];
+          uint8_t bnPos = lut_bp ? lut_bp[k * bp_dim + i] : 0;
           int bnGrp = slot_to_bngrp[bn_base / NR_LDPC_ZMAX];
           uint32_t llrPos = (uint32_t)sa_llr[bnGrp] + (uint32_t)bnPos * Z;
-          uint32_t cs = (uint32_t)lut_cs[k * nc + i];
+          uint32_t cs = (uint32_t)lut_cs[k * cs_dim + i];
           uint32_t bz = z + cs;
           if (bz >= (uint32_t)Z)
             bz -= (uint32_t)Z;
@@ -1329,13 +1410,16 @@ LDPC_KERNEL static int32_t cnProcPc_fused(const int8_t *llrRes,
     const uint16_t *lut_cs = p_lut->circShift[g].d;
     const uint32_t *lut_sb = p_lut->startAddrBnProcBuf[g].d;
     const uint8_t *lut_bp = p_lut->bnPosBnProcBuf[g].d;
+    const int cs_dim = p_lut->circShift[g].dim2; /* row strides: see cnProc_fused_group */
+    const int sb_dim = p_lut->startAddrBnProcBuf[g].dim2;
+    const int bp_dim = p_lut->bnPosBnProcBuf[g].dim2;
 
     for (int i = 0; i < nc; i++) {
       // Pass 1: O(1) BN group lookup + DCFETCH — fires all L2 prefetches
       // before the HVX loop so llrRes columns are warm in L1 by pass 2.
       for (int k = 0; k < nb; k++) {
-        uint32_t bn_base = lut_sb[k * nc + i];
-        uint8_t bnPos = lut_bp ? lut_bp[k * nc + i] : 0;
+        uint32_t bn_base = lut_sb[k * sb_dim + i];
+        uint8_t bnPos = lut_bp ? lut_bp[k * bp_dim + i] : 0;
         int bnGrp = slot_to_bngrp[bn_base / NR_LDPC_ZMAX];
         uint32_t lp = (uint32_t)sa_llr[bnGrp] + (uint32_t)bnPos * Z;
         llrPos_arr[k] = lp;
@@ -1369,7 +1453,7 @@ LDPC_KERNEL static int32_t cnProcPc_fused(const int8_t *llrRes,
 
       for (int k = 0; k < nb; k++) {
         uint32_t llrPos = llrPos_arr[k];
-        uint32_t cs = (uint32_t)lut_cs[k * nc + i];
+        uint32_t cs = (uint32_t)lut_cs[k * cs_dim + i];
         const int8_t *col = llrRes + llrPos;
         HVX_Vector vstart = *(HVX_UVector *)col; /* ring start, for the wrap */
 
@@ -1567,7 +1651,7 @@ LDPC_KERNEL static void bnProc_fused(const int8_t *bn_msg,
     int nc = (int)numCn[g];
     if (!nc)
       continue;
-    int32_t bitOff = nc * NR_LDPC_ZMAX;
+    const int32_t bitOff = ldpc_cn_slab_stride(BG, g);
     int nj = BNs_write[g];
 
     for (int j = 0; j < nj; j++) {
@@ -2333,8 +2417,7 @@ static int ldpc_rate_dematch(uint32_t Tbslbrm,
                              uint8_t clear,
                              uint32_t E,
                              uint32_t F,
-                             uint32_t Foffset,
-                             uint32_t d_used)
+                             uint32_t Foffset)
 {
   if (C == 0)
     return -1;
@@ -2348,28 +2431,27 @@ static int ldpc_rate_dematch(uint32_t Tbslbrm,
   if (Foffset > E || Foffset > Ncb)
     return -1;
 
-  /* Only clear what is read; the rest is never touched again either. */
-  const uint32_t lim = (d_used && d_used < Ncb) ? d_used : Ncb;
+  /* Clear and accumulate the whole circular buffer, not only the part this
+   * round's code rate reads: the decoder's rate index comes from the number of
+   * LLRs received so far, so a later HARQ round can read further into d than
+   * round 0 did, and it must find that part cleared and accumulated. */
   if (clear)
-    memset(d, 0, (size_t)lim * sizeof(int16_t));
+    memset(d, 0, (size_t)Ncb * sizeof(int16_t));
 
-    /* Whole runs at a time. k must still advance across positions whose stores
-     * are skipped (outside `lim`), or every later bit lands on the wrong index. */
-#define LDPC_RM_RUN(from, to)                                                      \
-  do {                                                                             \
-    const uint32_t _a = (from), _b = (to);                                         \
-    if (_b > _a && k < E) {                                                        \
-      uint32_t _n = _b - _a;                                                       \
-      if (_n > E - k)                                                              \
-        _n = E - k;                                                                \
-      const uint32_t _ns = (_a >= lim) ? 0u : ((_a + _n > lim) ? (lim - _a) : _n); \
-      if (_ns)                                                                     \
-        ldpc_rm_acc(d + _a, soft_input + k, _ns);                                  \
-      k += _n;                                                                     \
-      ind = _a + _n;                                                               \
-    } else {                                                                       \
-      ind = _b;                                                                    \
-    }                                                                              \
+    /* Whole runs at a time. */
+#define LDPC_RM_RUN(from, to)                  \
+  do {                                         \
+    const uint32_t _a = (from), _b = (to);     \
+    if (_b > _a && k < E) {                    \
+      uint32_t _n = _b - _a;                   \
+      if (_n > E - k)                          \
+        _n = E - k;                            \
+      ldpc_rm_acc(d + _a, soft_input + k, _n); \
+      k += _n;                                 \
+      ind = _a + _n;                           \
+    } else {                                   \
+      ind = _b;                                \
+    }                                          \
   } while (0)
 
   uint32_t k = 0;
@@ -2420,14 +2502,9 @@ static int ldpc_batch_prep(ldpc_worker_t *w,
   const uint32_t Kprime_z = (uint32_t)br->K - br->F; /* the z layout's K', not the CRC one */
   const uint32_t Kc_Z = numLLR; /* what the R-specific graph covers */
 
-  /* The decoder reads d[0 .. Kc_Z - 2Z) and nothing beyond it, and Kc_Z is set
-   * by (BG, R) which the TB geometry fixes -- rv_index does not change it. So
-   * the tail of the circular buffer is never read in ANY HARQ round, and both
-   * the accumulate and the saturate can stop there. At BG1 that is 66Z of
-   * dematch and 68Z of saturate cut to 66Z/68Z at R=1/3 (no change, the full
-   * graph), but to 33Z/35Z at R=2/3 and 25Z/27Z at R=8/9 -- roughly 2x and
-   * 2.4x off the prep for the high-rate cases. */
-  const uint32_t d_used = (Kc_Z > 2u * br->Z) ? (Kc_Z - 2u * br->Z) : 0u;
+  /* The decoder reads d[0 .. Kc_Z - 2Z) and nothing beyond it, so the
+   * saturate stops at Kc_Z: at BG1 that is 35Z instead of 68Z at R=2/3. The
+   * dematch cannot stop there (see ldpc_rate_dematch). */
   if (ldpc_rate_dematch(br->tbslbrm,
                         br->BG,
                         br->Z,
@@ -2438,8 +2515,7 @@ static int ldpc_batch_prep(ldpc_worker_t *w,
                         br->d_clear,
                         E,
                         br->F,
-                        Kprime_z - 2u * br->Z,
-                        d_used)
+                        Kprime_z - 2u * br->Z)
       != 0)
     return -1;
 
