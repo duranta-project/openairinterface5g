@@ -34,7 +34,7 @@ typedef struct {
 
 /* function type of functions which may be implemented by a module */
 /* 1: init function, called when loading, if found in the shared lib */
-typedef int(*initfunc_t)(void *);
+typedef void (*initfunc_t)(void *);
 
 /* 2: version checking function, called when loading, if it returns -1, trigger main exec abort  */
 typedef int(*checkverfunc_t)(char * mainexec_version, char ** shlib_version);

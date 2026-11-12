@@ -946,7 +946,7 @@ int add_sharedmodules(void) {
 /* autoinit functions is called by the loader when the telnet shared library is
    dynamically loaded
 */
-int telnetsrv_autoinit(void) {
+void telnetsrv_autoinit(void *arg) {
   memset(&telnetparams,0,sizeof(telnetparams));
   config_get(config_get_if(), telnetoptions, sizeofArray(telnetoptions), "telnetsrv");
   /* possibly load a exec specific shared lib */
@@ -957,7 +957,7 @@ int telnetsrv_autoinit(void) {
   initNotifiedFIFO(&telnet_cmdrespq);
   if(pthread_create(&telnetparams.telnet_pthread,NULL, (void *(*)(void *))run_telnetsrv, NULL) != 0) {
     fprintf(stderr,"[TELNETSRV] Error %s on pthread_create call\n",strerror(errno));
-    return -1;
+    return;
   }
 
   add_telnetcmd("telnet", telnet_vardef, telnet_cmdarray);
@@ -966,10 +966,9 @@ int telnetsrv_autoinit(void) {
   if ( telnetparams.listenstdin ) {
     if(pthread_create(&telnetparams.telnetclt_pthread,NULL, (void *(*)(void *))run_telnetclt, NULL) != 0) {
       fprintf(stderr,"[TELNETSRV] Error %s on pthread_create f() run_telnetclt \n",strerror(errno));
-    return -1;
+    return;
     }
   }  
-  return 0;
 }
 
 /*---------------------------------------------------------------------------------------------*/

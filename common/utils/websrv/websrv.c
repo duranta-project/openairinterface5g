@@ -787,7 +787,7 @@ void register_module_endpoints(cmdparser_t *module)
   websrv_add_endpoint(http_methods, 2, prefixurl, "set", callback_functions_cmd, module);
 }
 
-void *websrv_autoinit()
+void websrv_autoinit(void *arg)
 {
   int ret;
   memset(&websrvparams, 0, sizeof(websrvparams));
@@ -805,7 +805,7 @@ void *websrv_autoinit()
 
   if (ulfius_init_instance(&(websrvparams.instance), websrvparams.listenport, NULL, NULL) != U_OK) {
     LOG_W(UTIL, "[websrv] Error,cannot init websrv\n");
-    return (NULL);
+    return;
   }
 
   u_map_put(websrvparams.instance.default_headers, "Access-Control-Allow-Origin", "*");

@@ -256,7 +256,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
               struct xran_cp_radioapp_section3 *section =
                   (struct xran_cp_radioapp_section3 *)rte_pktmbuf_adj(mbuf, sizeof(struct xran_cp_radioapp_section3_header));
               if (section) {
-                *((uint64_t *)section) = rte_be_to_cpu_64(*((uint64_t *)section));
+                xran_swap_be64_inplace(section);
                 printf("  [Sec 3] SectionID: %d  StartPRB: %d  NumPRB: %d\n",
                        section->hdr.u1.common.sectionId,
                        section->hdr.u1.common.startPrbc,
@@ -279,7 +279,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char
                   }
                   struct xran_cp_radioapp_section1 sec_copy;
                   memcpy(&sec_copy, sec_ptr, sizeof(sec_copy));
-                  *((uint64_t *)&sec_copy) = rte_be_to_cpu_64(*((uint64_t *)&sec_copy));
+                  xran_swap_be64_inplace(&sec_copy);
                   printf("  [Sec 1] SectionID: %d  StartPRB: %d  NumPRB: %d  NumSym: %d  BeamID: %d\n",
                          sec_copy.hdr.u1.common.sectionId,
                          sec_copy.hdr.u1.common.startPrbc,

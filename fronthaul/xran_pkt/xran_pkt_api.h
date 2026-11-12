@@ -10,6 +10,18 @@
 #include "xran_pkt_cp.h"
 #include "xran_pkt.h"
 #pragma GCC diagnostic pop
+#include <string.h>
+#include <rte_byteorder.h>
+
+/* Convert, in place, the 64-bit section header word at p between big endian and CPU order. Packet section headers are not
+ * 8-byte aligned in the mbuf, so go through memcpy instead of dereferencing a uint64_t pointer. */
+static inline void xran_swap_be64_inplace(void *p)
+{
+  uint64_t w;
+  memcpy(&w, p, sizeof(w));
+  w = rte_be_to_cpu_64(w);
+  memcpy(p, &w, sizeof(w));
+}
 
 struct xran_eaxcid_config {
   uint16_t mask_cuPortId;

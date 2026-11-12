@@ -3087,7 +3087,9 @@ void nr_16qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag_in, int16_t *ll
 {
   simde__m256i *rxF_256 = (simde__m256i *)rxdataF_comp;
   simde__m256i *ch_mag256 = (simde__m256i *)ch_mag_in;
-  int64_t *llr_64 = (int64_t *)llr;
+  // llr is an int16_t buffer and may be only 2-byte aligned
+  typedef int64_t __attribute__((aligned(1))) int64_unaligned_t;
+  int64_unaligned_t *llr_64 = (int64_unaligned_t *)llr;
 
 #ifndef USE_128BIT
   for (int i = 0; i < (nb_re >> 3); i++) {
@@ -3152,7 +3154,9 @@ void nr_64qam_llr(const c16_t *rxdataF_comp, const c16_t *ch_mag, const c16_t *c
   simde__m256i *ch_maga = (simde__m256i *)ch_mag;
   simde__m256i *ch_magb = (simde__m256i *)ch_mag2;
 
-  int32_t *llr_32 = (int32_t *)llr;
+  // llr is an int16_t buffer and may be only 2-byte aligned
+  typedef int32_t __attribute__((aligned(1))) int32_unaligned_t;
+  int32_unaligned_t *llr_32 = (int32_unaligned_t *)llr;
 #ifndef USE_128BIT
   for (int i = 0; i < (nb_re >> 3); i++) {
     simde__m256i xmm0 = simde_mm256_loadu_si256(rxF);
