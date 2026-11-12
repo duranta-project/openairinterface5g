@@ -13,6 +13,8 @@
 #if defined(__aarch64__)
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
+#elif defined(__riscv)
+#include <sys/hwprobe.h>
 #endif
 #endif
 #if defined(__riscv) && defined(__riscv_vector)
@@ -4242,6 +4244,12 @@ static bool nr_lbest_f16(void)
     const char *e = getenv("OAI_LBEST_F16");
 #if defined(__aarch64__)
     const bool cpu = getauxval(AT_HWCAP) & HWCAP_ASIMDHP;
+#elif defined(__riscv)
+    // Zvfh and VLEN >= 256 (the zvl256b build of nr_lbest_f16.c); kernels without hwprobe (or without Zvfh
+    // reporting) keep the int16 / fp32 receivers
+    struct riscv_hwprobe p = {.key = RISCV_HWPROBE_KEY_IMA_EXT_0};
+    const bool cpu = __riscv_hwprobe(&p, 1, 0, NULL, 0) == 0 && p.key >= 0 && (p.value & RISCV_HWPROBE_EXT_ZVFH)
+                     && __riscv_vsetvlmax_e8m1() >= 32;
 #else
     const bool cpu = __builtin_cpu_supports("avx512fp16");
 #endif

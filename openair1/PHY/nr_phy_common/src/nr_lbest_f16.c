@@ -4,8 +4,9 @@
  * FP16 2-layer receivers: the L-best / full ML of the fp32 kernels (nr_lbest_simd.c: seed, 3x3 window, adaptive
  * full grid, graded fallback, LLR units) with the candidate metric taken relative to the seed point, and a fused
  * inner RX that also runs the MRC and Gram in FP16. Written once against a small FP16 vector layer: ARMv8.2 FP16
- * (float16x8_t, 8 REs per vector) and AVX512-FP16 (__m512h, 32 REs per vector); the build compiles this file with
- * the matching -march flags and defines NR_LBEST_F16 (nr_compute_llr.c selects it at run time).
+ * (float16x8_t, 8 REs per vector), AVX512-FP16 (__m512h, 32 REs per vector) and RISC-V V + Zvfh (GNU C vectors, 16
+ * REs per vector); the build compiles this file with the matching -march flags and defines NR_LBEST_F16
+ * (nr_compute_llr.c selects it at run time).
  *
  * Metric: with x0 the seed point (window centre and its conditional nuisance slice), r = z - G x0 once per RE and
  * per candidate x0 + d: dM = Re{d^H r} - 1/2 d^H G d. The max-log differences of M are unchanged, but the per-
@@ -33,7 +34,99 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // FP16 vector layer: hv = FP16 values, hm = lane masks, hi = int16 values, NRH_N lanes (REs) per vector
 // ---------------------------------------------------------------------------------------------------------------------
-#if defined(__aarch64__) && defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+#if defined(NR_LBEST_F16_GENERIC) || (defined(__riscv) && defined(__riscv_zvfh))
+// GNU C vectors of 16 FP16 lanes: on RISC-V V + Zvfh, GCC lowers them to RVV with an explicit vector length (correct
+// on any VLEN >= 256, the X100 and A100 cores of the K3); NR_LBEST_F16_GENERIC builds the same layer elsewhere (on
+// an AVX512-FP16 host it runs on FP16 hardware). Fused multiply-adds are the contracted a + b * c (-ffp-contract=fast,
+// the GNU C default).
+#define NRH_GENERIC
+#define NRH_N 16
+typedef _Float16 hv __attribute__((vector_size(32)));
+typedef int16_t hi __attribute__((vector_size(32)));
+typedef int16_t hm __attribute__((vector_size(32))); // lanes all ones / zero
+typedef float hf __attribute__((vector_size(32)));
+typedef int32_t hw __attribute__((vector_size(32)));
+typedef _Float16 hv8 __attribute__((vector_size(16)));
+typedef int16_t hi8 __attribute__((vector_size(16)));
+#define NRH_LO 0, 1, 2, 3, 4, 5, 6, 7
+#define NRH_HI 8, 9, 10, 11, 12, 13, 14, 15
+static inline hv hv_set1(float x) { return (hv){} + (_Float16)x; }
+static inline hv hv_add(hv a, hv b) { return a + b; }
+static inline hv hv_sub(hv a, hv b) { return a - b; }
+static inline hv hv_mul(hv a, hv b) { return a * b; }
+static inline hv hv_div(hv a, hv b) { return a / b; }
+static inline hv hv_fma(hv a, hv b, hv c) { return a + b * c; }
+static inline hv hv_fms(hv a, hv b, hv c) { return a - b * c; }
+static inline hv hv_sel(hm m, hv a, hv b) { return (hv)(((hi)a & m) | ((hi)b & ~m)); } // m ? a : b
+static inline hi hi_sel(hm m, hi a, hi b) { return (a & m) | (b & ~m); }
+static inline hv hv_max(hv a, hv b) { return hv_sel(a > b, a, b); }
+static inline hv hv_min(hv a, hv b) { return hv_sel(a < b, a, b); }
+static inline hv hv_abs(hv a) { return (hv)((hi)a & (int16_t)0x7fff); }
+static inline hv hv_neg(hv a) { return (hv)((hi)a ^ (int16_t)0x8000); }
+// to nearest, ties to even, for |a| < 512 (ulp 1 above 1024); every use clamps the result to <= 15 levels, which
+// larger |a| still reach with the right sign
+static inline hv hv_rndn(hv a) { return (a + (_Float16)1536.0f) - (_Float16)1536.0f; }
+static inline hm hv_lt(hv a, hv b) { return a < b; }
+static inline hm hv_gt(hv a, hv b) { return a > b; }
+static inline hm hv_eq(hv a, hv b) { return a == b; }
+static inline hm hm_or(hm a, hm b) { return a | b; }
+static inline hm hm_andnot(hm a, hm w) { return a & ~w; }
+static inline int hm_any(hm a)
+{
+  int16_t r = 0;
+  for (int i = 0; i < NRH_N; i++)
+    r |= a[i];
+  return r != 0;
+}
+static inline hi hi_set1(int16_t x) { return (hi){} + x; }
+static inline hi hi_add(hi a, hi b) { return a + b; }
+static inline hi hi_sub(hi a, hi b) { return a - b; }
+static inline hi hi_min(hi a, hi b) { return hi_sel(a < b, a, b); }
+static inline hi hi_max(hi a, hi b) { return hi_sel(a > b, a, b); }
+static inline hi hi_shr1(hi a) { return a >> 1; }
+static inline hi hi_shl1(hi a) { return a << 1; }
+static inline hv hv_cvt(hi a) { return __builtin_convertvector(a, hv); }
+static inline hi hv_expo(hv a) { return (hi)a >> 10; } // exponent field (a >= 0)
+static inline hv hv_pow2(hi k) { return (hv)(hi_max(hi_min(k + 15, hi_set1(30)), hi_set1(1)) << 10); }
+static inline hi hv_trunc16(hv a) { return __builtin_convertvector(a, hi); } // toward zero
+static inline void hi_load_c16(const c16_t *p, hi *re, hi *im) // NRH_N complex, deinterleaved
+{
+  hi a, b;
+  memcpy(&a, p, sizeof(a));
+  memcpy(&b, p + NRH_N / 2, sizeof(b));
+  *re = __builtin_shufflevector(a, b, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30);
+  *im = __builtin_shufflevector(a, b, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31);
+}
+// per-RE fp32 scales 2^k (lanes 0-7 / 8-15)
+typedef struct {
+  hf lo, hi;
+} hs;
+static inline hf hf_pow2(hi8 k) { return (hf)((__builtin_convertvector(k, hw) + 127) << 23); }
+static inline hs hs_pow2(hi k) { return (hs){hf_pow2(__builtin_shufflevector(k, k, NRH_LO)), hf_pow2(__builtin_shufflevector(k, k, NRH_HI))}; }
+// lambda * up as FP16 (fp32, clamped below the FP16 overflow)
+static inline hv hv_lam(float lam, const hs *up)
+{
+  const hf mx = (hf){} + 30000.0f;
+  hf a = up->lo * lam, b = up->hi * lam;
+  a = (hf)(((hw)a & (hw)(a < mx)) | ((hw)mx & ~(hw)(a < mx)));
+  b = (hf)(((hw)b & (hw)(b < mx)) | ((hw)mx & ~(hw)(b < mx)));
+  const hv8 a16 = __builtin_convertvector(a, hv8), b16 = __builtin_convertvector(b, hv8);
+  return __builtin_shufflevector(a16, b16, NRH_LO, NRH_HI);
+}
+// 1 - e per lane, e the bit length of m in [1, 32767] (exact through fp32)
+static inline hi hi_neg_floor_log2(hi m)
+{
+  const hw lo = (hw)__builtin_convertvector(__builtin_convertvector(__builtin_shufflevector(m, m, NRH_LO), hw), hf);
+  const hw hi_ = (hw)__builtin_convertvector(__builtin_convertvector(__builtin_shufflevector(m, m, NRH_HI), hw), hf);
+  const hi8 l16 = __builtin_convertvector(127 - (lo >> 23), hi8), h16 = __builtin_convertvector(127 - (hi_ >> 23), hi8);
+  return __builtin_shufflevector(l16, h16, NRH_LO, NRH_HI);
+}
+static inline hi hi_abs_sat(hi a) // |a|, -32768 -> 32767
+{
+  return hi_sel(a == (int16_t)-32768, hi_set1(32767), hi_sel(a < 0, -a, a));
+}
+
+#elif defined(__aarch64__) && defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
 #include <arm_neon.h>
 #define NRH_N 8
 typedef float16x8_t hv;
@@ -167,7 +260,7 @@ static inline hv hv_lam(float lam, const hs *up)
   return _mm512_castsi512_ph(_mm512_inserti64x4(_mm512_castsi256_si512(_mm256_castph_si256(a)), _mm256_castph_si256(b), 1));
 }
 #else
-#error "nr_lbest_f16.c needs ARMv8.2 FP16 vector arithmetic or AVX512-FP16"
+#error "nr_lbest_f16.c needs ARMv8.2 FP16 vector arithmetic, AVX512-FP16 or RISC-V V + Zvfh"
 #endif
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -178,6 +271,11 @@ static inline hv hv_lam(float lam, const hs *up)
 // res[p] lane i -> out[i * Qm + p]: the SIMD transpose of the int16 kernels (Qm 6 / 8 only), a scalar interleave below
 static inline void nrh_store(int16_t *out, const hi res[8], int Qm)
 {
+#ifdef NRH_GENERIC
+  for (int i = 0; i < NRH_N; i++)
+    for (int p = 0; p < Qm; p++)
+      out[i * Qm + p] = res[p][i];
+#else
   NRLB_VI r[8];
   for (int p = 0; p < Qm; p++)
     r[p] = hi_simde(res[p]);
@@ -191,6 +289,7 @@ static inline void nrh_store(int16_t *out, const hi res[8], int Qm)
   for (int i = 0; i < NRH_N; i++)
     for (int p = 0; p < Qm; p++)
       out[i * Qm + p] = t[p][i];
+#endif
 }
 
 int nr_lbest_f16_lanes(void)
@@ -279,7 +378,87 @@ typedef struct {
 // Front end of NRH_N REs from rxFext / chFext ([nb_rx][bl] / [2][nb_rx][bl]): each RE scaled by 2^ls (ls = 1 - e, e
 // the bit length of its largest RX or channel component: |x| < 2), the PTRS phase error applied to the RX
 // (conj(c cpe) y = conj(c) (conj(cpe) y)); returns ls
-#if defined(__aarch64__)
+#if defined(NRH_GENERIC)
+// the ARM front ends on the generic layer: shuffle deinterleave for vld2, saturating abs for vqabs, the fp32 exponent
+// for clz
+static inline hi nrh_front_end(const c16_t *rx, const c16_t *ch, uint32_t bl, int nb_rx, uint32_t re, c16_t cpe, nrh_fe_t *f)
+{
+  const bool rot = !(cpe.r == 32767 && cpe.i == 0);
+  const hv CR = hv_set1(cpe.r / 32768.0f), CI = hv_set1(cpe.i / 32768.0f);
+  hi amax = hi_set1(1);
+  for (int a = 0; a < nb_rx; a++) {
+    hi yr, yi, h0r, h0i, h1r, h1i;
+    hi_load_c16(&rx[(size_t)a * bl + re], &yr, &yi);
+    hi_load_c16(&ch[(size_t)a * bl + re], &h0r, &h0i);
+    hi_load_c16(&ch[(size_t)(nb_rx + a) * bl + re], &h1r, &h1i);
+    amax = hi_max(amax, hi_max(hi_abs_sat(yr), hi_abs_sat(yi)));
+    amax = hi_max(amax, hi_max(hi_abs_sat(h0r), hi_abs_sat(h0i)));
+    amax = hi_max(amax, hi_max(hi_abs_sat(h1r), hi_abs_sat(h1i)));
+  }
+  const hi ls = hi_neg_floor_log2(amax);
+  const hv S = hv_pow2(ls);
+  hv z0r = hv_set1(0.0f), z0i = z0r, z1r = z0r, z1i = z0r, P0 = z0r, P1 = z0r, rr = z0r, ri = z0r;
+  for (int a = 0; a < nb_rx; a++) {
+    hi y16r, y16i, h0r, h0i, h1r, h1i;
+    hi_load_c16(&rx[(size_t)a * bl + re], &y16r, &y16i);
+    hi_load_c16(&ch[(size_t)a * bl + re], &h0r, &h0i);
+    hi_load_c16(&ch[(size_t)(nb_rx + a) * bl + re], &h1r, &h1i);
+    hv yr = hv_mul(hv_cvt(y16r), S), yi = hv_mul(hv_cvt(y16i), S);
+    if (rot) {
+      const hv tr = hv_fma(hv_mul(CR, yr), CI, yi);
+      yi = hv_fms(hv_mul(CR, yi), CI, yr);
+      yr = tr;
+    }
+    const hv a0r = hv_mul(hv_cvt(h0r), S), a0i = hv_mul(hv_cvt(h0i), S);
+    const hv a1r = hv_mul(hv_cvt(h1r), S), a1i = hv_mul(hv_cvt(h1i), S);
+    z0r = hv_fma(hv_fma(z0r, a0r, yr), a0i, yi);
+    z0i = hv_fms(hv_fma(z0i, a0r, yi), a0i, yr);
+    z1r = hv_fma(hv_fma(z1r, a1r, yr), a1i, yi);
+    z1i = hv_fms(hv_fma(z1i, a1r, yi), a1i, yr);
+    P0 = hv_fma(hv_fma(P0, a0r, a0r), a0i, a0i);
+    P1 = hv_fma(hv_fma(P1, a1r, a1r), a1i, a1i);
+    rr = hv_fma(hv_fma(rr, a0r, a1r), a0i, a1i);
+    ri = hv_fms(hv_fma(ri, a0r, a1i), a0i, a1r);
+  }
+  *f = (nrh_fe_t){z0r, z0i, z1r, z1i, P0, P1, rr, ri};
+  return ls;
+}
+static inline hi nrh_front_end_1l(const c16_t *rx, const c16_t *ch, uint32_t bl, int nb_rx, uint32_t re, c16_t cpe, hv *zr, hv *zi, hv *P)
+{
+  const bool rot = !(cpe.r == 32767 && cpe.i == 0);
+  const hv CR = hv_set1(cpe.r / 32768.0f), CI = hv_set1(cpe.i / 32768.0f);
+  hi amax = hi_set1(1);
+  for (int a = 0; a < nb_rx; a++) {
+    hi yr, yi, hr, hi_;
+    hi_load_c16(&rx[(size_t)a * bl + re], &yr, &yi);
+    hi_load_c16(&ch[(size_t)a * bl + re], &hr, &hi_);
+    amax = hi_max(amax, hi_max(hi_abs_sat(yr), hi_abs_sat(yi)));
+    amax = hi_max(amax, hi_max(hi_abs_sat(hr), hi_abs_sat(hi_)));
+  }
+  const hi ls = hi_neg_floor_log2(amax);
+  const hv S = hv_pow2(ls);
+  hv a_zr = hv_set1(0.0f), a_zi = a_zr, a_P = a_zr;
+  for (int a = 0; a < nb_rx; a++) {
+    hi y16r, y16i, h16r, h16i;
+    hi_load_c16(&rx[(size_t)a * bl + re], &y16r, &y16i);
+    hi_load_c16(&ch[(size_t)a * bl + re], &h16r, &h16i);
+    hv yr = hv_mul(hv_cvt(y16r), S), yi = hv_mul(hv_cvt(y16i), S);
+    if (rot) {
+      const hv tr = hv_fma(hv_mul(CR, yr), CI, yi);
+      yi = hv_fms(hv_mul(CR, yi), CI, yr);
+      yr = tr;
+    }
+    const hv cr = hv_mul(hv_cvt(h16r), S), ci = hv_mul(hv_cvt(h16i), S);
+    a_zr = hv_fma(hv_fma(a_zr, cr, yr), ci, yi);
+    a_zi = hv_fms(hv_fma(a_zi, cr, yi), ci, yr);
+    a_P = hv_fma(hv_fma(a_P, cr, cr), ci, ci);
+  }
+  *zr = a_zr;
+  *zi = a_zi;
+  *P = a_P;
+  return ls;
+}
+#elif defined(__aarch64__)
 static inline hi nrh_front_end(const c16_t *rx, const c16_t *ch, uint32_t bl, int nb_rx, uint32_t re, c16_t cpe, nrh_fe_t *f)
 {
   const bool rot = !(cpe.r == 32767 && cpe.i == 0);

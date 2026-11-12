@@ -16,7 +16,7 @@ foreach(w 128 256 512)
   list(APPEND NR_PHY_COMMON_SRC $<TARGET_OBJECTS:nr_lbest_simd_w${w}>)
 endforeach()
 
-# FP16 2-layer receivers (nr_lbest_f16.c): ARMv8.2 FP16 vector arithmetic or AVX512-FP16, selected at run time on CPUs
+# FP16 2-layer receivers (nr_lbest_f16.c): ARMv8.2 FP16 vector arithmetic, AVX512-FP16 or RISC-V V + Zvfh, selected at run time on CPUs
 # that have it (nr_lbest_f16_enabled); NR_LBEST_F16 marks the builds that contain them
 include(CheckCCompilerFlag)
 set(NR_LBEST_F16_FLAGS "")
@@ -26,6 +26,13 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   check_c_compiler_flag(-mavx512fp16 HAVE_MAVX512FP16)
   if(HAVE_MAVX512FP16)
     set(NR_LBEST_F16_FLAGS -mavx512fp16 -mavx512f -mavx512bw -mavx512vl -mavx512dq -mavx512cd -mfma -mavx2)
+  endif()
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv" AND OAI_RISCV_MARCH MATCHES "^rv64[a-z]*v")
+  # VLEN >= 256 (checked at run time): GCC keeps the 16-lane FP16 vectors in single registers instead of splitting
+  # and scalarizing compares and shuffles
+  check_c_compiler_flag(-march=${OAI_RISCV_MARCH}_zvl256b_zfh_zvfh HAVE_MARCH_ZVFH)
+  if(HAVE_MARCH_ZVFH)
+    set(NR_LBEST_F16_FLAGS -march=${OAI_RISCV_MARCH}_zvl256b_zfh_zvfh)
   endif()
 endif()
 if(NR_LBEST_F16_FLAGS)
