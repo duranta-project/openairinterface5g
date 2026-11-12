@@ -475,7 +475,7 @@ void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES],
   }
 }
 
-void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp, bool do_ml)
+void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp)
 {
   const uint32_t pdsch_buf_size_max = (fp->N_RB_DL * NR_NB_SC_PER_RB + 15) & ~15;
   const uint32_t pdsch_est_size = fp->symbols_per_slot * fp->ofdm_symbol_size;
@@ -491,9 +491,9 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
   const size_t comp_elems = (size_t)max_layers * pdsch_buf_size_max;
   const size_t ch_est_elems = (size_t)fp->nb_antennas_rx * max_layers * pdsch_est_size;
 
-  /* rho_dl is only needed for 2-layer ML LLR computation; skip the
-   * allocation entirely when ML is disabled to reduce memory footprint. */
-  const size_t rho_elems = do_ml ? (size_t)max_layers * max_layers * pdsch_buf_size_max : 0;
+  /* rho_dl (the nl x nl Gram H^H H) feeds the ML LLR kernels and the Gram-based linear MMSE, so it
+   * is needed for any multi-layer reception; skip it only when a single layer is possible. */
+  const size_t rho_elems = max_layers > 1 ? (size_t)max_layers * max_layers * pdsch_buf_size_max : 0;
 
   for (int i = 0; i < num_actors; i++) {
     buffers[i].pdsch_buf_size_max           = pdsch_buf_size_max;
@@ -526,7 +526,7 @@ void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
   const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
   ue->pdsch_num_actors = num_actors;
   ue->pdsch_scratch = calloc_or_fail(num_actors, sizeof(*ue->pdsch_scratch));
-  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms, ue->do_ml);
+  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms);
 }
 
 void init_phy_nr_measurements(PHY_VARS_NR_UE *ue)

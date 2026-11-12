@@ -177,6 +177,8 @@ int main(int argc, char *argv[])
   int params_from_file = 0;
   int threadCnt=0;
   int max_ldpc_iterations = 5;
+  int pusch_mimo_rx = NR_PUSCH_RX_LBEST;
+  double rx_gain_dB = 0; // -K: gain on signal+noise at the gNB input (same SNR, different level)
   int num_antennas_per_thread = 1;
   uint32_t log_format = 0;
   int threequarter_fs = 0;
@@ -206,7 +208,7 @@ int main(int argc, char *argv[])
   void *d_channel_coeffs_gpu = NULL;
 #endif
 
-  while ((c = getopt(argc, argv, "--:O:a:b:c:d:ef:g:h:i:jk:l:m:n:o:p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:"))
+  while ((c = getopt(argc, argv, "--:O:a:b:c:d:D:ef:g:h:i:jk:l:m:n:o:p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:K:"))
          != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
@@ -484,6 +486,15 @@ int main(int argc, char *argv[])
       printf("NOTE: TRANSFORM PRECODING (SC-FDMA) is ENABLED in UPLINK (0 - ENABLE, 1 - DISABLE) : %d \n", transform_precoding);
       break;
 
+    case 'K':
+      rx_gain_dB = atof(optarg);
+      break;
+
+    case 'D':
+      pusch_mimo_rx = nr_pusch_mimo_rx_from_str(optarg);
+      AssertFatal(pusch_mimo_rx >= 0, "-D %s: must be lbest, mmse or ml\n", optarg);
+      break;
+
     case 'E':
       do_SRS = atoi(optarg);
       if (do_SRS == 0) {
@@ -507,6 +518,7 @@ int main(int argc, char *argv[])
       printf("-c RNTI\n");
       printf("-C Specify the number of threads for the simulation\n");
       printf("-d Introduce delay in terms of number of samples\n");
+      printf("-D 2-layer PUSCH receiver: lbest (default), mmse, ml\n");
       printf("-e To simulate MSG3 configuration\n");
       printf("-E {SRS: [0] Disabled, [1] Enabled} e.g. -E 1\n");
       printf("-f <flag> Enable optional feature flag. Available flags:\n");
@@ -524,6 +536,7 @@ int main(int argc, char *argv[])
       printf("-I Maximum LDPC decoder iterations\n");
       printf("-j Save signal buffers in binary format\n");
       printf("-k 3/4 sampling\n");
+      printf("-K <dB> gain applied to signal and noise at the gNB input: same SNR, different received level (default 0)\n");
       printf("-l PUSCH DMRS length: 1 or 2\n");
       printf("-L <log level, 0(errors), 1(warning), 2(info) 3(debug) 4 (trace)>\n");
       printf("-m MCS value\n");
@@ -601,6 +614,7 @@ int main(int argc, char *argv[])
   UL_INFO.crc_ind.number_crcs = 0;
   gNB->max_ldpc_iterations = max_ldpc_iterations;
   gNB->pusch_thres = -20;
+  gNB->pusch_mimo_rx = pusch_mimo_rx;
   gNB->frame_parms.N_RB_DL = N_RB_DL;
   gNB->frame_parms.N_RB_UL = N_RB_UL;
   gNB->frame_parms.Ncp = extended_prefix_flag ? NR_EXTENDED : NR_NORMAL;
@@ -900,7 +914,7 @@ int main(int argc, char *argv[])
 
   ulsch_input_buffer[0] = 0x31;
   for (i = 1; i < TBS/8; i++) {
-    ulsch_input_buffer[i] = (uint8_t)rand();
+    ulsch_input_buffer[i] = (uint8_t)(floor(uniformrandom() * 256));
   }
 
   uint8_t ptrs_time_density = get_L_ptrs(ptrs_mcs1, ptrs_mcs2, ptrs_mcs3, Imcs, mcs_table);
@@ -1420,6 +1434,16 @@ int main(int argc, char *argv[])
             start_meas(&channel_stats);
             multipath_channel_float(UE2gNB, tx_sig_for_cpu, r_re, r_im, slot_length, 0, (n_trials == 1) ? 1 : 0);
             stop_meas(&channel_stats);
+            float sigma_rx = sigma;
+            if (rx_gain_dB != 0) {
+              const float g = pow(10, rx_gain_dB / 20);
+              for (int ap = 0; ap < n_rx; ap++)
+                for (int k = 0; k < slot_length; k++) {
+                  r_re[ap][k] *= g;
+                  r_im[ap][k] *= g;
+                }
+              sigma_rx *= g * g;
+            }
 
             free(tx_sig_for_cpu);
 
@@ -1428,7 +1452,7 @@ int main(int argc, char *argv[])
             add_noise_float(rxdata,
                             (const float **)r_re,
                             (const float **)r_im,
-                            (float)sigma,
+                            sigma_rx,
                             slot_length,
                             slot_offset,
                             ts,

@@ -389,7 +389,7 @@ int main(int argc, char **argv)
   randominit();
 
   int print_perf = 0;
-  bool do_ml = false;
+  int pdsch_mimo_rx = NR_PDSCH_RX_MMSE;
 
   int use_cuda = 0;
 
@@ -402,7 +402,7 @@ int main(int argc, char **argv)
   void *d_channel_coeffs_gpu = NULL;
 #endif
 
-  while ((c = getopt(argc, argv, "--:O:f:hA:p:g:i:n:s:S:t:v:x:y:z:o:H:M:N:F:GR:d:D:PI:L:a:b:e:m:w:T:U:q:X:Y:Z:Q:EK:")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:f:hA:p:g:i:n:s:S:t:v:x:y:z:o:H:M:N:F:GR:d:D:PI:L:a:b:e:m:w:T:U:q:X:Y:Z:Q:E:K:")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -536,7 +536,8 @@ int main(int argc, char **argv)
       break;
 
     case 'E':
-      do_ml = true;
+      pdsch_mimo_rx = nr_pdsch_mimo_rx_from_str(optarg);
+      AssertFatal(pdsch_mimo_rx >= 0, "-E %s: must be mmse, ml or lbest\n", optarg);
       break;
 
     case 'K':
@@ -642,7 +643,9 @@ int main(int argc, char **argv)
       printf("-b Number of PRB for PDSCH\n");
       printf("-d number of dlsch threads, 0: no dlsch parallelization\n");
       printf("-e MSC index\n");
-      printf("-E Enable ML-based LLR for 2-layer MIMO (QPSK/16QAM/64QAM). Default: MMSE equalization\n");
+      printf(
+          "-E <mmse|ml|lbest> multi-layer PDSCH receiver: mmse (default), ml (2-layer QPSK..64QAM), lbest (2-layer up to "
+          "256QAM)\n");
       printf("-f <flag> Enable optional feature flag. Available flags:\n");
 #ifdef CHANNEL_SIM_CUDA
       printf("          cuda    Enable CUDA channel simulation\n");
@@ -932,7 +935,7 @@ int main(int argc, char **argv)
   UE->frame_parms.nb_antenna_ports_gNB = n_tx;
   UE->nrLDPC_coding_interface = gNB->nrLDPC_coding_interface;
   UE->max_ldpc_iterations = max_ldpc_iterations;
-  UE->do_ml = do_ml;
+  UE->pdsch_mimo_rx = pdsch_mimo_rx;
   init_nr_ue_phy_cpu_stats(&UE->phy_cpu_stats);
   UE->is_synchronized = 1;
 
