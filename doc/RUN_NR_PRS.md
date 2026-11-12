@@ -42,19 +42,32 @@ prs_config = (
   MutingPattern1        = [];
   MutingPattern2        = [];
   MutingBitRepetition   = 1;
-  BroadcastPosSIB       = 0;
-  PosSIBPeriodicity     = 16;
 }
 );
 ```
 
-Set `BroadcastPosSIB` to `1` to broadcast the configured PRS assistance data in
-`posSibType6-1`. `PosSIBPeriodicity` accepts 8, 16, 32, 64, 128, 256, or 512
-radio frames and defaults to 16. PosSIB broadcasting is disabled by default.
-Because PosSI uses the ordinary SI window configured in SIB1, broadcasting a
-PosSIB also requires at least one SIB2-SIB14 in the ordinary SI schedule. For
-example, configure `cu_sibs = [2]` in the corresponding `gNBs` entry. Startup
-stops with a configuration error if `BroadcastPosSIB` is enabled without one.
+For `posSibType6-1` broadcasting, configure PRS and one TRP on the DU, and add
+a `pos_sib` entry on the CU. In a monolithic gNB, both sections are in the same
+file. For example:
+
+```
+positioning_config = ({ NumTRPs = 1; TRPIDs = [1]; TRPxAxis = [0]; TRPyAxis = [0]; TRPzAxis = [0]; Units = [1]; });
+pos_sib = ({ cell_id = 12345678L; trp_id = 1; periodicity = 16; });
+```
+
+`cell_id` must match the DU's `nr_cellid`, and `trp_id` must match the DU's
+TRP. The CU sends an F1 TRP Information Request after setup and supplies the
+generated assistance to that DU using Positioning Assistance Information
+Control. The periodicity is in radio frames and must be 8, 16, 32, 64, 128,
+256, or 512. With no `pos_sib` entry, broadcasting is disabled. The CU must
+also configure at least one ordinary SIB2–SIB14, for example `cu_sibs = [2]`.
+
+The OAI DU currently reports PRS for one cell, one TRP and one resource set.
+It rejects configured muting because its transmitter does not apply it. The
+CU accepts muting received from a capable DU. PRS-to-PRS QCL is accepted when
+the source resource is identified in the same set; SSB QCL is rejected because
+F1 does not provide the LPP QCL type. Segmentation, on-demand delivery and
+LMF-originated PosSIB are not implemented.
 
 The nrUE config has `Active_gNBs` to specify the number of active gNBs
 transmitting PRS simultaneously. Help strings for all PRS parameters are

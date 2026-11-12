@@ -1195,9 +1195,11 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
   int num_du_sib = 0;
   if (du_SIBs)
     num_du_sib = du_SIBs->size;
-  AssertFatal(cc->pos_sib_bcch_length == 0 || has_ordinary_si(num_cu_sib, cu_sib, du_SIBs),
-              "BroadcastPosSIB requires an ordinary SI schedule; configure at least one SIB2-SIB14 "
-              "(for example, cu_sibs = [2])\n");
+  if (cc->pos_sib_bcch_length && !has_ordinary_si(num_cu_sib, cu_sib, du_SIBs)) {
+    LOG_E(NR_MAC, "PosSIB requires an ordinary SI schedule; configure a SIB2-SIB14\n");
+    if (!nr_mac_stop_pos_sib(cell))
+      return false;
+  }
   if (num_cu_sib + num_du_sib == 0)
     return false; /* no updates */
 
@@ -1317,7 +1319,12 @@ bool nr_mac_configure_pos_sib(nr_cell_sched_t *cell, const NR_BCCH_DL_SCH_Messag
     return false;
 
   NR_COMMON_channels_t *cc = &cell->common_channels;
-  memcpy(cc->pos_sib_bcch_pdu, pos_sib_buffer, sizeof(cc->pos_sib_bcch_pdu));
+  uint8_t old_payload[sizeof(cc->pos_sib_bcch_pdu)];
+  memcpy(old_payload, cc->pos_sib_bcch_pdu, sizeof(old_payload));
+  const int old_length = cc->pos_sib_bcch_length;
+  const uint16_t old_periodicity = cc->pos_sib_periodicity;
+  const bool old_active = cc->pos_sib_active;
+  memcpy(cc->pos_sib_bcch_pdu, pos_sib_buffer, pos_sib_length);
   cc->pos_sib_bcch_length = pos_sib_length;
   cc->pos_sib_periodicity = (uint16_t)periodicity_frames;
   cc->pos_sib_active = false;
@@ -1326,11 +1333,45 @@ bool nr_mac_configure_pos_sib(nr_cell_sched_t *cell, const NR_BCCH_DL_SCH_Messag
   NR_SIB1_t *sib1 = NULL;
   if (cc->sib1)
     sib1 = cc->sib1->message.choice.c1->choice.systemInformationBlockType1;
-  if (sib1 && sib1->si_SchedulingInfo)
+  if (sib1 && sib1->si_SchedulingInfo) {
     activated = configure_pos_sib_schedule(cell);
+    if (!activated) {
+      memcpy(cc->pos_sib_bcch_pdu, old_payload, sizeof(old_payload));
+      cc->pos_sib_bcch_length = old_length;
+      cc->pos_sib_periodicity = old_periodicity;
+      cc->pos_sib_active = old_active;
+      return false;
+    }
+  }
 
   if (!activated)
     LOG_I(NR_MAC, "stored %d-byte PosSIB pending SIB1 SI scheduling configuration\n", pos_sib_length);
+  return true;
+}
+
+bool nr_mac_stop_pos_sib(nr_cell_sched_t *cell)
+{
+  if (!cell)
+    return false;
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  NR_SIB1_t *sib1 = cc->sib1 ? cc->sib1->message.choice.c1->choice.systemInformationBlockType1 : NULL;
+  NR_SIB1_v1610_IEs_t *ext = sib1 ? sib1->nonCriticalExtension : NULL;
+  if (ext && ext->posSI_SchedulingInfo_r16) {
+    NR_PosSI_SchedulingInfo_r16_t *schedule = ext->posSI_SchedulingInfo_r16;
+    ext->posSI_SchedulingInfo_r16 = NULL;
+    uint8_t buffer[NR_MAX_SIB_LENGTH / 8];
+    const int length = encode_pos_sib_message(cc->sib1, buffer, "SIB1 without PosSI scheduling");
+    if (length < 0) {
+      ext->posSI_SchedulingInfo_r16 = schedule;
+      return false;
+    }
+    ASN_STRUCT_FREE(asn_DEF_NR_PosSI_SchedulingInfo_r16, schedule);
+    memcpy(cc->sib1_bcch_pdu, buffer, length);
+    cc->sib1_bcch_length = length;
+  }
+  cc->pos_sib_active = false;
+  cc->pos_sib_bcch_length = 0;
+  cc->pos_sib_periodicity = 0;
   return true;
 }
 
@@ -1539,8 +1580,9 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
   if (mib && sib1) {
     update.num_cells_to_modify = 1;
     update.cell_to_modify = calloc_or_fail(1, sizeof(*update.cell_to_modify));
+    update.cell_to_modify[0].old_plmn = info->plmn;
     update.cell_to_modify[0].old_nr_cellid = info->nr_cellid;
-    update.cell_to_modify[0].info = *info;
+    update.cell_to_modify[0].info = copy_f1ap_served_cell_info(info);
     update.cell_to_modify[0].sys_info = get_sys_info(mib, sib1, NULL);
   }
   mac->mac_rrc.gnb_du_configuration_update(&update);

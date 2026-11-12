@@ -10,6 +10,12 @@
 
 struct F1AP_F1AP_PDU;
 
+struct F1AP_F1AP_PDU *encode_pos_assistance_control(const f1ap_pos_assistance_control_t *msg);
+bool decode_pos_assistance_control(const struct F1AP_F1AP_PDU *pdu, f1ap_pos_assistance_control_t *out);
+f1ap_pos_assistance_control_t cp_pos_assistance_control(const f1ap_pos_assistance_control_t *orig);
+bool eq_pos_assistance_control(const f1ap_pos_assistance_control_t *a, const f1ap_pos_assistance_control_t *b);
+void free_pos_assistance_control(f1ap_pos_assistance_control_t *msg);
+
 // positioning information request
 struct F1AP_F1AP_PDU *encode_positioning_information_req(const f1ap_positioning_information_req_t *msg);
 bool decode_positioning_information_req(const struct F1AP_F1AP_PDU *pdu, f1ap_positioning_information_req_t *out);

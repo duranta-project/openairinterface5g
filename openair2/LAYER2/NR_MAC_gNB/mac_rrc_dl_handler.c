@@ -25,6 +25,8 @@
 #include "uper_decoder.h"
 #include "uper_encoder.h"
 #include "openair3/NRPPA/nrppa_gNB_config.h"
+#include "openair3/NRPPA/nrppa_pos_assistance.h"
+#include "openair2/RRC/NR/lpp_prs.h"
 #include "openair2/F1AP/lib/f1ap_positioning.h"
 #include "openair2/LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 
@@ -1296,6 +1298,59 @@ void f1_paging(const f1ap_paging_t *paging)
   }
 }
 
+void pos_assistance_lost_connection(void)
+{
+  if (!RC.nrmac || !RC.nrmac[0])
+    return;
+  gNB_MAC_INST *mac = RC.nrmac[0];
+  NR_SCHED_LOCK(&mac->sched_lock);
+  FOR_EACH_SEQ_ARR(nr_cell_sched_t *, cell, &mac->cells) {
+    if (!nr_mac_stop_pos_sib(cell))
+      LOG_E(NR_MAC, "Cannot remove stale positioning assistance for cell %lu\n", cell->nr_cellid);
+  }
+  NR_SCHED_UNLOCK(&mac->sched_lock);
+}
+
+void pos_assistance_control(const f1ap_pos_assistance_control_t *control)
+{
+  if (!control || !control->has_cell) {
+    LOG_E(NR_MAC, "Positioning assistance control requires one addressed cell\n");
+    return;
+  }
+  gNB_MAC_INST *mac = RC.nrmac[0];
+  if (!mac)
+    return;
+  NR_BCCH_DL_SCH_Message_t *message = NULL;
+  uint8_t *segment = NULL;
+  size_t segment_len = 0;
+  uint32_t period = 0;
+  if (control->start) {
+    if (!nrppa_decode_pos_assistance(control->assistance, control->assistance_length, &segment, &segment_len, &period)) {
+      LOG_E(NR_MAC, "Unsupported or invalid positioning assistance information\n");
+      return;
+    }
+    message = create_rrc_possib_from_segment(segment, segment_len);
+    free(segment);
+    if (!message) {
+      LOG_E(NR_MAC, "Cannot construct PosSI message\n");
+      return;
+    }
+  }
+  NR_SCHED_LOCK(&mac->sched_lock);
+  nr_cell_sched_t *cell = nr_mac_get_cell_by_cgi(mac, control->cell.plmn, control->cell.nr_cellid);
+  bool ok = cell && (control->start ? nr_mac_configure_pos_sib(cell, message, period) : nr_mac_stop_pos_sib(cell));
+  if (ok && cell->common_channels.sib1 && mac->f1_config.setup_req) {
+    f1ap_served_cell_info_t *info =
+        get_f1ap_cell_info_by_cgi(mac->f1_config.setup_req, control->cell.plmn, control->cell.nr_cellid);
+    if (info)
+      prepare_du_configuration_update(mac, info, cell->common_channels.mib, cell->common_channels.sib1);
+  }
+  NR_SCHED_UNLOCK(&mac->sched_lock);
+  if (!ok)
+    LOG_E(NR_MAC, "Cannot %s positioning assistance for cell %lu\n", control->start ? "start" : "stop", control->cell.nr_cellid);
+  ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, message);
+}
+
 void trp_information_request(const f1ap_trp_information_req_t *req)
 {
   gNB_MAC_INST *mac = RC.nrmac[0];
@@ -1313,7 +1368,14 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
     bool unsupported = false;
     switch (types->trp_information_type_item[i]) {
       case F1AP_TRP_INFORMATION_TYPE_ITEM_PRS_CONFIG:
-        unsupported = (mac->prs_config == NULL);
+        unsupported = mac->prs_config == NULL || !mac->f1_config.setup_req ||
+                      mac->f1_config.setup_req->num_cells_available != 1 || trp_info_config->num_trp != 1;
+        if (!unsupported) {
+          const f1ap_served_cell_info_t *info = &mac->f1_config.setup_req->cell[0].info;
+          nr_cell_sched_t *cell = nr_mac_get_cell_by_cgi(mac, info->plmn, info->nr_cellid);
+          const NR_ServingCellConfigCommon_t *scc = cell ? cell->common_channels.ServingCellConfigCommon : NULL;
+          unsupported = !scc || scc->ss_PBCH_BlockPower < -60 || scc->ss_PBCH_BlockPower > 50;
+        }
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_SSB_CONFIG:
       case F1AP_TRP_INFORMATION_TYPE_ITEM_SFN_INIT_TIME:
@@ -1363,6 +1425,13 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
       create_trp_info_item(req, trp_info_item, trp_info_config, i);
     }
     resp.trp_information_list.trp_information_item_length = NumTRPs;
+  }
+  if (!resp.trp_information_list.trp_information_item_length) {
+    LOG_E(NR_MAC, "TRP Information Request does not identify a configured TRP\n");
+    free_trp_information_resp(&resp);
+    f1ap_trp_information_failure_t fail = {.transaction_id = req->transaction_id, .cause = F1AP_CAUSE_RADIO_NETWORK};
+    mac->mac_rrc.trp_information_failure(&fail);
+    return;
   }
   mac->mac_rrc.trp_information_response(&resp);
   free_trp_information_resp(&resp);

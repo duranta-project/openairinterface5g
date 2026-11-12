@@ -29,6 +29,30 @@ static NR_BCCH_DL_SCH_Message_t *make_sib1(void)
   return message;
 }
 
+static NR_BCCH_DL_SCH_Message_t *make_possib(uint8_t value)
+{
+  NR_SIBpos_r16_t *sibpos = calloc_or_fail(1, sizeof(*sibpos));
+  OCTET_STRING_fromBuf(&sibpos->assistanceDataSIB_Element_r16, (const char *)&value, 1);
+  PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member *member = calloc_or_fail(1, sizeof(*member));
+  member->present = NR_PosSystemInformation_r16_IEs__posSIB_TypeAndInfo_r16__Member_PR_posSib6_1_r16;
+  member->choice.posSib6_1_r16 = sibpos;
+  NR_PosSystemInformation_r16_IEs_t *pos = calloc_or_fail(1, sizeof(*pos));
+  asn1cSeqAdd(&pos->posSIB_TypeAndInfo_r16.list, member);
+  NR_SystemInformation_t *si = calloc_or_fail(1, sizeof(*si));
+  si->criticalExtensions.present = NR_SystemInformation__criticalExtensions_PR_criticalExtensionsFuture_r16;
+  si->criticalExtensions.choice.criticalExtensionsFuture_r16 =
+      calloc_or_fail(1, sizeof(*si->criticalExtensions.choice.criticalExtensionsFuture_r16));
+  si->criticalExtensions.choice.criticalExtensionsFuture_r16->present =
+      NR_SystemInformation__criticalExtensions__criticalExtensionsFuture_r16_PR_posSystemInformation_r16;
+  si->criticalExtensions.choice.criticalExtensionsFuture_r16->choice.posSystemInformation_r16 = pos;
+  NR_BCCH_DL_SCH_Message_t *message = calloc_or_fail(1, sizeof(*message));
+  message->message.present = NR_BCCH_DL_SCH_MessageType_PR_c1;
+  message->message.choice.c1 = calloc_or_fail(1, sizeof(*message->message.choice.c1));
+  message->message.choice.c1->present = NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformation;
+  message->message.choice.c1->choice.systemInformation = si;
+  return message;
+}
+
 static void test_other_si_update(uint16_t pos_period, bool expected_active)
 {
   nr_cell_sched_t *cell = calloc_or_fail(1, sizeof(*cell));
@@ -46,6 +70,23 @@ static void test_other_si_update(uint16_t pos_period, bool expected_active)
   AssertFatal(nr_mac_configure_other_sib(cell, 1, &cu_sib), "ordinary SI update must be reported independently of PosSI\n");
   AssertFatal(cc->pos_sib_active == expected_active, "unexpected PosSI activation state\n");
   AssertFatal(cc->other_sib_bcch_length[0] > 0, "ordinary SI payload missing\n");
+  if (expected_active) {
+    NR_BCCH_DL_SCH_Message_t *first = make_possib(0x12);
+    NR_BCCH_DL_SCH_Message_t *replacement = make_possib(0x34);
+    AssertFatal(nr_mac_configure_pos_sib(cell, first, 16), "PosSI start failed\n");
+    const int old_length = cc->pos_sib_bcch_length;
+    uint8_t old_payload[sizeof(cc->pos_sib_bcch_pdu)];
+    memcpy(old_payload, cc->pos_sib_bcch_pdu, old_length);
+    AssertFatal(!nr_mac_configure_pos_sib(cell, replacement, 7), "invalid periodicity accepted\n");
+    AssertFatal(cc->pos_sib_active && cc->pos_sib_bcch_length == old_length &&
+                    !memcmp(old_payload, cc->pos_sib_bcch_pdu, old_length), "failed update changed active payload\n");
+    AssertFatal(nr_mac_configure_pos_sib(cell, replacement, 32), "PosSI replacement failed\n");
+    AssertFatal(cc->pos_sib_active && cc->pos_sib_periodicity == 32 &&
+                    (cc->pos_sib_bcch_length != old_length || memcmp(old_payload, cc->pos_sib_bcch_pdu, old_length)),
+                "PosSI replacement did not update payload and period\n");
+    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, first);
+    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, replacement);
+  }
 
   NR_BCCH_DL_SCH_Message_t *decoded = NULL;
   asn_dec_rval_t dec =
@@ -56,6 +97,17 @@ static void test_other_si_update(uint16_t pos_period, bool expected_active)
               "ordinary SI schedule missing from broadcast SIB1\n");
   const bool has_pos_schedule = sib1->nonCriticalExtension && sib1->nonCriticalExtension->posSI_SchedulingInfo_r16;
   AssertFatal(has_pos_schedule == expected_active, "broadcast PosSI schedule disagrees with activation state\n");
+  ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, decoded);
+  AssertFatal(nr_mac_stop_pos_sib(cell), "PosSI stop failed\n");
+  AssertFatal(nr_mac_stop_pos_sib(cell), "repeated PosSI stop failed\n");
+  AssertFatal(!cc->pos_sib_active && cc->pos_sib_bcch_length == 0, "PosSI payload still active\n");
+  decoded = NULL;
+  dec = uper_decode_complete(NULL, &asn_DEF_NR_BCCH_DL_SCH_Message, (void **)&decoded, cc->sib1_bcch_pdu, cc->sib1_bcch_length);
+  AssertFatal(dec.code == RC_OK, "SIB1 after stop cannot be decoded\n");
+  sib1 = decoded->message.choice.c1->choice.systemInformationBlockType1;
+  AssertFatal(sib1->si_SchedulingInfo &&
+                  (!sib1->nonCriticalExtension || !sib1->nonCriticalExtension->posSI_SchedulingInfo_r16),
+              "PosSI remains scheduled after stop or ordinary SI was removed\n");
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, decoded);
   free_SIB1_NR(cc->sib1);
   free(cell);

@@ -13,6 +13,7 @@
 #include <openair3/ocp-gtpu/gtp_itf.h>
 #include "lib/f1ap_positioning.h"
 #include "f1ap_du_positioning.h"
+#include "openair2/LAYER2/NR_MAC_gNB/mac_rrc_dl_handler.h"
 
 static instance_t du_create_gtpu_instance_to_cu(const f1ap_net_config_t *nc)
 {
@@ -61,6 +62,7 @@ void du_task_handle_sctp_association_resp(instance_t instance, sctp_new_associat
   DevAssert(f1ap_du_data != NULL);
 
   if (sctp_new_association_resp->sctp_state != SCTP_STATE_ESTABLISHED) {
+    pos_assistance_lost_connection();
     LOG_W(F1AP, "Received unsuccessful result for SCTP association (%u), instance %ld, cnx_id %u, retrying...\n",
           sctp_new_association_resp->sctp_state,
           instance,
@@ -187,6 +189,7 @@ void *F1AP_DU_task(void *arg)
 
       case F1AP_TRP_INFORMATION_RESP:
         DU_send_TRP_INFORMATION_RESPONSE(assoc_id, &F1AP_TRP_INFORMATION_RESP(msg));
+        free_trp_information_resp(&F1AP_TRP_INFORMATION_RESP(msg));
         break;
 
       case F1AP_TRP_INFORMATION_FAILURE:

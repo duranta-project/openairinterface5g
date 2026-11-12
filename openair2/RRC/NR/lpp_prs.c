@@ -3,8 +3,10 @@
  */
 
 #include "lpp_prs.h"
+#include "f1ap_messages_types.h"
 
 #include <stdbool.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,14 +37,10 @@
 #include "LPP_ProvideAssistanceData-r9-IEs.h"
 #include "LPP_ProvideAssistanceData.h"
 #include "NR_BCCH-DL-SCH-Message.h"
-#include "PHY/defs_gNB.h"
-#include "LAYER2/NR_MAC_gNB/mac_proto.h"
-#include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 #include "common/utils/oai_asn1.h"
 #include "constraints.h"
 #include "common/utils/LOG/log.h"
 #include "uper_encoder.h"
-#include "xer_encoder.h"
 
 #define LPP_PRS_RESOURCE_SET_ID 0
 #define LPP_PRS_FREQUENCY_LAYER_INDEX 0
@@ -301,48 +299,6 @@ static bool set_periodicity(LPP_NR_DL_PRS_Periodicity_and_ResourceSetSlotOffset_
 
 #undef PERIOD_CASE
 
-static bool validate_prs_config(const NR_gNB_PRS *prs, const NR_ServingCellConfigCommon_t *scc, long *bandwidth)
-{
-  if (prs->NumPRSResources == 0)
-    return false;
-  if (scc == NULL || scc->physCellId == NULL || scc->ssb_PositionsInBurst == NULL
-      || scc->ssbSubcarrierSpacing == NULL || scc->ssb_periodicityServingCell == NULL
-      || scc->downlinkConfigCommon == NULL || scc->downlinkConfigCommon->frequencyInfoDL == NULL
-      || scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB == NULL
-      || scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.count == 0) {
-    LOG_E(GNB_APP, "Cannot generate NR-DL-TDOA assistance data: serving-cell frequency configuration is incomplete\n");
-    return false;
-  }
-
-  const prs_config_t *first = &prs->prs_cfg[0];
-  if (!map_resource_bandwidth(first->NumRB, bandwidth))
-    return false;
-  if (first->RBOffset > 2176) {
-    LOG_E(GNB_APP, "Cannot generate NR-DL-TDOA assistance data: PRS RBOffset %u exceeds 2176\n", first->RBOffset);
-    return false;
-  }
-
-  for (int i = 0; i < prs->NumPRSResources; ++i) {
-    const prs_config_t *cfg = &prs->prs_cfg[i];
-    if (cfg->NumRB != first->NumRB || cfg->RBOffset != first->RBOffset || cfg->CombSize != first->CombSize
-        || cfg->PRSResourceSetPeriod[0] != first->PRSResourceSetPeriod[0]
-        || cfg->PRSResourceSetPeriod[1] != first->PRSResourceSetPeriod[1]
-        || cfg->PRSResourceRepetition != first->PRSResourceRepetition
-        || cfg->PRSResourceTimeGap != first->PRSResourceTimeGap || cfg->NumPRSSymbols != first->NumPRSSymbols) {
-      LOG_E(GNB_APP,
-            "Cannot generate NR-DL-TDOA assistance data: PRS resource %d has values that differ from resource-set values\n",
-            i);
-      return false;
-    }
-    if (cfg->NPRSID > 4095 || cfg->REOffset >= cfg->CombSize || cfg->PRSResourceOffset > 511
-        || cfg->SymbolStart > 12 || cfg->SymbolStart + cfg->NumPRSSymbols > 14) {
-      LOG_E(GNB_APP, "Cannot generate NR-DL-TDOA assistance data: PRS resource %d contains an invalid ASN.1 value\n", i);
-      return false;
-    }
-  }
-  return true;
-}
-
 static void set_bit_string36(BIT_STRING_t *bit_string, uint64_t value)
 {
   bit_string->buf = calloc_or_fail(1, 5);
@@ -366,63 +322,11 @@ static void add_decimal_digits(void *list, unsigned value, unsigned digits)
   }
 }
 
-static LPP_NCGI_r15_t *create_ncgi(const nr_cell_sched_t *cell)
-{
-  LPP_NCGI_r15_t *ncgi = calloc_or_fail(1, sizeof(*ncgi));
-  add_decimal_digits(&ncgi->mcc_r15.list, cell->plmn.mcc, 3);
-  add_decimal_digits(&ncgi->mnc_r15.list, cell->plmn.mnc, cell->plmn.mnc_digit_length);
-  set_bit_string36(&ncgi->nr_cellidentity_r15, cell->nr_cellid);
-  return ncgi;
-}
-
-static int first_active_ssb(const NR_ServingCellConfigCommon_t *scc)
-{
-  for (int i = 0; i < 64; ++i) {
-    if (is_ssb_configured(scc, i))
-      return i;
-  }
-  return -1;
-}
-
-static LPP_DL_PRS_QCL_Info_r16_t *create_qcl(const NR_ServingCellConfigCommon_t *scc, int ssb_index)
-{
-  if (ssb_index < 0)
-    return NULL;
-  LPP_DL_PRS_QCL_Info_r16_t *qcl = calloc_or_fail(1, sizeof(*qcl));
-  qcl->present = LPP_DL_PRS_QCL_Info_r16_PR_ssb_r16;
-  qcl->choice.ssb_r16 = calloc_or_fail(1, sizeof(*qcl->choice.ssb_r16));
-  qcl->choice.ssb_r16->pci_r16 = *scc->physCellId;
-  qcl->choice.ssb_r16->ssb_Index_r16 = ssb_index;
-  qcl->choice.ssb_r16->rs_Type_r16 = LPP_DL_PRS_QCL_Info_r16__ssb_r16__rs_Type_r16_typeD;
-  return qcl;
-}
-
-static LPP_NR_DL_PRS_Resource_r16_t *create_resource(const prs_config_t *cfg,
-                                                      int resource_id,
-                                                      int ssb_index,
-                                                      const NR_ServingCellConfigCommon_t *scc)
-{
-  LPP_NR_DL_PRS_Resource_r16_t *resource = calloc_or_fail(1, sizeof(*resource));
-  long unused_comb;
-  int resource_present = 0;
-  bool mapped = map_comb_size(cfg->CombSize, &unused_comb, &resource_present);
-  AssertFatal(mapped, "validated PRS comb size could not be mapped\n");
-
-  resource->nr_DL_PRS_ResourceID_r16 = resource_id;
-  resource->dl_PRS_SequenceID_r16 = cfg->NPRSID;
-  resource->dl_PRS_CombSizeN_AndReOffset_r16.present = resource_present;
-  switch (cfg->CombSize) {
-    case 2: resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n2_r16 = cfg->REOffset; break;
-    case 4: resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n4_r16 = cfg->REOffset; break;
-    case 6: resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n6_r16 = cfg->REOffset; break;
-    case 12: resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n12_r16 = cfg->REOffset; break;
-    default: AssertFatal(false, "validated PRS comb size is invalid\n");
-  }
-  resource->dl_PRS_ResourceSlotOffset_r16 = cfg->PRSResourceOffset;
-  resource->dl_PRS_ResourceSymbolOffset_r16 = cfg->SymbolStart;
-  resource->dl_PRS_QCL_Info_r16 = create_qcl(scc, ssb_index);
-  return resource;
-}
+typedef struct {
+  uint32_t MutingPattern1[32];
+  uint32_t MutingPattern2[32];
+  uint8_t MutingBitRepetition;
+} lpp_prs_muting_config_t;
 
 static bool set_muting_pattern(LPP_NR_MutingPattern_r16_t *pattern, const uint32_t *values, size_t length)
 {
@@ -452,7 +356,7 @@ static bool set_muting_pattern(LPP_NR_MutingPattern_r16_t *pattern, const uint32
 }
 
 static bool add_muting(LPP_NR_DL_PRS_ResourceSet_r16_t *set,
-                       const prs_config_t *cfg,
+                       const lpp_prs_muting_config_t *cfg,
                        size_t pattern1_length,
                        size_t pattern2_length)
 {
@@ -486,218 +390,6 @@ static bool add_muting(LPP_NR_DL_PRS_ResourceSet_r16_t *set,
   return true;
 }
 
-static LPP_NR_DL_PRS_ResourceSet_r16_t *create_resource_set(const NR_gNB_PRS *prs,
-                                                            const NR_ServingCellConfigCommon_t *scc,
-                                                            long scs,
-                                                            int ssb_index,
-                                                            size_t pattern1_length,
-                                                            size_t pattern2_length)
-{
-  const prs_config_t *cfg = &prs->prs_cfg[0];
-  LPP_NR_DL_PRS_ResourceSet_r16_t *set = calloc_or_fail(1, sizeof(*set));
-  set->nr_DL_PRS_ResourceSetID_r16 = LPP_PRS_RESOURCE_SET_ID;
-  if (!set_periodicity(&set->dl_PRS_Periodicity_and_ResourceSetSlotOffset_r16,
-                       scs,
-                       cfg->PRSResourceSetPeriod[0],
-                       cfg->PRSResourceSetPeriod[1])
-      || !map_repetition(cfg->PRSResourceRepetition, &set->dl_PRS_ResourceRepetitionFactor_r16)
-      || !map_time_gap(cfg->PRSResourceRepetition, cfg->PRSResourceTimeGap, &set->dl_PRS_ResourceTimeGap_r16)
-      || !map_num_symbols(cfg->NumPRSSymbols, &set->dl_PRS_NumSymbols_r16)
-      || !add_muting(set, cfg, pattern1_length, pattern2_length)) {
-    ASN_STRUCT_FREE(asn_DEF_LPP_NR_DL_PRS_ResourceSet_r16, set);
-    return NULL;
-  }
-  set->dl_PRS_ResourcePower_r16 = scc->ss_PBCH_BlockPower;
-  for (int i = 0; i < prs->NumPRSResources; ++i)
-    asn1cSeqAdd(&set->dl_PRS_ResourceList_r16.list, create_resource(&prs->prs_cfg[i], i, ssb_index, scc));
-  return set;
-}
-
-static void copy_bit_string(BIT_STRING_t *destination, const BIT_STRING_t *source)
-{
-  destination->size = source->size;
-  destination->bits_unused = source->bits_unused;
-  destination->buf = calloc_or_fail(1, source->size);
-  memcpy(destination->buf, source->buf, source->size);
-}
-
-static LPP_NR_SSB_Config_r16_t *create_ssb_config(const NR_ServingCellConfigCommon_t *scc)
-{
-  const NR_FrequencyInfoDL_t *dl = scc->downlinkConfigCommon->frequencyInfoDL;
-  LPP_NR_SSB_Config_r16_t *ssb = calloc_or_fail(1, sizeof(*ssb));
-  ssb->nr_PhysCellID_r16 = *scc->physCellId;
-  ssb->nr_ARFCN_r16 = *dl->absoluteFrequencySSB;
-  ssb->ss_PBCH_BlockPower_r16 = scc->ss_PBCH_BlockPower;
-  ssb->halfFrameIndex_r16 = 0;
-  ssb->ssb_periodicity_r16 = *scc->ssb_periodicityServingCell;
-  ssb->ssb_SubcarrierSpacing_r16 = *scc->ssbSubcarrierSpacing;
-  ssb->sfn_SSB_Offset_r16 = 0;
-  ssb->ssb_PositionsInBurst_r16 = calloc_or_fail(1, sizeof(*ssb->ssb_PositionsInBurst_r16));
-  switch (scc->ssb_PositionsInBurst->present) {
-    case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_shortBitmap:
-      ssb->ssb_PositionsInBurst_r16->present = LPP_NR_SSB_Config_r16__ssb_PositionsInBurst_r16_PR_shortBitmap_r16;
-      copy_bit_string(&ssb->ssb_PositionsInBurst_r16->choice.shortBitmap_r16,
-                      &scc->ssb_PositionsInBurst->choice.shortBitmap);
-      break;
-    case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_mediumBitmap:
-      ssb->ssb_PositionsInBurst_r16->present = LPP_NR_SSB_Config_r16__ssb_PositionsInBurst_r16_PR_mediumBitmap_r16;
-      copy_bit_string(&ssb->ssb_PositionsInBurst_r16->choice.mediumBitmap_r16,
-                      &scc->ssb_PositionsInBurst->choice.mediumBitmap);
-      break;
-    case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_longBitmap:
-      ssb->ssb_PositionsInBurst_r16->present = LPP_NR_SSB_Config_r16__ssb_PositionsInBurst_r16_PR_longBitmap_r16;
-      copy_bit_string(&ssb->ssb_PositionsInBurst_r16->choice.longBitmap_r16,
-                      &scc->ssb_PositionsInBurst->choice.longBitmap);
-      break;
-    default:
-      AssertFatal(false, "ServingCellConfigCommon has no SSB position bitmap\n");
-  }
-  return ssb;
-}
-
-static LPP_NR_DL_PRS_AssistanceData_r16_t *create_prs_assistance_data(const PHY_VARS_gNB *gNB,
-                                                                      const nr_cell_sched_t *cell,
-                                                                      long bandwidth,
-                                                                      size_t pattern1_length,
-                                                                      size_t pattern2_length)
-{
-  const NR_gNB_PRS *prs = &gNB->prs_vars;
-  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
-  const NR_FrequencyInfoDL_t *dl = scc->downlinkConfigCommon->frequencyInfoDL;
-  const long scs = dl->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
-  const int ssb_index = first_active_ssb(scc);
-
-  LPP_NR_DL_PRS_ResourceSet_r16_t *resource_set =
-      create_resource_set(prs, scc, scs, ssb_index, pattern1_length, pattern2_length);
-  if (resource_set == NULL)
-    return NULL;
-
-  LPP_NR_DL_PRS_AssistanceDataPerTRP_r16_t *trp = calloc_or_fail(1, sizeof(*trp));
-  trp->dl_PRS_ID_r16 = LPP_PRS_DL_PRS_ID;
-  trp->nr_PhysCellID_r16 = new_long(*scc->physCellId);
-  trp->nr_CellGlobalID_r16 = cell != NULL ? create_ncgi(cell) : NULL;
-  trp->nr_ARFCN_r16 = new_long(dl->absoluteFrequencyPointA);
-  trp->nr_DL_PRS_SFN0_Offset_r16.sfn_Offset_r16 = 0;
-  trp->nr_DL_PRS_SFN0_Offset_r16.integerSubframeOffset_r16 = 0;
-  trp->nr_DL_PRS_ExpectedRSTD_r16 = 0;
-  trp->nr_DL_PRS_ExpectedRSTD_Uncertainty_r16 = 0;
-  asn1cSeqAdd(&trp->nr_DL_PRS_Info_r16.nr_DL_PRS_ResourceSetList_r16.list, resource_set);
-
-  LPP_NR_DL_PRS_AssistanceDataPerFreq_r16_t *frequency = calloc_or_fail(1, sizeof(*frequency));
-  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_SubcarrierSpacing_r16 = scs;
-  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_ResourceBandwidth_r16 = bandwidth;
-  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_StartPRB_r16 = prs->prs_cfg[0].RBOffset;
-  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_PointA_r16 = dl->absoluteFrequencyPointA;
-  long frequency_comb = 0;
-  int unused_present;
-  AssertFatal(map_comb_size(prs->prs_cfg[0].CombSize, &frequency_comb, &unused_present), "validated comb size failed\n");
-  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_CombSizeN_r16 = frequency_comb;
-  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_CyclicPrefix_r16 =
-      LPP_NR_DL_PRS_PositioningFrequencyLayer_r16__dl_PRS_CyclicPrefix_r16_normal;
-  asn1cSeqAdd(&frequency->nr_DL_PRS_AssistanceDataPerFreq_r16.list, trp);
-
-  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance = calloc_or_fail(1, sizeof(*assistance));
-  assistance->nr_DL_PRS_ReferenceInfo_r16.dl_PRS_ID_r16 = LPP_PRS_DL_PRS_ID;
-  assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceSetID_r16 = new_long(LPP_PRS_RESOURCE_SET_ID);
-  assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16 =
-      calloc_or_fail(1, sizeof(*assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16));
-  for (int i = 0; i < prs->NumPRSResources; ++i)
-    asn1cSeqAdd(&assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16->list, new_long(i));
-  asn1cSeqAdd(&assistance->nr_DL_PRS_AssistanceDataList_r16.list, frequency);
-  assistance->nr_SSB_Config_r16 = calloc_or_fail(1, sizeof(*assistance->nr_SSB_Config_r16));
-  asn1cSeqAdd(&assistance->nr_SSB_Config_r16->list, create_ssb_config(scc));
-  return assistance;
-}
-
-static LPP_LPP_Message_t *create_message(const PHY_VARS_gNB *gNB,
-                                         const nr_cell_sched_t *cell,
-                                         long bandwidth,
-                                         size_t pattern1_length,
-                                         size_t pattern2_length)
-{
-  const NR_gNB_PRS *prs = &gNB->prs_vars;
-  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance =
-      create_prs_assistance_data(gNB, cell, bandwidth, pattern1_length, pattern2_length);
-  if (assistance == NULL)
-    return NULL;
-
-  LPP_DL_SelectedPRS_ResourceSetIndex_r16_t *selected_set = calloc_or_fail(1, sizeof(*selected_set));
-  selected_set->nr_DL_SelectedPRS_ResourceSetIndex_r16 = LPP_PRS_RESOURCE_SET_ID;
-  selected_set->dl_SelectedPRS_ResourceIndexList_r16 =
-      calloc_or_fail(1, sizeof(*selected_set->dl_SelectedPRS_ResourceIndexList_r16));
-  for (int i = 0; i < prs->NumPRSResources; ++i) {
-    LPP_DL_SelectedPRS_ResourceIndex_r16_t *selected_resource = calloc_or_fail(1, sizeof(*selected_resource));
-    selected_resource->nr_DL_SelectedPRS_ResourceIdIndex_r16 = i;
-    asn1cSeqAdd(&selected_set->dl_SelectedPRS_ResourceIndexList_r16->list, selected_resource);
-  }
-  LPP_NR_SelectedDL_PRS_IndexPerTRP_r16_t *selected_trp = calloc_or_fail(1, sizeof(*selected_trp));
-  selected_trp->nr_SelectedTRP_Index_r16 = LPP_PRS_TRP_INDEX;
-  selected_trp->dl_SelectedPRS_ResourceSetIndexList_r16 =
-      calloc_or_fail(1, sizeof(*selected_trp->dl_SelectedPRS_ResourceSetIndexList_r16));
-  asn1cSeqAdd(&selected_trp->dl_SelectedPRS_ResourceSetIndexList_r16->list, selected_set);
-  LPP_NR_SelectedDL_PRS_PerFreq_r16_t *selected_frequency = calloc_or_fail(1, sizeof(*selected_frequency));
-  selected_frequency->nr_SelectedDL_PRS_FrequencyLayerIndex_r16 = LPP_PRS_FREQUENCY_LAYER_INDEX;
-  selected_frequency->nr_SelectedDL_PRS_IndexListPerFreq_r16 =
-      calloc_or_fail(1, sizeof(*selected_frequency->nr_SelectedDL_PRS_IndexListPerFreq_r16));
-  asn1cSeqAdd(&selected_frequency->nr_SelectedDL_PRS_IndexListPerFreq_r16->list, selected_trp);
-  LPP_NR_SelectedDL_PRS_IndexList_r16_t *selected = calloc_or_fail(1, sizeof(*selected));
-  asn1cSeqAdd(&selected->list, selected_frequency);
-
-  LPP_NR_DL_TDOA_ProvideAssistanceData_r16_t *tdoa = calloc_or_fail(1, sizeof(*tdoa));
-  tdoa->nr_DL_PRS_AssistanceData_r16 = assistance;
-  tdoa->nr_SelectedDL_PRS_IndexList_r16 = selected;
-
-  LPP_ProvideAssistanceData_r9_IEs_t *provide_r9 = calloc_or_fail(1, sizeof(*provide_r9));
-  provide_r9->ext2 = calloc_or_fail(1, sizeof(*provide_r9->ext2));
-  provide_r9->ext2->nr_DL_TDOA_ProvideAssistanceData_r16 = tdoa;
-  LPP_ProvideAssistanceData_t *provide = calloc_or_fail(1, sizeof(*provide));
-  provide->criticalExtensions.present = LPP_ProvideAssistanceData__criticalExtensions_PR_c1;
-  provide->criticalExtensions.choice.c1 = calloc_or_fail(1, sizeof(*provide->criticalExtensions.choice.c1));
-  provide->criticalExtensions.choice.c1->present =
-      LPP_ProvideAssistanceData__criticalExtensions__c1_PR_provideAssistanceData_r9;
-  provide->criticalExtensions.choice.c1->choice.provideAssistanceData_r9 = provide_r9;
-
-  LPP_LPP_Message_t *message = calloc_or_fail(1, sizeof(*message));
-  message->transactionID = calloc_or_fail(1, sizeof(*message->transactionID));
-  message->transactionID->initiator = LPP_Initiator_locationServer;
-  message->transactionID->transactionNumber = 0;
-  message->endTransaction = false;
-  message->lpp_MessageBody = calloc_or_fail(1, sizeof(*message->lpp_MessageBody));
-  message->lpp_MessageBody->present = LPP_LPP_MessageBody_PR_c1;
-  message->lpp_MessageBody->choice.c1 = calloc_or_fail(1, sizeof(*message->lpp_MessageBody->choice.c1));
-  message->lpp_MessageBody->choice.c1->present = LPP_LPP_MessageBody__c1_PR_provideAssistanceData;
-  message->lpp_MessageBody->choice.c1->choice.provideAssistanceData = provide;
-  return message;
-}
-
-void print_lpp_nr_dl_tdoa_assistance_data(const PHY_VARS_gNB *gNB,
-                                          const nr_cell_sched_t *cell,
-                                          size_t muting_pattern1_length,
-                                          size_t muting_pattern2_length)
-{
-  AssertFatal(gNB != NULL && cell != NULL, "cannot create LPP PRS assistance data without gNB and cell instances\n");
-  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
-  long bandwidth;
-  if (!validate_prs_config(&gNB->prs_vars, scc, &bandwidth))
-    return;
-
-  LPP_LPP_Message_t *message = create_message(gNB, cell, bandwidth, muting_pattern1_length, muting_pattern2_length);
-  if (message == NULL)
-    return;
-
-  char error[1024] = {0};
-  size_t error_length = sizeof(error);
-  if (asn_check_constraints(&asn_DEF_LPP_LPP_Message, message, error, &error_length) != 0) {
-    LOG_E(GNB_APP, "Cannot generate NR-DL-TDOA assistance data: ASN.1 constraint failed: %s\n", error);
-    ASN_STRUCT_FREE(asn_DEF_LPP_LPP_Message, message);
-    return;
-  }
-
-  LOG_I(GNB_APP, "NR-DL-TDOA-ProvideAssistanceData-r16 generated from gNB PRS configuration:\n");
-  xer_fprint(stdout, &asn_DEF_LPP_LPP_Message, message);
-  ASN_STRUCT_FREE(asn_DEF_LPP_LPP_Message, message);
-}
-
 static bool check_asn1_constraints(const asn_TYPE_descriptor_t *type, const void *value, const char *name)
 {
   char error[1024] = {0};
@@ -726,13 +418,136 @@ static bool encode_uper_to_octet_string(const asn_TYPE_descriptor_t *type,
   return true;
 }
 
-static NR_BCCH_DL_SCH_Message_t *create_rrc_possib_message(const LPP_AssistanceDataSIBelement_r15_t *sib_element)
+bool lpp_prs_from_f1(const f1ap_prs_configuration_t *prs, const f1ap_ng_ran_cgi_t *cgi,
+                     uint16_t pci, uint8_t **segment, size_t *segment_len)
 {
+  if (!segment || !segment_len)
+    return false;
+  *segment = NULL;
+  *segment_len = 0;
+  if (!prs || !cgi || prs->prs_resource_set_list_length != 1 || !prs->prs_resource_set)
+    return false;
+  const f1ap_prs_resource_set_t *src = &prs->prs_resource_set[0];
+  long bandwidth = 0, frequency_comb = 0;
+  int resource_present = 0;
+  if (!src->prs_resource_list_length || !src->prs_resource || src->subcarrier_spacing > 3 || src->cp_type > 1 ||
+      src->resource_set_periodicity > UINT16_MAX || src->resource_set_slot_offset > UINT16_MAX ||
+      src->muting1_length > 32 || src->muting2_length > 32 ||
+      !map_resource_bandwidth(src->num_rb, &bandwidth) ||
+      !map_comb_size(src->comb_size, &frequency_comb, &resource_present))
+    return false;
+  for (int i = 0; i < src->prs_resource_list_length; ++i) {
+    const f1ap_prs_resource_t *r = &src->prs_resource[i];
+    if (r->has_qcl_ssb) {
+      LOG_E(NR_RRC, "Cannot generate PosSIB: F1 SSB QCL does not identify the LPP QCL type\n");
+      return false;
+    }
+    if ((r->has_qcl_prs && (!r->has_qcl_prs_resource_id || r->qcl_prs_set_id != src->prs_resource_set_id)) ||
+        r->re_offset >= src->comb_size || r->resource_symbol_offset + src->resource_number_of_symbols > 14)
+      return false;
+    if (r->has_qcl_prs) {
+      bool found = false;
+      for (int j = 0; j < src->prs_resource_list_length; ++j)
+        found |= src->prs_resource[j].prs_resource_id == r->qcl_prs_resource_id && j != i;
+      if (!found)
+        return false;
+    }
+    for (int j = 0; j < i; ++j)
+      if (r->prs_resource_id == src->prs_resource[j].prs_resource_id)
+        return false;
+  }
+  LPP_NR_DL_PRS_ResourceSet_r16_t *set = calloc_or_fail(1, sizeof(*set));
+  set->nr_DL_PRS_ResourceSetID_r16 = src->prs_resource_set_id;
+  lpp_prs_muting_config_t muting = {0};
+  muting.MutingBitRepetition = src->muting1_repetition;
+  for (int i = 0; i < src->muting1_length; ++i)
+    muting.MutingPattern1[i] = (src->muting1_bits[i / 8] >> (7 - i % 8)) & 1;
+  for (int i = 0; i < src->muting2_length; ++i)
+    muting.MutingPattern2[i] = (src->muting2_bits[i / 8] >> (7 - i % 8)) & 1;
+  if (!set_periodicity(&set->dl_PRS_Periodicity_and_ResourceSetSlotOffset_r16, src->subcarrier_spacing,
+                       src->resource_set_periodicity, src->resource_set_slot_offset) ||
+      !map_repetition(src->resource_repetition_factor, &set->dl_PRS_ResourceRepetitionFactor_r16) ||
+      !map_time_gap(src->resource_repetition_factor, src->resource_time_gap, &set->dl_PRS_ResourceTimeGap_r16) ||
+      !map_num_symbols(src->resource_number_of_symbols, &set->dl_PRS_NumSymbols_r16) ||
+      !add_muting(set, &muting, src->muting1_length, src->muting2_length)) {
+    ASN_STRUCT_FREE(asn_DEF_LPP_NR_DL_PRS_ResourceSet_r16, set);
+    return false;
+  }
+  set->dl_PRS_ResourcePower_r16 = src->prs_resource_transmit_power;
+  for (int i = 0; i < src->prs_resource_list_length; ++i) {
+    const f1ap_prs_resource_t *r = &src->prs_resource[i];
+    LPP_NR_DL_PRS_Resource_r16_t *resource = calloc_or_fail(1, sizeof(*resource));
+    resource->nr_DL_PRS_ResourceID_r16 = r->prs_resource_id;
+    resource->dl_PRS_SequenceID_r16 = r->sequence_id;
+    resource->dl_PRS_CombSizeN_AndReOffset_r16.present = resource_present;
+    switch (src->comb_size) {
+      case 2: resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n2_r16 = r->re_offset; break;
+      case 4: resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n4_r16 = r->re_offset; break;
+      case 6: resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n6_r16 = r->re_offset; break;
+      case 12: resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n12_r16 = r->re_offset; break;
+    }
+    resource->dl_PRS_ResourceSlotOffset_r16 = r->resource_slot_offset;
+    resource->dl_PRS_ResourceSymbolOffset_r16 = r->resource_symbol_offset;
+    if (r->has_qcl_prs) {
+      resource->dl_PRS_QCL_Info_r16 = calloc_or_fail(1, sizeof(*resource->dl_PRS_QCL_Info_r16));
+      resource->dl_PRS_QCL_Info_r16->present = LPP_DL_PRS_QCL_Info_r16_PR_dl_PRS_r16;
+      resource->dl_PRS_QCL_Info_r16->choice.dl_PRS_r16 =
+          calloc_or_fail(1, sizeof(*resource->dl_PRS_QCL_Info_r16->choice.dl_PRS_r16));
+      resource->dl_PRS_QCL_Info_r16->choice.dl_PRS_r16->qcl_DL_PRS_ResourceSetID_r16 = r->qcl_prs_set_id;
+      resource->dl_PRS_QCL_Info_r16->choice.dl_PRS_r16->qcl_DL_PRS_ResourceID_r16 = r->qcl_prs_resource_id;
+    }
+    asn1cSeqAdd(&set->dl_PRS_ResourceList_r16.list, resource);
+  }
+  LPP_NR_DL_PRS_AssistanceDataPerTRP_r16_t *trp = calloc_or_fail(1, sizeof(*trp));
+  trp->dl_PRS_ID_r16 = LPP_PRS_DL_PRS_ID;
+  trp->nr_PhysCellID_r16 = new_long(pci);
+  trp->nr_CellGlobalID_r16 = calloc_or_fail(1, sizeof(*trp->nr_CellGlobalID_r16));
+  add_decimal_digits(&trp->nr_CellGlobalID_r16->mcc_r15.list, cgi->plmn.mcc, 3);
+  add_decimal_digits(&trp->nr_CellGlobalID_r16->mnc_r15.list, cgi->plmn.mnc, cgi->plmn.mnc_digit_length);
+  set_bit_string36(&trp->nr_CellGlobalID_r16->nr_cellidentity_r15, cgi->nr_cellid);
+  asn1cSeqAdd(&trp->nr_DL_PRS_Info_r16.nr_DL_PRS_ResourceSetList_r16.list, set);
+  LPP_NR_DL_PRS_AssistanceDataPerFreq_r16_t *frequency = calloc_or_fail(1, sizeof(*frequency));
+  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_SubcarrierSpacing_r16 = src->subcarrier_spacing;
+  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_ResourceBandwidth_r16 = bandwidth;
+  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_StartPRB_r16 = src->start_prb;
+  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_PointA_r16 = src->point_a;
+  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_CombSizeN_r16 = frequency_comb;
+  frequency->nr_DL_PRS_PositioningFrequencyLayer_r16.dl_PRS_CyclicPrefix_r16 = src->cp_type;
+  asn1cSeqAdd(&frequency->nr_DL_PRS_AssistanceDataPerFreq_r16.list, trp);
+  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance = calloc_or_fail(1, sizeof(*assistance));
+  assistance->nr_DL_PRS_ReferenceInfo_r16.dl_PRS_ID_r16 = LPP_PRS_DL_PRS_ID;
+  assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceSetID_r16 = new_long(src->prs_resource_set_id);
+  assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16 =
+      calloc_or_fail(1, sizeof(*assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16));
+  for (int i = 0; i < src->prs_resource_list_length; ++i)
+    asn1cSeqAdd(&assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16->list,
+                new_long(src->prs_resource[i].prs_resource_id));
+  asn1cSeqAdd(&assistance->nr_DL_PRS_AssistanceDataList_r16.list, frequency);
+  LPP_AssistanceDataSIBelement_r15_t element = {0};
+  bool ok = check_asn1_constraints(&asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance, "NR-DL-PRS-AssistanceData-r16") &&
+            encode_uper_to_octet_string(&asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance,
+                                        &element.assistanceDataElement_r15, "NR-DL-PRS-AssistanceData-r16") &&
+            check_asn1_constraints(&asn_DEF_LPP_AssistanceDataSIBelement_r15, &element, "AssistanceDataSIBelement-r15");
+  OCTET_STRING_t encoded = {0};
+  ok = ok && encode_uper_to_octet_string(&asn_DEF_LPP_AssistanceDataSIBelement_r15,
+                                          &element, &encoded, "AssistanceDataSIBelement-r15");
+  ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_LPP_AssistanceDataSIBelement_r15, &element);
+  ASN_STRUCT_FREE(asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance);
+  if (!ok) {
+    free(encoded.buf);
+    return false;
+  }
+  *segment = encoded.buf;
+  *segment_len = encoded.size;
+  return true;
+}
+
+NR_BCCH_DL_SCH_Message_t *create_rrc_possib_from_segment(const uint8_t *segment, size_t length)
+{
+  if (!segment || !length || length > INT_MAX)
+    return NULL;
   NR_SIBpos_r16_t *sibpos = calloc_or_fail(1, sizeof(*sibpos));
-  if (!encode_uper_to_octet_string(&asn_DEF_LPP_AssistanceDataSIBelement_r15,
-                                   sib_element,
-                                   &sibpos->assistanceDataSIB_Element_r16,
-                                   "AssistanceDataSIBelement-r15")) {
+  if (OCTET_STRING_fromBuf(&sibpos->assistanceDataSIB_Element_r16, (const char *)segment, length) != 0) {
     ASN_STRUCT_FREE(asn_DEF_NR_SIBpos_r16, sibpos);
     return NULL;
   }
@@ -760,58 +575,4 @@ static NR_BCCH_DL_SCH_Message_t *create_rrc_possib_message(const LPP_AssistanceD
   message->message.choice.c1->present = NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformation;
   message->message.choice.c1->choice.systemInformation = system_information;
   return message;
-}
-
-void configure_rrc_possib_prs_assistance_data(const PHY_VARS_gNB *gNB,
-                                              nr_cell_sched_t *cell,
-                                              size_t muting_pattern1_length,
-                                              size_t muting_pattern2_length,
-                                              uint32_t periodicity_frames)
-{
-  AssertFatal(gNB != NULL && cell != NULL, "cannot create PRS PosSIB without gNB and cell instances\n");
-  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
-  long bandwidth;
-  if (!validate_prs_config(&gNB->prs_vars, scc, &bandwidth))
-    return;
-
-  LPP_NR_DL_PRS_AssistanceData_r16_t *assistance =
-      create_prs_assistance_data(gNB, cell, bandwidth, muting_pattern1_length, muting_pattern2_length);
-  if (assistance == NULL)
-    return;
-
-  LPP_AssistanceDataSIBelement_r15_t *sib_element = NULL;
-  NR_BCCH_DL_SCH_Message_t *rrc_message = NULL;
-  if (!check_asn1_constraints(&asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16,
-                              assistance,
-                              "NR-DL-PRS-AssistanceData-r16"))
-    goto cleanup;
-
-  sib_element = calloc_or_fail(1, sizeof(*sib_element));
-  if (!encode_uper_to_octet_string(&asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16,
-                                   assistance,
-                                   &sib_element->assistanceDataElement_r15,
-                                   "NR-DL-PRS-AssistanceData-r16")
-      || !check_asn1_constraints(&asn_DEF_LPP_AssistanceDataSIBelement_r15,
-                                 sib_element,
-                                 "AssistanceDataSIBelement-r15"))
-    goto cleanup;
-
-  rrc_message = create_rrc_possib_message(sib_element);
-  if (rrc_message == NULL
-      || !check_asn1_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message, "BCCH-DL-SCH-Message"))
-    goto cleanup;
-
-  LOG_I(GNB_APP, "posSibType6-1 inner NR-DL-PRS-AssistanceData-r16 payload:\n");
-  xer_fprint(stdout, &asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance);
-  LOG_I(GNB_APP, "posSibType6-1 AssistanceDataSIBelement-r15:\n");
-  xer_fprint(stdout, &asn_DEF_LPP_AssistanceDataSIBelement_r15, sib_element);
-  LOG_I(GNB_APP, "PRS PosSIB BCCH-DL-SCH-Message:\n");
-  xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message);
-  if (!nr_mac_configure_pos_sib(cell, rrc_message, periodicity_frames))
-    LOG_E(GNB_APP, "failed to deliver PRS PosSIB message to NR MAC\n");
-
-cleanup:
-  ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, rrc_message);
-  ASN_STRUCT_FREE(asn_DEF_LPP_AssistanceDataSIBelement_r15, sib_element);
-  ASN_STRUCT_FREE(asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance);
 }

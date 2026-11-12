@@ -122,8 +122,6 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
 
   if (RC.nb_nr_macrlc_inst > 0) {
     RCconfig_nr_macrlc(cfg);
-    if (RC.nb_nr_L1_inst > 0 && NFAPI_MODE != NFAPI_MODE_AERIAL)
-      RCconfig_nr_prs();
   }
 
   if (RC.nb_nr_L1_inst > 0) {

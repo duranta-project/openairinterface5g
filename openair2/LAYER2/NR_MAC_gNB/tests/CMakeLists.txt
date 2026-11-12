@@ -20,6 +20,15 @@ target_link_libraries(test_pos_sib_config PRIVATE asn1_nr_rrc asn1_lte_rrc_hdrs 
 add_dependencies(tests test_pos_sib_config)
 add_test(NAME test_pos_sib_config COMMAND test_pos_sib_config)
 
+add_executable(test_lpp_prs_from_f1 test_lpp_prs_from_f1.c ${OPENAIR2_DIR}/RRC/NR/lpp_prs.c)
+target_include_directories(test_lpp_prs_from_f1 PRIVATE ${OPENAIR2_DIR}/LAYER2 ${OPENAIR2_DIR}/F1AP/lib)
+target_compile_options(test_lpp_prs_from_f1 PRIVATE -ffunction-sections -fdata-sections)
+target_link_options(test_lpp_prs_from_f1 PRIVATE -Wl,--gc-sections,--no-export-dynamic)
+target_link_libraries(test_lpp_prs_from_f1 PRIVATE
+                      f1ap_lib asn1_f1ap asn1_lpp asn1_nr_rrc asn1_lte_rrc_hdrs nr_common minimal_lib ds m)
+add_dependencies(tests test_lpp_prs_from_f1)
+add_test(NAME test_lpp_prs_from_f1 COMMAND test_lpp_prs_from_f1)
+
 add_executable(test_si_window test_si_window.c)
 target_include_directories(test_si_window PRIVATE ${OPENAIR2_DIR}/LAYER2)
 target_compile_options(test_si_window PRIVATE -ffunction-sections -fdata-sections)

@@ -59,7 +59,6 @@
 #include "x2ap_messages_types.h"
 #include "gnb_config_common.h"
 #include "trp_info_nr_paramdef.h"
-#include "lpp_prs.h"
 #include "f1ap_cu_task.h"
 #include "openair3/NRPPA/nrppa_gNB_config.h"
 
@@ -681,7 +680,7 @@ static nr_mac_prs_config_t *get_mac_prs_config(void)
                 p[per_resource[i]].optname,
                 num);
 
-  nr_mac_prs_config_t *out = calloc_or_fail(1, sizeof(*out) + num * sizeof(out->resource[0]));
+  nr_mac_prs_config_t *out = calloc_or_fail(1, sizeof(*out));
   out->period = p[PRS_RESOURCE_SET_PERIOD_LIST].uptr[0];
   out->offset = p[PRS_RESOURCE_SET_PERIOD_LIST].uptr[1];
   out->repetition = *p[PRS_RESOURCE_REPETITION].uptr;
@@ -2190,6 +2189,36 @@ static seq_arr_t *fill_cu_sibs(paramdef_t *GNBparamarray)
   return SIBs;
 }
 
+static void fill_possib_policies(gNB_RRC_INST *rrc)
+{
+  seq_arr_init(&rrc->possib_policies, sizeof(nr_possib_policy_t));
+  paramdef_t params[] = {
+      {"cell_id", "NR cell identity", PARAMFLAG_MANDATORY, .u64ptr = NULL, .defint64val = 0, TYPE_UINT64, 0},
+      {"trp_id", "TRP identity", PARAMFLAG_MANDATORY, .uptr = NULL, .defuintval = 0, TYPE_UINT, 0},
+      {"periodicity", "broadcast period in radio frames", 0, .uptr = NULL, .defuintval = 16, TYPE_UINT, 0},
+  };
+  paramlist_def_t list = {.listname = "pos_sib"};
+  config_getlist(config_get_if(), &list, params, sizeofArray(params), NULL);
+  for (int i = 0; i < list.numelt; ++i) {
+    const uint32_t trp = *list.paramarray[i][1].uptr;
+    const uint32_t period = *list.paramarray[i][2].uptr;
+    if (trp > UINT16_MAX || (period != 8 && period != 16 && period != 32 && period != 64 &&
+                             period != 128 && period != 256 && period != 512)) {
+      LOG_E(GNB_APP, "Invalid PosSIB TRP or periodicity in policy %d\n", i);
+      continue;
+    }
+    nr_possib_policy_t policy = {.cell_id = *list.paramarray[i][0].u64ptr, .trp_id = trp, .period_frames = period};
+    bool duplicate = false;
+    FOR_EACH_SEQ_ARR(nr_possib_policy_t *, existing, &rrc->possib_policies)
+      duplicate |= existing->cell_id == policy.cell_id;
+    if (duplicate) {
+      LOG_E(GNB_APP, "Duplicate PosSIB policy for cell %lu\n", policy.cell_id);
+      continue;
+    }
+    seq_arr_push_back(&rrc->possib_policies, &policy, sizeof(policy));
+  }
+}
+
 static bool eq_neighbour_pci(const void *vval, const void *vit)
 {
   const int *pci = (const int *)vval;
@@ -2623,6 +2652,7 @@ gNB_RRC_INST *RCconfig_NRRRC()
       }//
     }//End for (k=0; k <num_gnbs ; k++)
     openair_rrc_gNB_configuration(rrc, &nrrrc_config);
+    fill_possib_policies(rrc);
 
     /* Load SIB2 configuration */
     rrc->sib2_config = fill_sib2_configuration(i);
