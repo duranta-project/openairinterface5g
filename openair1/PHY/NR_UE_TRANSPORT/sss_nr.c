@@ -203,6 +203,7 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
   // now do the SSS detection based on the precomputed sequences
   int Nid1 = -1;
   int64_t max_metric = 0;
+  int64_t max_excluded_metric = 0;
   sss_detection_result_t res = {};
   int64_t base_power = 0;
   for (int i = 0; i < LENGTH_SSS_NR; i++) {
@@ -220,18 +221,22 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
     const c64_t rot = (c64_t){round(cos(angle) * INT16_MAX), round(sin(angle) * INT16_MAX)};
     for (int n = 0; n < nb_nid1; n++) { // all possible Nid1 values
       int n1 = nid1_start + n;
-      if (skip_pci(n1, Nid2, params->exclude_nid_cells, params->num_exclude_nid_cells))
-        continue;
+      bool is_excluded = skip_pci(n1, Nid2, params->exclude_nid_cells, params->num_exclude_nid_cells);
       int64_t metric = 0;
       for (int i = 0; i < LENGTH_SSS_NR; i++) {
         // d_sss is only real part because sss is a pure real signal (imaginary is 0)
         metric += d_sss[n][i] * (rot.r * sss_comp[i].r - rot.i * sss_comp[i].i);
       }
-      // if the current metric is better than the last save it
-      if (metric > max_metric) {
-        max_metric = metric;
-        Nid1 = n1;
-        res.phase = idx;
+      if (is_excluded) {
+        if (metric > max_excluded_metric)
+          max_excluded_metric = metric;
+      } else {
+        // if the current metric is better than the last save it
+        if (metric > max_metric) {
+          max_metric = metric;
+          Nid1 = n1;
+          res.phase = idx;
+        }
       }
 #ifdef DEBUG_SSS_NR
       LOG_I(PHY,
@@ -248,14 +253,15 @@ sss_detection_result_t rx_sss_nr(nr_sss_params_t *params,
     // we try progressively rotation between pss and sss
     // pss and sss are in phase at emission
     // rotation means doppler variation, or very noisy pss detection
-    if (max_metric / base_power >= SSS_METRIC_FLOOR_NR)
+    if (max_metric / base_power >= SSS_METRIC_FLOOR_NR || max_excluded_metric / base_power >= SSS_METRIC_FLOOR_NR)
       break;
   }
 
-  if (max_metric / base_power < SSS_METRIC_FLOOR_NR) {
+  if (max_excluded_metric >= max_metric || max_metric / base_power < SSS_METRIC_FLOOR_NR) {
     LOG_D(PHY,
-          "Failed to detect SSS after PSS, metric of SSS %ld, threshold to consider SSS valid %d, detected PCI: %d\n",
+          "Failed to detect SSS after PSS, metric of SSS %ld (excluded %ld), threshold to consider SSS valid %d, detected PCI: %d\n",
           max_metric,
+          max_excluded_metric,
           SSS_METRIC_FLOOR_NR,
           res.nid_cell);
     res.success = false;
