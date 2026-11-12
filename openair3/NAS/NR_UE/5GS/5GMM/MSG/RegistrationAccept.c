@@ -148,7 +148,7 @@ static bool is_tlv_e_iei(uint8_t iei)
   }
 }
 
-size_t decode_registration_accept(registration_accept_msg *registration_accept, const byte_array_t buffer)
+int decode_registration_accept(registration_accept_msg *registration_accept, const byte_array_t buffer)
 {
   int dec = 0;
   byte_array_t ba = buffer; // local copy of buffer
