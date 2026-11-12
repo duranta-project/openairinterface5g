@@ -31,7 +31,7 @@
 void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARMS *frame_parms)
 {
   int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers;
+  uint16_t a_segments = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * max_layers;
 
   if (N_RB != 273) {
     a_segments = a_segments * N_RB;
@@ -64,14 +64,14 @@ void free_gNB_dlsch(NR_gNB_DLSCH_t *dlsch, uint16_t N_RB, const NR_DL_FRAME_PARM
 NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
 {
   int max_layers = min(frame_parms->nb_antennas_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers; // number of segments to be allocated
+  uint16_t a_segments = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * max_layers; // number of segments to be allocated
 
   if (N_RB != 273) {
     a_segments = a_segments * N_RB;
     a_segments = a_segments / 273 + 1;
   }
 
-  LOG_D(PHY, "Allocating %d segments (MAX %d, N_PRB %d)\n", a_segments, MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER, N_RB);
+  LOG_D(PHY, "Allocating %d segments (MAX %d, N_PRB %d)\n", a_segments, MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER, N_RB);
   uint32_t dlsch_bytes = a_segments * 1056; // allocated bytes per segment
   NR_gNB_DLSCH_t dlsch = {0};
 
@@ -85,18 +85,14 @@ NR_gNB_DLSCH_t new_gNB_dlsch(NR_DL_FRAME_PARMS *frame_parms, uint16_t N_RB)
   dlsch.c_dev = gpuHostGetDevicePointer_or_fail(dlsch.c_devh);
 #endif
   for (int r = 0; r < a_segments; r++) {
-    // account for filler in first segment and CRCs for multiple segment case
-    // [hna] 8448 is the maximum CB size in NR
-    //       68*348 = 68*(maximum size of Zc)
-    //       In section 5.3.2 in 38.212, the for loop is up to N + 2*Zc (maximum size of N is 66*Zc, therefore 68*Zc)
 #ifdef LDPC_CUDA
-    dlsch.c[r] = gpuHostAlloc_or_fail((8448 / 8) * sizeof(uint8_t), gpuHostAllocMapped);
+    dlsch.c[r] = gpuHostAlloc_or_fail((NR_MAX_BLOCK_LENGTH / 8) * sizeof(uint8_t), gpuHostAllocMapped);
     ((uint8_t **)dlsch.c_devh)[r] = gpuHostGetDevicePointer_or_fail(dlsch.c[r]);
 #else
-    dlsch.c[r] = malloc16(8448 / 8);
+    dlsch.c[r] = malloc16(NR_MAX_BLOCK_LENGTH / 8);
 #endif
     AssertFatal(dlsch.c[r], "cannot allocate dlsch->c[%d]\n", r);
-    bzero(dlsch.c[r], 8448 / 8);
+    bzero(dlsch.c[r], NR_MAX_BLOCK_LENGTH / 8);
   }
 
   dlsch.f = malloc16(N_RB * frame_parms->symbols_per_slot * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
@@ -155,7 +151,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     }
 
     start_meas(dlsch_crc_stats);
-    int max_bytes = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers * 1056;
+    int max_bytes = MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers * 1056;
     int B;
     if (A > NR_MAX_PDSCH_TBS) {
       // Add 24-bit crc (polynomial A) to payload
@@ -196,7 +192,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                         &TB_parameters->F,
                                         TB_parameters->BG);
 
-    if (TB_parameters->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers) {
+    if (TB_parameters->C > MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers) {
       LOG_E(PHY, "nr_segmentation.c: too many segments %d, B %d\n", TB_parameters->C, B);
       return (-1);
     }
