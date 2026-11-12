@@ -211,31 +211,43 @@ static void configure_ratematching_csi(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsc
     return;
 
   if (pdsch_config && pdsch_config->zp_CSI_RS_ResourceToAddModList) {
-    bool found = false;
     const NR_SetupRelease_ZP_CSI_RS_ResourceSet_t *zp_set = pdsch_config->p_ZP_CSI_RS_ResourceSet;
-    AssertFatal(zp_set && zp_set->choice.setup, "Only periodic ZP resource set is implemented\n");
-    const NR_ZP_CSI_RS_Resource_t *zp_res = NULL;
-    for (int j = 0; j < zp_set->choice.setup->zp_CSI_RS_ResourceIdList.list.count; j++) {
-      for (int i = 0; i < pdsch_config->zp_CSI_RS_ResourceToAddModList->list.count; i++) {
-        zp_res = pdsch_config->zp_CSI_RS_ResourceToAddModList->list.array[i];
-        NR_ZP_CSI_RS_ResourceId_t id = zp_res->zp_CSI_RS_ResourceId;
-        if (*zp_set->choice.setup->zp_CSI_RS_ResourceIdList.list.array[j] == id) {
-          found = true;
-          break;
+    if (!zp_set || zp_set->present != NR_SetupRelease_ZP_CSI_RS_ResourceSet_PR_setup || !zp_set->choice.setup) {
+      LOG_D(NR_MAC, "Periodic ZP CSI-RS resource set not present or not setup, skipping ZP rate matching\n");
+    } else {
+      const struct NR_ZP_CSI_RS_ResourceSet *setup = zp_set->choice.setup;
+      for (int j = 0; j < setup->zp_CSI_RS_ResourceIdList.list.count; j++) {
+        bool found = false;
+        const NR_ZP_CSI_RS_Resource_t *zp_res = NULL;
+        for (int i = 0; i < pdsch_config->zp_CSI_RS_ResourceToAddModList->list.count; i++) {
+          const NR_ZP_CSI_RS_Resource_t *res = pdsch_config->zp_CSI_RS_ResourceToAddModList->list.array[i];
+          if (res && *setup->zp_CSI_RS_ResourceIdList.list.array[j] == res->zp_CSI_RS_ResourceId) {
+            zp_res = res;
+            found = true;
+            break;
+          }
         }
+        if (!found || !zp_res) {
+          LOG_W(NR_MAC, "Couldn't find periodic ZP resource ID %ld in list, skipping\n",
+                *setup->zp_CSI_RS_ResourceIdList.list.array[j]);
+          continue;
+        }
+        if (!zp_res->periodicityAndOffset) {
+          LOG_W(NR_MAC, "periodicityAndOffset cannot be null for periodic ZP resource %ld, skipping\n",
+                zp_res->zp_CSI_RS_ResourceId);
+          continue;
+        }
+        int period, offset;
+        csi_period_offset(NULL, zp_res->periodicityAndOffset, &period, &offset);
+        if (!is_periodic_occasion(frame, slot, slots_per_frame, period, offset))
+          continue;
+        AssertFatal(dlsch_pdu->numCsiRsForRateMatching < NFAPI_MAX_NUM_CSI_RATEMATCH, "csiRsForRateMatching out of bounds\n");
+        fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu = &dlsch_pdu->csiRsForRateMatching[dlsch_pdu->numCsiRsForRateMatching];
+        csi_pdu->csi_type = 2; // ZP-CSI
+        csi_pdu->subcarrier_spacing = mu;
+        configure_csi_resource_mapping(csi_pdu, &zp_res->resourceMapping, dlsch_pdu->BWPSize, dlsch_pdu->BWPStart);
+        dlsch_pdu->numCsiRsForRateMatching++;
       }
-      AssertFatal(found, "Couldn't find periodic ZP resouce in set\n");
-      AssertFatal(zp_res->periodicityAndOffset, "periodicityAndOffset cannot be null for periodic ZP resource\n");
-      int period, offset;
-      csi_period_offset(NULL, zp_res->periodicityAndOffset, &period, &offset);
-      if (!is_periodic_occasion(frame, slot, slots_per_frame, period, offset))
-        continue;
-      AssertFatal(dlsch_pdu->numCsiRsForRateMatching < NFAPI_MAX_NUM_CSI_RATEMATCH, "csiRsForRateMatching out of bounds\n");
-      fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu = &dlsch_pdu->csiRsForRateMatching[dlsch_pdu->numCsiRsForRateMatching];
-      csi_pdu->csi_type = 2; // ZP-CSI
-      csi_pdu->subcarrier_spacing = mu;
-      configure_csi_resource_mapping(csi_pdu, &zp_res->resourceMapping, dlsch_pdu->BWPSize, dlsch_pdu->BWPStart);
-      dlsch_pdu->numCsiRsForRateMatching++;
     }
   }
 
