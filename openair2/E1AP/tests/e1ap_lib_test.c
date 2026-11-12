@@ -569,6 +569,7 @@ static void test_bearer_context_modification_request(void)
   *drb_to_mod.pdcp_config = dummy_pdcp_config;
   *drb_to_mod.pdcp_status = dummy_pdcp_status;
   drb_to_mod.qosFlows[0] = dummy_qos_flows;
+  drb_to_mod.pdcp_count_reset = true;
 
   DRB_nGRAN_to_mod_t drb_to_mod_2 = drb_to_mod_template(2);
   *drb_to_mod_2.pdcp_config = dummy_pdcp_config;
