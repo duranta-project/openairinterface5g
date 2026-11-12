@@ -169,27 +169,48 @@ static void rx_func(processingData_L1_t *info)
 
   T(T_GNB_PHY_UL_TICK, T_INT(gNB->Mod_id), T_INT(frame_rx), T_INT(slot_rx));
 
+  // Initialize the indication headers without clearing the large PDU arrays.
+  NR_UL_IND_t UL_INFO;
+  UL_INFO.frame = frame_rx;
+  UL_INFO.slot = slot_rx;
+  UL_INFO.module_id = gNB->Mod_id;
+  UL_INFO.phy_id = 0;
+  UL_INFO.rach_ind = (nfapi_nr_rach_indication_t){.pdu_list = UL_INFO.prach_pdu_indication_list};
+  UL_INFO.uci_ind = (nfapi_nr_uci_indication_t){0};
+  UL_INFO.rx_ind = (nfapi_nr_rx_data_indication_t){0};
+  UL_INFO.crc_ind = (nfapi_nr_crc_indication_t){0};
+  UL_INFO.srs_ind = (nfapi_nr_srs_indication_t){0};
+  UL_INFO.srs_toa_vendor_ext_ind = (nfapi_nr_srs_toa_vendor_ext_indication_t){0};
+  nfapi_nr_rach_indication_t *rach_ind = &UL_INFO.rach_ind;
+  prach_item_t p;
+  // Drain ready PRACH even in downlink slots, retaining submission order for noise estimation.
+  // Keep the original timing and deliver before mixing timestamps or exceeding FAPI capacity.
+  // Only the PNF handler resets number_of_pdus, so clear it after every delivery.
+  while (get_nr_prach_result(&gNB->prach_l1rx_queue, &p)) {
+    // The local RU already recorded this before the slot's noise measurement, independently of worker completion.
+    if (!p.ru_job)
+      nr_prach_rb_mask_update(gNB, &p);
+    for (int oc = 0; oc < p.pdu.num_prach_ocas; oc++) {
+      if (rach_ind->number_of_pdus == MAX_NUM_NR_RX_RACH_PDUS
+          || (rach_ind->number_of_pdus > 0 && (rach_ind->sfn != p.frame || rach_ind->slot != p.slot))) {
+        gNB->if_inst->NR_rach_indication(&UL_INFO);
+        rach_ind->number_of_pdus = 0;
+      }
+      rach_ind->sfn = p.frame;
+      rach_ind->slot = p.slot;
+      L1_nr_prach_procedures(gNB, &p, oc, rach_ind);
+    }
+    free_nr_prach_entry(&p);
+  }
+  if (rach_ind->number_of_pdus > 0) {
+    gNB->if_inst->NR_rach_indication(&UL_INFO);
+    rach_ind->number_of_pdus = 0;
+  }
+
   // RX processing
   int rx_slot_type = nr_slot_select(cfg, frame_rx, slot_rx);
   if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
     LOG_D(NR_PHY, "%d.%d Starting RX processing\n", frame_rx, slot_rx);
-
-    // UE-specific RX processing for subframe n
-    // Intentionally not zero-initialized: each indication fills only its used PDUs.
-    NR_UL_IND_t UL_INFO;
-    UL_INFO.frame = frame_rx;
-    UL_INFO.slot = slot_rx;
-    UL_INFO.module_id = gNB->Mod_id;
-    UL_INFO.phy_id = 0;
-    // Do PRACH RU processing
-    UL_INFO.rach_ind.header.transmit_timestamp = 0;
-    UL_INFO.rach_ind.pdu_list = UL_INFO.prach_pdu_indication_list;
-    UL_INFO.rach_ind.number_of_pdus = 0;
-    // even if processing is late, we might collect all PRACH
-    // the last PRACH's frame/slot is when all UE's appear to have accessed
-    prach_item_t p;
-    while (spsc_q_get(&gNB->prach_l1rx_queue, &p, sizeof(p)))
-      L1_nr_prach_procedures(gNB, &p, &UL_INFO.rach_ind);
 
     // apply the rx signal rotation here
     if (gNB->phase_comp) {
