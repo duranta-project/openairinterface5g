@@ -440,8 +440,8 @@ typedef struct PHY_VARS_gNB_s {
 
   time_stats_t dlsch_encoding_stats;
   time_stats_t dlsch_ldpc_encode_stats;
-  time_stats_t dlsch_modulation_stats;
-  time_stats_t dlsch_scrambling_stats;
+  time_stats_t dlsch_modulation_stats; // scrambling + modulation + layer mapping
+  time_stats_t dlsch_layer_clear_stats; // tx_layers[] clear before modulation
   time_stats_t dlsch_pdsch_generation_stats;
   time_stats_t dlsch_layer_mapping_stats;
   time_stats_t dlsch_resource_mapping_stats;
