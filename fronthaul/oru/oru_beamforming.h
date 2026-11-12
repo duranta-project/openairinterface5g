@@ -6,6 +6,8 @@
 
 #include "oru_packet_processor.h"
 #include "common/platform_types.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +20,8 @@ extern "C" {
 typedef struct {
   int nb_fh_streams;
   int nb_beams;
+  bool has_beam_ids; // Legacy weights use row indices; CSV tables can name sparse beam IDs.
+  uint16_t beam_ids[ORU_CODEBOOK_MAX_BEAMS];
   c16_t w[ORU_CODEBOOK_MAX_BEAMS][ORU_CODEBOOK_MAX_NB_TX][ORU_CODEBOOK_MAX_STREAMS];
 } oru_codebook_t;
 
