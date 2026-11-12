@@ -10,6 +10,7 @@
 #include "TLVEncoder.h"
 #include "TLVDecoder.h"
 #include "FGSMobileIdentity.h"
+#include "common/utils/eq_check.h"
 
 #define MIN_LEN_FGS_MOBILE_ID_IE 3 // type of identity "No identity"
 #define LEN_5G_FGS_TMSI_IE 9
@@ -89,10 +90,12 @@ int decode_5gs_mobile_identity(FGSMobileIdentity *fgsmobileidentity, uint8_t iei
 
   uint8_t typeofidentity = *(buffer + decoded) & 0x7;
 
-  AssertFatal(typeofidentity == FGS_MOBILE_IDENTITY_5G_GUTI, "Mobile Identity encoding of type %d not implemented\n", typeofidentity);
   if (typeofidentity == FGS_MOBILE_IDENTITY_5G_GUTI) {
     CHECK_LENGTH_DECODER(ielen, LEN_5G_GUTI_CONTENTS);
     decoded_rc = decode_guti_5gs_mobile_identity(&fgsmobileidentity->guti, buffer + decoded);
+  } else {
+    PRINT_ERROR("5GS Mobile Identity: decoding of type of identity %d not implemented\n", typeofidentity);
+    return TLV_DECODE_VALUE_DOESNT_MATCH;
   }
 
   if (decoded_rc < 0) {
