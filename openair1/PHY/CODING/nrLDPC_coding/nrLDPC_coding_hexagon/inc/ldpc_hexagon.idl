@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: LicenseRef-CSSL-1.0
+//
+// ldpc_hexagon.idl — FastRPC interface for LDPC decoding on Hexagon DSP.
+//
+// qaic compiles this into:
+//   ldpc_hexagon_stub.c   (linked into the ARM libldpc_hexagon.so)
+//   ldpc_hexagon_skel.c   (linked into the DSP libldpc_hexagon_skel.so)
+//   ldpc_hexagon.h        (included by both sides)
+//
+// Wire layout for 'params' (8 bytes):
+//   [0]    BG:         base graph (1 or 2)
+//   [1]    R:          rate code (13, 23, 89 for BG1; 15, 13, 23 for BG2)
+//   [2]    numMaxIter: maximum belief-propagation iterations
+//   [3]    reserved
+//   [4:5]  Z:          lifting size (2..384), little-endian uint16
+//   [6:7]  reserved
+//
+// 'llr'     — input LLRs, int8 each, length = numLLR
+// 'llr_out' — posterior LLRs after decoding, int8, length = numLLR
+//              ARM side converts to bits/LLR mode as required by outMode
+// 'meta'    — 4-byte little-endian uint32 = number of BP iterations completed
+//
+// Returns 0 on success, negative AEEResult on RPC error.
+
+#include "AEEStdDef.idl"
+#include "remote.idl"
+
+interface ldpc_hexagon : remote_handle64 {
+    long decode(in   sequence<uint8> params,
+                in   sequence<uint8> llr,
+                rout sequence<uint8> llr_out,
+                rout sequence<uint8> meta);
+    AEEResult worker_start(in uint64 queue_id);
+    AEEResult worker_stop(rout uint32 status);
+};
