@@ -66,7 +66,7 @@ int sctp_get_sockinfo(int sock, uint16_t *instream, uint16_t *outstream,
   socklen_t i;
   struct sctp_status status;
 
-  if (socket <= 0) {
+  if (sock < 0) {
     return -1;
   }
 
