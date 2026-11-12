@@ -103,6 +103,9 @@ typedef struct UE_RRC_SI_INFO_NR_r17_s {
 typedef struct UE_RRC_SI_INFO_NR_s {
   bool sib_pending;
   uint32_t default_otherSI_map[MAX_SI_GROUPS];
+  bool possi_configured;
+  bool possi_validity;
+  int possi_scheduling_index;
   bool sib1_validity;
   NR_timer_t sib1_timer;
   /// stored SIB1, to revert back to the source PCell upon T304 expiry

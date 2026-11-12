@@ -1191,6 +1191,7 @@ set(NR_L2_SRC_UE
   ${NR_PDCP_SRC_UE}
   ${NR_SDAP_SRC}
   ${NR_UE_RRC_DIR}/L2_interface_ue.c
+  ${NR_UE_RRC_DIR}/lpp_prs_ue.c
   ${NR_UE_RRC_DIR}/main_ue.c
   ${NR_UE_RRC_DIR}/rrc_UE.c
   ${NR_UE_RRC_DIR}/verify_RRC.c
@@ -1288,6 +1289,7 @@ set (GNB_APP_SRC
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_common.c
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_ng.c
   ${OPENAIR2_DIR}/GNB_APP/gnb_config_xn.c
+  ${OPENAIR2_DIR}/GNB_APP/lpp_prs.c
   )
 
 set (MCE_APP_SRC
@@ -1328,7 +1330,7 @@ add_library(L2_NR
 if(E3_AGENT)
   target_compile_definitions(L2_NR PRIVATE E3_AGENT)
 endif()
-target_link_libraries(L2_NR PRIVATE ds alg)
+target_link_libraries(L2_NR PRIVATE ds alg asn1_lpp)
 target_link_libraries(L2_NR PRIVATE f1ap f1ap_lib)
 target_link_libraries(L2_NR PRIVATE nfapi_nr_user_lib)
 target_link_libraries(L2_NR PRIVATE nrppa)
@@ -1370,7 +1372,7 @@ target_link_libraries(L2_UE PRIVATE asn1_lte_rrc_hdrs)
 
 add_library( NR_L2_UE ${NR_L2_SRC_UE} ${MAC_NR_SRC_UE} )
 target_link_libraries(NR_L2_UE PRIVATE nr_rlc ds alg)
-target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs nr_common nr_ue_power_procedures nr_ue_ra_procedures)
+target_link_libraries(NR_L2_UE PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_lpp nr_common nr_ue_power_procedures nr_ue_ra_procedures)
 target_link_libraries(NR_L2_UE PRIVATE nr_nas)
 
 # L3 Libs
@@ -2032,7 +2034,7 @@ add_executable(nr_srssim
   )
 
 target_link_libraries(nr_srssim PRIVATE
-  SCHED_NR_LIB SCHED_NR_UE_LIB SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_LIB
+  SCHED_NR_LIB SCHED_NR_UE_LIB SIMU PHY_NR_COMMON PHY_NR PHY_NR_UE SCHED_NR_UE_LIB SCHED_NR_LIB
   ITTI physim_common softmodem_common
   )
 

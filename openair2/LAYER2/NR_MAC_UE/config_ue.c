@@ -2102,7 +2102,8 @@ void nr_rrc_mac_resume_rb(module_id_t module_id, bool is_srb, int rb_id)
 
 static void configure_si_schedulingInfo(NR_UE_MAC_INST_t *mac,
                                         NR_SI_SchedulingInfo_t *si_SchedulingInfo,
-                                        NR_SI_SchedulingInfo_v1700_t *si_SchedulingInfo_v1700)
+                                        NR_SI_SchedulingInfo_v1700_t *si_SchedulingInfo_v1700,
+                                        NR_PosSI_SchedulingInfo_r16_t *posSI_SchedulingInfo_r16)
 {
   asn_sequence_empty(&mac->si_SchedInfo.si_SchedInfo_list);
   if (si_SchedulingInfo) {
@@ -2121,6 +2122,34 @@ static void configure_si_schedulingInfo(NR_UE_MAC_INST_t *mac,
       config->type = NR_SI_INFO_v1700;
       config->si_WindowPosition = si_SchedulingInfo_v1700->schedulingInfoList2_r17.list.array[i]->si_WindowPosition_r17;
       config->si_Periodicity = si_SchedulingInfo_v1700->schedulingInfoList2_r17.list.array[i]->si_Periodicity_r17;
+      ASN_SEQUENCE_ADD(&mac->si_SchedInfo.si_SchedInfo_list, config);
+    }
+  }
+  if (posSI_SchedulingInfo_r16) {
+    const int first_pos_window = si_SchedulingInfo ? si_SchedulingInfo->schedulingInfoList.list.count + 1 : 1;
+    for (int i = 0; i < posSI_SchedulingInfo_r16->posSchedulingInfoList_r16.list.count; i++) {
+      NR_PosSchedulingInfo_r16_t *pos_schedule =
+          posSI_SchedulingInfo_r16->posSchedulingInfoList_r16.list.array[i];
+      bool carries_pos_sib6_1 = false;
+      for (int j = 0; j < pos_schedule->posSIB_MappingInfo_r16.list.count; j++) {
+        const NR_PosSIB_Type_r16_t *mapping = pos_schedule->posSIB_MappingInfo_r16.list.array[j];
+        if (mapping->posSibType_r16 == NR_PosSIB_Type_r16__posSibType_r16_posSibType6_1) {
+          carries_pos_sib6_1 = true;
+          break;
+        }
+      }
+      if (pos_schedule->offsetToSI_Used_r16
+          || pos_schedule->posSI_BroadcastStatus_r16
+                 != NR_PosSchedulingInfo_r16__posSI_BroadcastStatus_r16_broadcasting
+          || !carries_pos_sib6_1)
+        continue;
+
+      AssertFatal(mac->si_SchedInfo.si_SchedInfo_list.count < MAX_SI_GROUPS,
+                  "Exceeding max number of SI groups configured\n");
+      si_schedinfo_config_t *config = calloc_or_fail(1, sizeof(*config));
+      config->type = NR_POS_SI_INFO_r16;
+      config->si_WindowPosition = first_pos_window + i;
+      config->si_Periodicity = pos_schedule->posSI_Periodicity_r16;
       ASN_SEQUENCE_ADD(&mac->si_SchedInfo.si_SchedInfo_list, config);
     }
   }
@@ -2248,12 +2277,15 @@ void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *si
   AssertFatal(!ret, "mutex failed %d\n", ret);
   NR_SI_SchedulingInfo_t *si_SchedulingInfo = sib1->si_SchedulingInfo;
   NR_SI_SchedulingInfo_v1700_t *si_SchedulingInfo_v1700 = NULL;
+  NR_PosSI_SchedulingInfo_r16_t *posSI_SchedulingInfo_r16 = NULL;
+  if (sib1->nonCriticalExtension)
+    posSI_SchedulingInfo_r16 = sib1->nonCriticalExtension->posSI_SchedulingInfo_r16;
   if (sib1->nonCriticalExtension && sib1->nonCriticalExtension->nonCriticalExtension
       && sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension) {
     si_SchedulingInfo_v1700 = sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->si_SchedulingInfo_v1700;
   }
 
-  configure_si_schedulingInfo(mac, si_SchedulingInfo, si_SchedulingInfo_v1700);
+  configure_si_schedulingInfo(mac, si_SchedulingInfo, si_SchedulingInfo_v1700, posSI_SchedulingInfo_r16);
   NR_ServingCellConfigCommonSIB_t *scc = sib1->servingCellConfigCommon;
   AssertFatal(scc, "SIB1 SCC should not be NULL\n");
   configure_pcch_config(mac, scc);
@@ -2310,6 +2342,17 @@ void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19, i
   }
   if (mac->state == UE_RECEIVING_SIB && can_start_ra)
     mac->state = UE_PERFORMING_RA;
+  ret = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+}
+
+void nr_rrc_mac_config_prs(module_id_t module_id, const nr_ue_prs_configuration_t *configuration)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int ret = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+  if (mac->if_module->prs_config_request != NULL)
+    mac->if_module->prs_config_request(module_id, 0, configuration);
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }

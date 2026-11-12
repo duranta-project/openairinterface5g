@@ -3108,6 +3108,30 @@ void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1)
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, sib1);
 }
 
+int encode_pos_sib_message(const NR_BCCH_DL_SCH_Message_t *message, uint8_t *buffer, const char *name)
+{
+  char error_buffer[256];
+  size_t error_length = sizeof(error_buffer);
+  if (asn_check_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, message, error_buffer, &error_length) != 0) {
+    LOG_E(NR_MAC, "%s violates BCCH-DL-SCH ASN.1 constraints: %.*s\n", name, (int)error_length, error_buffer);
+    return -1;
+  }
+
+  memset(buffer, 0, NR_MAX_SIB_LENGTH / 8);
+  asn_enc_rval_t encoded = uper_encode_to_buffer(&asn_DEF_NR_BCCH_DL_SCH_Message, NULL, message, buffer, NR_MAX_SIB_LENGTH / 8);
+  if (encoded.encoded <= 0 || encoded.encoded > NR_MAX_SIB_LENGTH) {
+    const char *failed_type = encoded.failed_type ? encoded.failed_type->name : "unknown";
+    LOG_E(NR_MAC,
+          "cannot encode %s within the %d-bit BCCH-DL-SCH limit (failed type %s, encoded %zd bits)\n",
+          name,
+          NR_MAX_SIB_LENGTH,
+          failed_type,
+          encoded.encoded);
+    return -1;
+  }
+  return (encoded.encoded + 7) / 8;
+}
+
 int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size)
 {
   AssertFatal(max_buffer_size <= NR_MAX_SIB_LENGTH / 8,

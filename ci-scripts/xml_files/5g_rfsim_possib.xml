@@ -1,0 +1,67 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabName>Monolithic SA gNB with PosSIB</htmlTabName>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>localhost</node>
+    <images>oai-gnb-asan oai-nr-ue</images>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy core and PosSIB gNB</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_possib</yaml_path>
+    <services>mysql oai-amf oai-smf oai-upf oai-ext-dn oai-gnb</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy UE without static PRS configuration</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_possib</yaml_path>
+    <services>oai-nr-ue</services>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Attach UE to the core</desc>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Verify PosSIB reception and PRS configuration</desc>
+    <node>localhost</node>
+    <script>scripts/verify-possib-prs.sh</script>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy all OAI 5G stack</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_possib</yaml_path>
+    <analysis>
+      <services>oai-gnb=EndsWithBye oai-nr-ue</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>localhost</node>
+    <images>oai-gnb-asan oai-nr-ue</images>
+  </testCase>
+</testCaseList>
