@@ -399,7 +399,14 @@ bool nr_inner_rx(uint32_t length,
     // Single layer: per-layer order is the codeword order, so the codeword output only adds descrambling.
     int16_t *out = cw ? llr_cw : layer_scratch[0];
     if (fuse) {
-      nr_inner_rx_1layer(length, buffer_length, nb_rx_ant, rxFext, chFext[0], cpe, mod_order, output_shift, out, cw ? scramble : NULL);
+#if defined(NR_LBEST_F16)
+      // MRC and LLRs in FP16: opt-in (OAI_FUSE), as the int16 single-layer chain is cheaper and decodes about as well;
+      // the FP16 one does not wrap at high input levels
+      if (length >= (uint32_t)nr_lbest_f16_lanes() && nr_lbest_f16_enabled())
+        nr_inner_rx_1layer_f16(length, buffer_length, nb_rx_ant, &rxFext[0][0], &chFext[0][0][0], cpe, mod_order, output_shift, out, cw ? scramble : NULL);
+      else
+#endif
+        nr_inner_rx_1layer(length, buffer_length, nb_rx_ant, rxFext, chFext[0], cpe, mod_order, output_shift, out, cw ? scramble : NULL);
       return true;
     }
     nr_compute_llr(rxComp[0], mag_a[0], mag_b[0], mag_c[0], out, length, 0, mod_order);

@@ -760,6 +760,56 @@ TEST(test_llr_2layer, fused_f16_units)
         }
       }
 }
+
+// fused FP16 single-layer inner RX against the int16 compensation + nr_compute_llr chain on noisy channels: at a normal
+// input level the same LLR units and decisions; at 3x that level the FP16 path still decides the first bit right
+TEST(test_llr_2layer, single_layer_f16_units)
+{
+  if (!nr_lbest_f16_enabled())
+    GTEST_SKIP() << "no FP16 vector arithmetic";
+  std::mt19937 rng(0x1F16);
+  std::normal_distribution<double> g(0, 1);
+  for (double amp : {400.0, 1200.0})
+    for (int qm : {2, 4, 6, 8})
+      for (int nb_rx : {1, 2, 4}) {
+        const uint32_t n = 1272 + 3, bl = (n + 15) & ~15u;
+        const int shift = nb_rx == 1 ? 7 : (nb_rx == 2 ? 8 : 9);
+        const int M = 1 << (qm / 2);
+        const double na = qm == 2 ? 0.7071 : qm == 4 ? 1 / sqrt(10.0) : qm == 6 ? 1 / sqrt(42.0) : 1 / sqrt(170.0);
+        AlignedVector512<c16_t> rx(nb_rx * bl), ch(nb_rx * bl);
+        std::vector<int> sgn;
+        for (uint32_t i = 0; i < n; i++) {
+          const double xr = (2 * (int)(rng() % M) - M + 1) * na, xi = (2 * (int)(rng() % M) - M + 1) * na;
+          sgn.push_back(xr > 0 ? 1 : -1);
+          for (int a = 0; a < nb_rx; a++) {
+            const double hr = g(rng) * amp, hi = g(rng) * amp;
+            ch[a * bl + i] = {(int16_t)lrint(hr), (int16_t)lrint(hi)};
+            rx[a * bl + i] = {(int16_t)lrint(hr * xr - hi * xi + g(rng) * amp * 0.05), (int16_t)lrint(hr * xi + hi * xr + g(rng) * amp * 0.05)};
+          }
+        }
+        AlignedVector512<c16_t> comp(bl), maga(bl), magb(bl), magc(bl);
+        c16_t *rxComp[1] = {comp.data()}, *ma[1] = {maga.data()}, *mb[1] = {magb.data()}, *mc[1] = {magc.data()};
+        AlignedVector512<int16_t> ref(bl * qm + 64), f16(bl * qm + 64);
+        int16_t *ls[1] = {ref.data()};
+        nr_channel_compensation(bl, bl, nb_rx, 1, rx.data(), ch.data(), maga.data(), magb.data(), magc.data(), rxComp, nullptr, (c16_t){32767, 0}, qm, 0, shift);
+        ASSERT_TRUE(nr_inner_rx(n, bl, nb_rx, 1, qm, rx.data(), ch.data(), (c16_t){32767, 0}, rxComp, ma, mb, mc, nullptr, nullptr, shift, false, false, 0, 0.0f, ls, nullptr, nullptr));
+        nr_inner_rx_1layer_f16(n, bl, nb_rx, rx.data(), ch.data(), (c16_t){32767, 0}, qm, shift, f16.data(), nullptr);
+        const Fit f = fit_stats(f16.data(), ref.data(), (size_t)n * qm);
+        int er = 0, ef = 0;
+        for (uint32_t i = 0; i < n; i++) {
+          er += (ref[i * qm] > 0 ? 1 : -1) != sgn[i];
+          ef += (f16[i * qm] > 0 ? 1 : -1) != sgn[i];
+        }
+        if (amp < 1000) {
+          EXPECT_NEAR(f.fitScale, 1.0, 0.01) << "Qm=" << qm << " nb_rx=" << nb_rx;
+          EXPECT_LT(f.residFrac, 0.01) << "Qm=" << qm << " nb_rx=" << nb_rx;
+          EXPECT_LT(f.signDisagree_pct, 0.1) << "Qm=" << qm << " nb_rx=" << nb_rx;
+          EXPECT_LE(ef, er + 5) << "Qm=" << qm << " nb_rx=" << nb_rx;
+        } else {
+          EXPECT_LT(ef, (int)n / 50) << "high level: Qm=" << qm << " nb_rx=" << nb_rx;
+        }
+      }
+}
 #endif
 
 int main(int argc, char **argv)
