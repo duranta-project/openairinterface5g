@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <cmath>
 #include <vector>
+#include <algorithm>
+#include <sstream>
 #include <time.h>
 #include <getopt.h>
 #include "oai_cuda.h"
@@ -272,11 +274,99 @@ BENCHMARK(BM_channel_convolution_tpool)
     ->UseRealTime()
     ->MinTime(0.1);
 
+// --pool_cores=a,b,...: pin pool worker i to core i of the list, else workers float.
+static std::vector<std::string> pool_cores;
+
+// One call of the default (auto) method, on a pool of the given size: time per call.
+static void BM_channel_pipeline_threads(benchmark::State &state)
+{
+  const int nb_rx = state.range(0);
+  const int nb_tx = state.range(1);
+  const int num_samples = state.range(2);
+  const int channel_length = state.range(3);
+  const int threads = state.range(4);
+  channel_pipeline_t *pipeline = channel_pipeline_init(0.0f);
+
+  const size_t num_input_samples = num_samples + channel_length - 1;
+  std::vector<std::vector<c16_t>> input(nb_tx, std::vector<c16_t>(num_input_samples));
+  std::vector<std::vector<c16_t>> output(nb_rx, std::vector<c16_t>(num_samples));
+  std::vector<std::vector<cf_t>> channel(nb_rx * nb_tx, std::vector<cf_t>(channel_length));
+  std::vector<const c16_t *> in_ptr(nb_tx);
+  std::vector<c16_t *> out_ptr(nb_rx);
+  std::vector<const cf_t *> ch_ptr(nb_rx * nb_tx);
+  for (int i = 0; i < nb_tx; i++) {
+    generate_random_signal(input[i].data(), num_input_samples);
+    in_ptr[i] = input[i].data();
+  }
+  for (int i = 0; i < nb_rx; i++)
+    out_ptr[i] = output[i].data();
+  for (int i = 0; i < nb_rx * nb_tx; i++) {
+    generate_random_signal_float(channel[i].data(), channel_length);
+    ch_ptr[i] = channel[i].data();
+  }
+
+  void *tpool;
+  if (pool_cores.empty()) {
+    tpool = init_tpool(threads);
+  } else {
+    if (threads > (int)pool_cores.size()) {
+      state.SkipWithMessage("more threads than --pool_cores");
+      channel_pipeline_shutdown(pipeline);
+      return;
+    }
+    std::string cores = pool_cores[0];
+    for (int i = 1; i < threads; i++)
+      cores += "," + pool_cores[i];
+    tpool = init_tpool_cores(cores.c_str());
+  }
+  channel_pipeline_channel_t *pc = channel_pipeline_channel_init();
+  channel_pipeline_channel_set(pc, ch_ptr.data(), nb_tx, nb_rx, channel_length);
+
+  for (auto _ : state)
+    channel_pipeline(pipeline, tpool, pc, in_ptr.data(), nullptr, num_input_samples, out_ptr.data(), nullptr, num_samples, num_samples, 0.0f);
+  state.counters["MSPS"] = benchmark::Counter((double)num_samples * state.iterations() / 1e6, benchmark::Counter::kIsRate);
+
+  channel_pipeline_channel_free(pc);
+  channel_pipeline_shutdown(pipeline);
+  destroy_tpool(tpool);
+}
+
+// 8T8R O-RU at 273 PRB, 30 kHz SCS (122.88 Msps): one OFDM symbol (4096 + 288 samples) and one
+// slot (61440 samples), DL 8 tx to 1 or 2 rx and UL 1 or 2 tx to 8 rx.
+BENCHMARK(BM_channel_pipeline_threads)
+    ->ArgsProduct({
+        {1, 2}, // nb_rx
+        {8}, // nb_tx
+        {4384, 61440}, // num_samples
+        {1, 4, 8, 64, 128}, // channel_length
+        {1, 2, 3, 4, 8}, // pool threads
+    })
+    ->ArgsProduct({
+        {8}, // nb_rx
+        {1, 2}, // nb_tx
+        {4384, 61440}, // num_samples
+        {1, 4, 8, 64, 128}, // channel_length
+        {1, 2, 3, 4, 8}, // pool threads
+    })
+    ->Unit(benchmark::kMicrosecond)
+    ->UseRealTime()
+    ->MinTime(0.2)
+    // With --benchmark_repetitions: the fastest repetition is the least disturbed by other load.
+    ->ComputeStatistics("min", [](const std::vector<double> &v) { return *std::min_element(v.begin(), v.end()); });
+
 int main(int argc, char **argv)
 {
   logInit();
   randominit();
   benchmark::Initialize(&argc, argv);
+  for (int i = 1; i < argc; i++) {
+    const std::string opt = "--pool_cores=";
+    if (std::string(argv[i]).rfind(opt, 0) != 0)
+      continue;
+    std::stringstream list(argv[i] + opt.size());
+    for (std::string core; std::getline(list, core, ',');)
+      pool_cores.push_back(core);
+  }
   benchmark::RunSpecifiedBenchmarks();
   return 0;
 }

@@ -1042,7 +1042,7 @@ add_library(PHY_NR_NO_AVX_256 ${PHY_NR_SRC})
 target_link_libraries(PHY_NR_NO_AVX_256 PHY_NR_COMMON nr_phy_common_no_avx_256 nr_common)
 target_compile_definitions(PHY_NR_NO_AVX_256 PUBLIC USE_128BIT)
 
-target_link_libraries(PHY_NR_UE asn1_nr_rrc_hdrs nr_phy_common nr_common UTIL polar smallblock)
+target_link_libraries(PHY_NR_UE asn1_nr_rrc_hdrs nr_phy_common nr_csi_pmi nr_common UTIL polar smallblock)
 
 if (ENABLE_LDPC_CUDA AND LDPC_GPU_BACKEND STREQUAL "HIP")
   # these compile the LDPC_CUDA-guarded pinned-memory paths, which call into the
