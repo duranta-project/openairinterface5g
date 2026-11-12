@@ -8,4 +8,4 @@ add_library(SCTP_CLIENT STATIC
 )
 target_include_directories(SCTP_CLIENT PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(SCTP_CLIENT PRIVATE sctp::sctp)
-target_link_libraries(SCTP_CLIENT PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_link_libraries(SCTP_CLIENT PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs log_headers)

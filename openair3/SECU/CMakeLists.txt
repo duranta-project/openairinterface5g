@@ -20,4 +20,4 @@ add_library(SECURITY
   nas_stream_eia2.c
 )
 target_include_directories(SECURITY PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(SECURITY PRIVATE PkgConfig::OpenSSL ds)
+target_link_libraries(SECURITY PRIVATE PkgConfig::OpenSSL ds log_headers)
