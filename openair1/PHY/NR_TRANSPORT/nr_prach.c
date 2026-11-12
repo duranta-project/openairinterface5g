@@ -220,6 +220,12 @@ void init_nr_prach(PHY_VARS_gNB *gNB)
 
 void reset_nr_prach(PHY_VARS_gNB *gNB)
 {
+  // All queue users have stopped before these allocations are released.
+  prach_item_t p;
+  while (spsc_q_get(&gNB->prach_ru_queue, &p, sizeof(p)))
+    free_nr_prach_entry(&p);
+  while (spsc_q_get(&gNB->prach_l1rx_queue, &p, sizeof(p)))
+    free_nr_prach_entry(&p);
   spsc_q_free(&gNB->prach_ru_queue);
   spsc_q_free(&gNB->prach_l1rx_queue);
 }
@@ -252,7 +258,9 @@ static bool get_current_prach(const void *data, void *user)
 
 bool get_next_nr_prach(spsc_q_t *q, const fsn_t *now, prach_item_t *p)
 {
-  spsc_q_drop_while(q, drop_old_prach, (void *)now);
+  prach_item_t stale;
+  while (spsc_q_get_if(q, drop_old_prach, (void *)now, &stale, sizeof(stale)))
+    free_nr_prach_entry(&stale);
   return spsc_q_get_if(q, get_current_prach, (void *)now, p, sizeof(*p));
 }
 
@@ -351,8 +359,10 @@ void nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_p
     }
   }
   bool found = spsc_q_put(&gNB->prach_ru_queue, &prach, sizeof(prach));
-  if (!found)
+  if (!found) {
     LOG_W(NR_PHY, "%4d.%2d PRACH occ queue is full: dropping PRACH request\n", SFN, Slot);
+    free_nr_prach_entry(&prach);
+  }
 }
 
 static void rx_nr_prach_ru_internal_rep(prach_item_t *p,
