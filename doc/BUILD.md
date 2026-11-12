@@ -146,6 +146,14 @@ cd openairinterface5g/cmake_targets/
 
 Note the section on installing UHD further down for more information.
 
+If you run `./build_oai -I` in a bind-mounted tree (for example `docker run … -v
+"$PWD:/oai-ran" -w /oai-ran`), mount the source at a **different** absolute path
+than on the host and remove `cmake_targets/ran_build/build` before configuring
+in the container if the host already ran CMake there (avoids path mismatch from
+`CMakeCache.txt`). Use `--ninja` consistently on every `build_oai` invocation
+that configures the build. Image-based builds without a bind mount are described
+in [docker/README.md](../docker/README.md).
+
 ### Installing (new) asn1c from source
 
 With tag 2023.w22, we switch from our [own
