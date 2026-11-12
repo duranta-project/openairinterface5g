@@ -1586,7 +1586,14 @@ DEFINE_Q15_TABLE_INITIALIZER(
       DFT_SELECTED_CHILD_TABLES(16, 8, 1024.0f, dft1024, 1.0f)
     })
 
-static inline void dft64x8_store(const simde__m256i x[64], c16_t *dst, int output_radix, int output_offset, dft_dir_t dir)
+/* Eight DFT64 (one per lane); output k of lane l goes to bin output_radix * k + output_offset + l, stored at
+ * dst + bin, or in the NR layout of the pruned API through pout (dft_band_store8). */
+static __attribute__((always_inline)) inline void dft64x8_store_body(const simde__m256i x[64],
+                                                                     c16_t *dst,
+                                                                     int output_radix,
+                                                                     int output_offset,
+                                                                     const dft_band_t *pout,
+                                                                     dft_dir_t dir)
 {
   const int ds = dir == DFT_DIR_FORWARD ? 0 : 1;
   simde__m256i t[8][8] __attribute__((aligned(64)));
@@ -1630,9 +1637,17 @@ static inline void dft64x8_store(const simde__m256i x[64], c16_t *dst, int outpu
                        dir);
     for (int q = 0; q < 8; q++) {
       const int k = 8 * q + r;
-      simde_mm256_storeu_si256((simde__m256i *)(dst + output_radix * k + output_offset), y[q]);
+      if (pout) /* swapped: leaf index k ^ 32 = 8 (q ^ 4) + r */
+        dft_band_store8(pout, 64 * output_radix, output_radix * (8 * (q ^ 4) + r) + output_offset, q < 4, y[q]);
+      else
+        simde_mm256_storeu_si256((simde__m256i *)(dst + output_radix * k + output_offset), y[q]);
     }
   }
+}
+
+static inline void dft64x8_store(const simde__m256i x[64], c16_t *dst, int output_radix, int output_offset, dft_dir_t dir)
+{
+  dft64x8_store_body(x, dst, output_radix, output_offset, NULL, dir);
 }
 
 #define DFT64X8_EXACT_DC_STAGE()                                                                                                  \
@@ -1671,8 +1686,8 @@ static inline void dft64x8_store(const simde__m256i x[64], c16_t *dst, int outpu
                                                                                                                                   \
   const simde__m256i dc = simde_mm256_packs_epi32(sum_lo, sum_hi);
 
-#define DFT_DC_STORE_FULL(ADDRESS, VALUE) simde_mm256_storeu_si256((simde__m256i *)(ADDRESS), VALUE)
-#define DFT_DC_STORE_MASKED(ADDRESS, VALUE) store_complex_lanes_256(ADDRESS, VALUE, valid_lanes)
+#define DFT_DC_STORE_FULL(ADDRESS, Q, R, VALUE) simde_mm256_storeu_si256((simde__m256i *)(ADDRESS), VALUE)
+#define DFT_DC_STORE_MASKED(ADDRESS, Q, R, VALUE) store_complex_lanes_256(ADDRESS, VALUE, valid_lanes)
 #define DFT_DC_MASK_PARAM int valid_lanes,
 #define DEFINE_DFT64X8_DC_STORE(FN, MASK_PARAM, STORE)                           \
   static __attribute__((always_inline)) inline void FN(const simde__m256i x[64], \
@@ -1705,16 +1720,24 @@ static inline void dft64x8_store(const simde__m256i x[64], c16_t *dst, int outpu
       for (int q = 0; q < 8; q++) {                                              \
         if (r == 0 && q == 0)                                                    \
           continue; /* exact DC is stored below */                               \
-        STORE(dst + output_radix * (8 * q + r) + output_offset, y[q]);           \
+        STORE(dst + output_radix * (8 * q + r) + output_offset, q, r, y[q]);     \
       }                                                                          \
     }                                                                            \
                                                                                  \
-    STORE(dst + output_offset, dc);                                              \
+    STORE(dst + output_offset, 0, 0, dc);                                        \
   }
 
 DEFINE_DFT64X8_DC_STORE(dft64x8_store_with_dc, , DFT_DC_STORE_FULL)
 
 DEFINE_DFT64X8_DC_STORE(dft64x8_store_with_dc_masked, DFT_DC_MASK_PARAM, DFT_DC_STORE_MASKED)
+
+/* Pruned API, NR output: leaf index 8 Q + R at swapped index 8 (Q ^ 4) + R. */
+#define DFT_DC_STORE_BAND(ADDRESS, Q, R, VALUE) \
+  dft_band_store8(pout, 64 * output_radix, output_radix * (8 * ((Q) ^ 4) + (R)) + output_offset, (Q) < 4, VALUE)
+#define DFT_DC_BAND_PARAM const dft_band_t *pout,
+DEFINE_DFT64X8_DC_STORE(dft64x8_store_with_dc_band_body, DFT_DC_BAND_PARAM, DFT_DC_STORE_BAND)
+#undef DFT_DC_STORE_BAND
+#undef DFT_DC_BAND_PARAM
 
 #define DFT_TRANSPOSE8_TO_ROW(P, DST, POS)                                            \
   transpose8_complex_i16_256(&P##0, &P##1, &P##2, &P##3, &P##4, &P##5, &P##6, &P##7); \
@@ -1993,17 +2016,21 @@ DEFINE_DFT256_RADIX16(dft256_radix16_w16folded, dft16x8_w16folded)
 
 #undef DEFINE_DFT256_RADIX16
 
-static void dft512_radix8(const c16_t *src, c16_t *dst, dft_dir_t dir)
+/* DFT512 up to the DFT64x8 leaf: leaf[] holds the eight DFT64 inputs (one per lane). */
+static __attribute__((always_inline)) inline void dft512_radix8_leaf_inputs(const c16_t *src,
+                                                                            const dft_band_t *pin,
+                                                                            simde__m256i leaf[64],
+                                                                            dft_dir_t dir)
 {
   const int ds = dir == DFT_DIR_FORWARD ? 0 : 1;
   c16_t stage[512] __attribute__((aligned(64)));
-  simde__m256i leaf[64] __attribute__((aligned(64)));
 
   for (int b = 0; b < 8; b++) {
     const int n = 8 * b;
     simde__m256i x[8], h[8];
     for (int r = 0; r < 8; r++)
-      x[r] = simde_mm256_loadu_si256((const simde__m256i *)(src + r * 64 + n));
+      x[r] = pin ? dft_band_load8(pin, 512, (r ^ 4) * 64 + n, r < 4)
+                 : simde_mm256_loadu_si256((const simde__m256i *)(src + r * 64 + n));
     {
       const simde__m256i xin_[8] = {x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]};
       dft8x8_q15_256_half_dir(xin_, h, dir);
@@ -2023,21 +2050,39 @@ static void dft512_radix8(const c16_t *src, c16_t *dst, dft_dir_t dir)
     for (int lane = 0; lane < 8; lane++)
       leaf[n + lane] = z[lane];
   }
+}
 
+static void dft512_radix8(const c16_t *src, c16_t *dst, dft_dir_t dir)
+{
+  simde__m256i leaf[64] __attribute__((aligned(64)));
+  dft512_radix8_leaf_inputs(src, NULL, leaf, dir);
   dft64x8_store(leaf, dst, 8, 0, dir);
 }
 
-static void dft1024_radix16(const c16_t *src, c16_t *dst, dft_dir_t dir)
+/* DFT1024 up to the two DFT64x8 leaves (bins 16k + lane and 16k + 8 + lane). */
+static __attribute__((always_inline)) inline void dft1024_radix16_leaf_inputs(const c16_t *src,
+                                                                              const dft_band_t *pin,
+                                                                              simde__m256i leaf[2][64],
+                                                                              dft_dir_t dir)
 {
   const int ds = dir == DFT_DIR_FORWARD ? 0 : 1;
   const simde__m256i s2 = simde_mm256_set1_epi16(Q15_INV_SQRT2);
-  simde__m256i leaf[2][64] __attribute__((aligned(64)));
 
   for (int bidx = 0; bidx < 8; bidx++) {
     const int n = 8 * bidx;
     simde__m256i a[8], b[8], e[8], o[8];
 
-    DFT_R16_LOAD_SPLIT(0, src, 64, DFT_R16_W16_NONZERO)
+    /* DFT_R16_LOAD_SPLIT(0, src, 64, DFT_R16_W16_NONZERO) with band-aware loads */
+    for (int q = 0; q < 8; q++) {
+      /* band: bins q * 64 + n are in the upper swapped half, (q + 8) * 64 + n in the lower one */
+      const simde__m256i lo =
+          pin ? dft_band_load8(pin, 1024, (q + 8) * 64 + n, 1) : simde_mm256_loadu_si256((const simde__m256i *)(src + q * 64 + n));
+      const simde__m256i hi =
+          pin ? dft_band_load8(pin, 1024, q * 64 + n, 0) : simde_mm256_loadu_si256((const simde__m256i *)(src + (q + 8) * 64 + n));
+      a[q] = simde_mm256_mulhrs_epi16(simde_mm256_adds_epi16(lo, hi), s2);
+      b[q] = simde_mm256_mulhrs_epi16(simde_mm256_subs_epi16(lo, hi), s2);
+      DFT_R16_W16_NONZERO()
+    }
 
     DFT_R16_SPLIT_CHILDREN()
 
@@ -2061,12 +2106,21 @@ static void dft1024_radix16(const c16_t *src, c16_t *dst, dft_dir_t dir)
     z7 = complex_mul8_prepack_q15_256(o[7], dft1024_re[15][bidx], dft1024_im[ds][15][bidx]);
     DFT_TRANSPOSE8_TO_ROW(z, leaf[1], n)
   }
+}
 
+static void dft1024_radix16(const c16_t *src, c16_t *dst, dft_dir_t dir)
+{
+  simde__m256i leaf[2][64] __attribute__((aligned(64)));
+  dft1024_radix16_leaf_inputs(src, NULL, leaf, dir);
   dft64x8_store(leaf[0], dst, 16, 0, dir);
   dft64x8_store(leaf[1], dst, 16, 8, dir);
 }
 
-static void dft_power2_radix8_stage_large(const c16_t *src, c16_t *stage, int N, dft_dir_t dir)
+static __attribute__((always_inline)) inline void dft_power2_radix8_stage_large_body(const c16_t *src,
+                                                                                     const dft_band_t *pin,
+                                                                                     c16_t *stage,
+                                                                                     int N,
+                                                                                     dft_dir_t dir)
 {
   const power2_twiddle_t *tw = power2_twiddle_slot(N);
   AssertFatal(tw, "No radix-8 twiddles for N=%d\n", N);
@@ -2079,8 +2133,15 @@ static void dft_power2_radix8_stage_large(const c16_t *src, c16_t *stage, int N,
   for (int b = 0; b < blocks; b++) {
     const int n = 8 * b;
     simde__m256i x[8], y[8];
-    for (int r = 0; r < 8; r++)
-      x[r] = simde_mm256_loadu_si256((const simde__m256i *)(src + r * M + n));
+    for (int r = 0; r < 8; r++) {
+      if (!pin) {
+        x[r] = simde_mm256_loadu_si256((const simde__m256i *)(src + r * M + n));
+        continue;
+      }
+      /* band: natural bin r * M + n is at swapped index (r ^ 4) * M + n, in the upper half for r < 4 */
+      const int R = (r ^ 4) * M + n;
+      x[r] = dft_band_load8(pin, N, R, r < 4);
+    }
 
     {
       const simde__m256i xin_[8] = {x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]};
@@ -2096,6 +2157,27 @@ static void dft_power2_radix8_stage_large(const c16_t *src, c16_t *stage, int N,
   }
 }
 
+static void dft_power2_radix8_stage_large(const c16_t *src, c16_t *stage, int N, dft_dir_t dir)
+{
+  dft_power2_radix8_stage_large_body(src, NULL, stage, N, dir);
+}
+
+/* Pruned API, IDFT input in the NR layout (band passed as scalars, see dft_band_make). */
+static __attribute__((noinline)) void dft_power2_radix8_stage_large_band(const c16_t *in,
+                                                                         int d,
+                                                                         c16_t *edge_buf,
+                                                                         c16_t *stage,
+                                                                         int N,
+                                                                         dft_dir_t dir)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  const dft_band_t *pin = &band;
+  if (dir == DFT_DIR_FORWARD)
+    dft_power2_radix8_stage_large_body(NULL, pin, stage, N, DFT_DIR_FORWARD);
+  else
+    dft_power2_radix8_stage_large_body(NULL, pin, stage, N, DFT_DIR_INVERSE);
+}
+
 #define DFT_TRANSPOSE_CHILD_COLUMN(P, SRC, COL, DST, POS)                                      \
   simde__m256i P##0 = SRC[0][COL], P##1 = SRC[1][COL], P##2 = SRC[2][COL], P##3 = SRC[3][COL]; \
   simde__m256i P##4 = SRC[4][COL], P##5 = SRC[5][COL], P##6 = SRC[6][COL], P##7 = SRC[7][COL]; \
@@ -2108,9 +2190,19 @@ static void dft_power2_radix8_stage_large(const c16_t *src, c16_t *stage, int N,
                                                                                \
   dft_power2_radix8_stage_large(src, outer_stage, N, dir);
 
-static void dft2048_radix8x16_fused_w16folded(const c16_t *src, c16_t *dst, dft_dir_t dir)
+/* DFT2048 up to the sixteen DFT16x8 leaves: child_in[r16] gives bins 128k + 8 r16 + lane. */
+static __attribute__((always_inline)) inline void dft2048_radix8x16_leaf_inputs(const c16_t *src,
+                                                                                const dft_band_t *pin,
+                                                                                simde__m256i child_in[16][16],
+                                                                                dft_dir_t dir)
 {
-  DFT_FUSED_R8_PARENT_WORKSPACE(2048, 256, 16, child_in, 16, 16) const int ds = dir == DFT_DIR_FORWARD ? 0 : 1;
+  enum { N = 2048, CHILD_N = 256, M = 16 };
+  c16_t outer_stage[N] __attribute__((aligned(64)));
+  if (pin)
+    dft_power2_radix8_stage_large_band(pin->in, pin->d, pin->edge_buf, outer_stage, N, dir);
+  else
+    dft_power2_radix8_stage_large(src, outer_stage, N, dir);
+  const int ds = dir == DFT_DIR_FORWARD ? 0 : 1;
   const simde__m256i s2 = simde_mm256_set1_epi16(Q15_INV_SQRT2);
 
   for (int bidx = 0; bidx < 2; bidx++) {
@@ -2145,7 +2237,12 @@ static void dft2048_radix8x16_fused_w16folded(const c16_t *src, c16_t *dst, dft_
       DFT_TRANSPOSE_CHILD_COLUMN(z, R, r16, child_in[r16], n)
     }
   }
+}
 
+static void dft2048_radix8x16_fused_w16folded(const c16_t *src, c16_t *dst, dft_dir_t dir)
+{
+  simde__m256i child_in[16][16] __attribute__((aligned(64)));
+  dft2048_radix8x16_leaf_inputs(src, NULL, child_in, dir);
   for (int r16 = 0; r16 < 16; r16++) {
     simde__m256i y[16];
     dft16x8_w16folded(child_in[r16], y, dir);
@@ -2155,9 +2252,19 @@ static void dft2048_radix8x16_fused_w16folded(const c16_t *src, c16_t *dst, dft_
   }
 }
 
-static void dft4096_radix8x8_fused(const c16_t *src, c16_t *dst, dft_dir_t dir)
+/* DFT4096 up to the eight DFT64x8 leaves: leaf_in[r] gives bins 64k + 8r + lane. */
+static __attribute__((always_inline)) inline void dft4096_radix8x8_leaf_inputs(const c16_t *src,
+                                                                               const dft_band_t *pin,
+                                                                               simde__m256i leaf_in[8][64],
+                                                                               dft_dir_t dir)
 {
-  DFT_FUSED_R8_PARENT_WORKSPACE(4096, 512, 64, leaf_in, 8, 64) const int ds = dir == DFT_DIR_FORWARD ? 0 : 1;
+  enum { N = 4096, CHILD_N = 512, M = 64 };
+  c16_t outer_stage[N] __attribute__((aligned(64)));
+  if (pin)
+    dft_power2_radix8_stage_large_band(pin->in, pin->d, pin->edge_buf, outer_stage, N, dir);
+  else
+    dft_power2_radix8_stage_large(src, outer_stage, N, dir);
+  const int ds = dir == DFT_DIR_FORWARD ? 0 : 1;
 
   for (int bidx = 0; bidx < 8; bidx++) {
     const int n = 8 * bidx;
@@ -2183,7 +2290,12 @@ static void dft4096_radix8x8_fused(const c16_t *src, c16_t *dst, dft_dir_t dir)
       DFT_TRANSPOSE_CHILD_COLUMN(z, R, r, leaf_in[r], n)
     }
   }
+}
 
+static void dft4096_radix8x8_fused(const c16_t *src, c16_t *dst, dft_dir_t dir)
+{
+  simde__m256i leaf_in[8][64] __attribute__((aligned(64)));
+  dft4096_radix8x8_leaf_inputs(src, NULL, leaf_in, dir);
   for (int r = 0; r < 8; r++)
     dft64x8_store(leaf_in[r], dst, 64, 8 * r, dir);
 }

@@ -925,16 +925,36 @@ DEFINE_Q15_TABLE_INITIALIZER(
         }
       }
     })
-static inline void radix24_pfa_stage_384(const c16_t *src, c16_t *b, dft_dir_t dir)
+/* Input vector x[j] of the radix-24 PFA input group ids[j] (24 rows of M bins) at column off. With pin, from the
+ * NR layout of the pruned API: the swapped row of ids[j] is (ids[j] + 12) % 24 = ids[j ^ 4] in each group (the
+ * callers unroll their loops, so the row and its half are constants). */
+static __attribute__((always_inline)) inline simde__m256i r24_row_load8(const c16_t *src,
+                                                                        const dft_band_t *pin,
+                                                                        int M,
+                                                                        const int ids[8],
+                                                                        int j,
+                                                                        int off)
+{
+  if (pin)
+    return dft_band_load8(pin, 24 * M, ids[j ^ 4] * M + off, ids[j ^ 4] >= 12);
+  return simde_mm256_loadu_si256((const simde__m256i *)(src + ids[j] * M + off));
+}
+
+static __attribute__((always_inline)) inline void radix24_pfa_stage_384(const c16_t *src,
+                                                                        const dft_band_t *pin,
+                                                                        c16_t *b,
+                                                                        dft_dir_t dir)
 {
   enum { M = 16 };
   static const int ids[3][8] = {{0, 9, 18, 3, 12, 21, 6, 15}, {16, 1, 10, 19, 4, 13, 22, 7}, {8, 17, 2, 11, 20, 5, 14, 23}};
   for (int off = 0; off < M; off += 8) {
     simde__m256i s[3][8];
+#pragma GCC unroll 3
     for (int n3 = 0; n3 < 3; n3++) {
       simde__m256i x[8];
+#pragma GCC unroll 8
       for (int j = 0; j < 8; j++)
-        x[j] = simde_mm256_loadu_si256((const simde__m256i *)(src + ids[n3][j] * M + off));
+        x[j] = r24_row_load8(src, pin, M, ids[n3], j, off);
       dft8x8_q15_256_unitary_dir(x[0],
                                  x[1],
                                  x[2],
@@ -973,7 +993,7 @@ static void dft384_radix24_pfa(const c16_t *src, c16_t *dst, dft_dir_t dir)
 {
   enum { R = 24, M = 16 };
   c16_t b[R * M] __attribute__((aligned(64)));
-  radix24_pfa_stage_384(src, b, dir);
+  radix24_pfa_stage_384(src, NULL, b, dir);
   dft16x8_twiddle_scaled_store(b, M, dst, R, 0, 8, dir);
   dft16x8_twiddle_scaled_store(b, M, dst, R, 8, 8, dir);
   dft16x8_twiddle_scaled_store(b, M, dst, R, 16, 8, dir);
@@ -1073,7 +1093,10 @@ DEFINE_Q15_TABLE_INITIALIZER(
       }
     })
 
-static inline void radix24_pfa_stage_768(const c16_t *src, c16_t *b, dft_dir_t dir)
+static __attribute__((always_inline)) inline void radix24_pfa_stage_768(const c16_t *src,
+                                                                        const dft_band_t *pin,
+                                                                        c16_t *b,
+                                                                        dft_dir_t dir)
 {
   enum { M = 32 };
   static const int ids[3][8] = {
@@ -1085,10 +1108,12 @@ static inline void radix24_pfa_stage_768(const c16_t *src, c16_t *b, dft_dir_t d
   for (int off = 0; off < M; off += 8) {
     simde__m256i s[3][8];
 
+#pragma GCC unroll 3
     for (int n3 = 0; n3 < 3; n3++) {
       simde__m256i x[8];
+#pragma GCC unroll 8
       for (int j = 0; j < 8; j++)
-        x[j] = simde_mm256_loadu_si256((const simde__m256i *)(src + ids[n3][j] * M + off));
+        x[j] = r24_row_load8(src, pin, M, ids[n3], j, off);
 
       dft8x8_q15_256_unitary_dir(x[0],
                                  x[1],
@@ -1149,7 +1174,7 @@ static void dft768_radix24_pfa_leaf32(const c16_t *src, c16_t *dst, dft_dir_t di
   enum { R = 24, M = 32 };
   c16_t b[R * M] __attribute__((aligned(64)));
 
-  radix24_pfa_stage_768(src, b, dir);
+  radix24_pfa_stage_768(src, NULL, b, dir);
 
   dft32x8_twiddle_scaled_store(b, M, dst, R, 0, 8, dir);
   dft32x8_twiddle_scaled_store(b, M, dst, R, 8, 8, dir);
@@ -1170,14 +1195,21 @@ static void dft864_radix27_leaf32(const c16_t *src, c16_t *dst, dft_dir_t dir)
 }
 
 /* DFT1536: R24 PFA, M=64. */
-static inline void raw_radix24_pfa8_q15_256(const c16_t *src, int M, int off, simde__m256i y[24], dft_dir_t dir)
+static __attribute__((always_inline)) inline void raw_radix24_pfa8_body(const c16_t *src,
+                                                                        const dft_band_t *pin,
+                                                                        int M,
+                                                                        int off,
+                                                                        simde__m256i y[24],
+                                                                        dft_dir_t dir)
 {
   static const int ids[3][8] = {{0, 9, 18, 3, 12, 21, 6, 15}, {16, 1, 10, 19, 4, 13, 22, 7}, {8, 17, 2, 11, 20, 5, 14, 23}};
   simde__m256i s[3][8];
+#pragma GCC unroll 3
   for (int n = 0; n < 3; n++) {
     simde__m256i x[8];
+#pragma GCC unroll 8
     for (int j = 0; j < 8; j++)
-      x[j] = simde_mm256_loadu_si256((const simde__m256i *)(src + ids[n][j] * M + off));
+      x[j] = r24_row_load8(src, pin, M, ids[n], j, off);
     dft8x8_q15_256_unitary_dir(x[0],
                                x[1],
                                x[2],
@@ -1205,9 +1237,52 @@ static inline void raw_radix24_pfa8_q15_256(const c16_t *src, int M, int off, si
   }
 }
 
+static inline void raw_radix24_pfa8_q15_256(const c16_t *src, int M, int off, simde__m256i y[24], dft_dir_t dir)
+{
+  raw_radix24_pfa8_body(src, NULL, M, off, y, dir);
+}
+
 static simde__m256i dft1536_r24_re[8][24] __attribute__((aligned(64))), dft1536_r24_im[8][24] __attribute__((aligned(64)));
 DEFINE_PACKED_PARENT_TWIDDLE_INIT(dft1536_r24_tw_init, dft1536_r24, 1536, 24, 8, (float)3)
 DEFINE_PACKED_PFA_PARENT(radix24_stage_1536, 64, 24, raw_radix24_pfa8_q15_256, dft1536_r24, Q15_INV_SQRT3)
+/* radix24_stage_1536 reading the NR layout of the pruned API (inverse). */
+static __attribute__((always_inline)) inline void radix24_stage_1536_band(const dft_band_t *pin, c16_t *b, dft_dir_t dir)
+{
+  enum { M = 64 };
+  for (int off = 0; off < M; off += 8) {
+    simde__m256i z[24];
+    raw_radix24_pfa8_body(NULL, pin, M, off, z, dir);
+    for (int br = 0; br < 24; br++) {
+      const simde__m256i v = br == 0 ? simde_mm256_mulhrs_epi16(z[br], simde_mm256_set1_epi16(Q15_INV_SQRT3))
+                                     : complex_mul8_prepack_q15_256(z[br],
+                                                                    dft1536_r24_re[off >> 3][br],
+                                                                    twiddle_im_dir_256(dft1536_r24_im[off >> 3][br], dir));
+      simde_mm256_store_si256((simde__m256i *)(b + br * M + off), v);
+    }
+  }
+}
+/* dft64x8_branch_major_store with the packed output of the pruned API (forward). */
+static __attribute__((always_inline)) inline void dft64x8_branch_major_store_band(const c16_t *b,
+                                                                                  int M,
+                                                                                  const dft_band_t *pout,
+                                                                                  int R,
+                                                                                  int first)
+{
+  /* local copy: the fields stay in registers (stores through c16_t * may alias *pout otherwise) */
+  const dft_band_t band_local = *pout;
+  pout = &band_local;
+  simde__m256i leaf[64] __attribute__((aligned(64)));
+  for (int n = 0; n < 64; n += 8) {
+    simde__m256i z[8];
+    for (int br = 0; br < 8; br++)
+      z[br] = simde_mm256_loadu_si256((const simde__m256i *)(b + (first + br) * M + n));
+    transpose8_complex_i16_256(&z[0], &z[1], &z[2], &z[3], &z[4], &z[5], &z[6], &z[7]);
+    for (int l = 0; l < 8; l++)
+      leaf[n + l] = z[l];
+  }
+  dft64x8_store_with_dc_band_body(leaf, pout->out, R, first, pout, DFT_DIR_FORWARD);
+}
+
 static void dft1536_radix24_pfa_leaf64(const c16_t *src, c16_t *dst, dft_dir_t dir)
 {
   enum { M = 64 };

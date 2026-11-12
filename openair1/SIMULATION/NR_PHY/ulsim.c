@@ -811,6 +811,7 @@ int main(int argc, char *argv[])
   nfapi_nr_ul_tti_request_t *UL_tti_req = &Sched_INFO->UL_tti_req;
 
   time_stats_t channel_stats = {0};
+  time_stats_t ofdm_demod_stats = {0}; // gNB OFDM demodulation: DFT + FFT shift + phase compensation, all antennas
   time_stats_t noise_stats = {0};
   time_stats_t pipeline_stats = {0};
   init_sorted_list_meas(&gNB->phy_proc_rx, max_rounds * n_trials);
@@ -1025,6 +1026,7 @@ int main(int argc, char *argv[])
     effTP = 0;
     roundStats = 0;
     reset_meas(&gNB->phy_proc_rx);
+    reset_meas(&ofdm_demod_stats);
     reset_meas(&gNB->rx_pusch_stats);
     reset_meas(&gNB->rx_pusch_init_stats);
     reset_meas(&gNB->rx_pusch_symbol_processing_stats);
@@ -1452,6 +1454,7 @@ int main(int argc, char *argv[])
         for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++) {
           was_symbol_used[i] = true;
         }
+        start_meas(&ofdm_demod_stats);
         nr_ofdm_demod_and_rx_rotation(rxdata,
                                       gNB->common_vars.rxdataF,
                                       &gNB->frame_parms,
@@ -1460,6 +1463,7 @@ int main(int argc, char *argv[])
                                       0,
                                       link_type_ul,
                                       was_symbol_used);
+        stop_meas(&ofdm_demod_stats);
 
         ul_proc_error = phy_procedures_gNB_uespec_RX(gNB, frame, slot, &UL_INFO);
 
@@ -1715,6 +1719,7 @@ int main(int argc, char *argv[])
       }
 
       printf("\ngNB RX\n");
+      printStatIndent(&ofdm_demod_stats, "OFDM demod (DFT, FFT shift, rotation)");
       printDistribution(&gNB->phy_proc_rx, "Total PHY proc rx");
       printStatIndent(&gNB->rx_pusch_stats, "RX PUSCH time");
       printStatIndent2(&gNB->ulsch_channel_estimation_stats, "ULSCH channel estimation time");

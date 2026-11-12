@@ -30,4 +30,16 @@ void PHY_ofdm_mod(const int *input,
                   unsigned char nb_symbols,
                   unsigned short nb_prefix_samples,
                   Extension_t etype);
+
+/*! PHY_ofdm_mod() for an input in the fftshifted (packed) layout of an NR carrier of nbins
+    subcarriers (idft_pruned, DFT_PRUNE_PACKED): entries nbins .. fftsize-1 of each input symbol must be
+    zero. The output is bit-identical to PHY_ofdm_mod() of the symbol in natural FFT order (the band halves
+    moved to the two ends of the window); the input is not modified. */
+void PHY_ofdm_mod_shifted(const int *input,
+                          int *output,
+                          int fftsize,
+                          unsigned char nb_symbols,
+                          unsigned short nb_prefix_samples,
+                          Extension_t etype,
+                          int nbins);
 #endif

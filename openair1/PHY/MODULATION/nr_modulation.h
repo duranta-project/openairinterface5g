@@ -58,21 +58,21 @@ void nr_layer_mapping(int nbCodes,
 */
 void nr_ue_layer_mapping(const c16_t *mod_symbs, const int n_layers, const int n_symbs, c16_t tx_layers[][n_symbs]);
 
-/*!
-\brief This function implements the OFDM front end processor on reception (FEP)
-\param frame_parms Pointer to frame parameters
+/*! \brief CP removal and FFT of one UL symbol, the output in the fftshifted layout of the N_RB_UL carrier:
+    the band at [0, N_RB_UL * 12), the guard bins after it (the DFT stores its output in that order).
+\param fp Frame parameters
 \param rxdata Pointer to input data in time domain for one frame
-\param rxdataF Pointer to output data in frequency domain for one symbol
+\param rxdataF Pointer to output data in frequency domain for one symbol (ofdm_symbol_size entries)
 \param symbol symbol within slot (0..12/14)
 \param slot Slot number
 \param sample_offset offset within rxdata (points to beginning of symbol)
 */
-int nr_symbol_fep_ul(const NR_DL_FRAME_PARMS *fp,
-                     const c16_t *rxdata,
-                     c16_t *rxdataF,
-                     unsigned char symbol,
-                     unsigned char slot,
-                     int sample_offset);
+void nr_symbol_fep_ul_shifted(const NR_DL_FRAME_PARMS *fp,
+                              const c16_t *rxdata,
+                              c16_t *rxdataF,
+                              unsigned char symbol,
+                              unsigned char slot,
+                              int sample_offset);
 
 /*!
 \brief This function implements the dft transform precoding in PUSCH
@@ -156,18 +156,19 @@ void nr_layer_precoder_simd(const int n_layers,
                             const int re_cnt,
                             c16_t *txdataF_precoded);
 
-void nr_normal_prefix_mod(c16_t *txdataF,
-                          c16_t *txdata,
-                          uint8_t nsymb,
-                          const NR_DL_FRAME_PARMS *frame_parms,
-                          uint32_t slot,
-                          bool was_symbol_used[NR_SYMBOLS_PER_SLOT]);
+/* OFDM modulation with normal cyclic prefix of the nsymb symbols of a slot. txdataF is in the fftshifted
+   layout of an NR carrier of nbins subcarriers: the band at [0, nbins) of each symbol, entries
+   nbins .. ofdm_symbol_size-1 zero (PHY_ofdm_mod_shifted). txdataF is not modified. */
+void nr_normal_prefix_mod_shifted(c16_t *txdataF,
+                                  c16_t *txdata,
+                                  uint8_t nsymb,
+                                  const NR_DL_FRAME_PARMS *frame_parms,
+                                  uint32_t slot,
+                                  bool was_symbol_used[NR_SYMBOLS_PER_SLOT],
+                                  int nbins);
 
-// FFT shift routines
-void fftshift(const c16_t *in, c16_t *out, int nbins, int fft_size);
+// FFT shift: natural FFT order -> the band of nbins subcarriers at [0, nbins), guard bins after it
 void fftshift_inplace(c16_t *in, int nbins, int fft_size);
-void fftshift_inverse(const c16_t *in, c16_t *out, int nbins, int fft_size);
-void fftshift_inverse_inplace(c16_t *in, int nbins, int fft_size);
 
 /*! \brief Fast 2-port / 2-layer precoder: writes both antenna outputs in one
    pass, exploiting that every 2x2 codebook weight is +/-1 or +/-j times a

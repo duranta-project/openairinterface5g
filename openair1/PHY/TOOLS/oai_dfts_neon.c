@@ -7173,4 +7173,68 @@ void idft_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, unsig
   dft_mixed_radix_c16_scaled((const c16_t *)input, (c16_t *)output, idft_ftab[sizeidx].size, DFT_DIR_INVERSE);
 }
 
+/* Pruned entry points (see tools_defs.h). No pruned kernels here: the full transform runs on a
+ * natural-order work buffer and the band is copied in or out. */
+/* Per-thread work buffer of the band-limited transforms, freed when the thread exits. */
+static __thread c16_t *prune_work;
+static __thread int prune_work_len;
+static pthread_key_t prune_work_key;
+static pthread_once_t prune_work_key_once = PTHREAD_ONCE_INIT;
+
+static void prune_work_free(void *p)
+{
+  free(p);
+  prune_work = NULL;
+  prune_work_len = 0;
+}
+
+static void prune_work_key_create(void)
+{
+  AssertFatal(pthread_key_create(&prune_work_key, prune_work_free) == 0, "pruned DFT work key creation failed\n");
+}
+
+static c16_t *prune_work_get(int N)
+{
+  if (N > prune_work_len) {
+    pthread_once(&prune_work_key_once, prune_work_key_create);
+    free(prune_work);
+    void *p = NULL;
+    AssertFatal(posix_memalign(&p, 64, sizeof(c16_t) * (size_t)N) == 0, "pruned DFT work buffer allocation failed\n");
+    prune_work = p;
+    prune_work_len = N;
+    pthread_setspecific(prune_work_key, prune_work);
+  }
+  return prune_work;
+}
+
+void dft_pruned_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout)
+{
+  AssertFatal(sizeidx < DFT_SIZE_IDXTABLESIZE, "Invalid dft size index %i\n", sizeidx);
+  const int N = dft_ftab[sizeidx].size;
+  AssertFatal(first_used >= 0 && first_used < N && num_used > 0 && num_used <= N, "Invalid pruned DFT band\n");
+  c16_t *nat = prune_work_get(N);
+  dft_mixed_radix_c16_scaled((const c16_t *)input, nat, N, DFT_DIR_FORWARD);
+  /* all N bins, like the x86 version: PACKED is the rotation of the dft() output */
+  c16_t *out = (c16_t *)output;
+  for (int j = 0; j < N; j++) {
+    const int k = (first_used + j) % N;
+    out[layout == DFT_PRUNE_PACKED ? j : k] = nat[k];
+  }
+}
+
+void idft_pruned_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout)
+{
+  AssertFatal(sizeidx < IDFT_SIZE_IDXTABLESIZE, "Invalid idft size index %i\n", sizeidx);
+  const int N = idft_ftab[sizeidx].size;
+  AssertFatal(first_used >= 0 && first_used < N && num_used > 0 && num_used <= N, "Invalid pruned IDFT band\n");
+  c16_t *nat = prune_work_get(N);
+  const c16_t *in = (const c16_t *)input;
+  memset(nat, 0, sizeof(c16_t) * (size_t)N);
+  for (int j = 0; j < num_used; j++) {
+    const int k = (first_used + j) % N;
+    nat[k] = in[layout == DFT_PRUNE_PACKED ? j : k];
+  }
+  dft_mixed_radix_c16_scaled(nat, (c16_t *)output, N, DFT_DIR_INVERSE);
+}
+
 #endif /* __arm__ || __aarch64__ */

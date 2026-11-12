@@ -27,14 +27,18 @@ void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
   dft_size_idx_t dftsize = get_dft(frame_parms->ofdm_symbol_size);
   const bool is_sl = (link_type == link_type_sl);
   const int nb_rb = is_sl ? frame_parms->N_RB_SL : frame_parms->N_RB_DL;
+  const int nbins = nb_rb * NR_NB_SC_PER_RB;
   for (unsigned char aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
-    // OFDM Demod
+    // OFDM Demod + FFT-shift: the band-limited DFT stores its output fftshifted; the whole symbol
+    // buffer is bit-identical to dft() followed by fftshift_inplace(rxdataF[aa], nbins, N)
     if (dft_stats) start_meas(dft_stats);
-    dft(dftsize, (int16_t *)rxdata[aa], (int16_t *)rxdataF[aa], 1);
+    dft_pruned(dftsize,
+               (int16_t *)rxdata[aa],
+               (int16_t *)rxdataF[aa],
+               frame_parms->ofdm_symbol_size - nbins / 2,
+               nbins,
+               DFT_PRUNE_PACKED);
     if (dft_stats) stop_meas(dft_stats);
-
-    // FFT-shift
-    fftshift_inplace(rxdataF[aa], nb_rb * NR_NB_SC_PER_RB, frame_parms->ofdm_symbol_size);
 
     // Phase compensation
     apply_nr_rotation_symbol_fftshifted_RX(frame_parms->symbols_per_slot,
@@ -125,12 +129,12 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
   return 0;
 }
 
-int nr_symbol_fep_ul(const NR_DL_FRAME_PARMS *fp,
-                     const c16_t *rxdata,
-                     c16_t *rxdataF,
-                     unsigned char symbol,
-                     unsigned char slot,
-                     int sample_offset)
+void nr_symbol_fep_ul_shifted(const NR_DL_FRAME_PARMS *fp,
+                              const c16_t *rxdata,
+                              c16_t *rxdataF,
+                              unsigned char symbol,
+                              unsigned char slot,
+                              int sample_offset)
 {
   dft_size_idx_t dftsize = get_dft(fp->ofdm_symbol_size);
   // This is for misalignment issues
@@ -162,9 +166,8 @@ int nr_symbol_fep_ul(const NR_DL_FRAME_PARMS *fp,
     rxdata_ptr = (int16_t *)&rxdata[rxdata_offset];
   }
 
-  dft(dftsize, rxdata_ptr, (int16_t *)rxdataF, 1);
-
-  return 0;
+  const int nbins = fp->N_RB_UL * NR_NB_SC_PER_RB;
+  dft_pruned(dftsize, rxdata_ptr, (int16_t *)rxdataF, fp->ofdm_symbol_size - nbins / 2, nbins, DFT_PRUNE_PACKED);
 }
 
 void apply_nr_rotation_symbol_fftshifted_RX(const int symbols_per_slot,
@@ -195,12 +198,8 @@ void nr_ofdm_demod_and_rx_rotation(c16_t **rxdata,
   for (int aa = 0; aa < nb_antennas; aa++) {
     for (uint8_t symbol = 0; symbol < fp->symbols_per_slot; symbol++) {
       if (was_symbol_used[symbol] == true) {
-        // OFDM Demod
-        nr_symbol_fep_ul(fp, &rxdata[aa][0], &rxdataF[aa][slot_offsetF + symbol * fp->ofdm_symbol_size], symbol, slot, 0);
-        // FFT-shift
-        fftshift_inplace(&rxdataF[aa][slot_offsetF + symbol * fp->ofdm_symbol_size],
-                         fp->N_RB_UL * NR_NB_SC_PER_RB,
-                         fp->ofdm_symbol_size);
+        // OFDM Demod + FFT-shift
+        nr_symbol_fep_ul_shifted(fp, &rxdata[aa][0], &rxdataF[aa][slot_offsetF + symbol * fp->ofdm_symbol_size], symbol, slot, 0);
         // Phase compensation
         apply_nr_rotation_symbol_fftshifted_RX(fp->symbols_per_slot,
                                                fp->slots_per_subframe,
