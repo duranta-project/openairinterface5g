@@ -9,6 +9,8 @@
 #include "PHY/impl_defs_nr.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
+#include "PHY/MODULATION/nr_modulation.h"
+#include "executables/nr-ue-fd.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 
 #include "common/utils/LOG/log.h"
@@ -205,6 +207,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
     Ncp = ncp[prach_fmt_id - 4] >> mu;
     dftlen = 2048 >> mu;
   }
+  const int repetitions = prach_repetitions[prach_fmt_id];
 
   // actually what we should be checking here is how often the current prach crosses a 0.5ms boundary. I am not quite sure for
   // which paramter set this would be the case, so I will ignore it for now and just check if the prach starts on a 0.5ms boundary
@@ -320,33 +323,26 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
         k = 0;
     }
 
+    if (ue->fd_ifdevice) {
+      ue->fd_ifdevice->write_prach(ue->fd_ifdevice, frame, slot, prachF, dftlen, Ncp, prach_start, repetitions);
+      return 0;
+    }
+
 #if defined(PRACH_WRITE_OUTPUT_DEBUG)
     LOG_M("prachF.m", "prachF", &prachF[1804], 1024, 1, 1);
     LOG_M("Xu.m", "Xu", Xu, N_ZC, 1, 1);
 #endif
 
-    // This is after cyclic prefix
-    const idft_size_idx_t idft_size = get_idft(dftlen);
-    idft(idft_size, (int16_t *)prachF, (int16_t *)prach, 1);
-  }
+    /* The TX slots of a PRACH are not OFDM modulated: clear them, or the samples written in this buffer the last time,
+     * often the previous PRACH of this UE in another occasion of the slot, would be transmitted again */
+    const int prach_slots = prach_fmt_id < 4 ? get_long_prach_dur(prach_fmt_id, fp->numerology_index) : 1;
+    int slots_len = 0;
+    for (int s = 0; s < prach_slots; s++)
+      slots_len += get_samples_per_slot((slot + s) % fp->slots_per_frame, fp);
+    for (int aa = 0; aa < fp->nb_antennas_tx; aa++)
+      memset(txData[aa], 0, slots_len * sizeof(*txData[aa]));
 
-  /* The TX slots of a PRACH are not OFDM modulated: clear them, or the samples written in this buffer the last time,
-   * often the previous PRACH of this UE in another occasion of the slot, would be transmitted again */
-  const int prach_slots = prach_fmt_id < 4 ? get_long_prach_dur(prach_fmt_id, fp->numerology_index) : 1;
-  int slots_len = 0;
-  for (int s = 0; s < prach_slots; s++)
-    slots_len += get_samples_per_slot((slot + s) % fp->slots_per_frame, fp);
-  for (int aa = 0; aa < fp->nb_antennas_tx; aa++)
-    memset(txData[aa], 0, slots_len * sizeof(*txData[aa]));
-
-  c16_t *out = txData[0] + prach_start;
-  memcpy(out, prach + dftlen - Ncp, Ncp * sizeof(*prach));
-  out += Ncp;
-  const int copies[11] = {1, 2, 4, 4, 2, 4, 6, 2, 12, 1, 4};
-  DevAssert(prach_fmt_id < sizeofArray(copies));
-  for (int i = 0; i < copies[prach_fmt_id]; i++) {
-    memcpy(out, prach, dftlen * sizeof(*prach));
-    out += dftlen;
+    nr_prach_ofdm_mod(prachF, dftlen, Ncp, repetitions, prach, txData[0] + prach_start);
   }
 
 #ifdef NR_PRACH_DEBUG

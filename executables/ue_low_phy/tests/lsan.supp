@@ -1,0 +1,3 @@
+# The AArch64 DFT keeps per-thread scratch buffers that are never freed on
+# thread exit; this test runs DFTs on short-lived device threads.
+leak:libdfts.so

@@ -106,6 +106,19 @@ static inline void *malloc_or_fail(size_t size)
   return ptr;
 }
 
+static inline void *malloc16_clear_or_fail(size_t size)
+{
+  void *ptr = memalign(64, size + 64);
+
+  if (ptr == NULL) {
+    fprintf(stderr, "Failed to memalign() %zu bytes: out of memory", size);
+    exit(EXIT_FAILURE);
+  }
+
+  memset(ptr, 0, size);
+  return ptr;
+}
+
 #if !defined (msg)
 # define msg(aRGS...) LOG_D(PHY, ##aRGS)
 #endif

@@ -541,7 +541,7 @@ int main(int argc, char *argv[])
         UE_nr_rxtx_proc_t proc = {.frame_rx = frame, .frame_tx = frame, .nr_slot_rx = slot_r, .nr_slot_tx = slot_r};
         start_meas(&prs_rx_stats);
         for (int l = prs_start_symbol; l < prs_start_symbol + prs_num_symbols; l++)
-          nr_slot_fep(UE, fp, slot_r, l, rxdataF, link_type_dl, 0, UE->common_vars.rxdata);
+          nr_slot_fep(UE, fp, frame, slot_r, l, rxdataF, link_type_dl, 0, UE->common_vars.rxdata);
         for (int g = 0; g < n_gnb; g++) {
           for (i = 0; i < n_rx; i++)
             prs_meas[g][r][i]->next_dl_toa = prs_meas[g][r][i]->dl_toa;

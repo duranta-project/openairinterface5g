@@ -7,6 +7,8 @@
  */
 
 static const char* const prachfmt[] = {"0", "1", "2", "3", "A1", "A2", "A3", "B1", "B4", "C0", "C2", "A1/B1", "A2/B2", "A3/B3"};
+// Sequence repetitions per preamble format, indexed like prachfmt (38.211 Tables 6.3.3.1-1, 6.3.3.1-2)
+static const int prach_repetitions[] = {1, 2, 4, 4, 2, 4, 6, 2, 12, 1, 4, 2, 4, 6};
 
 /*************************************
 * The following tables defined for NR
