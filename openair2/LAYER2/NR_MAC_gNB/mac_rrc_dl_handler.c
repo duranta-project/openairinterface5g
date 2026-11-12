@@ -1117,13 +1117,13 @@ void ue_context_release_command(const f1ap_ue_context_rel_cmd_t *cmd)
   if (f1inst >= 0)
     newGtpuDeleteAllTunnels(f1inst, cmd->gNB_DU_ue_id);
 
-  if (UE->UE_sched_ctrl.ul_failure || !cmd->rrc_container) {
+  if (UE->UE_sched_ctrl.link_failure || !cmd->rrc_container) {
     /* The UE is already not connected anymore or we have nothing to forward*/
     nr_mac_release_ue(mac, cmd->gNB_DU_ue_id);
     nr_mac_trigger_release_complete(mac, cmd->gNB_DU_ue_id);
   } else if (cmd->rrc_container && cmd->srb_id){
     /* UE is in sync: forward release message and mark to be deleted
-     * after UL failure */
+     * after link failure */
     byte_array_t *rrc_cont = cmd->rrc_container;
     nr_rlc_srb_recv_sdu(cmd->gNB_DU_ue_id, *cmd->srb_id, rrc_cont->buf, rrc_cont->len);
     nr_mac_trigger_release_timer(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
