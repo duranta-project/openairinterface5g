@@ -21,103 +21,95 @@ int get_nr_prach_duration(uint8_t prach_format)
   return val[prach_format];
 }
 
-void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_rach_indication_t *rach_ind)
+/* Detects one time occasion of a PRACH request. The caller handles the occasions in order, as each one updates the
+   noise estimate used by the next, and empties rach_ind when it is full. */
+void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, const prach_item_t *prach_id, int prach_oc, nfapi_nr_rach_indication_t *rach_ind)
 {
   const frame_t frame = prach_id->frame;
   const slot_t slot = prach_id->slot;
-  rach_ind->sfn = frame;
-  rach_ind->slot = slot;
-  nfapi_nr_prach_pdu_t *prach_pdu = &prach_id->pdu;
-  // in the L1 RX thread, before phy_procedures_gNB_uespec_RX() reads it for the noise measurement
-  nr_prach_rb_mask_update(gNB, prach_id);
-  LOG_D(NR_PHY_RACH, "%d.%d, prachstart slot %d prach entry occas %d\n", frame, slot, prach_id->slot, prach_pdu->num_prach_ocas);
+  const nfapi_nr_prach_pdu_t *prach_pdu = &prach_id->pdu;
   int N_dur = get_nr_prach_duration(prach_pdu->prach_format);
+  uint prachStartSymbol = prach_pdu->prach_start_symbol + prach_oc * N_dur;
+  // comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is
+  // given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots
+  // where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
+  rx_prach_out_t res = rx_nr_prach(prach_id, prach_oc);
+  const bool prach_noise_ready = gNB->prach_energy_counter == NUM_PRACH_RX_FOR_NOISE_ESTIMATE;
+  const bool prach_above_threshold = res.max_preamble_energy > gNB->measurements.prach_I0 + gNB->prach_thres;
+  const bool prach_ind_has_space = rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS;
+  const bool prach_accepted = prach_noise_ready && prach_above_threshold && prach_ind_has_space;
+  LOG_D(NR_PHY,
+        "[RAPROC] %d.%d occasion %d symbol %u format %u sequence-length %d N_ZC %d PRACH-SCS %d UL-mu %d NCS %u "
+        "RAPID %u energy %.1f dB I0 %.1f dB threshold %.1f dB raw-delay %u TA %u "
+        "noise %d/%d noise-ready %d threshold-pass %d indication-space %d accepted %d\n",
+        frame,
+        slot,
+        prach_oc,
+        prachStartSymbol,
+        prach_pdu->prach_format,
+        prach_id->prach_sequence_length,
+        prach_id->prach_sequence_length == 0 ? 839 : 139,
+        prach_id->mu,
+        prach_id->numerology_index,
+        prach_pdu->num_cs,
+        res.max_preamble,
+        res.max_preamble_energy / 10.0,
+        gNB->measurements.prach_I0 / 10.0,
+        gNB->prach_thres / 10.0,
+        res.max_preamble_delay_raw,
+        res.max_preamble_delay,
+        gNB->prach_energy_counter,
+        NUM_PRACH_RX_FOR_NOISE_ESTIMATE,
+        prach_noise_ready,
+        prach_above_threshold,
+        prach_ind_has_space,
+        prach_accepted);
 
-  for (int prach_oc = 0; prach_oc < prach_pdu->num_prach_ocas; prach_oc++) {
-    uint prachStartSymbol = prach_pdu->prach_start_symbol + prach_oc * N_dur;
-    // comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is
-    // given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots
-    // where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
-    rx_prach_out_t res = rx_nr_prach(prach_id, prach_oc);
-    const bool prach_noise_ready = gNB->prach_energy_counter == NUM_PRACH_RX_FOR_NOISE_ESTIMATE;
-    const bool prach_above_threshold = res.max_preamble_energy > gNB->measurements.prach_I0 + gNB->prach_thres;
-    const bool prach_ind_has_space = rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS;
-    const bool prach_accepted = prach_noise_ready && prach_above_threshold && prach_ind_has_space;
-    LOG_D(NR_PHY,
-          "[RAPROC] %d.%d occasion %d symbol %u format %u sequence-length %d N_ZC %d PRACH-SCS %d UL-mu %d NCS %u "
-          "RAPID %u energy %.1f dB I0 %.1f dB threshold %.1f dB raw-delay %u TA %u "
-          "noise %d/%d noise-ready %d threshold-pass %d indication-space %d accepted %d\n",
+  if (prach_accepted) {
+    LOG_A(NR_PHY,
+          "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %.1f dB (I0 %.1f dB, thres %.1f dB), delay %d "
+          "start symbol %u freq index %u\n",
           frame,
           slot,
-          prach_oc,
-          prachStartSymbol,
-          prach_pdu->prach_format,
-          prach_id->prach_sequence_length,
-          prach_id->prach_sequence_length == 0 ? 839 : 139,
-          prach_id->mu,
-          prach_id->numerology_index,
-          prach_pdu->num_cs,
           res.max_preamble,
           res.max_preamble_energy / 10.0,
           gNB->measurements.prach_I0 / 10.0,
           gNB->prach_thres / 10.0,
-          res.max_preamble_delay_raw,
           res.max_preamble_delay,
-          gNB->prach_energy_counter,
-          NUM_PRACH_RX_FOR_NOISE_ESTIMATE,
-          prach_noise_ready,
-          prach_above_threshold,
-          prach_ind_has_space,
-          prach_accepted);
+          prachStartSymbol,
+          prach_pdu->num_ra);
 
-    if (prach_accepted) {
-      LOG_A(NR_PHY,
-            "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %.1f dB (I0 %.1f dB, thres %.1f dB), delay %d "
-            "start symbol %u freq index %u\n",
-            frame,
-            slot,
-            res.max_preamble,
-            res.max_preamble_energy / 10.0,
-            gNB->measurements.prach_I0 / 10.0,
-            gNB->prach_thres / 10.0,
-            res.max_preamble_delay,
-            prachStartSymbol,
-            prach_pdu->num_ra);
+    T(T_ENB_PHY_INITIATE_RA_PROCEDURE,
+      T_INT(gNB->Mod_id),
+      T_INT(frame),
+      T_INT(slot),
+      T_INT(res.max_preamble),
+      T_INT(res.max_preamble_energy),
+      T_INT(res.max_preamble_delay));
 
-      T(T_ENB_PHY_INITIATE_RA_PROCEDURE,
-        T_INT(gNB->Mod_id),
-        T_INT(frame),
-        T_INT(slot),
-        T_INT(res.max_preamble),
-        T_INT(res.max_preamble_energy),
-        T_INT(res.max_preamble_delay));
-
-      nfapi_nr_prach_indication_pdu_t *ind = rach_ind->pdu_list + rach_ind->number_of_pdus;
-      *ind = (nfapi_nr_prach_indication_pdu_t){
-          .phy_cell_id = gNB->gNB_config.cell_config.phy_cell_id.value,
-          .symbol_index = prachStartSymbol,
-          .slot_index = slot,
-          .freq_index = prach_pdu->num_ra,
-          .avg_rssi = max(0, min(254, 128 + res.max_preamble_energy / 5)), // uint8: the energy is signed
-          .avg_snr = 0xff, // invalid for now
-          .num_preamble = 1,
-          .preamble_list = {
-              {.preamble_index = res.max_preamble, .timing_advance = res.max_preamble_delay, .preamble_pwr = 0xffffffff}}};
-      rach_ind->number_of_pdus++;
-    }
-    // PRACH noise estimate: from every occasion during the first NUM_PRACH_RX_FOR_NOISE_ESTIMATE ones (the MAC does not
-    // broadcast the MIB before, so they contain only noise), then only from occasions without detected preamble: otherwise
-    // under a sustained RACH load I0 follows the preamble energy, the detection threshold rises above it and the gNB stops
-    // detecting the preambles.
-    // Occasions without any energy (-900, e.g. empty occasions in rfsim without noise) are not noise samples: they would
-    // pull I0 down to -90 dB and make the gNB detect anything.
-    if ((!prach_noise_ready || !prach_above_threshold) && res.max_preamble_energy > -900)
-      gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
-    if (frame == 0)
-      LOG_I(PHY, "prach_I0 = %.1f dB\n", gNB->measurements.prach_I0 / 10.0);
-    if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
-      gNB->prach_energy_counter++;
-  } // if prach_id>0
-  LOG_D(NR_PHY_RACH, "Freeing PRACH entry\n");
-  free_nr_prach_entry(prach_id);
+    nfapi_nr_prach_indication_pdu_t *ind = rach_ind->pdu_list + rach_ind->number_of_pdus;
+    *ind = (nfapi_nr_prach_indication_pdu_t){
+        .phy_cell_id = gNB->gNB_config.cell_config.phy_cell_id.value,
+        .symbol_index = prachStartSymbol,
+        .slot_index = slot,
+        .freq_index = prach_pdu->num_ra,
+        .avg_rssi = max(0, min(254, 128 + res.max_preamble_energy / 5)), // uint8: the energy is signed
+        .avg_snr = 0xff, // invalid for now
+        .num_preamble = 1,
+        .preamble_list = {
+            {.preamble_index = res.max_preamble, .timing_advance = res.max_preamble_delay, .preamble_pwr = 0xffffffff}}};
+    rach_ind->number_of_pdus++;
+  }
+  // PRACH noise estimate: from every occasion during the first NUM_PRACH_RX_FOR_NOISE_ESTIMATE ones (the MAC does not
+  // broadcast the MIB before, so they contain only noise), then only from occasions without detected preamble: otherwise
+  // under a sustained RACH load I0 follows the preamble energy, the detection threshold rises above it and the gNB stops
+  // detecting the preambles.
+  // Occasions without any energy (-900, e.g. empty occasions in rfsim without noise) are not noise samples: they would
+  // pull I0 down to -90 dB and make the gNB detect anything.
+  if ((!prach_noise_ready || !prach_above_threshold) && res.max_preamble_energy > -900)
+    gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
+  if (frame == 0)
+    LOG_I(PHY, "prach_I0 = %.1f dB\n", gNB->measurements.prach_I0 / 10.0);
+  if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
+    gNB->prach_energy_counter++;
 }

@@ -45,6 +45,7 @@ typedef struct {
   c16_t (*Xu)[839];
   time_stats_t *rx_prach;
   c16_t (*prach_buf)[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NR_PRACH_SEQ_LEN_L];
+  struct nr_prach_ru_job *ru_job;
 } prach_item_t;
 
 typedef struct {
