@@ -183,8 +183,13 @@ int config_check_unknown_cmdlineopt(configmodule_interface_t *cfg, char *prefix)
   }
 
   if (unknowndetected > 0) {
-    CONFIG_PRINTF_ERROR("[CONFIG] %i unknown option(s) in command line starting with %s (section %s)\n",
-                        unknowndetected,testprefix,((prefix==NULL)?"":prefix));
+    if (CONFIG_ISFLAGSET(CONFIG_NOABORTONCHKF)) {
+      LOG_W(ENB_APP, "[CONFIG] %i unknown option(s) in command line starting with %s (section %s) — suppressed (NOABORTONCHKF)\n",
+            unknowndetected, testprefix, (prefix == NULL) ? "" : prefix);
+    } else {
+      CONFIG_PRINTF_ERROR("[CONFIG] %i unknown option(s) in command line starting with %s (section %s)\n",
+                          unknowndetected, testprefix, ((prefix == NULL) ? "" : prefix));
+    }
   }
 
   return unknowndetected;
