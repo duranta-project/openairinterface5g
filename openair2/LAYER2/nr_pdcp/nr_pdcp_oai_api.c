@@ -645,7 +645,7 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_e
 
   int role = 0;
   if (s->sl_SDAP_Config_r16 && s->sl_SDAP_Config_r16->sl_SDAP_Header_r16 == NR_SL_SDAP_Config_r16__sl_SDAP_Header_r16_present) {
-    role |= SDAP_UL_TX | SDAP_DL_RX;
+    role |= SDAP_SL_TX | SDAP_SL_RX;
   }
   sdap.role = role;
   sdap.defaultDRB = s->sl_SDAP_Config_r16 && s->sl_SDAP_Config_r16->sl_DefaultRB_r16;
@@ -674,7 +674,7 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_e
     LOG_W(PDCP, "%s:%d:%s: warning DRB %d already exist for UE ID/RNTI %ld, do nothing\n", __FILE__, __LINE__, __FUNCTION__, slrb_id, srcid);
   } else {
     pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, 0, slrb_id, sdap.pdusession_id,
-                                  (sdap.role & (SDAP_UL_RX | SDAP_DL_RX)) != 0,(sdap.role & (SDAP_UL_RX | SDAP_DL_RX)) != 0,
+                                  (sdap.role & SDAP_SL_RX) != 0, (sdap.role & SDAP_SL_TX) != 0,
                                   deliver_sdu_drb, ue, deliver_pdu_drb_ue, ue,
                                   sn_size, t_reordering, discard_timer,
                                   security_parameters);
