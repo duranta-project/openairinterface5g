@@ -84,8 +84,6 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
   const int K = segs->K;
   const int Kprime = K - segs->F;
   const int segLen = Kc * Z; // int16 length; after packing we store int8 [segLen]
-  t_nrLDPC_time_stats procTime = {0};
-  t_nrLDPC_time_stats *p_procTime = &procTime;
 
 #ifdef USE_GPU_FOR_RM_DEINTER
   int E1 = segs->E;
@@ -237,7 +235,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
 
   LOG_D(NR_PHY, "decoder (llr %p): %d segments, Z %d, R %d \n", segs->llr, C, Z, segs->R);
 
-  int decodeIterations = LDPCdecoder_cuda(&decParams, p_llr_dev, segs->c, p_procTime, segs->abort_decode);
+  int decodeIterations = LDPCdecoder_cuda(&decParams, p_llr_dev, segs->c, NULL, segs->abort_decode);
   stop_single_meas(&segs->ts_ldpc_decode[0]);
 
   if (decodeIterations <= segs->max_ldpc_iterations) {

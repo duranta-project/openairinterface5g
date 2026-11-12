@@ -105,9 +105,6 @@ static void nr_process_decode_segment(void *arg)
   short *ulsch_llr = rdata->llr;
   int8_t llrProcBuf[OAI_LDPC_DECODER_MAX_NUM_LLR] __attribute__((aligned(32)));
 
-  t_nrLDPC_time_stats procTime = {0};
-  t_nrLDPC_time_stats *p_procTime = &procTime;
-
   ////////////////////////////////////////////////////////////////////////////////////////////
   ///////////////////////////////// nr_deinterleaving_ldpc ///////////////////////////////////
   //////////////////////////////////////////////////////////////////////////////////////////
@@ -183,7 +180,7 @@ static void nr_process_decode_segment(void *arg)
 
   ////////////////////////////////// pl =====> llrProcBuf //////////////////////////////////
   start_single_meas(&rdata->ts_ldpc_decode);
-  int decodeIterations = LDPCdecoder(p_decoderParms, l, (uint8_t *)llrProcBuf, p_procTime, rdata->abort_decode);
+  int decodeIterations = LDPCdecoder(p_decoderParms, l, (uint8_t *)llrProcBuf, NULL, rdata->abort_decode);
   AssertFatal(rdata->c, "rdata->c is null, A %d, K %d\n", rdata->A, rdata->K);
   if (decodeIterations < p_decoderParms->numMaxIter) {
     memcpy(rdata->c, llrProcBuf, K >> 3);

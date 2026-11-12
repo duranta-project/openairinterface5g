@@ -67,6 +67,7 @@ typedef int32_t(LDPC_shutdownfunc_t)(void);
    \param p_llr Input LLRs
    \param p_llrOut Output vector
    \param time_stats time statistics
+   \warning time_stats may be NULL
    \param ab structure shared between tasks to stop all the tasks if one fails
 */
 typedef int32_t(LDPC_decoderfunc_t)(t_nrLDPC_dec_params *p_decParams,
