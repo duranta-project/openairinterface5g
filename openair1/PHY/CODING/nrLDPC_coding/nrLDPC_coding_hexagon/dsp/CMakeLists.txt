@@ -15,6 +15,7 @@ set(OAI_SOURCE_DIR "" CACHE PATH "OAI source tree")
 set(HEXAGON_DSP_ARCH "v73" CACHE STRING "Hexagon architecture of the target CDSP (QCS9075: v73)")
 option(LDPC_HEX_VTCM "Keep the decoder working set in VTCM (needs a signed protection domain)" ON)
 option(LDPC_HEX_GATHER "Deinterleave with vgather from VTCM (falls back to scalar if VTCM is unavailable)" ON)
+option(LDPC_HEX_SIMTEST "Build ldpc_hexagon_simtest, the decoder test run under hexagon-sim" OFF)
 
 list(APPEND CMAKE_MODULE_PATH ${OAI_SOURCE_DIR}/cmake_targets/tools/MODULES)
 find_package(HexagonSDK REQUIRED)
@@ -68,3 +69,21 @@ target_link_options(ldpc_hexagon_skel PRIVATE
 )
 target_link_libraries(ldpc_hexagon_skel PRIVATE HexagonSDK::dsp c)
 install(TARGETS ldpc_hexagon_skel LIBRARY DESTINATION .)
+
+# The decoder alone, as a standalone program for hexagon-sim: needs no board.
+# Registered as a test by ../CMakeLists.txt.
+if(LDPC_HEX_SIMTEST)
+  add_executable(ldpc_hexagon_simtest ../test/ldpc_hexagon_simtest.c)
+  target_include_directories(ldpc_hexagon_simtest PRIVATE
+    ../test/shim
+    ../inc
+    ${OAI_SOURCE_DIR}/openair1/PHY/CODING/nrLDPC_decoder
+    ${OAI_SOURCE_DIR}/openair1/PHY/CODING/nrLDPC_encoder
+    ${OAI_SOURCE_DIR}
+  )
+  target_compile_options(ldpc_hexagon_simtest PRIVATE -m${HEXAGON_DSP_ARCH} -O2 -Wall -mhvx -mhvx-length=128B)
+  target_compile_definitions(ldpc_hexagon_simtest PRIVATE ${_hex_defs})
+  target_link_options(ldpc_hexagon_simtest PRIVATE -m${HEXAGON_DSP_ARCH})
+  target_link_libraries(ldpc_hexagon_simtest PRIVATE hexagon m)
+  install(TARGETS ldpc_hexagon_simtest RUNTIME DESTINATION .)
+endif()

@@ -202,6 +202,40 @@ so deploy them together.
 
 Run with `--loader.ldpc.shlibversion _hexagon`.
 
+### Test without a board (hexagon-sim)
+
+`ldpc_hexagon_simtest` runs the DSP decoder under `hexagon-sim`, the Hexagon
+instruction-set simulator shipped in the SDK, on the build host. It needs the
+SDK but no DragonWing, so it is the test to run where there is no target, CI
+included. It is built and registered with the other tests by `-DENABLE_TESTS=ON`:
+
+```sh
+cmake ../../.. -GNinja \
+    -DCMAKE_TOOLCHAIN_FILE=../../../cmake_targets/cross-arm-dragonwing.cmake \
+    -DNATIVE_DIR=../build -DENABLE_LDPC_HEXAGON=ON -DENABLE_TESTS=ON
+ninja ldpc_hexagon
+ctest -R ldpc_hexagon_sim      # about 45 s
+```
+
+It encodes with OAI's own encoder, rate-matches, interleaves and adds noise,
+then decodes with the production `ldpc_decode_one()`, DSP-side prep included.
+It covers BG1 and BG2 at several lifting sizes (including Z not a multiple of
+128), every decoder code rate, two code blocks per transport block, filler
+bits, and HARQ combining across redundancy versions; plus direct checks of the
+CRC and of the kernels against scalar references. It prints
+`PASSED: 0 failure(s)` or the cases that failed. `hexagon-sim` exits 0 whatever
+the program returns, so the test is judged on that line.
+
+Without the cmake, from the build directory:
+
+```sh
+$HEXAGON_SDK_ROOT/tools/HEXAGON_Tools/*/Tools/bin/hexagon-sim -mv73 ./ldpc_hexagon_simtest
+```
+
+The simulator models no FastRPC, dspqueue or QuRT threads, so the test calls the
+decoder directly and leaves the worker pool and the ARM side to `ldpctest` on
+the board.
+
 ### Test with ldpctest
 
 `ldpctest -v _hexagon` loads `libldpc_hexagon.so`:

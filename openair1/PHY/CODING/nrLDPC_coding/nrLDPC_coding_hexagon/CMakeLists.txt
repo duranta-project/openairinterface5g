@@ -47,6 +47,7 @@ ExternalProject_Add(ldpc_hexagon_skel
     -DHEXAGON_DSP_ARCH=${HEXAGON_DSP_ARCH}
     -DLDPC_HEX_VTCM=${LDPC_HEX_VTCM}
     -DLDPC_HEX_GATHER=${LDPC_HEX_GATHER}
+    -DLDPC_HEX_SIMTEST=${ENABLE_TESTS}
     -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}
   BUILD_ALWAYS ON
 )
@@ -56,3 +57,13 @@ add_dependencies(nr-softmodem ldpc_hexagon)
 add_dependencies(nr_ulsim ldpc_hexagon)
 add_dependencies(nr_ulschsim ldpc_hexagon)
 add_dependencies(ldpctest ldpc_hexagon)
+
+# The DSP decoder against OAI's encoder, run under hexagon-sim on the build
+# host: BG1/BG2 at several lifting sizes and code rates, and HARQ combining.
+# hexagon-sim exits 0 whatever the program returns, so judge by its summary.
+if(ENABLE_TESTS)
+  add_dependencies(tests ldpc_hexagon_skel)
+  add_test(NAME ldpc_hexagon_sim
+           COMMAND ${HexagonSDK_TOOLS_ROOT}/bin/hexagon-sim -m${HEXAGON_DSP_ARCH} ${CMAKE_BINARY_DIR}/ldpc_hexagon_simtest)
+  set_tests_properties(ldpc_hexagon_sim PROPERTIES PASS_REGULAR_EXPRESSION "PASSED: 0 failure")
+endif()

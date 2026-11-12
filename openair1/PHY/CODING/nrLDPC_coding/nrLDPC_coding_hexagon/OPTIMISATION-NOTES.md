@@ -13,6 +13,42 @@ software prefetch were each a net loss, Pass-1/Pass-2 fusion lost, and a wrong b
 order in the CRC packer cost a full build/deploy/measure cycle to notice because
 it has no visible symptom beyond being quietly slower.
 
+## Every code rate works now (it did not until 2026-11-12)
+
+Only the full graphs decoded: BG1 rate 1/3 and BG2 rate 1/5. BG1 R2/3 and BG2 R1/3 and
+R2/3 returned BLER 1.0 (BG1 R8/9 happened to be spared), while the CPU decoder decoded
+the same int8 input. Two strides were wrong, and neither shows at the full graph:
+
+- **LUT row stride.** `cnProc_fused_group`/`_row` and `cnProcPc_fused` indexed
+  `circShift`, `startAddrBnProcBuf` and `bnPosBnProcBuf` as `[k * numCN + i]`. OAI's
+  `arrPos()` uses each table's `dim2`, and they differ: `circShift` is per lifting size and
+  always full-graph width (20 columns for BG2 group 1), while `numCN` shrinks with the code
+  rate (8 at BG2 R13). Every edge with `k > 0` got another edge's circular shift.
+- **cn_msg slab stride.** `cnProc_fused` and `bnProc_fused` spaced a check-node group's BN
+  slabs by the per-rate `numCnInCnGroups`. The layout is the full-graph one at every rate
+  (`lut_numCnInCnGroups_BG1_R13` / `_BG2_R15`, as in `llr2CnProcBuf`, OAI's `cnProc` and
+  `bn2cnProcBuf`), now in `ldpc_cn_slab_stride()`. BG1 R8/9 escaped because its only two
+  groups keep their full-graph CN counts.
+
+A third bug, in the DSP-side prep, broke **HARQ combining**: `ldpc_rate_dematch` cleared
+and accumulated the circular buffer only up to what round 0's code rate reads. The
+decoder's rate is chosen from the number of LLRs received *so far*, so a later round can
+read further, and found the previous transport block's LLRs there. It now clears and
+accumulates all of `Ncb`; only the int8 saturate stops at what the current rate reads.
+
+**Why live traffic never showed it.** BG1 leaves the full graph only when E <= 31Z, i.e. a
+code rate of about 0.71 or more; uplink ran at `--ul-mcs 16` (0.64) and the benchmarks at
+MCS 20 (0.55). Small transport blocks, which is where BG2 lives, are decoded on the ARM
+(`OAI_LDPC_MIN_C`). `ldpctest` at rate 2/3 did fail, and was the only visible symptom.
+
+**How it was found, and a trap.** `ldpc_hexagon_simtest` (see `README.md`) encodes with OAI's
+encoder and decodes with the production `ldpc_decode_one()` under `hexagon-sim`; it failed
+on exactly these cases. A phase-by-phase comparison against a scalar reference built from
+OAI's `nrLDPC_mPass.h` then located them. **Compare at least two BP iterations**: in BG2 the
+first two BNs are punctured, their LLRs are zero, so after the first `cnProc` every edge
+with `k > 0` carries 0 -- rotation-invariant -- and a wrong shift is invisible in
+iteration 0.
+
 ## Every lifting size works now (it did not until 2026-08-28)
 
 The decoder used to work only for **Zc in {128, 256, 384}**. Every other lifting size
@@ -562,31 +598,38 @@ only ever a store offset, never a register index.
 
 ## Reading the PMU, and one thing it does NOT mean
 
-The above started in a `hexagon-sim` harness that builds the decoder kernels as a
-standalone simulator binary (`ldpc_sim_test`; it is not part of this tree).
-`--timing` runs the microarchitecture model and populates the PMU counters, without which
-almost everything reads zero:
+The measurements in this file were made with an earlier standalone harness that ran
+the decoder kernels one at a time; it is not part of this tree, and the knobs named in its
+results (`SIM_KERNEL`, `N_ITER`, `SIM_Z`) belong to it. The in-tree program is
+`ldpc_hexagon_simtest` (built with `-DENABLE_TESTS=ON`, see `README.md`), which runs the
+whole decode. `--timing` runs the microarchitecture model and populates the PMU counters,
+without which almost everything reads zero:
 
-    hexagon-sim -mv73 --timing --statsfile pmu.txt ./ldpc_sim_test
+    hexagon-sim -mv73 --timing --statsfile pmu.txt ./ldpc_hexagon_simtest
 
-`SIM_KERNEL=1..4` isolates one kernel (the whole-run counters cannot be attributed
-otherwise); `LDPC_CNPROC_STAGES` selects which stages of `cnProc_fused_group` are emitted.
-Take counter *deltas* between two `N_ITER` values -- that removes init, scatter and gather
-exactly. Beware that disabling a stage lets the compiler delete its consumers: dropping the
+Cycle counts under `--timing` are about 30% lower than without it, because the
+default functional model is not cycle-accurate: quote `--timing` numbers. It is also about
+18 times slower (0.5 M
+simulated cycles/s on a desktop host; the whole test takes 13 minutes instead of 45 s).
+
+To attribute counters to one kernel, take *deltas* between two runs that differ only in
+that kernel's work. `LDPC_CNPROC_STAGES` selects which stages of `cnProc_fused_group` are
+emitted. Beware that disabling a stage lets the compiler delete its consumers: dropping the
 scatter makes Pass 2's stores dead, so that arm measures nothing useful.
 
 For stall *attribution* rather than counting, use `--packet_analyze`, which writes a JSON
 carrying per-packet-address stall cycles split by cause:
 
-    hexagon-sim -mv73 --timing --packet_analyze pa.json ./ldpc_sim_test
-    hexagon-profiler --json=pa.json --elf=ldpc_sim_test --packet_analyze -o pa.html
+    hexagon-sim -mv73 --timing --packet_analyze pa.json ./ldpc_hexagon_simtest
+    hexagon-profiler --json=pa.json --elf=ldpc_hexagon_simtest --packet_analyze -o pa.html
 
 The JSON is more useful than the HTML if you want to aggregate: `core_packet_profile` is
 keyed by packet address, and `core_packet_profile_help` documents every counter. Map
 addresses to functions with `hexagon-nm --print-size` and `hexagon-llvm-objdump -d`.
-**The sim build does not define `LDPC_HEX_VTCM`, so `LDPC_HEX_MSG_DCFETCH` defaults back
-to 1 there** -- pass `-DLDPC_HEX_MSG_DCFETCH=0` or you are profiling a configuration the
-device does not run. (Doing this by accident was useful once: the three `dcfetch` packets
+**Build the sim program with the device's options.** `ldpc_hexagon_simtest` takes
+`LDPC_HEX_VTCM`/`LDPC_HEX_GATHER` from the same options as the skel; the old harness did
+not define `LDPC_HEX_VTCM`, so `LDPC_HEX_MSG_DCFETCH` defaulted back to 1 there and it
+profiled a configuration the device does not run. (Doing this by accident was useful once: the three `dcfetch` packets
 came out as the top three stall sites at 5 stall cycles per commit, cause
 `DU_BUSY_OTHER`, i.e. dcfetch generating DU replays -- an independent confirmation of the
 device measurement, and `DU_BUSY_OTHER` then collapsed from 57812 to 892 cycles with the
