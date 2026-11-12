@@ -428,9 +428,10 @@ static __attribute__((always_inline)) inline void mult_complex_vectors(const c16
   const simde__m256i conj256 = simde_mm256_set_epi16(-1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1);
   // shift count in a register: on Arm, slli maps to vshlq_n, which clang only accepts with a constant count
   const simde__m128i shift_im = simde_mm_cvtsi32_si128(16 - shift);
-  int i;
+  int i = 0;
+#ifdef __AVX2__
   // do 8 multiplications at a time
-  for (i = 0; i < size - 7; i += 8) {
+  for (; i < size - 7; i += 8) {
     const simde__m256i i1 = simde_mm256_loadu_si256((simde__m256i *)(in1 + i));
     const simde__m256i i2 = simde_mm256_loadu_si256((simde__m256i *)(in2 + i));
     const simde__m256i i2swap = simde_mm256_shuffle_epi8(i2, complex_shuffle256);
@@ -440,7 +441,9 @@ static __attribute__((always_inline)) inline void mult_complex_vectors(const c16
     simde_mm256_storeu_si256((simde__m256i *)(out + i),
                              simde_mm256_blend_epi16(simde_mm256_srai_epi32(re, shift), simde_mm256_sll_epi32(im, shift_im), 0xAA));
   }
-  if (size - i > 4) {
+#endif
+  // 4 at a time, for all of them without AVX2: simde_mm256_sign_epi16() is then a C loop, which clang doesn't vectorize
+  for (; i < size - 3; i += 4) {
     const simde__m128i i1 = simde_mm_loadu_si128((simde__m128i *)(in1 + i));
     const simde__m128i i2 = simde_mm_loadu_si128((simde__m128i *)(in2 + i));
     const simde__m128i i2swap = simde_mm_shuffle_epi8(i2, *(simde__m128i *)&complex_shuffle256);
@@ -449,7 +452,6 @@ static __attribute__((always_inline)) inline void mult_complex_vectors(const c16
     const simde__m128i im = simde_mm_madd_epi16(i1, i2swap);
     simde_mm_storeu_si128((simde__m128i *)(out + i),
                           simde_mm_blend_epi16(simde_mm_srai_epi32(re, shift), simde_mm_sll_epi32(im, shift_im), 0xAA));
-    i += 4;
   }
   for (; i < size; i++)
     out[i] = c16mulShift(in1[i], in2[i], shift);
