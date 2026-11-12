@@ -256,7 +256,7 @@ static c16_t conj16(c16_t w)
 
 // UL Rx beamforming: per-antenna FFT output combined into one beam stream in the frequency
 // domain, out[k] = conj(w[0])*X0[k] + conj(w[1])*X1[k], the same saturating multiply-accumulate as
-// the DL codebook path. The inputs are FFT windows (what nr_symbol_fep_ul() produces per antenna).
+// the DL codebook path. The inputs are FFT windows (what nr_symbol_fep_ul_shifted() produces per antenna).
 TEST(oru_beamforming, ul_combine_two_antennas)
 {
   oru_codebook_t cb = {0};
@@ -396,9 +396,9 @@ TEST(oru_beamforming, ul_combine_bin_range_only)
   }
 }
 
-// The PRB range maps onto the unshifted FFT window the way fftshift() lays it out: every RE of the
-// range equals the full-window combine at its bin, every other bin is untouched. Odd and even PRB
-// counts, ranges on either side of DC and straddling it, and a range clamped at the band edge.
+// In the fftshifted layout a PRB range is the REs [start * 12, end * 12): every RE of the range equals
+// the full-window combine at the same index, every other entry is untouched. Odd and even PRB counts,
+// ranges on either side of DC and straddling it, and a range clamped at the band edge.
 TEST(oru_beamforming, ul_combine_prbs_matches_full_window)
 {
   oru_codebook_t cb = {0};
@@ -419,58 +419,19 @@ TEST(oru_beamforming, ul_combine_prbs_matches_full_window)
     }
     const c16_t *fft[2] = {x0.data(), x1.data()};
     combine_ul_beam_fd(fft, 2, 0, c.fft_size, &cb, 0, 0, full.data());
-    const int nbins = c.n_rb * NR_NB_SC_PER_RB, half = nbins / 2;
-    combine_ul_beam_prbs(fft, 2, c.fft_size, nbins, c.start, c.num, &cb, 0, 0, out.data());
+    const int nbins = c.n_rb * NR_NB_SC_PER_RB;
+    combine_ul_beam_prbs(fft, 2, nbins, c.start, c.num, &cb, 0, 0, out.data());
 
     std::vector<bool> in_range(c.fft_size, false);
     const int end = std::min(c.start + c.num, c.n_rb) * NR_NB_SC_PER_RB;
     for (int re = c.start * NR_NB_SC_PER_RB; re < end; re++) {
-      in_range[re < half ? c.fft_size - half + re : re - half] = true;
+      in_range[re] = true;
     }
     for (int k = 0; k < c.fft_size; k++) {
       const c16_t expected = in_range[k] ? full[k] : sentinel;
       ASSERT_EQ(out[k].r, expected.r) << "fft " << c.fft_size << " rb " << c.n_rb << " start " << c.start << " bin " << k;
       ASSERT_EQ(out[k].i, expected.i) << "fft " << c.fft_size << " rb " << c.n_rb << " start " << c.start << " bin " << k;
     }
-  }
-}
-
-// Copying the runs of a PRB range out of an FFT window gives the fftshift() layout of that range:
-// RE c comes from bin c < nbins / 2 ? fft_size - nbins / 2 + c : c - nbins / 2. The runs are in RE
-// order and contiguous. Empty, clamped and DC-straddling ranges included.
-TEST(oru_beamforming, prb_fft_runs_match_fftshift_layout)
-{
-  const struct {
-    int fft_size, n_rb, start, num;
-  } cases[] = {{1024, 51, 0, 51},
-               {1024, 51, 3, 10},
-               {1024, 51, 30, 12},
-               {1024, 51, 20, 15},
-               {1024, 51, 25, 1},
-               {2048, 106, 0, 106},
-               {2048, 106, 50, 6},
-               {2048, 106, 100, 20},
-               {4096, 273, 131, 17},
-               {4096, 273, 273, 4},
-               {4096, 273, 10, 0}};
-  for (const auto &c : cases) {
-    const int nbins = c.n_rb * NR_NB_SC_PER_RB, half = nbins / 2;
-    std::vector<c16_t> window(c.fft_size);
-    for (int k = 0; k < c.fft_size; k++)
-      window[k] = (c16_t){.r = (int16_t)k, .i = (int16_t)-k};
-    oru_fft_run_t runs[2];
-    const int n = oru_prb_fft_runs(c.fft_size, nbins, c.start, c.num, runs);
-    const int c0 = std::min(c.start * NR_NB_SC_PER_RB, nbins);
-    const int c1 = std::min((c.start + c.num) * NR_NB_SC_PER_RB, nbins);
-    int re = c0;
-    for (int r = 0; r < n; r++) {
-      ASSERT_EQ(runs[r].re, re) << "fft " << c.fft_size << " start " << c.start << " run " << r;
-      for (int i = 0; i < runs[r].len; i++, re++) {
-        const int bin = re < half ? c.fft_size - half + re : re - half;
-        ASSERT_EQ(window[runs[r].bin + i].r, bin) << "fft " << c.fft_size << " start " << c.start << " re " << re;
-      }
-    }
-    ASSERT_EQ(re, c1) << "fft " << c.fft_size << " start " << c.start;
   }
 }
 

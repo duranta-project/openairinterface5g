@@ -761,6 +761,27 @@ typedef  void(*dftfunc_t)(uint8_t sizeidx,int16_t *sigF,int16_t *sig,unsigned ch
 typedef void (*idftfunc_t)(uint8_t sizeidx, int16_t *sigF, int16_t *sig, unsigned char scale_flag);
 extern dftfunc_t dft;
 extern idftfunc_t idft;
+
+/* Pruned DFT/IDFT: only one band of subcarriers is used. The band is num_used bins starting at
+ * first_used in natural FFT order, wrapping modulo N: bins (first_used + j) % N, j = 0 .. num_used - 1.
+ * The frequency-domain buffer (N samples) has one of two layouts:
+ *  - DFT_PRUNE_NATURAL: bin k at index k (as dft()/idft());
+ *  - DFT_PRUNE_PACKED: bin (first_used + j) % N at index j. With first_used = N - nb_sc / 2 and
+ *    num_used = nb_sc this is the fftshifted layout of the NR PHY (what fftshift_inplace() produces).
+ * dft_pruned: all N output bins are written and bit-identical to dft(): NATURAL is dft(), PACKED is the
+ *   dft() output rotated by first_used, i.e. exactly dft() + fftshift_inplace() for an NR band. The
+ *   rotation is done by the output stores of the transform at almost no cost. Input: N samples, any
+ *   alignment; output: 32-byte aligned for NATURAL, any alignment for PACKED.
+ * idft_pruned: the output is bit-identical to idft() of the input with all guard bins set to zero. For an
+ *   NR band (PACKED, first_used = N - num_used / 2) the guard entries of the N-sample input are read and
+ *   must be zero; otherwise they are not used. Output 32-byte aligned. */
+#define DFT_PRUNE_NATURAL 0
+#define DFT_PRUNE_PACKED 1
+typedef void (*dftprunedfunc_t)(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout);
+extern dftprunedfunc_t dft_pruned;
+extern dftprunedfunc_t idft_pruned;
+void dft_pruned_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout);
+void idft_pruned_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout);
 int load_dftslib(void);
 
 #define SZ_ENUM(Sz) DFT_##Sz,

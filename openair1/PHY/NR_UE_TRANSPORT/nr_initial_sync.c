@@ -182,10 +182,14 @@ static void do_time_to_freq(nr_ssb_search_params_t *params, uint32_t sample_offs
     rx_offset -= params->nb_prefix_samples / params->ofdm_offset_divisor;
     for (unsigned char aa = 0; aa < params->nb_antennas_rx; aa++) {
       c16_t *rxF = rxdataF[symb][aa];
-      // OFDM Demod
-      dft(dftsize, (int16_t *)&params->rxdata[aa][rx_offset], (int16_t *)rxF, 1);
-      // FFT-shift
-      fftshift_inplace(rxF, params->N_RB_DL * NR_NB_SC_PER_RB, params->ofdm_symbol_size);
+      // OFDM Demod + FFT-shift (same buffer as dft() + fftshift_inplace(), shift done by the DFT stores)
+      const int nbins = params->N_RB_DL * NR_NB_SC_PER_RB;
+      dft_pruned(dftsize,
+                 (int16_t *)&params->rxdata[aa][rx_offset],
+                 (int16_t *)rxF,
+                 params->ofdm_symbol_size - nbins / 2,
+                 nbins,
+                 DFT_PRUNE_PACKED);
       // Phase compensation
       apply_nr_rotation_symbol_fftshifted_RX(params->symbols_per_slot,
                                              params->slots_per_subframe,

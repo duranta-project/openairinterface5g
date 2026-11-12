@@ -1276,12 +1276,11 @@ void nr_tx_rotation_and_ofdm_mod(const uint8_t slot,
       // Phase compensation
       if (!no_phase_pre_comp)
         apply_nr_rotation_TX(frame_parms, txdataF[ap], frame_parms->symbol_rotation[linktype], slot, N_RB, i, 1);
-      // Inverse FFT shift: L1 fills txdataF FFT shifted, the IDFT needs the native FFT layout
-      fftshift_inverse_inplace(txdataF[ap] + i * frame_parms->ofdm_symbol_size,
-                               N_RB * NR_NB_SC_PER_RB,
-                               frame_parms->ofdm_symbol_size);
+      // L1 fills txdataF FFT shifted (zero outside the carrier): the band-limited IDFT of the OFDM
+      // modulation below reads that layout directly (no inverse FFT shift)
     }
   }
+  const int nbins = N_RB * NR_NB_SC_PER_RB;
 
   for (int ap = 0; ap < n_antenna_ports; ap++) {
     if (frame_parms->Ncp == 1) { // extended cyclic prefix
@@ -1292,15 +1291,22 @@ void nr_tx_rotation_and_ofdm_mod(const uint8_t slot,
                  (frame_parms->nb_prefix_samples + frame_parms->ofdm_symbol_size) * sizeof(int32_t));
           continue;
         }
-        PHY_ofdm_mod((int *)&txdataF[ap][frame_parms->ofdm_symbol_size * i],
-                     (int *)&txdata[ap][frame_parms->ofdm_symbol_size * i],
-                     frame_parms->ofdm_symbol_size,
-                     1,
-                     frame_parms->nb_prefix_samples,
-                     CYCLIC_PREFIX);
+        PHY_ofdm_mod_shifted((int *)&txdataF[ap][frame_parms->ofdm_symbol_size * i],
+                             (int *)&txdata[ap][frame_parms->ofdm_symbol_size * i],
+                             frame_parms->ofdm_symbol_size,
+                             1,
+                             frame_parms->nb_prefix_samples,
+                             CYCLIC_PREFIX,
+                             nbins);
       }
     } else { // normal cyclic prefix
-      nr_normal_prefix_mod(txdataF[ap], txdata[ap], frame_parms->symbols_per_slot, frame_parms, slot, was_symbol_used);
+      nr_normal_prefix_mod_shifted(txdataF[ap],
+                                   txdata[ap],
+                                   frame_parms->symbols_per_slot,
+                                   frame_parms,
+                                   slot,
+                                   was_symbol_used,
+                                   nbins);
     }
   }
 }

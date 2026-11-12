@@ -1141,26 +1141,25 @@ int main(int argc, char **argv)
         //TODO: loop over slots
         for (aa = 0; aa < gNB->frame_parms.nb_antennas_tx; aa++) {
           if (cyclic_prefix_type == 1) {
-            for (int i = 0; i < 12; i++)
-              fftshift_inverse_inplace(gNB->common_vars.txdataF[aa] + i * frame_parms->ofdm_symbol_size,
-                                       frame_parms->N_RB_DL * NR_NB_SC_PER_RB,
-                                       frame_parms->ofdm_symbol_size);
-            PHY_ofdm_mod((int *)gNB->common_vars.txdataF[aa],
-                         (int *)&txdata[aa][slot_offset],
-                         frame_parms->ofdm_symbol_size,
-                         12,
-                         frame_parms->nb_prefix_samples,
-                         CYCLIC_PREFIX);
+            PHY_ofdm_mod_shifted((int *)gNB->common_vars.txdataF[aa],
+                                 (int *)&txdata[aa][slot_offset],
+                                 frame_parms->ofdm_symbol_size,
+                                 12,
+                                 frame_parms->nb_prefix_samples,
+                                 CYCLIC_PREFIX,
+                                 frame_parms->N_RB_DL * NR_NB_SC_PER_RB);
           } else {
             bool was_symbol_used[NR_SYMBOLS_PER_SLOT];
             for (int i = 0; i < 14; i++) {
               was_symbol_used[i] = true;
             }
-            for (int i = 0; i < 14; i++)
-              fftshift_inverse_inplace(gNB->common_vars.txdataF[aa] + i * frame_parms->ofdm_symbol_size,
-                                       frame_parms->N_RB_DL * NR_NB_SC_PER_RB,
-                                       frame_parms->ofdm_symbol_size);
-            nr_normal_prefix_mod(gNB->common_vars.txdataF[aa], &txdata[aa][slot_offset], 14, frame_parms, slot, was_symbol_used);
+            nr_normal_prefix_mod_shifted(gNB->common_vars.txdataF[aa],
+                                         &txdata[aa][slot_offset],
+                                         14,
+                                         frame_parms,
+                                         slot,
+                                         was_symbol_used,
+                                         frame_parms->N_RB_DL * NR_NB_SC_PER_RB);
           }
         }
         if (n_trials==1) {
