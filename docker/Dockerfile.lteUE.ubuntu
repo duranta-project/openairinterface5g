@@ -43,6 +43,8 @@ RUN apt-get update && \
         python3-requests \
         libpython3.12 \
         libusb-1.0-0 \
+        libgrpc++1.51t64 \
+        libprotobuf32t64 \
         iputils-ping \
         iproute2 \
         iperf3 \
@@ -82,7 +84,7 @@ COPY --from=lte-ue-build \
 
 # Now we are copying from builder-image the UHD files.
 COPY --from=lte-ue-base /usr/local/bin/uhd_find_devices /usr/local/bin
-COPY --from=lte-ue-base /usr/local/lib/libuhd.so.4.8.0 /usr/local/lib
+COPY --from=lte-ue-base /usr/local/lib/libuhd.so.4.11.0 /usr/local/lib
 COPY --from=lte-ue-base /usr/local/lib/uhd/utils/uhd_images_downloader.py /opt/oai-lte-ue/bin
 
 RUN /bin/bash -c "ln -s /usr/local/lib/liboai_usrpdevif.so /usr/local/lib/liboai_device.so" && \
@@ -97,7 +99,7 @@ RUN /bin/bash -c "ln -s /usr/local/lib/liboai_usrpdevif.so /usr/local/lib/liboai
         /usr/local/lib/libparams_libconfig.so \
         /usr/local/lib/libdfts.so \
         /usr/local/lib/libtelnetsrv.so \
-        /usr/local/lib/libuhd.so.4.8.0
+        /usr/local/lib/libuhd.so.4.11.0
 
 WORKDIR /opt/oai-lte-ue
 COPY --from=lte-ue-base /tini /tini
