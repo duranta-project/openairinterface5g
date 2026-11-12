@@ -17,13 +17,17 @@ def DH_Account = "oaisoftwarealliance"
 // internal registry to use
 def OAI_Registry = "gracehopper3-oai.sboai.cs.eurecom.fr"
 
+// Shared by the Ubuntu and CentOS push stages
+def listOfImages = ["oai-enb", "oai-gnb", "oai-lte-ue", "oai-nr-ue", "oai-nr-cuup", "oai-gnb-fhi72"]
+def WEEK_TAG = ""
+def WEEK_SHA = ""
+
 pipeline {
   agent {
     label nodeExecutor
   }
   options {
     ansiColor('xterm')
-    lock(extra: lockResources)
   }
   stages {
     stage ("Verify Parameters") {
@@ -43,10 +47,11 @@ pipeline {
         }
       }
     }
-    stage ("Push to DockerHub") {
+    stage ("Push Ubuntu Images to DockerHub") {
+      options { lock(extra: lockResources) }
       steps {
         script {
-          def WEEK_TAG = sh returnStdout: true, script: 'date +"%Y.w%V"'
+          WEEK_TAG = sh returnStdout: true, script: 'date +"%Y.w%V"'
           WEEK_TAG = WEEK_TAG.trim()
           if ((params.forceTag != null) && (params.tagToUse != null)) {
             if (params.forceTag) {
@@ -54,13 +59,12 @@ pipeline {
               echo "Forced Tag is ${WEEK_TAG}"
             }
           }
-          def WEEK_SHA = sh returnStdout: true, script: 'git log -n1 --pretty=format:"%H" origin/develop'
+          WEEK_SHA = sh returnStdout: true, script: 'git log -n1 --pretty=format:"%H" origin/develop'
           WEEK_SHA = WEEK_SHA.trim()
 
           withCredentials([
             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password']
           ]) {
-            def listOfImages = ["oai-enb", "oai-gnb", "oai-lte-ue", "oai-nr-ue", "oai-nr-cuup", "oai-gnb-fhi72"]
             // Logging in on both registries
             sh "docker login -u ${DH_Username} -p ${DH_Password} > /dev/null 2>&1"
             sh "docker login -u oaicicd -p oaicicd ${OAI_Registry} > /dev/null 2>&1"
@@ -86,14 +90,51 @@ pipeline {
           }
         }
       }
+      post {
+        always {
+          sh "docker logout ${OAI_Registry} > /dev/null 2>&1"
+          sh "docker logout > /dev/null 2>&1"
+        }
+      }
     }
-  }
-  post {
-    always {
-      script {
-        sh "docker logout ${OAI_Registry} > /dev/null 2>&1"
-        sh "docker logout > /dev/null 2>&1"
-        echo "End of Registry Push"
+    stage ("Push CentOS Stream Images to DockerHub") {
+      // CentOS Stream 10 images are built on the OpenShift cluster: use its own node and resource
+      agent { label params.ElBuildNode }
+      options { lock(params.ElBuildResource) }
+      steps {
+        script {
+          withCredentials([
+            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.OC_Credentials}", usernameVariable: 'OC_Username', passwordVariable: 'OC_Password'],
+            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password']
+          ]) {
+            sh "oc login -u \$OC_Username -p \$OC_Password --server=${params.OC_Url} --insecure-skip-tls-verify > /dev/null"
+            def ocRegistry = sh(returnStdout: true, script: "oc registry info --public").trim()
+            if (!ocRegistry) {
+              error "The OpenShift registry has no public route, so the CentOS images cannot be copied to Docker Hub."
+            }
+            // Per-build auth file, so no registry credentials stay on the node
+            withEnv(["REGISTRY_AUTH_FILE=${env.WORKSPACE}/skopeo-auth.json", "OC_REGISTRY=${ocRegistry}"]) {
+              sh '''
+                set +x
+                oc whoami -t | skopeo login --tls-verify=false -u "$(oc whoami)" --password-stdin "$OC_REGISTRY"
+                echo "$DH_Password" | skopeo login -u "$DH_Username" --password-stdin docker.io
+              '''
+              listOfImages.each { item ->
+                ["develop-centos", "${WEEK_TAG}-centos"].each { tag ->
+                  echo "Copying ${item}:develop-${WEEK_SHA} to ${DH_Account}/${item}:${tag}"
+                  sh "set +x; skopeo copy --src-tls-verify=false docker://\$OC_REGISTRY/${params.OC_ProjectName}/${item}:develop-${WEEK_SHA} " +
+                     "docker://docker.io/${DH_Account}/${item}:${tag}"
+                }
+              }
+            }
+          }
+        }
+      }
+      post {
+        always {
+          sh "rm -f ${env.WORKSPACE}/skopeo-auth.json"
+          sh "oc logout > /dev/null 2>&1 || true"
+        }
       }
     }
   }
