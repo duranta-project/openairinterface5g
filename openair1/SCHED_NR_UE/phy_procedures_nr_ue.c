@@ -1421,6 +1421,10 @@ static void nr_ue_prach_procedures(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *
       start_meas_nr_ue_phy(ue, PRACH_GEN_STATS);
       generated_prach_power = generate_nr_prach(ue, gNB_id, frame_tx, nr_slot_tx, tx_amp, txData);
       stop_meas_nr_ue_phy(ue, PRACH_GEN_STATS);
+      if (generated_prach_power < 0) {
+        prach_var->active = false;
+        return;
+      }
       if (cpumeas(CPUMEAS_GETSTATE)) {
         LOG_D(PHY,
               "[SFN %d.%d] PRACH Proc %5.2f\n",

@@ -45,6 +45,15 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   int k = 12 * n_ra_prb - 6 * fp->N_RB_UL;
   const int prachStartSymbol = prach_pdu->prach_start_symbol;
 
+  if (prach_sequence_length == 0 && (prach_fmt_id < 0 || prach_fmt_id > 3)) {
+    LOG_E(PHY, "Inconsistent PRACH format ID %d for sequence length 839, dropping PRACH\n", prach_fmt_id);
+    return -1;
+  }
+  if (prach_sequence_length != 0 && (prach_fmt_id < 4 || prach_fmt_id > 10)) {
+    LOG_E(PHY, "Inconsistent PRACH format ID %d for short sequence length 139, dropping PRACH\n", prach_fmt_id);
+    return -1;
+  }
+
   LOG_D(PHY,"Generate NR PRACH %d.%d\n", frame, slot);
 
   if (nrUE_config->prach_config.root_seq_computed == 0) {
@@ -194,13 +203,11 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   // Ncp and dftlen here is given in terms of T_s wich is 30.72MHz sampling
   int dftlen, Ncp;
   if (prach_sequence_length == 0) {
-    AssertFatal(prach_fmt_id >= 0 && prach_fmt_id <= 3, "Unknown PRACH format ID %d for sequence length 839\n", prach_fmt_id);
     const int ncp[4] = {3168, 21024, 4688, 3168};
     const int dft[4] = {24576, 24576, 24576, 6144};
-     Ncp = ncp[prach_fmt_id];
+    Ncp = ncp[prach_fmt_id];
     dftlen = dft[prach_fmt_id];
   } else {
-    AssertFatal(prach_fmt_id >= 4 && prach_fmt_id <= 10, "Unknown PRACH format ID %d\n", prach_fmt_id);
     const int ncp[7] = {288, 576, 864, 216, 936, 1240, 2048};
     Ncp = ncp[prach_fmt_id - 4] >> mu;
     dftlen = 2048 >> mu;
