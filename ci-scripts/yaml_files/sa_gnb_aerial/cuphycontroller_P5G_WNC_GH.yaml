@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-aerial_sdk_version: 26-1-cubb
+aerial_sdk_version: 26-2-cubb
 l2adapter_filename: l2_adapter_config_P5G_GH.yaml
 aerial_metrics_backend_address: 127.0.0.1:8081
 

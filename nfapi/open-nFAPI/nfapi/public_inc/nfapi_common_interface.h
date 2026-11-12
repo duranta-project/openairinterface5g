@@ -7,7 +7,9 @@
 
 typedef struct {
   uint16_t tag;
-  uint16_t length;
+  /* 32-bit to hold cuBB's SCF_FAPI_10_04 uint32 TLV length; pack_tl and the
+   * native NR header write the low 16 bits. */
+  uint32_t length;
 } nfapi_tl_t;
 
 /*! Configuration options for the p7 pack unpack functions
