@@ -123,6 +123,7 @@ typedef enum {
   RRC_PDUSESSION_RESOURCE_NOTIFY,
   RRC_UECAPABILITY_ENQUIRY,
   RRC_F1_NRDC_IN_PROGRESS,
+  RRC_SECURITY_MODE_COMMAND,
 } rrc_action_t;
 
 typedef struct nr_rrc_config {
