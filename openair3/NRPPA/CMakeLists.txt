@@ -15,4 +15,4 @@ add_library(nrppa
   )
 
 target_link_libraries(nrppa PUBLIC asn1_nrppa)
-target_link_libraries(nrppa PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
+target_link_libraries(nrppa PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs log_headers)

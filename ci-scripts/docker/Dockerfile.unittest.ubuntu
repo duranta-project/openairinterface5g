@@ -31,4 +31,5 @@ RUN --mount=type=cache,target=/root/.cache/ccache/ \
       -DENABLE_TESTS=ON -DOAI_ZMQ=ON -DCMAKE_BUILD_TYPE=Debug \
       -DSANITIZE_ADDRESS=True -DOAI_VRTSIM_TAPS_CLIENT=ON -DOAI_RU_FRONTHAUL=ON \
     && \
-    ninja
+    ninja && \
+    ninja -t missingdeps
