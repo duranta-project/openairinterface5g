@@ -9,7 +9,7 @@ channel modeling capabilties have been added in the LTE UE `phy_stub_ue.c` file.
 the interfaces between the different components associated with LTE mode, the following image
 has been provided.
 
-![Functional diagram - LTE](../functional_diagram_proxy_lte.png)
+![Functional diagram - LTE](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/functional_diagram_proxy_lte.png)
 
 This functionality allows the user to plug in their own channel model and emulate the packet dropping procedure
 in real time. The channel modeling has not been provided by EpiSci, but the OAI code
@@ -19,7 +19,12 @@ Any uplink channel modeling must be conducted in some sort of proxy, which would
 between the UEs and eNB. (A description of the downlink channel modeling is shown in the
 image below).
 
-![Downlink Channel Modeling](../Channel_Abstraction_UE_Handling_LTE.PNG)
+![Downlink Channel Modeling](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/Channel_Abstraction_UE_Handling_LTE.PNG)
+
+The proxy sits between the eNB (nFAPI VNF) and the UE(s) (LTE PNF stub) and relays P5/P7
+nFAPI messages over the loopback interface:
+
+![Proxy interface diagram](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/Proxy_Interface_Diagram.PNG)
 
 The updates to the OAI code base removed some latent bugs, added multi-UE scalability,
 and were tested with a standard bypass proxy between the UE(s) and eNB. The bypass proxy is

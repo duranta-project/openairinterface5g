@@ -375,7 +375,7 @@ This version has an improved code quality:
 
 This version first implements the architectural split described in the following picture.
 
-![Block Diagram](./doc/images/oai_lte_enb_func_split_arch.png)
+![Block Diagram](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/oai_lte_enb_func_split_arch.png)
 
 * Only FAPI, nFAPI and IF4.5 interfaces are implemented.
 * Repository tree structure prepares future integrations of features such as LTE-M, nbIOT or 5G-NR.
