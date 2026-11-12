@@ -284,7 +284,7 @@ static inline int get_num_dmrs(uint16_t dmrs_mask)
 }
 
 void warn_higher_threequarter_fs(const int n_rb, const int mu);
-uint64_t from_nrarfcn(int nr_bandP, uint8_t scs_index, uint32_t dl_nrarfcn);
+uint64_t from_nrarfcn(uint32_t nrarfcn);
 uint32_t to_nrarfcn(uint64_t dl_CarrierFreq);
 uint8_t set_ssb_case(int scs, int nr_band);
 int cce_to_reg_interleaving(const int R, int k, int n_shift, const int C, int L, const int N_regs);

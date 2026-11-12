@@ -208,7 +208,7 @@ NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR get_ssb_len(NR_ServingCellCo
   NR_FrequencyInfoDL_t *frequencyInfoDL = scc->downlinkConfigCommon->frequencyInfoDL;
   int scs = *scc->ssbSubcarrierSpacing;
   int nr_band = *frequencyInfoDL->frequencyBandList.list.array[0];
-  long freq = from_nrarfcn(nr_band, scs, frequencyInfoDL->absoluteFrequencyPointA);
+  long freq = from_nrarfcn(frequencyInfoDL->absoluteFrequencyPointA);
   frame_type_t frame_type = get_frame_type(nr_band, scs);
   if (scs == 0) {
     if (freq < 3000000000)
@@ -941,9 +941,7 @@ static NR_ServingCellConfigCommon_t *get_scc_config(int idx)
           (int)scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric
               .preambleReceivedTargetPower);
     // SSB of the PCell is always on the sync raster
-    uint64_t ssb_freq = from_nrarfcn(*frequencyInfoDL->frequencyBandList.list.array[0],
-                                     *scc->ssbSubcarrierSpacing,
-                                     *frequencyInfoDL->absoluteFrequencySSB);
+    uint64_t ssb_freq = from_nrarfcn(*frequencyInfoDL->absoluteFrequencySSB);
     LOG_I(RRC, "absoluteFrequencySSB %ld corresponds to %lu Hz\n", *frequencyInfoDL->absoluteFrequencySSB, ssb_freq);
     if (IS_SA_MODE(get_softmodem_params()))
       check_ssb_raster(ssb_freq, *frequencyInfoDL->frequencyBandList.list.array[0], *scc->ssbSubcarrierSpacing);
