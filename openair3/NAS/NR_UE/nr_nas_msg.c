@@ -56,6 +56,7 @@
 #include "key_nas_deriver.h"
 #include "nr-uesoftmodem.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap_qos_rule.h"
+#include "openair3/NAS/TOOLS/sim_http/sim_http_auth.h"
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #include "curve_25519.h"
@@ -760,7 +761,8 @@ void derive_knas(algorithm_type_dist_t nas_alg_type, uint8_t nas_alg_id, uint8_t
   memcpy(knas, out + 16, 16);
 }
 
-static void derive_ue_keys(uint8_t *buf, nr_ue_nas_t *nas)
+/* 0: RES* ready; 1: SQN sync failure, AUTS in nas->security.res[0..13] */
+static int derive_ue_keys(uint8_t *buf, nr_ue_nas_t *nas)
 {
   uint8_t ak[6];
   uint8_t sqn[6];
@@ -778,9 +780,26 @@ static void derive_ue_keys(uint8_t *buf, nr_ue_nas_t *nas)
     rand[index] = buf[8 + index];
   }
 
-  uint8_t resTemp[16];
+  uint8_t resTemp[8];
   uint8_t ck[16], ik[16];
-  f2345(nas->uicc->key, rand, resTemp, ck, ik, ak, nas->uicc->opc);
+  if (uicc_auth_uses_http(nas->uicc)) {
+    uint8_t autn[16];
+    int aka_rc;
+
+    for (int index = 0; index < 16; index++) {
+      autn[index] = buf[26 + index];
+    }
+
+    aka_rc = sim_http_run_aka(nas->uicc->uiccAuthUrlStr, rand, autn, ck, ik, resTemp, output, 16);
+    if (aka_rc == SIM_HTTP_AKA_AUTS) {
+      return 1;
+    }
+    if (aka_rc != SIM_HTTP_AKA_OK) {
+      LOG_W(SIM, "SIM HTTP AKA failed; continuing with current ck/ik/res state\n");
+    }
+  } else {
+    f2345(nas->uicc->key, rand, resTemp, ck, ik, ak, nas->uicc->opc);
+  }
 
   transferRES(ck, ik, resTemp, rand, output, nas->sn_id);
 
@@ -811,6 +830,7 @@ static void derive_ue_keys(uint8_t *buf, nr_ue_nas_t *nas)
     printf("%x ", kamf[i]);
   }
   printf("\n");
+  return 0;
 }
 
 nr_ue_nas_t *get_ue_nas_info(module_id_t module_id)
@@ -1230,9 +1250,15 @@ static void handle_identity_request(as_nas_info_t *initialNasMsg, nr_ue_nas_t *n
     LOG_W(NAS, "Dropped Identity Response: unable to build Identity Response for identity type %d\n", msg.fgsmobileidentity);
 }
 
+static void generateAuthenticationFailure(as_nas_info_t *initialNasMsg, cause_id_t cause, const uint8_t *auts, int auts_len);
+
 static void generateAuthenticationResp(nr_ue_nas_t *nas, as_nas_info_t *initialNasMsg, uint8_t *buf)
 {
-  derive_ue_keys(buf, nas);
+  if (derive_ue_keys(buf, nas) == 1) {
+    LOG_I(NAS, "SQN out of sync: send Authentication Failure (Synch failure) with AUTS\n");
+    generateAuthenticationFailure(initialNasMsg, Synch_failure, nas->security.res, 14);
+    return;
+  }
   OctetString res;
   res.length = 16;
   res.value = calloc(1, 16);
@@ -1259,7 +1285,7 @@ static void generateAuthenticationResp(nr_ue_nas_t *nas, as_nas_info_t *initialN
 
 /** @brief Send Authentication Failure message from the UE to the AMF to
  * indicate that authentication of the network has failed */
-static void generateAuthenticationFailure(as_nas_info_t *initialNasMsg, cause_id_t cause)
+static void generateAuthenticationFailure(as_nas_info_t *initialNasMsg, cause_id_t cause, const uint8_t *auts, int auts_len)
 {
   int size = sizeof(fgmm_msg_header_t);
   fgmm_nas_message_plain_t plain = {0};
@@ -1271,6 +1297,11 @@ static void generateAuthenticationFailure(as_nas_info_t *initialNasMsg, cause_id
   fgmm_auth_failure_t *mm_msg = &plain.mm_msg.fgmm_auth_failure;
   mm_msg->cause = cause;
   size += 1;
+  if (cause == Synch_failure && auts && auts_len > 0) {
+    mm_msg->authentication_failure_param.buf = (uint8_t *)auts;
+    mm_msg->authentication_failure_param.len = auts_len;
+    size += 2 + auts_len;
+  }
   initialNasMsg->nas_data = malloc_or_fail(size * sizeof(*initialNasMsg->nas_data));
   initialNasMsg->length = mm_msg_encode(&plain, initialNasMsg->nas_data, size);
 }
@@ -1303,7 +1334,7 @@ static void handle_fgmm_authentication_request(nr_ue_nas_t *nas, as_nas_info_t *
     /* If the ngKSI value received is already associated with one
     of the 5G security contexts stored in the UE, send failure message */
     LOG_E(NAS, "Invalid NAS Key Set Identifier: send Authentication Failure\n");
-    generateAuthenticationFailure(initialNasMsg, ngKSI_already_in_use);
+    generateAuthenticationFailure(initialNasMsg, ngKSI_already_in_use, NULL, 0);
     return;
   }
   generateAuthenticationResp(nas, initialNasMsg, buffer->buf);
