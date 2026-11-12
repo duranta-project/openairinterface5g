@@ -85,6 +85,26 @@ int main(int argc, char **argv)
     return 1;
   }
 
+  // Waiting for a symbol end lands after that end and not more than a few symbols late; a symbol
+  // that has already passed does not block.
+  {
+    const uint64_t ns_per_symbol = 1000000ULL / (14 << numerology);
+    const uint64_t s_abs = fh_timer_get_current_symbol(&timer);
+    const uint64_t t0 = get_gps_ns();
+    fh_timer_wait_symbol_end(&timer, s_abs + 4);
+    const uint64_t t1 = get_gps_ns();
+    if (t1 < (s_abs + 5) * ns_per_symbol || t1 - t0 > 20 * ns_per_symbol) {
+      fprintf(stderr, "FAILURE: wait for symbol end returned after %lu ns\n", t1 - t0);
+      return 1;
+    }
+    fh_timer_wait_symbol_end(&timer, s_abs);
+    if (get_gps_ns() - t1 > ns_per_symbol) {
+      fprintf(stderr, "FAILURE: wait for a past symbol blocked\n");
+      return 1;
+    }
+    printf("Wait for symbol end: %lu ns for 5 symbols\n", t1 - t0);
+  }
+
   unsigned int lcore_id = rte_get_next_lcore(-1, 1, 0);
   if (lcore_id == RTE_MAX_LCORE) {
     fprintf(stderr, "No worker lcore available.\n");

@@ -304,6 +304,21 @@ int oru_fh_get_utc_anchor_point(void *handle, uint64_t *hyper_frame, uint32_t *f
   return 0;
 }
 
+uint64_t oru_fh_absolute_symbol(void *handle, uint64_t hyper_frame, uint32_t frame, uint32_t slot, uint32_t symbol)
+{
+  oru_fh_t *fh = (oru_fh_t *)handle;
+  AssertFatal(fh, "Invalid handle\n");
+  const uint64_t slots_per_frame = 10 << fh->cfg.numerology;
+  return ((hyper_frame * 1024 + frame) * slots_per_frame + slot) * NR_SYMBOLS_PER_SLOT + symbol;
+}
+
+void oru_fh_wait_symbol_end(void *handle, uint64_t absolute_symbol)
+{
+  oru_fh_t *fh = (oru_fh_t *)handle;
+  AssertFatal(fh, "Invalid handle\n");
+  fh_timer_wait_symbol_end(&fh->io.timer, absolute_symbol);
+}
+
 void oru_fh_rx_send_prach(void *handle, uint32_t **prachF, int nb_rx, int frame, int slot, int symbol)
 {
   oru_fh_t *fh = (oru_fh_t *)handle;

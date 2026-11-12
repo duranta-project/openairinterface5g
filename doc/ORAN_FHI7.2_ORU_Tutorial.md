@@ -130,6 +130,15 @@ a software synchronization mechanism is used:
    time due to software/host buffering. This delay is compensated by
    adjusting the O-RU's delay profile parameters (`T2a_up` and `T2a_cp`).
 
+### C. Uplink forwarding time
+A simulated south side (`rfsimulator`, `vrtsim`) hands over the UE's samples
+as soon as the UE has produced them, which can be several slots before their
+OTA time, whereas the O-DU discards uplink U-plane that arrives before the
+symbol's reception window. The `south_read` thread therefore holds every
+uplink and PRACH symbol until the fronthaul clock has passed the end of that
+symbol before it is processed and sent. With an RF device the samples arrive
+after that time anyway and the hold has no effect.
+
 ---
 
 ## 4. Architecture

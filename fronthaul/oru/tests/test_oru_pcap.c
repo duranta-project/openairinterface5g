@@ -31,12 +31,13 @@ void *test_alloc_mbuf(void *io_controller)
   return rte_pktmbuf_alloc(mp);
 }
 
-void test_send_mbuf(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+int test_send_mbuf(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
 {
   for (uint32_t i = 0; i < num_mbufs; i++) {
     g_total_uplane_sent++;
     rte_pktmbuf_free(mbufs[i]);
   }
+  return num_mbufs;
 }
 
 /*
