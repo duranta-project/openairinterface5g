@@ -19,6 +19,7 @@ target_link_libraries(nr_nas PUBLIC
     UTIL
     SECURITY
     nr_ue_tun
+    sim_http
 )
 
 target_include_directories(nr_nas PUBLIC . 5GS/)

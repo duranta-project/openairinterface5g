@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
+add_subdirectory(sim_http)
+
 add_library(conf2uedata_lib OBJECT
     conf_emm.c
     conf_user_data.c
