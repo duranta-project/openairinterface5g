@@ -276,7 +276,8 @@ bool tap_config(const char* ifname)
   return success;
 }
 
-void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id, const char *ipv4)
+/* Isolates UE PDU session traffic in a dedicated routing table to prevent asymmetric routing and rp_filter drops. */
+bool setup_ue_ipv4_route(const char *ifname, int instance_id, int pdu_session_id, const char *ipv4)
 {
   /* This needs to be unique per (instance_id, pdu_session_id) */
   // UE0, PDU1 = 10001, UE1, PDU1 = 10101, UE15, PDU15 = 11515 ...
@@ -296,9 +297,19 @@ void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id
 
   if (res < 0) {
     LOG_E(UTIL, "Could not create ip rule/route commands string\n");
-    return;
+    return false;
   }
-  background_system(command_line);
+
+  /* Verify that the background worker succeeded so missing iproute2 or stale rules
+   * do not silently leave the UE data path unrouted. */
+  if (background_system(command_line) != 0) {
+    LOG_E(UTIL,
+          "UE IPv4 route setup failed: \"%s\". Check iproute2 is installed and no stale rules exist; traffic will not use %s.\n",
+          command_line,
+          ifname);
+    return false;
+  }
+  return true;
 }
 
 int tun_generate_ifname(char *ifname, const char *ifprefix, int instance_id)
