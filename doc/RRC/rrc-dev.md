@@ -293,12 +293,12 @@ sequenceDiagram
         UE->>DU: RRCReconfigurationComplete
         DU->>CUCP: F1AP_UL_RRC_MESSAGE
         Note over CUCP: rrc_gNB_decode_dcch
-        Note over CUCP: handle_rrcReconfigurationComplete<br/>Calls rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP<br/>(DRBs already removed earlier in nr_rrc_update_pdusession)
+        Note over CUCP: handle_rrcReconfigurationComplete<br/>Calls rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP
 
         CUCP->>CUCP: rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP
         loop UE->pduSessions (matching transaction ID)
             alt ESTABLISHED
-                Note over CUCP: Update status to ESTABLISHED<br/>Fill NGAP message (modified)<br/>Include QoS flow list
+                Note over CUCP: Update status to ESTABLISHED<br/>Fill NGAP message (modified)<br/>Include QoS flow list<br/>Erase the DRBs this modification released from UE->drbs
             else PDU_SESSION_STATUS_FAILED
                 Note over CUCP: Fill NGAP message (failed to modify)<br/>Include cause
             end
