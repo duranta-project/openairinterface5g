@@ -41,6 +41,8 @@
 // the GNU C default).
 #define NRH_GENERIC
 #define NRH_N 16
+// the grid's "no candidate" metric: finite, as the RISC-V build assumes finite math (vfmax for the max-log)
+#define NRH_NEG (-65504.0f)
 typedef _Float16 hv __attribute__((vector_size(32)));
 typedef int16_t hi __attribute__((vector_size(32)));
 typedef int16_t hm __attribute__((vector_size(32))); // lanes all ones / zero
@@ -57,12 +59,17 @@ static inline hv hv_mul(hv a, hv b) { return a * b; }
 static inline hv hv_div(hv a, hv b) { return a / b; }
 static inline hv hv_fma(hv a, hv b, hv c) { return a + b * c; }
 static inline hv hv_fms(hv a, hv b, hv c) { return a - b * c; }
-static inline hv hv_sel(hm m, hv a, hv b) { return (hv)(((hi)a & m) | ((hi)b & ~m)); } // m ? a : b
-static inline hi hi_sel(hm m, hi a, hi b) { return (a & m) | (b & ~m); }
-static inline hv hv_max(hv a, hv b) { return hv_sel(a > b, a, b); }
-static inline hv hv_min(hv a, hv b) { return hv_sel(a < b, a, b); }
+// selects and max / min as lane loops: GCC vectorizes them to compare + vmerge (C has no vector ?:, and the bitwise
+// select costs a mask materialization and three logic ops)
+#define NRH_LANES(r, expr)          \
+  for (int i = 0; i < NRH_N; i++) \
+    r[i] = (expr);
+static inline hv hv_sel(hm m, hv a, hv b) { hv r; NRH_LANES(r, m[i] ? a[i] : b[i]) return r; } // m ? a : b
+static inline hi hi_sel(hm m, hi a, hi b) { hi r; NRH_LANES(r, m[i] ? a[i] : b[i]) return r; }
+static inline hv hv_max(hv a, hv b) { hv r; NRH_LANES(r, a[i] > b[i] ? a[i] : b[i]) return r; }
+static inline hv hv_min(hv a, hv b) { hv r; NRH_LANES(r, a[i] < b[i] ? a[i] : b[i]) return r; }
 static inline hv hv_abs(hv a) { return (hv)((hi)a & (int16_t)0x7fff); }
-static inline hv hv_neg(hv a) { return (hv)((hi)a ^ (int16_t)0x8000); }
+static inline hv hv_neg(hv a) { return -a; }
 // to nearest, ties to even, for |a| < 512 (ulp 1 above 1024); every use clamps the result to <= 15 levels, which
 // larger |a| still reach with the right sign
 static inline hv hv_rndn(hv a) { return (a + (_Float16)1536.0f) - (_Float16)1536.0f; }
@@ -81,8 +88,8 @@ static inline int hm_any(hm a)
 static inline hi hi_set1(int16_t x) { return (hi){} + x; }
 static inline hi hi_add(hi a, hi b) { return a + b; }
 static inline hi hi_sub(hi a, hi b) { return a - b; }
-static inline hi hi_min(hi a, hi b) { return hi_sel(a < b, a, b); }
-static inline hi hi_max(hi a, hi b) { return hi_sel(a > b, a, b); }
+static inline hi hi_min(hi a, hi b) { hi r; NRH_LANES(r, a[i] < b[i] ? a[i] : b[i]) return r; }
+static inline hi hi_max(hi a, hi b) { hi r; NRH_LANES(r, a[i] > b[i] ? a[i] : b[i]) return r; }
 static inline hi hi_shr1(hi a) { return a >> 1; }
 static inline hi hi_shl1(hi a) { return a << 1; }
 static inline hv hv_cvt(hi a) { return __builtin_convertvector(a, hv); }
@@ -121,13 +128,60 @@ static inline hi hi_neg_floor_log2(hi m)
   const hi8 l16 = __builtin_convertvector(127 - (lo >> 23), hi8), h16 = __builtin_convertvector(127 - (hi_ >> 23), hi8);
   return __builtin_shufflevector(l16, h16, NRH_LO, NRH_HI);
 }
+#if defined(__riscv_vector)
+#include <riscv_vector.h>
+// res[p] lane i -> out[i * stride / 2 + p] (stride in bytes): one segment store (strided between REs only if stride !=
+// 2 Qm); the X100 runs segment stores far faster than the per-field strided stores of the lane-loop transpose
+static inline void nrh_store_seg(int16_t *out, ptrdiff_t stride, const hi res[8], int Qm)
+{
+#define NRH_V(p) __riscv_vle16_v_i16m1((const int16_t *)&res[p], NRH_N)
+  switch (Qm) {
+    case 2:
+      __riscv_vssseg2e16_v_i16m1x2(out, stride, __riscv_vcreate_v_i16m1x2(NRH_V(0), NRH_V(1)), NRH_N);
+      break;
+    case 4:
+      __riscv_vssseg4e16_v_i16m1x4(out, stride, __riscv_vcreate_v_i16m1x4(NRH_V(0), NRH_V(1), NRH_V(2), NRH_V(3)), NRH_N);
+      break;
+    case 6:
+      __riscv_vssseg6e16_v_i16m1x6(out, stride, __riscv_vcreate_v_i16m1x6(NRH_V(0), NRH_V(1), NRH_V(2), NRH_V(3), NRH_V(4), NRH_V(5)), NRH_N);
+      break;
+    default:
+      __riscv_vssseg8e16_v_i16m1x8(out,
+                                   stride,
+                                   __riscv_vcreate_v_i16m1x8(NRH_V(0), NRH_V(1), NRH_V(2), NRH_V(3), NRH_V(4), NRH_V(5), NRH_V(6), NRH_V(7)),
+                                   NRH_N);
+  }
+#undef NRH_V
+}
+#else
+static inline void nrh_store_seg(int16_t *out, ptrdiff_t stride, const hi res[8], int Qm)
+{
+  for (int i = 0; i < NRH_N; i++)
+    for (int p = 0; p < Qm; p++)
+      out[i * stride / 2 + p] = res[p][i];
+}
+#endif
+// x *= s over n (a multiple of NRH_N) int16, s = +-1
+static inline void nrh_descramble(int16_t *x, const int16_t *s, int n)
+{
+  for (int j = 0; j < n; j += NRH_N) {
+    hi a, b;
+    memcpy(&a, x + j, sizeof(a));
+    memcpy(&b, s + j, sizeof(b));
+    a *= b;
+    memcpy(x + j, &a, sizeof(a));
+  }
+}
 static inline hi hi_abs_sat(hi a) // |a|, -32768 -> 32767
 {
-  return hi_sel(a == (int16_t)-32768, hi_set1(32767), hi_sel(a < 0, -a, a));
+  hi r;
+  NRH_LANES(r, a[i] == -32768 ? 32767 : (a[i] < 0 ? -a[i] : a[i]))
+  return r;
 }
 
 #elif defined(__aarch64__) && defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
 #include <arm_neon.h>
+#define NRH_NEG (-INFINITY)
 #define NRH_N 8
 typedef float16x8_t hv;
 typedef uint16x8_t hm;
@@ -191,6 +245,7 @@ static inline hv hv_lam(float lam, const hs *up)
 
 #elif defined(__x86_64__) && defined(__AVX512FP16__)
 #include <immintrin.h>
+#define NRH_NEG (-INFINITY)
 #define NRH_N 32
 typedef __m512h hv;
 typedef __mmask32 hm;
@@ -272,9 +327,7 @@ static inline hv hv_lam(float lam, const hs *up)
 static inline void nrh_store(int16_t *out, const hi res[8], int Qm)
 {
 #ifdef NRH_GENERIC
-  for (int i = 0; i < NRH_N; i++)
-    for (int p = 0; p < Qm; p++)
-      out[i * Qm + p] = res[p][i];
+  nrh_store_seg(out, 2 * Qm, res, Qm);
 #else
   NRLB_VI r[8];
   for (int p = 0; p < Qm; p++)
@@ -657,6 +710,13 @@ static inline __attribute__((always_inline)) void nrh_fused(uint32_t length,
           res[t][p] = hi_shr1(res[t][p]);
     if (llr_cw) { // layer demap (per RE: layer 0 then layer 1) and descrambling
       int16_t *cw = llr_cw + (size_t)re * 2 * Qm;
+#ifdef NRH_GENERIC
+      nrh_store_seg(cw, 4 * Qm, res[0], Qm);
+      nrh_store_seg(cw + Qm, 4 * Qm, res[1], Qm);
+      if (scramble)
+        nrh_descramble(cw, scramble + (size_t)re * 2 * Qm, NRH_N * 2 * Qm);
+      continue;
+#endif
       int16_t tl[2][NRH_N * 8] __attribute__((aligned(64)));
       nrh_store(tl[0], res[0], Qm);
       nrh_store(tl[1], res[1], Qm);
@@ -756,6 +816,11 @@ static inline __attribute__((always_inline)) void nrh_1layer(uint32_t length,
       res[p] = nrh_llr16(l[p], &inv);
     int16_t *out = llr + (size_t)re * Qm;
     nrh_store(out, res, Qm);
+#ifdef NRH_GENERIC
+    if (scramble)
+      nrh_descramble(out, scramble + (size_t)re * Qm, NRH_N * Qm);
+    continue;
+#endif
     if (scramble) {
       const int16_t *sc = scramble + (size_t)re * Qm;
       for (int i = 0; i < NRH_N * Qm; i++)

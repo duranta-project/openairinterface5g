@@ -29,10 +29,11 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv" AND OAI_RISCV_MARCH MATCHES "^rv64[a-z]*v")
   # VLEN >= 256 (checked at run time): GCC keeps the 16-lane FP16 vectors in single registers instead of splitting
-  # and scalarizing compares and shuffles
+  # and scalarizing compares and shuffles. Finite math without signed zeros lets it emit vfmax / vfmin for the lane-loop
+  # max / min (the grid sentinel is finite on this layer)
   check_c_compiler_flag(-march=${OAI_RISCV_MARCH}_zvl256b_zfh_zvfh HAVE_MARCH_ZVFH)
   if(HAVE_MARCH_ZVFH)
-    set(NR_LBEST_F16_FLAGS -march=${OAI_RISCV_MARCH}_zvl256b_zfh_zvfh)
+    set(NR_LBEST_F16_FLAGS -march=${OAI_RISCV_MARCH}_zvl256b_zfh_zvfh -ffinite-math-only -fno-signed-zeros)
   endif()
 endif()
 if(NR_LBEST_F16_FLAGS)

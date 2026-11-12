@@ -14,6 +14,10 @@
 #ifndef NRH_UNROLL
 #define NRH_UNROLL
 #endif
+// the grid's "no candidate" metric: -inf, or a finite value from a layer built for finite math (RISC-V: vfmax)
+#ifndef NRH_NEG
+#define NRH_NEG (-INFINITY)
+#endif
 
 static inline hv nrh_round_odd(hv x) // 2 * round((x - 1) / 2) + 1
 {
@@ -81,7 +85,7 @@ static inline __attribute__((always_inline)) void nrh_grid(const nrh_re_t *e, in
   const int M = 1 << nb, nI = full ? M : 3;
   const hv LMAX = hv_set1((float)(M - 1));
   const hv NA = hv_set1(nb == 3 ? 1.0f / 6.48074069840786f : 1.0f / 13.038404810405298f);
-  const hv NEG = hv_set1(-INFINITY);
+  const hv NEG = hv_set1(NRH_NEG);
   hv dI[16], dQ[16];
   hm bI[16][4], bQ[16][4];
   NRH_UNROLL
