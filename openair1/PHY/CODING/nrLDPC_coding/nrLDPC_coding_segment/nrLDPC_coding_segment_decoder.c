@@ -88,7 +88,7 @@ typedef struct nrLDPC_decoding_parameters_s {
 
   task_ans_t *ans;
 
-  time_stats_t ts_ldpc_decode;
+  time_single_t ts_ldpc_decode;
 } nrLDPC_decoding_parameters_t;
 
 static void nr_process_decode_segment(void *arg)
@@ -104,9 +104,6 @@ static void nr_process_decode_segment(void *arg)
   const uint8_t Kc = rdata->Kc;
   short *ulsch_llr = rdata->llr;
   int8_t llrProcBuf[OAI_LDPC_DECODER_MAX_NUM_LLR] __attribute__((aligned(32)));
-
-  t_nrLDPC_time_stats procTime = {0};
-  t_nrLDPC_time_stats *p_procTime = &procTime;
 
   ////////////////////////////////////////////////////////////////////////////////////////////
   ///////////////////////////////// nr_deinterleaving_ldpc ///////////////////////////////////
@@ -182,8 +179,8 @@ static void nr_process_decode_segment(void *arg)
   //////////////////////////////////////////////////////////////////////////////////////////
 
   ////////////////////////////////// pl =====> llrProcBuf //////////////////////////////////
-  start_meas(&rdata->ts_ldpc_decode);
-  int decodeIterations = LDPCdecoder(p_decoderParms, l, (uint8_t *)llrProcBuf, p_procTime, rdata->abort_decode);
+  start_single_meas(&rdata->ts_ldpc_decode);
+  int decodeIterations = LDPCdecoder(p_decoderParms, l, (uint8_t *)llrProcBuf, NULL, rdata->abort_decode);
   AssertFatal(rdata->c, "rdata->c is null, A %d, K %d\n", rdata->A, rdata->K);
   if (decodeIterations < p_decoderParms->numMaxIter) {
     memcpy(rdata->c, llrProcBuf, K >> 3);
@@ -193,7 +190,7 @@ static void nr_process_decode_segment(void *arg)
     memset(rdata->c, 0, K >> 3);
     *rdata->decodeSuccess = false;
   }
-  stop_meas(&rdata->ts_ldpc_decode);
+  stop_single_meas(&rdata->ts_ldpc_decode);
 
   // Task completed
   completed_task_ans(rdata->ans);
@@ -252,8 +249,7 @@ int nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_de
                 nrLDPC_TB_decoding_parameters->c);
     rdata->llr = nrLDPC_TB_decoding_parameters->llr + llr_offset; // rdata->Kc*rdata->Z;
     rdata->decodeSuccess = &nrLDPC_TB_decoding_parameters->decodeSuccess[r];
-    memset(&rdata->ts_ldpc_decode, 0, sizeof(rdata->ts_ldpc_decode));
-    reset_meas(&rdata->ts_ldpc_decode);
+    reset_single_meas(&rdata->ts_ldpc_decode);
     task_t t = {.func = &nr_process_decode_segment, .args = rdata};
     pushTpool(nrLDPC_slot_decoding_parameters->threadPool, t);
 
@@ -301,7 +297,7 @@ int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_dec
 
       nrLDPC_decoding_parameters_t *rdata = &((nrLDPC_decoding_parameters_t *)t_info.buf)[r_t_info];
       r_t_info += 1;
-      merge_meas(&nrLDPC_TB_decoding_parameters->ts_ldpc_decode, &rdata->ts_ldpc_decode);
+      nrLDPC_TB_decoding_parameters->ts_ldpc_decode[r] = rdata->ts_ldpc_decode;
     }
   }
   return 0;
