@@ -8,7 +8,7 @@ extern "C" {
 #include "common/config/config_userapi.h"
 void *config_allocate_new(configmodule_interface_t *cfg, int sz, bool autoFree);
 void config_check_valptr(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int elt_sz, int nb_elt);
-int config_common_getdefault(configmodule_interface_t *cfg, paramdef_t *cfgoption, char *prefix);
+int config_common_getdefault(configmodule_interface_t *cfg, paramdef_t *cfgoption, const char *prefix);
 }
 #include <cstring>
 #include <string>
@@ -190,7 +190,7 @@ YAML::Node find_node(const std::string &prefix, YAML::Node node)
   return current;
 }
 
-extern "C" int config_yaml_get(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int numoptions, char *prefix)
+extern "C" int config_yaml_get(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int numoptions, const char *prefix)
 {
   std::string p;
   if (prefix != nullptr) {
@@ -227,7 +227,7 @@ extern "C" int config_yaml_getlist(configmodule_interface_t *cfg,
                                    paramlist_def_t *ParamList,
                                    paramdef_t *params,
                                    int numparams,
-                                   char *prefix)
+                                   const char *prefix)
 {
   char path[512];
   if (prefix != nullptr) {
@@ -279,7 +279,7 @@ extern "C" void config_yaml_write_parsedcfg(configmodule_interface_t *cfg)
   (void)cfg;
 }
 
-extern "C" int config_yaml_set(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int numoptions, char *prefix)
+extern "C" int config_yaml_set(configmodule_interface_t *cfg, paramdef_t *cfgoptions, int numoptions, const char *prefix)
 {
   (void)cfg;
   (void)cfgoptions;

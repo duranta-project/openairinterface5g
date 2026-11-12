@@ -107,7 +107,7 @@ int config_get(configmodule_interface_t *cfgif, paramdef_t *params, int numparam
     if (ret >= 0) {
       config_process_cmdline(cfgif, params, numparams, prefix);
       if (cfgif->rtflags & CONFIG_SAVERUNCFG) {
-        cfgif->set(params, numparams, prefix);
+        cfgif->set(cfgif, params, numparams, prefix);
       }
       config_execcheck(cfgif, params, numparams, prefix);
     }
@@ -143,7 +143,7 @@ int config_getlist(configmodule_interface_t *cfg, paramlist_def_t *ParamList, pa
       sprintf(cfgpath, "%s.[%i]", newprefix, i);
       config_process_cmdline(cfg, ParamList->paramarray[i], numparams, cfgpath);
       if (cfg->rtflags & CONFIG_SAVERUNCFG)
-        cfg->set(ParamList->paramarray[i], numparams, cfgpath);
+        cfg->set(cfg, ParamList->paramarray[i], numparams, cfgpath);
       config_execcheck(cfg, ParamList->paramarray[i], numparams, cfgpath);
     }
   }
@@ -296,7 +296,7 @@ int config_check_modify_integer(configmodule_interface_t *cfg, paramdef_t *param
   return -1;
 }
 
-int config_check_intrange(const configmodule_interface_t *cfg, const paramdef_t *param)
+int config_check_intrange(configmodule_interface_t *cfg, paramdef_t *param)
 {
   UNUSED(cfg);
   if( *(param->iptr) >= param->chkPptr->s2.okintrange[0]  && *(param->iptr) <= param->chkPptr->s2.okintrange[1]  ) {
@@ -312,7 +312,7 @@ int config_check_intrange(const configmodule_interface_t *cfg, const paramdef_t 
   return -1;
 }
 
-int config_check_uintrange(const configmodule_interface_t *cfg, const paramdef_t *param)
+int config_check_uintrange(configmodule_interface_t *cfg, paramdef_t *param)
 {
   (void)cfg;
   const uint32_t *v = param->uptr;

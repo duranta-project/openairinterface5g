@@ -68,7 +68,7 @@ static void *scope_thread_UE(void *arg) {
 }
 
 
-int uescope_autoinit(void) {
+void uescope_autoinit(void *arg) {
   int UE_id;
   int argc=config_get_if()->argc;
   char  **argv=config_get_if()->argv;
@@ -96,7 +96,6 @@ int uescope_autoinit(void) {
     pthread_setname_np( forms_thread, "xforms" );
 
   printf("Scope thread created, ret=%d\n",ret);
-  return 0;
 } // start_forms_UE
 
 

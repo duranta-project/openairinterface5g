@@ -49,8 +49,8 @@ typedef union checkedparam {
     int num_okintval;                                            /* number of valid values in the checkingval array */
   } s1a;
   struct {
-    int (*f2)(const configmodule_interface_t *cfg,
-              const paramdef_t *param); /* check an integer against an authorized range, defined by its min and max value */
+    int (*f2)(configmodule_interface_t *cfg,
+              paramdef_t *param); /* check an integer against an authorized range, defined by its min and max value */
     int okintrange[CONFIG_MAX_NUMCHECKVAL];  /* integer array, store  min and max values  */
 
   } s2;
