@@ -126,6 +126,25 @@ static void print_meas_row(const char *name, time_stats_t *ts, int n_slots)
   printf("  %-34s %7.1f   %7.1f   %7.1f   %5d\n", name, per_slot_us, avg_us, max_us, ts->trials);
 }
 
+/* Reset time stats after warmup so -P breakdown matches steady-state slots */
+static void reset_bench_stats(PHY_VARS_gNB *gNB, nr_cell_sched_t *cell)
+{
+  reset_meas(&cell->gNB_scheduler);
+  reset_meas(&cell->schedule_ra);
+  reset_meas(&cell->schedule_ulsch);
+  reset_meas(&cell->schedule_dlsch);
+  reset_meas(&cell->rlc_data_req);
+
+  reset_meas(&gNB->phy_proc_tx);
+  reset_meas(&gNB->dci_generation_stats);
+  reset_meas(&gNB->dlsch_encoding_stats);
+  reset_meas(&gNB->dlsch_ldpc_encode_stats);
+  reset_meas(&gNB->dlsch_scrambling_stats);
+  reset_meas(&gNB->dlsch_modulation_stats);
+  reset_meas(&gNB->dlsch_precoding_stats);
+  reset_meas(&gNB->dlsch_resource_mapping_stats);
+}
+
 /* No-op UL preprocessor: we only benchmark DL */
 static void bench_ul_preprocessor_noop(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_process_pusch_t *pp_pusch)
 {
@@ -475,6 +494,7 @@ int main(int argc, char **argv)
   }
 
   /* ── 11. Benchmark loop ── */
+  int warmup = n_slots > 10 ? 5 : 0;
   printf("\nRunning until %d DL slots measured...\n\n", n_slots);
 
   double *t_sched = calloc(n_slots, sizeof(double));
@@ -547,7 +567,9 @@ int main(int argc, char **argv)
           n_pdsch++;
       }
 
+      start_meas(&gNB->phy_proc_tx);
       phy_procedures_gNB_TX(gNB, &sched_rsp->DL_req, &sched_rsp->TX_req, &sched_rsp->UL_dci_req, frame, slot);
+      stop_meas(&gNB->phy_proc_tx);
 
       clock_gettime(CLOCK_MONOTONIC, &ts2);
 
@@ -567,6 +589,8 @@ int main(int argc, char **argv)
       }
 
       dl_iter++;
+      if (warmup > 0 && dl_iter == warmup)
+        reset_bench_stats(gNB, cell);
     }
 
     /* advance to next slot */
@@ -579,8 +603,6 @@ int main(int argc, char **argv)
 
   /* ── 12. Statistics ── */
 
-  /* skip first 5 slots as warmup */
-  int warmup = n_slots > 10 ? 5 : 0;
   int count = n_slots - warmup;
   int total_pdsch = 0;
   for (int i = warmup; i < n_slots; i++)
@@ -659,7 +681,6 @@ int main(int argc, char **argv)
     print_meas_row("      LDPC encoding", &gNB->dlsch_ldpc_encode_stats, count);
     print_meas_row("    scrambling", &gNB->dlsch_scrambling_stats, count);
     print_meas_row("    DLSCH modulation", &gNB->dlsch_modulation_stats, count);
-    print_meas_row("    layer mapping", &gNB->dlsch_layer_mapping_stats, count);
     print_meas_row("    precoding", &gNB->dlsch_precoding_stats, count);
     print_meas_row("    resource mapping", &gNB->dlsch_resource_mapping_stats, count);
     printf("  ---------------------------------------------------------------------------\n");
