@@ -1018,10 +1018,11 @@ static void nr_csi_im_power_estimation(const PHY_VARS_NR_UE *ue,
                           csiim_config_pdu->bwp_size : csiim_config_pdu->start_rb + csiim_config_pdu->nr_of_rbs;
 
   int32_t count = 0;
-  int32_t sum_re = 0;
-  int32_t sum_im = 0;
-  int32_t sum2_re = 0;
-  int32_t sum2_im = 0;
+  // Accumulated squared int16_t samples can exceed INT32_MAX within one CSI-IM resource.
+  int64_t sum_re = 0;
+  int64_t sum_im = 0;
+  int64_t sum2_re = 0;
+  int64_t sum2_im = 0;
 
   int l_csiim[4] = {-1, -1, -1, -1};
 
@@ -1068,8 +1069,8 @@ static void nr_csi_im_power_estimation(const PHY_VARS_NR_UE *ue,
     }
   }
 
-  int32_t power_re = sum2_re / count - (sum_re / count) * (sum_re / count);
-  int32_t power_im = sum2_im / count - (sum_im / count) * (sum_im / count);
+  int64_t power_re = sum2_re / count - (sum_re / count) * (sum_re / count);
+  int64_t power_im = sum2_im / count - (sum_im / count) * (sum_im / count);
 
   *interference_plus_noise_power = power_re + power_im;
 
