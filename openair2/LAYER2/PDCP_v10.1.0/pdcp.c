@@ -110,6 +110,17 @@ void pdcp_free(void *pdcp_pP);
 
 pdcp_enb_t pdcp_enb[MAX_NUM_CCs];
 pthread_t pdcp_stats_thread_desc;
+/* TS 36.323 clause 6.3.3: SRB2 always uses a 12-bit PDCP SN. RRC does not send
+ * a pdcp-Config for SRB2 in the SRB-ToAddModList, so rb_snP does not describe
+ * it and the generic code below would fall back to 5 bits. The two ends then
+ * use different SN spaces and the SRB2 PDUs fail the integrity check at the
+ * peer. */
+static void pdcp_config_srb2_sn_size(pdcp_t *const pdcp_pP)
+{
+  pdcp_pP->seq_num_size = 12;
+  pdcp_pP->maximum_pdcp_rx_sn = (1 << 12) - 1;
+}
+
 /*! \fn bool pdcp_config_req_asn1 (const protocol_ctxt_t* const ctxt_pP, srb_flag_t srb_flagP, uint32_t  action, rb_id_t rb_id,
  * uint8_t rb_sn, uint8_t rb_report, uint16_t header_compression_profile, uint8_t security_mode) \brief  Function for RRC to
  * configure a Radio Bearer. \param[in]  ctxt_pP           Running context. \param[in]  pdcp_pP            Pointer on PDCP
@@ -1835,6 +1846,9 @@ static bool pdcp_config_req_asn1(const protocol_ctxt_t *const ctxt_pP,
         pdcp_pP->seq_num_size = 5;
         pdcp_pP->maximum_pdcp_rx_sn = (1 << 5) - 1;
       }
+      if ((srb_flagP == SRB_FLAG_YES) && (rb_idP == 2)) {
+        pdcp_config_srb2_sn_size(pdcp_pP);
+      }
 
       pdcp_pP->rlc_mode                         = rlc_modeP;
       pdcp_pP->next_pdcp_tx_sn                  = 0;
@@ -1888,6 +1902,9 @@ static bool pdcp_config_req_asn1(const protocol_ctxt_t *const ctxt_pP,
         pdcp_pP->seq_num_size = 12;
       } else {
         pdcp_pP->seq_num_size=5;
+      }
+      if ((srb_flagP == SRB_FLAG_YES) && (rb_idP == 2)) {
+        pdcp_config_srb2_sn_size(pdcp_pP);
       }
 
       LOG_I(PDCP,PROTOCOL_PDCP_CTXT_FMT" Action MODIFY LCID %d "
