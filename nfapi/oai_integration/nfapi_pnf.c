@@ -2416,7 +2416,7 @@ int oai_nfapi_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind) {
 }
 
 int oai_nfapi_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind) {
-  ind->header.phy_id = 0; // HACK TODO FIXME - need to pass this around!!!!
+  ind->header.phy_id = 0; // TODO HACK TODO FIXME - need to pass this around!!!!
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION;
   return nfapi_pnf_p7_nr_rx_data_ind(p7_config_g, ind);
 }
