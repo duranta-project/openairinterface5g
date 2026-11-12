@@ -17,6 +17,10 @@ void nr_256qam_llr(const c16_t *rxdataF_comp,
                    int16_t *llr,
                    uint32_t nb_re);
 
+/// right shift of the combined int16 codeword LLRs into the int8 LDPC decoder input (llr_shift of
+/// nrLDPC_TB_decoding_parameters_t) for the LLR units of the demappers here
+int nr_llr8_shift(int mod_order, int nb_layers);
+
 /**
  * @brief Mod-order-dependent LLR-hotness offset for the 2-layer near-ML/L-best log2_maxh.
  *

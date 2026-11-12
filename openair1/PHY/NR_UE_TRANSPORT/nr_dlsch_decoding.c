@@ -10,6 +10,7 @@
 #include "PHY/CODING/coding_defs.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
+#include "PHY/nr_phy_common/inc/nr_compute_llr.h"
 #include "SCHED_NR_UE/defs.h"
 #include "SIMULATION/TOOLS/sim.h"
 #include "executables/nr-uesoftmodem.h"
@@ -82,6 +83,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   TB_parameters.Qm = cw_info->qamModOrder;
   TB_parameters.mcs = cw_info->mcs;
   TB_parameters.nb_layers = cw_info->Nl;
+  TB_parameters.llr_shift = nr_llr8_shift(TB_parameters.Qm, TB_parameters.nb_layers);
   TB_parameters.BG = cw_info->ldpcBaseGraph;
   TB_parameters.A = cw_info->TBS;
   TB_parameters.processedSegments = &harq_process->processedSegments;

@@ -73,6 +73,8 @@ typedef struct nrLDPC_TB_decoding_parameters_s{
   short *llr;
   uint8_t *c;
   int16_t *d;
+  /// arithmetic right shift of the combined int16 LLRs into the int8 decoder input (filler bits excluded)
+  uint8_t llr_shift;
   bool d_to_be_cleared;
   bool decodeSuccess[NR_LDPC_MAX_NUM_CB];
   time_stats_t ts_ldpc_decode;

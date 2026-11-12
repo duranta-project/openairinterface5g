@@ -53,6 +53,7 @@
  * \var C number of segments
  * \var llr input llr segment array
  * \var d Pointers to code blocks before LDPC decoding (38.212 V15.4.0 section 5.3.2)
+ * \var llr_shift right shift of the combined LLRs into the int8 decoder input
  * \var d_to_be_cleared
  * pointer to the flag used to clear d properly
  * when true, clear d after rate dematching
@@ -82,6 +83,7 @@ typedef struct nrLDPC_decoding_parameters_s {
   int E;
   short *llr;
   int16_t *d;
+  uint8_t llr_shift;
   bool d_to_be_cleared;
   uint8_t *c;
   bool *decodeSuccess;
@@ -162,8 +164,6 @@ static void nr_process_decode_segment(void *arg)
 
 
   memset(z, 0, 2 * rdata->Z * sizeof(*z));
-  // set Filler bits
-  memset(z + Kprime, 127, rdata->F * sizeof(*z));
   // Move coded bits before filler bits
   memcpy(z + 2 * rdata->Z, rdata->d, (Kprime - 2 * rdata->Z) * sizeof(*z));
   // skip filler bits
@@ -172,9 +172,12 @@ static void nr_process_decode_segment(void *arg)
   simde__m128i *pv = (simde__m128i *)&z;
   int8_t l[68 * 384 + 16] __attribute__((aligned(16)));
   simde__m128i *pl = (simde__m128i *)&l;
+  const simde__m128i sh = simde_mm_cvtsi32_si128(rdata->llr_shift);
   for (int i = 0, j = 0; j < ((Kc * rdata->Z) >> 4) + 1; i += 2, j++) {
-    pl[j] = simde_mm_packs_epi16(pv[i], pv[i + 1]);
+    pl[j] = simde_mm_packs_epi16(simde_mm_sra_epi16(pv[i], sh), simde_mm_sra_epi16(pv[i + 1], sh));
   }
+  // set Filler bits
+  memset(l + Kprime, 127, rdata->F);
   //////////////////////////////////////////////////////////////////////////////////////////
 
   //////////////////////////////////////////////////////////////////////////////////////////
@@ -242,6 +245,7 @@ int nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_de
     rdata->abort_decode = nrLDPC_TB_decoding_parameters->abort_decode;
     rdata->d = nrLDPC_TB_decoding_parameters->d + r * rdata->Kc * rdata->Z;
     rdata->d_to_be_cleared = nrLDPC_TB_decoding_parameters->d_to_be_cleared;
+    rdata->llr_shift = nrLDPC_TB_decoding_parameters->llr_shift;
     rdata->c = nrLDPC_TB_decoding_parameters->c + r * (rdata->K >> 3);
     AssertFatal(rdata->c != NULL,
                 "rdata->c is null, r %d, K %d, A %d, rv_index %d, TB_decoding_parameters->c %p\n",
