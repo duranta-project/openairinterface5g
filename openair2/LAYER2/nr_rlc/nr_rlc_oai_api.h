@@ -83,6 +83,13 @@ void nr_rlc_activate_avg_time_to_tx(const int ue_id, const logical_chan_id_t cha
 
 void nr_rlc_srb_recv_sdu(const int ue_id, const logical_chan_id_t channel_id, unsigned char *buf, int size);
 
+/* Replace the pending SRB1 notification; NULL callback submits without one.
+ * Callback runs under the RLC manager lock and, on gNB RX, the scheduler lock.
+ * Do not relock, re-enter RLC or delete the UE. Cancel before freeing data.
+ * SRB1 release/re-establishment and UE removal also cancel the notification. */
+void nr_rlc_srb1_recv_sdu_with_delivery(int ue_id, unsigned char *buf, int size, nr_rlc_sdu_delivery_cb_t callback, void *data);
+void nr_rlc_srb1_cancel_delivery(int ue_id);
+
 bool nr_rlc_activate_srb0(int ue_id,
                           void *data,
                           void (*send_initial_ul_rrc_message)(int rnti, const uint8_t *sdu, sdu_size_t sdu_len, void *data));

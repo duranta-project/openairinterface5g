@@ -17,6 +17,14 @@ typedef enum {
   NR_RLC_TM,
 } nr_rlc_mode_t;
 
+typedef void (*nr_rlc_sdu_delivery_cb_t)(void *data);
+
+typedef struct {
+  int sdu_id;
+  nr_rlc_sdu_delivery_cb_t callback;
+  void *data;
+} nr_rlc_sdu_delivery_t;
+
 typedef struct {
   nr_rlc_mode_t mode;          /* AM, UM, or TM */
 
@@ -107,6 +115,9 @@ typedef struct nr_rlc_entity_s {
 
   void (*sdu_successful_delivery)(void *sdu_successful_delivery_data, struct nr_rlc_entity_s *entity, int sdu_id);
   void *sdu_successful_delivery_data;
+
+  /* Pending notification, cleared on AM release or re-establishment. */
+  nr_rlc_sdu_delivery_t sdu_delivery;
 
   void (*max_retx_reached)(void *max_retx_reached_data, struct nr_rlc_entity_s *entity);
   void *max_retx_reached_data;
