@@ -884,6 +884,7 @@ int rrc_eNB_process_S1AP_INITIAL_CONTEXT_SETUP_REQ(MessageDef *msg_p, const char
         ue_context_p->ue_context.e_rab[i].status = E_RAB_STATUS_NEW;
         ue_context_p->ue_context.e_rab[i].param = S1AP_INITIAL_CONTEXT_SETUP_REQ (msg_p).e_rab_param[i];
         create_tunnel_req.eps_bearer_id[i]       = S1AP_INITIAL_CONTEXT_SETUP_REQ (msg_p).e_rab_param[i].e_rab_id;
+        create_tunnel_req.rb_id[i]               = rrc_eNB_get_drb_identity(i);
         create_tunnel_req.sgw_S1u_teid[i]        = S1AP_INITIAL_CONTEXT_SETUP_REQ (msg_p).e_rab_param[i].gtp_teid;
         memcpy(&create_tunnel_req.sgw_addr[i],
                &S1AP_INITIAL_CONTEXT_SETUP_REQ (msg_p).e_rab_param[i].sgw_addr,
@@ -1185,6 +1186,7 @@ int rrc_eNB_process_S1AP_E_RAB_SETUP_REQ(MessageDef *msg_p, const char *msg_name
         ue_context_p->ue_context.e_rab[i].status = E_RAB_STATUS_NEW;
         ue_context_p->ue_context.e_rab[i].param = S1AP_E_RAB_SETUP_REQ  (msg_p).e_rab_setup_params[e_rab_done];
         create_tunnel_req.eps_bearer_id[e_rab_done]       = S1AP_E_RAB_SETUP_REQ  (msg_p).e_rab_setup_params[e_rab_done].e_rab_id;
+        create_tunnel_req.rb_id[e_rab_done]               = rrc_eNB_get_drb_identity(i);
         create_tunnel_req.sgw_S1u_teid[e_rab_done]        = S1AP_E_RAB_SETUP_REQ  (msg_p).e_rab_setup_params[e_rab_done].gtp_teid;
         memcpy(&create_tunnel_req.sgw_addr[e_rab_done],
                & S1AP_E_RAB_SETUP_REQ (msg_p).e_rab_setup_params[e_rab_done].sgw_addr,
@@ -1864,6 +1866,7 @@ int rrc_eNB_send_PATH_SWITCH_REQ(const protocol_ctxt_t *const ctxt_pP,
   for (e_rab = 0; e_rab <  ue_context_pP->ue_context.nb_of_e_rabs ; e_rab++) {
     if (ue_context_pP->ue_context.e_rab[e_rab].status == E_RAB_STATUS_ESTABLISHED) {
       create_tunnel_req.eps_bearer_id[e_rabs_done]       = ue_context_pP->ue_context.e_rab[e_rab].param.e_rab_id;
+      create_tunnel_req.rb_id[e_rabs_done]               = rrc_eNB_get_drb_identity(e_rab);
       create_tunnel_req.sgw_S1u_teid[e_rabs_done]        = ue_context_pP->ue_context.e_rab[e_rab].param.gtp_teid;
       memcpy(&create_tunnel_req.sgw_addr[e_rabs_done],
              &ue_context_pP->ue_context.e_rab[e_rab].param.sgw_addr,

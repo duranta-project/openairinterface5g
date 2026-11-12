@@ -638,4 +638,17 @@ int rrc_eNB_generate_RRCConnectionReconfiguration_endc(protocol_ctxt_t *ctxt,
                                                        int buffer_size,
                                                        OCTET_STRING_t *scg_group_config,
                                                        OCTET_STRING_t *scg_RB_config);
+/**
+ * \brief DRB identity that RRC assigns to the E-RAB stored in
+ *        ue_context.e_rab[e_rab_index].
+ *
+ * The E-RAB ID is chosen by the MME and is coded 1..15 (TS 36.413); the DRB
+ * identity is local to the UE context and RRC numbers it from 1 following the
+ * position of the E-RAB. Both must not be confused: the S1-U tunnel needs the
+ * DRB identity to hand the uplink SDUs to the right PDCP entity.
+ */
+static inline int rrc_eNB_get_drb_identity(int e_rab_index)
+{
+  return e_rab_index + 1;
+}
 /** @}*/
