@@ -126,28 +126,18 @@ int decode_fgs_service_request(fgs_service_request_msg_t *sr, const uint8_t *buf
       case IEI_UPLINK_DATA_STATUS: {
         decoded++;
         byte_array_t ba = create_byte_array(len - decoded, buffer + decoded);
-        decoded_rc = decode_pdu_session_ie(sr->uplink_data_status, &ba);
+        decoded_rc = decode_pdu_session_ie(sr->uplink_data_status, &ba, &sr->has_uplink_data_status);
         free_byte_array(ba);
-        if (decoded_rc < 0) {
-          LOG_E(NAS, "Failed to decode Uplink data status\n");
-          return -1;
-        }
         decoded += decoded_rc;
-        sr->has_uplink_data_status = true;
         break;
       }
 
       case IEI_PDU_SESSION_STATUS: {
         decoded++;
         byte_array_t ba = create_byte_array(len - decoded, buffer + decoded);
-        decoded_rc = decode_pdu_session_ie(sr->pdu_session_status, &ba);
+        decoded_rc = decode_pdu_session_ie(sr->pdu_session_status, &ba, &sr->has_pdu_session_status);
         free_byte_array(ba);
-        if (decoded_rc < 0) {
-          LOG_E(NAS, "Failed to decode PDU Session Status\n");
-          return -1;
-        }
         decoded += decoded_rc;
-        sr->has_pdu_session_status = true;
         break;
       }
 

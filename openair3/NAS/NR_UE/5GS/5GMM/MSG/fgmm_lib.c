@@ -60,23 +60,24 @@ int encode_pdu_session_ie(byte_array_t *buffer, nas_service_IEI_t iei, const uin
  * According to 9.11.3.42 and 9.11.3.44 of 3GPP TS 24.501, both IEs share the same
  * structure, therefore this function covers them both.
  * @param psi pointer to buffer for the PDU Session Status IE to be decoded
+ * @param present initialized by the caller; set to true only after successful decoding
+ * @return consumed length, including malformed optional contents; a truncated IE consumes the remaining buffer
  */
-int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer)
+int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer, bool *present)
 {
-  int decoded = 0;
-  uint8_t *buf = buffer->buf;
-
-  if (buffer->len < MIN_PDU_SESSION_CONTENTS_LEN + 2) {
-    PRINT_ERROR("%s failed: buffer length is too small", __func__);
-    return -1;
-  }
+  if (buffer->len == 0)
+    return 0; // The caller has already consumed the IEI.
 
   // start decoding from length IE (IEI is decoded in the caller)
-  uint8_t pdu_session_status_len = buf[decoded++];
-  if (pdu_session_status_len > MAX_PDU_SESSION_CONTENTS_LEN) {
-    PRINT_ERROR("decoded length is out of bound for PDU Session Status/Reactivation result\n");
-    return -1;
-  }
+  const uint8_t *buf = buffer->buf;
+  uint8_t pdu_session_status_len = buf[0];
+  // TS 24.501 clause 7.7.1: ignore malformed optional IEs without discarding valid preceding fields.
+  if (pdu_session_status_len > buffer->len - 1)
+    return buffer->len;
+  if (pdu_session_status_len < MIN_PDU_SESSION_CONTENTS_LEN)
+    return 1 + pdu_session_status_len;
+
+  int decoded = 1;
 
   /* Decode PDU Session Status content IEs bits in octet 3 (PSI 1-7).
      Store the result psi array.
@@ -93,7 +94,9 @@ int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer)
   }
   decoded++;
 
-  return decoded;
+  *present = true;
+  // TS 24.007 clause 11.4.2: skip additional type 4 contents, including extensions beyond the known maximum.
+  return 1 + pdu_session_status_len;
 }
 
 /* Encode GPRS Timer IE (3GPP TS 24.008 10.5.7.3) */
