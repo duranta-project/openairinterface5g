@@ -1678,20 +1678,21 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
        * The UE Context Release procedure may be performed before the UE Context Setup
        * procedure to release an existing UE-associated logical F1-connection and related
        * resources in the gNB-DU" */
-      DevAssert(old_du_ue_id != 0);
-      RETURN_IF_INVALID_ASSOC_ID(old_du_assoc_id);
-      f1ap_ue_context_rel_cmd_t cmd = {
-          .gNB_CU_ue_id = UE->rrc_ue_id,
-          .gNB_DU_ue_id = old_du_ue_id,
-          .cause = F1AP_CAUSE_RADIO_NETWORK,
-          .cause_value = F1AP_CauseRadioNetwork_normal_release,
-      };
-      rrc->mac_rrc.ue_context_release_command(old_du_assoc_id, &cmd);
-      LOG_I(NR_RRC,
-            "UE %d: Re-establishment on different DU - releasing old DU immediately (assoc_id %d, DU UE ID %u)\n",
-            UE->rrc_ue_id,
-            old_du_assoc_id,
-            old_du_ue_id);
+      if (old_du_assoc_id != 0) {
+        DevAssert(old_du_ue_id != 0);
+        f1ap_ue_context_rel_cmd_t cmd = {
+            .gNB_CU_ue_id = UE->rrc_ue_id,
+            .gNB_DU_ue_id = old_du_ue_id,
+            .cause = F1AP_CAUSE_RADIO_NETWORK,
+            .cause_value = F1AP_CauseRadioNetwork_normal_release,
+        };
+        rrc->mac_rrc.ue_context_release_command(old_du_assoc_id, &cmd);
+        LOG_I(NR_RRC,
+              "UE %d: Re-establishment on different DU - releasing old DU immediately (assoc_id %d, DU UE ID %u)\n",
+              UE->rrc_ue_id,
+              old_du_assoc_id,
+              old_du_ue_id);
+      }
 
       // on a new DU: we will have to send f1_ue_context again
       UE->f1_ue_context_active = false;
