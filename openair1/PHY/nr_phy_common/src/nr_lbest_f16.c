@@ -88,14 +88,7 @@ static inline hs hs_pow2(hi k)
   return (hs){vreinterpretq_f32_s32(vshlq_n_s32(vaddq_s32(vmovl_s16(vget_low_s16(k)), vdupq_n_s32(127)), 23)),
               vreinterpretq_f32_s32(vshlq_n_s32(vaddq_s32(vmovl_high_s16(k), vdupq_n_s32(127)), 23))};
 }
-// l * inv -> int16 (fp32, truncated, saturated)
-static inline hi hv_llr16(hv l, const hs *inv)
-{
-  const float32x4_t mn = vdupq_n_f32(-32768.0f), mx = vdupq_n_f32(32767.0f);
-  const float32x4_t lo = vminq_f32(vmaxq_f32(vmulq_f32(vcvt_f32_f16(vget_low_f16(l)), inv->lo), mn), mx);
-  const float32x4_t hi_ = vminq_f32(vmaxq_f32(vmulq_f32(vcvt_high_f32_f16(l), inv->hi), mn), mx);
-  return vcombine_s16(vqmovn_s32(vcvtq_s32_f32(lo)), vqmovn_s32(vcvtq_s32_f32(hi_)));
-}
+static inline hi hv_trunc16(hv a) { return vcvtq_s16_f16(a); } // toward zero
 // lambda * up as FP16 (fp32, clamped below the FP16 overflow)
 static inline hv hv_lam(float lam, const hs *up)
 {
@@ -165,15 +158,7 @@ typedef struct {
 } hs;
 static inline __m512 f32_pow2(__m256i k) { return _mm512_castsi512_ps(_mm512_slli_epi32(_mm512_add_epi32(_mm512_cvtepi16_epi32(k), _mm512_set1_epi32(127)), 23)); }
 static inline hs hs_pow2(hi k) { return (hs){f32_pow2(_mm512_castsi512_si256(k)), f32_pow2(_mm512_extracti64x4_epi64(k, 1))}; }
-static inline hi hv_llr16(hv l, const hs *inv)
-{
-  const __m512 mn = _mm512_set1_ps(-32768.0f), mx = _mm512_set1_ps(32767.0f);
-  const __m512 lo = _mm512_mul_ps(_mm512_cvtxph_ps(_mm512_castph512_ph256(l)), inv->lo);
-  const __m512 hi_ = _mm512_mul_ps(_mm512_cvtxph_ps(_mm256_castsi256_ph(_mm512_extracti64x4_epi64(_mm512_castph_si512(l), 1))), inv->hi);
-  const __m256i a = _mm512_cvtsepi32_epi16(_mm512_cvttps_epi32(_mm512_min_ps(_mm512_max_ps(lo, mn), mx)));
-  const __m256i b = _mm512_cvtsepi32_epi16(_mm512_cvttps_epi32(_mm512_min_ps(_mm512_max_ps(hi_, mn), mx)));
-  return _mm512_inserti64x4(_mm512_castsi256_si512(a), b, 1);
-}
+static inline hi hv_trunc16(hv a) { return _mm512_cvttph_epi16(a); }
 static inline hv hv_lam(float lam, const hs *up)
 {
   const __m512 mx = _mm512_set1_ps(30000.0f), l = _mm512_set1_ps(lam);
@@ -208,6 +193,22 @@ static inline hv nrh_dsq(hv lvl, hv ref)
 {
   const hv d = hv_sub(lvl, ref);
   return hv_mul(d, d);
+}
+
+// LLRs of the vector's units to int16 at 2^-k per RE: two exact power-of-two factors (-k = a + b, each in the FP16
+// exponent range), a clamp below the int16 limit (32752: the FP16 value under 32767) and the truncating conversion
+typedef struct {
+  hv a, b;
+} hsc;
+static inline hsc nrh_llr_scale(hi k)
+{
+  const hi nk = hi_sub(hi_set1(0), k);
+  const hi a = hi_max(hi_min(nk, hi_set1(15)), hi_set1(-14));
+  return (hsc){hv_pow2(a), hv_pow2(hi_sub(nk, a))};
+}
+static inline hi nrh_llr16(hv l, const hsc *sc)
+{
+  return hv_trunc16(nrh_clamp(hv_mul(hv_mul(l, sc->a), sc->b), hv_set1(32752.0f)));
 }
 
 // Gray bits of a PAM level vector, nb bits per axis
@@ -317,7 +318,7 @@ static inline __attribute__((always_inline)) void nrh_axis_llr(hv est, hv g, int
 
 // one layer of a vector of REs: z_t / z_o target / other MRC, P_t / P_o, rho = h_t^H h_o, lam: lambda, all in the
 // vector's units (= the int16 compensation units 2^k per RE); int16 LLRs (per-layer order) in the compensation units
-static inline __attribute__((always_inline)) void nrh_layer(hv ztr, hv zti, hv zor, hv zoi, hv Pt, hv Po, hv rr, hv ri, hv lam, int full, int nb, const hs *inv, hi res[8])
+static inline __attribute__((always_inline)) void nrh_layer(hv ztr, hv zti, hv zor, hv zoi, hv Pt, hv Po, hv rr, hv ri, hv lam, int full, int nb, const hsc *inv, hi res[8])
 {
   const int M = 1 << nb, Qm = 2 * nb;
   const float sqK = nb == 3 ? 6.48074069840786f : 13.038404810405298f;
@@ -376,8 +377,8 @@ static inline __attribute__((always_inline)) void nrh_layer(hv ztr, hv zti, hv z
     }
   }
   for (int p = 0; p < Qm; p++) {
-    const hi v = hv_llr16(l[p], inv);
-    res[p] = full ? v : hi_sel(u[p], hv_llr16(axis[p], inv), v);
+    const hi v = nrh_llr16(l[p], inv);
+    res[p] = full ? v : hi_sel(u[p], nrh_llr16(axis[p], inv), v);
   }
 }
 
@@ -426,7 +427,8 @@ static inline __attribute__((always_inline)) void nrh_lbest_block(const c16_t *s
   const hv P0 = hv_mul(hv_cvt(c0), PSC), P1 = hv_mul(hv_cvt(c1), PSC);
   const hi k = nrh_rescale_exp(P0, P1);
   const hv T = hv_pow2(k);
-  const hs inv = hs_pow2(hi_sub(hi_set1(0), k)), up = hs_pow2(k);
+  const hsc inv = nrh_llr_scale(k);
+  const hs up = hs_pow2(k);
   hi res[8];
   nrh_layer(hv_mul(hv_cvt(z1r), T), hv_mul(hv_cvt(z1i), T), hv_mul(hv_cvt(z2r), T), hv_mul(hv_cvt(z2i), T), hv_mul(P0, T), hv_mul(P1, T),
             hv_mul(hv_cvt(rr), T), hv_mul(hv_cvt(ri), T), hv_lam(lambda, &up), full, nb, &inv, res);
@@ -675,7 +677,8 @@ static inline __attribute__((always_inline)) void nrh_fused(uint32_t length,
     const hv T = hv_pow2(lt);
     // vector units = int16 compensation units 2^k, k = 2 ls + lt + output_shift
     const hi k = hi_add(hi_add(hi_shl1(ls), lt), hi_set1(output_shift));
-    const hs inv = hs_pow2(hi_sub(hi_set1(0), k)), up = hs_pow2(k);
+    const hsc inv = nrh_llr_scale(k);
+    const hs up = hs_pow2(k);
     const hv lam = hv_lam(lambda, &up);
     const hv z0r = hv_mul(f.z0r, T), z0i = hv_mul(f.z0i, T), z1r = hv_mul(f.z1r, T), z1i = hv_mul(f.z1i, T);
     const hv P0 = hv_mul(f.P0, T), P1 = hv_mul(f.P1, T), rr = hv_mul(f.rr, T), ri = hv_mul(f.ri, T);
@@ -772,7 +775,7 @@ static inline __attribute__((always_inline)) void nrh_1layer(uint32_t length,
     const hv T = hv_pow2(lt);
     // vector units = int16 compensation units 2^k, k = 2 ls + lt + output_shift (+ 4: the QPSK LLR is z >> 4)
     const hi k = hi_add(hi_add(hi_shl1(ls), lt), hi_set1(output_shift + (nb == 1 ? 4 : 0)));
-    const hs inv = hs_pow2(hi_sub(hi_set1(0), k));
+    const hsc inv = nrh_llr_scale(k);
     hv l[8];
     l[0] = hv_mul(zr, T);
     l[1] = hv_mul(zi, T);
@@ -784,7 +787,7 @@ static inline __attribute__((always_inline)) void nrh_1layer(uint32_t length,
     }
     hi res[8];
     for (int p = 0; p < Qm; p++)
-      res[p] = hv_llr16(l[p], &inv);
+      res[p] = nrh_llr16(l[p], &inv);
     int16_t *out = llr + (size_t)re * Qm;
     nrh_store(out, res, Qm);
     if (scramble) {
