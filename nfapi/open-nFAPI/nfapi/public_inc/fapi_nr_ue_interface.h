@@ -276,7 +276,7 @@ typedef struct
 typedef struct
 {
   uint8_t  num_ptrs_ports;
-  nfapi_nr_ue_ptrs_ports_t* ptrs_ports_list;
+  nfapi_nr_ue_ptrs_ports_t ptrs_ports_list[2];
   uint8_t  ptrs_time_density;
   uint8_t  ptrs_freq_density;
   uint8_t  ul_ptrs_power;
