@@ -206,12 +206,34 @@ static void writerProcessWaitingQueue(nrue_ru_write_t nrue_ru_write, PHY_VARS_NR
           if (wroteSamples != nsamps)
             LOG_W(HW, "Failed to write to RF: wrote %d out of %d samples\n", wroteSamples, nsamps);
         }
-        ctx->nextTS = timestamp + nsamps;
         pthread_mutex_lock(&ctx->mutex_store);
+        ctx->nextTS = timestamp + nsamps;
       }
     }
     pthread_mutex_unlock(&ctx->mutex_store);
   } while (found);
+}
+
+static bool writerHasReady(re_order_t *ctx)
+{
+  bool ready = false;
+  pthread_mutex_lock(&ctx->mutex_store);
+  for (int i = 0; i < WRITE_QUEUE_SZ && !ready; i++)
+    ready = ctx->queue[i].active && llabs(ctx->queue[i].timestamp - ctx->nextTS) < MAX_GAP;
+  pthread_mutex_unlock(&ctx->mutex_store);
+  return ready;
+}
+
+// A writer that fails the trylock leaves its entry to the lock holder, which may have scanned the queue before the entry
+// was added: re-check after unlocking, otherwise the entry is stranded until the next write, which in rfsim may never come
+// as the peer waits for these very samples.
+static void writerDrainAndUnlock(nrue_ru_write_t nrue_ru_write, PHY_VARS_NR_UE *UE, openair0_device_t *device)
+{
+  re_order_t *ctx = &device->reOrder;
+  do {
+    writerProcessWaitingQueue(nrue_ru_write, UE, device);
+    pthread_mutex_unlock(&ctx->mutex_write);
+  } while (writerHasReady(ctx) && pthread_mutex_trylock(&ctx->mutex_write) == 0);
 }
 
 // We assume the data behind *txp are permanently allocated
@@ -252,20 +274,18 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
           LOG_W(HW, "Failed to write to RF: wrote %d out of %d samples\n", wroteSamples, nsamps);
       } else
         wroteSamples = nsamps;
+      pthread_mutex_lock(&ctx->mutex_store);
       ctx->nextTS = timestamp + nsamps;
-
+      pthread_mutex_unlock(&ctx->mutex_store);
     } else {
       writerEnqueue(ctx, timestamp, txp, nsamps, nbAnt, flags);
     }
-    writerProcessWaitingQueue(nrue_ru_write, UE, device);
-    pthread_mutex_unlock(&ctx->mutex_write);
+    writerDrainAndUnlock(nrue_ru_write, UE, device);
     return wroteSamples ? wroteSamples : nsamps;
   }
   writerEnqueue(ctx, timestamp, txp, nsamps, nbAnt, flags);
-  if (pthread_mutex_trylock(&ctx->mutex_write) == 0) {
-    writerProcessWaitingQueue(nrue_ru_write, UE, device);
-    pthread_mutex_unlock(&ctx->mutex_write);
-  }
+  if (pthread_mutex_trylock(&ctx->mutex_write) == 0)
+    writerDrainAndUnlock(nrue_ru_write, UE, device);
   return nsamps;
 }
 
