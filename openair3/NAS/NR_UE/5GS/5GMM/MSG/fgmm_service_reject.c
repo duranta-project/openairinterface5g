@@ -33,9 +33,9 @@ int encode_fgs_service_reject(byte_array_t *buffer, const fgs_service_reject_msg
     ENCODE_NAS_IE(ba, encode_pdu_session_ie(&ba, IEI_PDU_SESSION_STATUS, msg->psi_status), encoded);
   }
 
-  // T3446 Timer (Optional)
-  if (msg->t3446) {
-    ENCODE_NAS_IE(ba, encode_gprs_timer_ie(&ba, IEI_T3446_VALUE, msg->t3446), encoded);
+  // T3346 Timer (Optional)
+  if (msg->t3346) {
+    ENCODE_NAS_IE(ba, encode_gprs_timer_ie(&ba, IEI_T3346_VALUE, msg->t3346), encoded);
   }
 
   // T3448 Timer (Optional)
@@ -82,9 +82,9 @@ int decode_fgs_service_reject(fgs_service_reject_msg_t *msg, const byte_array_t 
         DECODE_NAS_IE(ba, decode_gprs_timer_ie(msg->t3448, (const byte_array_t *)&ba), decoded);
         break;
 
-      case IEI_T3446_VALUE:
-        msg->t3446 = malloc_or_fail(sizeof(*msg->t3446));
-        DECODE_NAS_IE(ba, decode_gprs_timer_ie(msg->t3446, (const byte_array_t *)&ba), decoded);
+      case IEI_T3346_VALUE:
+        msg->t3346 = malloc_or_fail(sizeof(*msg->t3346));
+        DECODE_NAS_IE(ba, decode_gprs_timer_ie(msg->t3346, (const byte_array_t *)&ba), decoded);
         break;
 
       case IEI_EAPMSG: {
@@ -138,12 +138,12 @@ bool eq_service_reject(const fgs_service_reject_msg_t *a, const fgs_service_reje
     if (!eq_gprs_timer(a->t3448, b->t3448))
       return false;
   }
-  if (a->t3446 != NULL || b->t3446 != NULL) {
-    if (a->t3446 == NULL || b->t3446 == NULL) {
-      PRINT_ERROR("t3448 equality check failed\n");
+  if (a->t3346 != NULL || b->t3346 != NULL) {
+    if (a->t3346 == NULL || b->t3346 == NULL) {
+      PRINT_ERROR("t3346 equality check failed\n");
       return false;
     }
-    if (!eq_gprs_timer(a->t3446, b->t3446))
+    if (!eq_gprs_timer(a->t3346, b->t3346))
       return false;
   }
   return true;
@@ -151,7 +151,7 @@ bool eq_service_reject(const fgs_service_reject_msg_t *a, const fgs_service_reje
 
 void free_fgs_service_reject(fgs_service_reject_msg_t *msg)
 {
-  free(msg->t3446);
+  free(msg->t3346);
   free(msg->t3448);
   if (msg->eap_msg) {
     free_byte_array(*msg->eap_msg);

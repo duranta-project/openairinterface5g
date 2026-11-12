@@ -82,7 +82,7 @@ typedef enum { REACTIVATION_SUCCESS = 0, REACTIVATION_FAILED } PSI_reactivation_
   IEI_DEF(IEI_UE_REQUEST_TYPE, 0x29)                      \
   IEI_DEF(IEI_UPLINK_DATA_STATUS, 0x40)                   \
   IEI_DEF(IEI_PDU_SESSION_STATUS, 0x50)                   \
-  IEI_DEF(IEI_T3446_VALUE, 0x5F)                          \
+  IEI_DEF(IEI_T3346_VALUE, 0x5F)                          \
   IEI_DEF(IEI_T3448_VALUE, 0x6B)                          \
   IEI_DEF(IEI_FGS_NAS_MESSAGE_CONTAINER, 0x71)            \
   IEI_DEF(IEI_PDU_SESSION_REACT_RESULT_ERROR_CAUSE, 0x72) \
@@ -151,7 +151,7 @@ typedef struct {
 
 int encode_pdu_session_ie(byte_array_t *buffer, nas_service_IEI_t iei, const uint8_t *psi);
 int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer);
-int encode_gprs_timer_ie(byte_array_t *buffer, nas_service_IEI_t iei, const gprs_timer_t *timer);
+int encode_gprs_timer_ie(byte_array_t *buffer, uint8_t iei, const gprs_timer_t *timer);
 int decode_gprs_timer_ie(gprs_timer_t *timer, const byte_array_t *buffer);
 bool eq_gprs_timer(const gprs_timer_t *a, const gprs_timer_t *b);
 int decode_eap_msg_ie(byte_array_t *eap_msg, const byte_array_t *buffer);
