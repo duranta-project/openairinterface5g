@@ -50,6 +50,7 @@ add_physim_test(physim.4g.ulsim.test6 "20 MHz, FDD (MCS 16), AWGN, 12 dB (70%)" 
 ####################################################################################
 
 add_physim_test(physim.5g.ldpctest.test1 "block length = 3872, BG1" ldpctest -l3872 -s10 -n300)
+add_physim_test(physim.5g.ldpc_tb_test.alternating_c "TBs with 25 and 36 code blocks alternating, LBRM" ldpc_tb_test)
 add_physim_test(physim.5g.ldpctest.test2 "block length = 4224, BG1" ldpctest -l4224 -s10 -n300)
 add_physim_test(physim.5g.ldpctest.test3 "block length = 4576, BG1" ldpctest -l4576 -s10 -n300)
 add_physim_test(physim.5g.ldpctest.test4 "block length = 4928, BG1" ldpctest -l4928 -s10 -n300)
