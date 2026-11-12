@@ -221,6 +221,15 @@ static void test_service_accept(void)
 
   // Compare original and decoded messages
   AssertFatal(eq_service_accept(&orig, &dec), "test_service_accept() failed: original and decoded messages do not match\n");
+
+  // The same message cut after the PDU session reactivation result (expected_enc[0] to [7]), which the OAI CN5G puts last
+  byte_array_t psi_res_ba = {.buf = expected_enc, .len = 8};
+  fgs_service_accept_msg_t dec_psi_res = {0};
+  AssertFatal(decode_fgs_service_accept(&dec_psi_res, &psi_res_ba) == psi_res_ba.len, "decode_fgs_service_accept() failed\n");
+  AssertFatal(dec_psi_res.has_psi_status && memcmp(dec_psi_res.psi_status, orig.psi_status, sizeof(orig.psi_status)) == 0
+                  && dec_psi_res.has_psi_res && memcmp(dec_psi_res.psi_res, orig.psi_res, sizeof(orig.psi_res)) == 0,
+              "Service Accept: PDU session status or reactivation result mismatch\n");
+  free_fgs_service_accept(&dec_psi_res);
   free_fgs_service_accept(&dec);
   free_fgs_service_accept(&orig);
 
