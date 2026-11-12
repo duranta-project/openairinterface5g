@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <pthread.h>
+#include <errno.h>
 
 /* exe */
 #include <common/utils/nr/nr_common.h>
@@ -44,6 +45,33 @@ static void clear_ul_config_request(NR_UE_MAC_INST_t *mac)
     ul_config->number_pdus = 0;
     verifyMutex(pthread_mutex_unlock(&ul_config->mutex_ul_config));
   }
+}
+
+static bool has_pending_pusch(const NR_UE_MAC_INST_t *mac)
+{
+  if (!mac->ul_config_request)
+    return false;
+
+  // The caller holds if_mutex, which also serializes grant admission. PHY consumes entries under their mutexes.
+  for (int i = 0; i < mac->frame_structure.numb_slots_frame; i++) {
+    fapi_nr_ul_config_request_t *ul_config = mac->ul_config_request + i;
+    // A busy entry may still contain a grant; defer fallback without waiting for PHY.
+    int ret = pthread_mutex_trylock(&ul_config->mutex_ul_config);
+    if (ret == EBUSY)
+      return true;
+    AssertFatal(ret == 0, "Failure in mutex management ret=%d\n", ret);
+    bool pending = false;
+    for (int j = 0; j < ul_config->number_pdus; j++) {
+      if (ul_config->ul_config_list[j].pdu_type == FAPI_NR_UL_CONFIG_TYPE_PUSCH) {
+        pending = true;
+        break;
+      }
+    }
+    verifyMutex(pthread_mutex_unlock(&ul_config->mutex_ul_config));
+    if (pending)
+      return true;
+  }
+  return false;
 }
 
 fapi_nr_ul_config_request_pdu_t *lockGet_ul_config(NR_UE_MAC_INST_t *mac, frame_t frame_tx, int slot_tx, uint8_t pdu_type)
@@ -1472,6 +1500,9 @@ static void nr_update_sr(NR_UE_MAC_INST_t *mac, bool BSRsent)
         sr->pending = true;
         sr->counter = 0;
       } else if (!mac->sr_fallback_ra_triggered && !mac->ra.ra_pucch) {
+        // Let admitted PUSCH grants reach PHY before another RA can clear them.
+        if (has_pending_pusch(mac))
+          return;
         // initiate a Random Access procedure on the SpCell and cancel the pending SR
         // if the MAC entity has no valid PUCCH resource configured for the pending SR
         // Wait until any pending Msg4/MsgB HARQ feedback PUCCH has been transmitted

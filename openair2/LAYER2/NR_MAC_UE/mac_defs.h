@@ -654,7 +654,7 @@ typedef struct NR_UE_MAC_INST_s {
   bool pusch_power_control_initialized;
   int delta_msg2;
   bool msg3_C_RNTI;
-  bool sr_fallback_ra_triggered; // SR-fallback RA triggered; block re-trigger until PUCCH SR resource is restored
+  bool sr_fallback_ra_triggered; // SR-fallback RA triggered; rearm on RA success or restored SR resources
   pthread_mutex_t if_mutex;
   ue_mac_stats_t stats;
   notifiedFIFO_t input_nf;
