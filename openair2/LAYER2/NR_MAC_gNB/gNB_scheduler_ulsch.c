@@ -1099,25 +1099,21 @@ static void _nr_rx_sdu_rx(gNB_MAC_INST *gNB_mac,
   handle_nr_ul_harq(cell, UE, UE->rnti, rx->harq_id, !crc_ok);
 }
 
-void nr_rx_sdu_crc(const module_id_t gnb_mod_idP,
-                   const int CC_idP,
+void nr_rx_sdu_crc(gNB_MAC_INST *mac,
+                   nr_cell_sched_t *cell,
                    const frame_t frameP,
                    const slot_t slotP,
                    const nfapi_nr_crc_t *crc)
 {
-  gNB_MAC_INST *gNB_mac = RC.nrmac[gnb_mod_idP];
-  NR_SCHED_LOCK(&gNB_mac->sched_lock);
-  nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(gNB_mac, CC_idP);
   start_meas(&cell->rx_ulsch_sdu);
-  NR_UE_info_t *UE = find_ra_ue(&gNB_mac->UE_info, crc->rnti);
+  NR_UE_info_t *UE = find_ra_ue(&mac->UE_info, crc->rnti);
   if (UE) {
     DevAssert(UE->rnti == crc->rnti);
-    _nr_rx_sdu_crc(gNB_mac, cell, frameP, slotP, UE, crc);
+    _nr_rx_sdu_crc(mac, cell, frameP, slotP, UE, crc);
   } else {
-    nr_rx_ra_sdu_crc(gNB_mac, crc);
+    nr_rx_ra_sdu_crc(mac, crc);
   }
   stop_meas(&cell->rx_ulsch_sdu);
-  NR_SCHED_UNLOCK(&gNB_mac->sched_lock);
 }
 
 void nr_rx_sdu_rx(const module_id_t gnb_mod_idP,
@@ -1581,14 +1577,12 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
   return tpmi_sel;
 }
 
-void handle_nr_srs_measurements(const module_id_t module_id,
-                                const int cell_id,
+void handle_nr_srs_measurements(gNB_MAC_INST *nrmac,
+                                nr_cell_sched_t *cell,
                                 const frame_t frame,
                                 const slot_t slot,
                                 const nfapi_nr_srs_indication_pdu_t *srs_ind)
 {
-  gNB_MAC_INST *nrmac = RC.nrmac[module_id];
-  nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(nrmac, cell_id);
   LOG_D(NR_MAC, "(%d.%d) Received SRS indication for UE %04x\n", frame, slot, srs_ind->rnti);
   if (srs_ind->report_type == 0) {
     //SCF 222.10.04 Table 3-129 Report type = 0 means a null report, we can skip unpacking it
@@ -1599,7 +1593,6 @@ void handle_nr_srs_measurements(const module_id_t module_id,
     LOG_W(NR_MAC, "Invalid timing advance offset for RNTI %04x\n", srs_ind->rnti);
     return;
   }
-  NR_SCHED_LOCK(&nrmac->sched_lock);
 
 #ifdef SRS_IND_DEBUG
   LOG_I(NR_MAC, "frame = %i\n", frame);
@@ -1614,7 +1607,6 @@ void handle_nr_srs_measurements(const module_id_t module_id,
   NR_UE_info_t *UE = find_connected_nr_ue(&nrmac->UE_info, srs_ind->rnti);
   if (!UE) {
     LOG_W(NR_MAC, "Could not find UE for RNTI %04x\n", srs_ind->rnti);
-    NR_SCHED_UNLOCK(&nrmac->sched_lock);
     return;
   }
 
@@ -1632,7 +1624,6 @@ void handle_nr_srs_measurements(const module_id_t module_id,
 
       if (nr_srs_bf_report.wide_band_snr == 0xFF) {
         LOG_W(NR_MAC, "Invalid wide_band_snr for RNTI %04x\n", srs_ind->rnti);
-        NR_SCHED_UNLOCK(&nrmac->sched_lock);
         return;
       }
 
@@ -1737,7 +1728,6 @@ void handle_nr_srs_measurements(const module_id_t module_id,
     default:
       AssertFatal(1 == 0, "Invalid SRS usage\n");
   }
-  NR_SCHED_UNLOCK(&nrmac->sched_lock);
 }
 
 static int32_t compute_k_value_ul_tdoa(int mu, int16_t ta_offset_nsec, uint32_t trp_id)
@@ -1868,14 +1858,13 @@ static f1ap_pos_measurement_result_list_t generate_pos_measurement_result(const 
   return meas_result_list;
 }
 
-void handle_nr_srs_toa_vendor_ext_measurements(const module_id_t module_id,
+void handle_nr_srs_toa_vendor_ext_measurements(gNB_MAC_INST *mac,
                                                const frame_t frame,
                                                const slot_t slot,
                                                const uint8_t num_ta,
                                                const int16_t *ta_offset_nsec,
                                                const rnti_t rnti)
 {
-  gNB_MAC_INST *mac = RC.nrmac[module_id];
   // Return if there is no active measurement request from LMF
   if (!mac->pos_meas_info.active) {
     return;
