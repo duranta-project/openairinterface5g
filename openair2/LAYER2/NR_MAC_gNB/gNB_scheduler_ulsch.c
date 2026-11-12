@@ -216,7 +216,9 @@ static int estimate_ul_buffer_short_bsr(const NR_BSR_SHORT *bsr)
   return estim_size;
 }
 
-static int estimate_ul_buffer_long_bsr(const NR_BSR_LONG *bsr)
+/* len is the length of the MAC CE, including the LCG bitmap. In a Long Truncated BSR, LCGi = 1 only means that the LCG
+ * has data: fewer Buffer Size fields than LCGs may follow (TS 38.321 §6.1.3.1), so only read the ones within len. */
+static int estimate_ul_buffer_long_bsr(const NR_BSR_LONG *bsr, int len)
 {
   LOG_D(NR_MAC,
         "LONG BSR, LCG ID(7-0) %d/%d/%d/%d/%d/%d/%d/%d\n",
@@ -233,9 +235,10 @@ static int estimate_ul_buffer_long_bsr(const NR_BSR_LONG *bsr)
   int estim_size = 0;
   int max = NR_LONG_BSR_TABLE_SIZE - 1;
   uint8_t *payload = ((uint8_t*) bsr) + 1;
+  const int num_bs = len - 1;
   int m = 0;
   const int total_lcgids = 8; /* see 38.321 6.1.3.1 */
-  for (int n = 0; n < total_lcgids; n++) {
+  for (int n = 0; n < total_lcgids && m < num_bs; n++) {
     if (!bsr_active[n])
       continue;
     int rep_idx = payload[m];
@@ -401,16 +404,16 @@ static rnti_t lcid_crnti_lookahead(uint8_t *pdu, uint32_t pdu_len)
 
 /* Decodes the MAC PDU; its RLC PDUs are returned in data_ind[] (pointing into pduP) for
  * the caller to hand to RLC once sched_lock is released. */
-static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
-                              nr_cell_sched_t *cell,
-                              NR_UE_info_t *UE,
-                              frame_t frameP,
-                              slot_t slot,
-                              uint8_t *pduP,
-                              uint32_t pdu_len,
-                              const int8_t harq_pid,
-                              nr_rlc_data_ind_t *data_ind,
-                              int *num_data_ind)
+int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
+                       nr_cell_sched_t *cell,
+                       NR_UE_info_t *UE,
+                       frame_t frameP,
+                       slot_t slot,
+                       uint8_t *pduP,
+                       uint32_t pdu_len,
+                       const int8_t harq_pid,
+                       nr_rlc_data_ind_t *data_ind,
+                       int *num_data_ind)
 {
   int sdus = 0;
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
@@ -609,8 +612,12 @@ static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
       case UL_SCH_LCID_L_TRUNCATED_BSR:
       case UL_SCH_LCID_L_BSR:
         /* Extract long BSR value */
+        if (mac_len == 0) {
+          LOG_E(NR_MAC, "RNTI %04x: Long BSR MAC CE without LCG bitmap\n", UE->rnti);
+          break;
+        }
         ce_ptr = &pduP[mac_subheader_len];
-        sched_ctrl->estimated_ul_buffer = estimate_ul_buffer_long_bsr((NR_BSR_LONG *)ce_ptr);
+        sched_ctrl->estimated_ul_buffer = estimate_ul_buffer_long_bsr((NR_BSR_LONG *)ce_ptr, mac_len);
         sched_ctrl->sched_ul_bytes = 0;
         LOG_D(NR_MAC, "LONG BSR at %4d.%2d, estim buf %d\n", frameP, slot, sched_ctrl->estimated_ul_buffer);
         break;

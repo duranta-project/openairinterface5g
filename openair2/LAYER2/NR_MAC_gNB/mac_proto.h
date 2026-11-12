@@ -385,6 +385,18 @@ void nr_rx_sdu(const module_id_t gnb_mod_idP,
                const uint8_t ul_cqi,
                const uint16_t rssi);
 
+struct nr_rlc_data_ind;
+int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
+                       nr_cell_sched_t *cell,
+                       NR_UE_info_t *UE,
+                       frame_t frameP,
+                       slot_t slot,
+                       uint8_t *pduP,
+                       uint32_t pdu_len,
+                       const int8_t harq_pid,
+                       struct nr_rlc_data_ind *data_ind,
+                       int *num_data_ind);
+
 void reset_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
 
 void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
