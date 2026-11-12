@@ -27,6 +27,27 @@ typedef struct {
   void *callback_data;
 } time_server_private_t;
 
+/* remove client i: socket_fds[i] and its poll entry polls[i + 2] are removed together,
+ * so that the remaining clients keep matching entries in both arrays */
+static void remove_client(int **socket_fds, struct pollfd **polls, int *client_count, int i)
+{
+  shutdown((*socket_fds)[i], SHUT_RDWR);
+  close((*socket_fds)[i]);
+  (*client_count)--;
+  int after = *client_count - i;
+  memmove(&(*socket_fds)[i], &(*socket_fds)[i + 1], sizeof(int) * after);
+  memmove(&(*polls)[i + 2], &(*polls)[i + 3], sizeof(struct pollfd) * after);
+  if (*client_count == 0) {
+    free(*socket_fds);
+    *socket_fds = NULL;
+  } else {
+    *socket_fds = realloc(*socket_fds, sizeof(int) * *client_count);
+    AssertFatal(*socket_fds != NULL, "realloc() failed\n");
+  }
+  *polls = realloc(*polls, sizeof(struct pollfd) * (*client_count + 2));
+  AssertFatal(*polls != NULL, "realloc() failed\n");
+}
+
 static void *time_server_thread(void *ts)
 {
   time_server_private_t *time_server = ts;
@@ -77,19 +98,8 @@ static void *time_server_thread(void *ts)
 
           /* error writing - remove client */
           LOG_W(UTIL, "time server: client disconnects\n");
-          shutdown(socket_fds[i], SHUT_RDWR);
-          close(socket_fds[i]);
-          client_count--;
+          remove_client(&socket_fds, &polls, &client_count, i);
           i--;
-          if (client_count == 0) {
-            free(socket_fds);
-            socket_fds = NULL;
-          } else {
-            memmove(&socket_fds[i + 1], &socket_fds[i + 2], sizeof(int) * (client_count - i - 1));
-            socket_fds = realloc(socket_fds, sizeof(int) * client_count);
-          }
-          polls = realloc(polls, sizeof(struct pollfd) * (client_count + 2));
-          AssertFatal(polls != NULL, "realloc() failed\n");
         }
         ticks -= count;
       }
@@ -123,22 +133,8 @@ static void *time_server_thread(void *ts)
             polls[i + 2].revents,
             polls[i + 2].fd,
             i);
-      shutdown(socket_fds[i], SHUT_RDWR);
-      close(socket_fds[i]);
-      client_count--;
+      remove_client(&socket_fds, &polls, &client_count, i);
       i--;
-      if (client_count == 0) {
-        free(socket_fds);
-        socket_fds = NULL;
-      } else {
-        memmove(&socket_fds[i + 1], &socket_fds[i + 2], sizeof(int) * (client_count - i - 1));
-        socket_fds = realloc(socket_fds, sizeof(int) * client_count);
-        AssertFatal(socket_fds != NULL, "realloco() failed\n");
-      }
-      if (client_count)
-        memmove(&polls[i + 2 + 1], &polls[i + 2 + 2], sizeof(struct pollfd) * (client_count - i - 1));
-      polls = realloc(polls, sizeof(struct pollfd) * (client_count + 2));
-      AssertFatal(polls != NULL, "realloc() failed\n");
     }
   }
 
