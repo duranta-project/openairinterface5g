@@ -18,6 +18,7 @@
 #include "PHY/NR_TRANSPORT/nr_ulsch.h"
 #include "PHY/NR_TRANSPORT/nr_dlsch.h"
 #include "PHY/nr_phy_common/inc/nr_phy_meas.h"
+#include "PHY/nr_phy_common/inc/nr_compute_llr.h"
 #include "SCHED_NR/sched_nr.h"
 #include "defs.h"
 #include "bits.h"
@@ -148,6 +149,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     TB_parameters->Qm = pusch_pdu->qam_mod_order;
     TB_parameters->mcs = pusch_pdu->mcs_index;
     TB_parameters->nb_layers = pusch_pdu->nrOfLayers;
+    TB_parameters->llr_shift = nr_llr8_shift(TB_parameters->Qm, TB_parameters->nb_layers);
     // ------------------------------------------------------------------
 
     TB_parameters->processedSegments = &harq_process->processedSegments;

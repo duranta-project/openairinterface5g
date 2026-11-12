@@ -31,6 +31,16 @@ float nr_2layer_seed_lambda(uint32_t nvar, int shift)
   return ldexpf((float)nvar, -shift);
 }
 
+int nr_llr8_shift(int mod_order, int nb_layers)
+{
+  // Unshifted, 65% of the 16QAM single-layer LLRs (no >>4 as for QPSK) saturate int8, an error floor at low
+  // code rate, and ~30% of the 64QAM ones; QPSK, 256QAM and the 2-layer 16QAM units do best unshifted (ulsim /
+  // dlsim TDL-A).
+  if (mod_order == 4 && nb_layers == 1)
+    return 2;
+  return mod_order == 6 ? 1 : 0;
+}
+
 int nr_ml_llr_maxh_off(int mod_order, int lbest)
 {
   switch (mod_order) {

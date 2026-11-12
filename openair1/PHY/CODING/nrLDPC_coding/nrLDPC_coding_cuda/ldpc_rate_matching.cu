@@ -15,12 +15,12 @@ __device__ __forceinline__ int clamp_i16_to_i8(int x)
   return x;
 }
 
-__device__ __forceinline__ uint32_t packs_4x16_to_4x8(uint32_t a, uint32_t b)
+__device__ __forceinline__ uint32_t packs_4x16_to_4x8(uint32_t a, uint32_t b, int sh)
 {
-  int a0 = (int)(int16_t)(a & 0xFFFFu);
-  int a1 = (int)(int16_t)(a >> 16);
-  int b0 = (int)(int16_t)(b & 0xFFFFu);
-  int b1 = (int)(int16_t)(b >> 16);
+  int a0 = (int)(int16_t)(a & 0xFFFFu) >> sh;
+  int a1 = (int)(int16_t)(a >> 16) >> sh;
+  int b0 = (int)(int16_t)(b & 0xFFFFu) >> sh;
+  int b1 = (int)(int16_t)(b >> 16) >> sh;
 
   uint32_t o0 = (uint8_t)(int8_t)clamp_i16_to_i8(a0);
   uint32_t o1 = (uint8_t)(int8_t)clamp_i16_to_i8(a1);
@@ -30,10 +30,10 @@ __device__ __forceinline__ uint32_t packs_4x16_to_4x8(uint32_t a, uint32_t b)
   return (o0) | (o1 << 8) | (o2 << 16) | (o3 << 24);
 }
 
-__device__ __forceinline__ uint16_t packs_2x16_to_2x8(uint32_t a)
+__device__ __forceinline__ uint16_t packs_2x16_to_2x8(uint32_t a, int sh)
 {
-  int a0 = (int)(int16_t)(a & 0xFFFFu);
-  int a1 = (int)(int16_t)(a >> 16);
+  int a0 = (int)(int16_t)(a & 0xFFFFu) >> sh;
+  int a1 = (int)(int16_t)(a >> 16) >> sh;
 
   uint16_t o0 = (uint8_t)(int8_t)clamp_i16_to_i8(a0);
   uint16_t o1 = (uint8_t)(int8_t)clamp_i16_to_i8(a1);
@@ -54,7 +54,8 @@ __global__ void rm(int Ncb_4,
                    int Z_4,
                    uint32_t *d,
                    uint32_t *e,
-                   uint32_t *llr_buffer)
+                   uint32_t *llr_buffer,
+                   int llr_shift)
 {
   int ind_4 = (int)(blockIdx.x * blockDim.x + threadIdx.x);
   int r = (int)blockIdx.y;
@@ -179,7 +180,7 @@ __global__ void rm(int Ncb_4,
   }
   // note the offset here is such that when ind < Foffset = Kprime - 2Z, the output is put in position r*seglen + (2Z ... Kprime)
   // and when ind > Foffset+F, it is in position r*seglen + (Kprime+F = K .. 2Z+(66*Z)=seglen
-  llr_bufferr[2 * Z_4 + ind_4] = packs_4x16_to_4x8(dr[(2 * ind_4)], dr[(2 * ind_4) + 1]);
+  llr_bufferr[2 * Z_4 + ind_4] = packs_4x16_to_4x8(dr[(2 * ind_4)], dr[(2 * ind_4) + 1], llr_shift);
 #ifdef DEBUG_RM
   if (r <= 1 && threadIdx.x == 0)
     printf("RM segment %d: writing %x to position %d (ind %d)\n",
@@ -203,7 +204,8 @@ __global__ void rm2(int Ncb_2,
                     int Z_2,
                     uint32_t *d,
                     uint32_t *e,
-                    uint16_t *llr_buffer)
+                    uint16_t *llr_buffer,
+                    int llr_shift)
 {
   int ind_2 = (int)(blockIdx.x * blockDim.x + threadIdx.x);
   int r = (int)blockIdx.y;
@@ -306,7 +308,7 @@ __global__ void rm2(int Ncb_2,
   }
   // note the offset here is such that when ind < Foffset = Kprime - 2Z, the output is put in position r*seglen + (2Z ... Kprime)
   // and when ind > Foffset+F, it is in potiion r*seglent + (Kprime+F = K .. 2Z+(66*Z)=seglen
-  llr_bufferr[2 * Z_2 + ind_2] = packs_2x16_to_2x8(dr[ind_2]);
+  llr_bufferr[2 * Z_2 + ind_2] = packs_2x16_to_2x8(dr[ind_2], llr_shift);
   //     if (r==0 && threadIdx.x == 0 && blockIdx.x == 0) printf("writing %x to position %d (ind %d)\n",llr_bufferr[2*Z +
   //     ind_2],r*seglen + 2*Z + ind_2,ind_2);
 }
@@ -327,6 +329,7 @@ extern "C" int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
                                              uint32_t r_firstE2,
                                              uint32_t F,
                                              uint32_t Foffset,
+                                             int llr_shift,
                                              gpuStream_t *s,
                                              int8_t sidx)
 {
@@ -378,7 +381,8 @@ extern "C" int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
                                           Z / 4,
                                           (uint32_t *)d,
                                           (uint32_t *)soft_input,
-                                          (uint32_t *)llr_buffer);
+                                          (uint32_t *)llr_buffer,
+                                          llr_shift);
   } else {
     dim3 nblocks2(((Ncb >> 1) + nthreads - 1) / nthreads, C);
     rm2<<<nblocks2, nthreads, 0, s[sidx]>>>(Ncb / 2,
@@ -394,7 +398,8 @@ extern "C" int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
                                             Z / 2,
                                             (uint32_t *)d,
                                             (uint32_t *)soft_input,
-                                            (uint16_t *)llr_buffer);
+                                            (uint16_t *)llr_buffer,
+                                            llr_shift);
   }
   gpuError_t err = gpuPeekAtLastError();
 

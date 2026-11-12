@@ -55,6 +55,7 @@ int nr_rate_matching_ldpc_rx_cuda(uint32_t Tbslbrm,
                                   uint32_t r_firstE2,
                                   uint32_t F,
                                   uint32_t Foffset,
+                                  int llr_shift,
                                   gpuStream_t *s,
                                   int8_t sidx);
 
@@ -167,6 +168,7 @@ void nr_process_decode_segment_cuda(nrLDPC_TB_decoding_parameters_t *segs)
                                 r_firstE2,
                                 segs->F,
                                 Kprime - 2 * Z,
+                                segs->llr_shift,
                                 decoderStreams,
                                 0);
   for (int r = 0; r < C; ++r) {
