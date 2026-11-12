@@ -43,6 +43,16 @@
 #include "types.h"
 #include "PHY/sse_intrin.h"
 
+#if defined(__aarch64__) && defined(__ARM_FEATURE_AES)
+// SIMDE doesn't use PMULL in simde_mm_clmulepi64_si128() with clang, its C fallback is much slower
+#define crc_clmulepi64_si128(a, b, imm8)                                                                               \
+  simde__m128i_from_neon_u64(                                                                                          \
+      vreinterpretq_u64_p128(vmull_p64(vgetq_lane_p64(vreinterpretq_p64_u64(simde__m128i_to_neon_u64(a)), (imm8) & 1), \
+                                       vgetq_lane_p64(vreinterpretq_p64_u64(simde__m128i_to_neon_u64(b)), ((imm8) >> 4) & 1))))
+#else
+#define crc_clmulepi64_si128 simde_mm_clmulepi64_si128
+#endif
+
 /**
  * PCLMULQDQ CRC computation context structure
  */
@@ -310,11 +320,10 @@ simde__m128i crc32_folding_round(const simde__m128i data_block,
   simde__m128i tmp = _mm_clmulepi64_si128(fold, k1_k2, 0x11);
 
   return simde_mm_xor_si128(_mm_clmulepi64_si128(fold, k1_k2, 0x00), simde_mm_xor_si128(data_block, tmp));
-#else	
-        simde__m128i tmp = simde_mm_clmulepi64_si128(fold, k1_k2, 0x11);
+#else
+  simde__m128i tmp = crc_clmulepi64_si128(fold, k1_k2, 0x11);
 
-        return simde_mm_xor_si128(simde_mm_clmulepi64_si128(fold, k1_k2, 0x00),
-                             simde_mm_xor_si128(data_block, tmp));
+  return simde_mm_xor_si128(crc_clmulepi64_si128(fold, k1_k2, 0x00), simde_mm_xor_si128(data_block, tmp));
 #endif
 }
 
@@ -338,9 +347,9 @@ simde__m128i crc32_reduce_128_to_64(simde__m128i data128, const simde__m128i k3_
         data128 = simde_mm_xor_si128(_mm_clmulepi64_si128(tmp, k3_q, 0x01 /* k3 */),
                                 data128);
 #else
-        tmp = simde_mm_xor_si128(simde_mm_clmulepi64_si128(data128, k3_q, 0x01 /* k3 */), data128);
+        tmp = simde_mm_xor_si128(crc_clmulepi64_si128(data128, k3_q, 0x01 /* k3 */), data128);
 
-        data128 = simde_mm_xor_si128(simde_mm_clmulepi64_si128(tmp, k3_q, 0x01 /* k3 */), data128);
+        data128 = simde_mm_xor_si128(crc_clmulepi64_si128(tmp, k3_q, 0x01 /* k3 */), data128);
 
 #endif
         return simde_mm_srli_si128(simde_mm_slli_si128(data128, 8), 8);
@@ -367,10 +376,9 @@ crc32_reduce_64_to_32(simde__m128i fold, const simde__m128i k3_q, const simde__m
         temp = _mm_clmulepi64_si128(temp, p_res, 0 /* P */);
 
 #else
-        temp = simde_mm_clmulepi64_si128(simde_mm_srli_si128(fold, 4),
-                                    k3_q, 0x10 /* Q */);
+        temp = crc_clmulepi64_si128(simde_mm_srli_si128(fold, 4), k3_q, 0x10 /* Q */);
         temp = simde_mm_srli_si128(simde_mm_xor_si128(temp, fold), 4);
-        temp = simde_mm_clmulepi64_si128(temp, p_res, 0 /* P */);
+        temp = crc_clmulepi64_si128(temp, p_res, 0 /* P */);
 #endif	
         return simde_mm_extract_epi32(simde_mm_xor_si128(temp, fold), 0);
 }
