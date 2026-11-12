@@ -44,6 +44,8 @@ typedef struct {
   c16_t (*Xu)[839];
   time_stats_t *rx_prach;
   c16_t (*prach_buf)[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX][NR_PRACH_SEQ_LEN_L];
+  struct nr_prach_ru_job *ru_job;
+  bool last_of_slot; // last request the RU hands off to L1 for its RX slot
 } prach_item_t;
 
 typedef struct {
@@ -369,6 +371,9 @@ typedef struct PHY_VARS_gNB_s {
   NR_gNB_COMMON common_vars;
   spsc_q_t prach_ru_queue;
   spsc_q_t prach_l1rx_queue;
+  /// RACH indication of the PRACH slot being detected, kept over rx_func() calls until its last request
+  nfapi_nr_rach_indication_t rach_ind;
+  nfapi_nr_prach_indication_pdu_t rach_pdu_list[NFAPI_NR_RACH_IND_MAX_PDU];
   /// PRACH PRBs/symbols per UL slot (indexed by absolute slot modulo NR_PRACH_RB_MASK_SLOTS)
   nr_prach_rb_mask_t prach_rb_mask[NR_PRACH_RB_MASK_SLOTS];
   // TODO: can we remove c from NR_gNB_DLSCH_t and put it on the stack?
