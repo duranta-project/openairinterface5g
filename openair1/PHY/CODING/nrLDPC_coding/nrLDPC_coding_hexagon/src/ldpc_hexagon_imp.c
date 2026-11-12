@@ -2471,12 +2471,6 @@ static int ldpc_rate_dematch(uint32_t Tbslbrm,
   return 0;
 }
 
-/* Everything below is batch dispatch, the QuRT worker pool and the FastRPC entry
- * points -- none of which the standalone simulator harness uses (it calls the
- * cnProc/bnProc kernels directly).  Excluding it keeps the sim build free of
- * dspqueue.h/qurt.h, which have no standalone equivalent. */
-#ifndef LDPC_SIM_STANDALONE
-
 /* Build one code block's int8 decoder input from the TB's codeword LLRs. */
 static int ldpc_batch_prep(ldpc_worker_t *w,
                            const ldpc_q_batch_req_t *br,
@@ -2728,13 +2722,6 @@ typedef struct {
 } ldpc_batch_job_t;
 
 static ldpc_batch_job_t g_job;
-static volatile uint32_t g_phase_accum[LDPC_NUM_PHASES];
-static qurt_sem_t g_go[LDPC_MAX_WORKERS];
-static qurt_sem_t g_done;
-static qurt_thread_t g_tid[LDPC_MAX_WORKERS];
-static void *g_stack[LDPC_MAX_WORKERS];
-static int g_pool_started;
-#define LDPC_WORKER_STACK 32768u
 
 /* Decode one code block. Everything mutable is in `w`, everything shared is
  * read-only (the request, the LUTs, the input buffer), which is what makes this
@@ -2825,6 +2812,19 @@ static void ldpc_decode_one(ldpc_worker_t *w, int r_in, uint32_t *phase_us)
   g_job.meta[r] = (uint8_t)(it > 255 ? 255 : it);
 }
 
+/* Everything below is the QuRT worker pool and the FastRPC entry points. The
+ * standalone simulator test (../test) stops here: it runs ldpc_decode_one() and
+ * everything above it, single-threaded, without dspqueue.h or qurt.h. */
+#ifndef LDPC_SIM_STANDALONE
+
+static volatile uint32_t g_phase_accum[LDPC_NUM_PHASES];
+static qurt_sem_t g_go[LDPC_MAX_WORKERS];
+static qurt_sem_t g_done;
+static qurt_thread_t g_tid[LDPC_MAX_WORKERS];
+static void *g_stack[LDPC_MAX_WORKERS];
+static int g_pool_started;
+#define LDPC_WORKER_STACK 32768u
+
 static void ldpc_pool_body(void *arg)
 {
   const int wi = (int)(long)arg;
@@ -2894,9 +2894,7 @@ static int ldpc_pool_start(int n)
 
 // =============================================================================
 // FastRPC session lifecycle and RPC entry point
-// Not compiled in standalone simulator builds.
 // =============================================================================
-#ifndef LDPC_SIM_STANDALONE
 
 // Increment this counter any time you need to confirm a fresh skel is loaded.
 // Returned in every dspqueue response so the ARM can print it without FARF/logcat.
@@ -3595,6 +3593,4 @@ int ldpc_hexagon_decode(remote_handle64 handle,
   return 0;
 }
 
-#endif // !LDPC_SIM_STANDALONE
-
-#endif // !LDPC_SIM_STANDALONE (batch dispatch + worker pool + FastRPC)
+#endif // !LDPC_SIM_STANDALONE (worker pool + FastRPC)

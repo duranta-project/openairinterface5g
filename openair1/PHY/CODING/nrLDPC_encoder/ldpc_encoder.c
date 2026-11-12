@@ -12,7 +12,6 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "defs.h"
 #include "assertions.h"
 #include "openair1/PHY/CODING/nrLDPC_defs.h"
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
