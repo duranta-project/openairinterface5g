@@ -121,7 +121,7 @@ int nas_protected_security_header_encode(uint8_t *buffer, const fgs_nas_message_
 /**
  * @brief Decode plain 5GMM header from buffer and return fgmm_msg_header_t instance
  */
-uint8_t decode_5gmm_msg_header(fgmm_msg_header_t *mm_header, const uint8_t *buffer, uint32_t len)
+int decode_5gmm_msg_header(fgmm_msg_header_t *mm_header, const uint8_t *buffer, uint32_t len)
 {
   if (len < sizeof(fgmm_msg_header_t)) {
     PRINT_ERROR("Failed to decode plain 5GMM header: buffer length too short\n");
@@ -136,7 +136,7 @@ uint8_t decode_5gmm_msg_header(fgmm_msg_header_t *mm_header, const uint8_t *buff
 /**
  * @brief Decode plain 5GSM header from buffer and return fgsm_msg_header_t instance
  */
-uint8_t decode_5gsm_msg_header(fgsm_msg_header_t *sm_header, const uint8_t *buffer, uint32_t len)
+int decode_5gsm_msg_header(fgsm_msg_header_t *sm_header, const uint8_t *buffer, uint32_t len)
 {
   if (len < sizeof(fgsm_msg_header_t)) {
     PRINT_ERROR("Failed to decode plain 5GSM header: buffer length too short\n");
