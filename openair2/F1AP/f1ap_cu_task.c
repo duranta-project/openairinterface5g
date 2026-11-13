@@ -140,6 +140,7 @@ void *F1AP_CU_task(void *arg)
 
       case F1AP_SETUP_FAILURE:
         CU_send_F1_SETUP_FAILURE(assoc_id, &F1AP_SETUP_FAILURE(received_msg));
+        free_f1ap_setup_failure(&F1AP_SETUP_FAILURE(received_msg));
         break;
 
       case F1AP_GNB_CU_CONFIGURATION_UPDATE: // from rrc
