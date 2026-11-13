@@ -32,6 +32,8 @@
 #endif
 #define USE_OUTPUT_PARALLELIZATION (false)
 
+#define NR_LDPC_PROFILER_DETAIL(test, a) if (test) {a;}
+
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_interface.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface.h"
 
@@ -159,9 +161,9 @@ int32_t LDPCdecoder(t_nrLDPC_dec_params *p_decParams,
   const int KbZ = Kb * p_decParams->Z;
   // filler bits length
   const int F = KbZ - p_decParams->Kprime;
-  start_meas(&time_stats->llr2llrProcBuf);
+  NR_LDPC_PROFILER_DETAIL(time_stats, start_meas(&time_stats->llr2llrProcBuf));
   // copy all LLRs in internal buffer starting at HEADER_SIZE
-  start_meas(&time_stats->total);
+  NR_LDPC_PROFILER_DETAIL(time_stats, start_meas(&time_stats->total));
   // copy information bits
   memcpy(&buffer_in[HEADER_SIZE], p_llr, p_decParams->Kprime);
   // set filler bits
@@ -171,11 +173,11 @@ int32_t LDPCdecoder(t_nrLDPC_dec_params *p_decParams,
   const int numb_of_parity_bits = get_number_of_parity_bits(K, p_decParams->R, Kc, p_decParams->Z);
   dec_conf.numb_of_parity_bits_per_CB[0] = numb_of_parity_bits;
   memcpy(&buffer_in[HEADER_SIZE + KbZ], p_llr + K, numb_of_parity_bits);
-  stop_meas(&time_stats->llr2llrProcBuf);
-  start_meas(&time_stats->llr2bit);
+  NR_LDPC_PROFILER_DETAIL(time_stats, stop_meas(&time_stats->llr2llrProcBuf));
+  NR_LDPC_PROFILER_DETAIL(time_stats, start_meas(&time_stats->llr2bit));
   int32_t niter = nrLDPC_decoder_FPGA((uint8_t *)&buffer_in[0], &buffer_out[0], dec_conf);
-  stop_meas(&time_stats->llr2bit);
-  start_meas(&time_stats->llrRes2llrOut);
+  NR_LDPC_PROFILER_DETAIL(time_stats, stop_meas(&time_stats->llr2bit));
+  NR_LDPC_PROFILER_DETAIL(time_stats, start_meas(&time_stats->llrRes2llrOut));
   // copy into out buffer
   const args_fpga_post_decode_t post_decode_arg = {.r_first = 0,
                                                    .KbZ = Kb * p_decParams->Z,
@@ -186,8 +188,8 @@ int32_t LDPCdecoder(t_nrLDPC_dec_params *p_decParams,
                                                    .dst_c = p_out,
                                                    .K = K};
   nr_ulsch_FPGA_post_decoding_s(&post_decode_arg);
-  stop_meas(&time_stats->llrRes2llrOut);
-  stop_meas(&time_stats->total);
+  NR_LDPC_PROFILER_DETAIL(time_stats, stop_meas(&time_stats->llrRes2llrOut));
+  NR_LDPC_PROFILER_DETAIL(time_stats, stop_meas(&time_stats->total));
   if (p_decParams->check_crc != NULL) {
     const bool crc_valid = p_decParams->check_crc(p_out, p_decParams->Kprime, p_decParams->crc_type);
     if (!crc_valid) {
@@ -323,9 +325,9 @@ int decoder_xdma(nrLDPC_TB_decoding_parameters_t *TB_params, int frame_rx, int s
   //==================================================================
   //  Xilinx FPGA LDPC decoding function -> nrLDPC_decoder_FPGA()
   //==================================================================
-  start_meas(&TB_params->ts_ldpc_decode);
+  start_single_meas(&TB_params->ts_ldpc_decode[0]);
   (void)nrLDPC_decoder_FPGA(&multi_indata[0], &multi_outdata[0], dec_conf);
-  stop_meas(&TB_params->ts_ldpc_decode);
+  stop_single_meas(&TB_params->ts_ldpc_decode[0]);
 #if USE_OUTPUT_PARALLELIZATION
   // Copy to external buffer using the threadpool
   args_fpga_post_decode_t post_decode_args[MAX_CB];

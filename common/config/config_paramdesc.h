@@ -23,7 +23,7 @@
 #define PARAMFLAG_BOOL                    (1 << 4)         // integer param can be 0 or 1
 #define PARAMFLAG_CMDLINE_NOPREFIXENABLED (1 << 5)         // on the command line, allow a parameter to be specified without the prefix
 #define PARAMFLAG_CMDLINEONLY             (1 << 6)         // this parameter cannot be specified in config file
-#define PARAMFLAG_VALUE_OPTIONAL          (1 << 7)         // integer param is 1 if no value provided
+#define PARAMFLAG_VALUE_OPTIONAL          (1 << 7)         // param is set to a default value if no argument provided
 
 /*   Flags used by config modules to return info to calling modules and/or to  for internal usage*/
 #define PARAMFLAG_MALLOCINCONFIG          (1 << 15)        // parameter allocated in config module
@@ -112,6 +112,7 @@ typedef struct paramdef {
   int numelt;                             /* number of elements in a list or array parameters or max size of string value */
   checkedparam_t   *chkPptr;              /* possible pointer to the structure containing the info used to check parameter values */
   int *processedvalue;                    /* used to store integer values computed from string original value */
+  char *defarg;                     /* argument to be used for PARAMFLAG_VALUE_OPTIONAL if no argument is specified */
 } paramdef_t;
 
 #define TYPE_INT        TYPE_INT32

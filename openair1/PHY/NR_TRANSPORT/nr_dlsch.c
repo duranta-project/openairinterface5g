@@ -834,8 +834,8 @@ typedef struct pdschSymbolProc_s {
   uint16_t *ant_to_map;
   unsigned int re_beginning_of_symbol[14];
   c16_t *tx_layers[4];
-  time_stats_t dlsch_resource_mapping_stats;
-  time_stats_t dlsch_precoding_stats;
+  time_single_t dlsch_resource_mapping_stats;
+  time_single_t dlsch_precoding_stats;
 } pdschSymbolProc_t;
 
 static void nr_pdsch_symbol_processing(void *arg)
@@ -860,7 +860,7 @@ static void nr_pdsch_symbol_processing(void *arg)
   const int symb_offset = (slot % frame_parms->slots_per_subframe) * frame_parms->symbols_per_slot;
 
   for (int l_symbol = rdata->startSymbol; l_symbol < rdata->startSymbol + rdata->numSymbols; l_symbol++) {
-    start_meas(&rdata->dlsch_resource_mapping_stats);
+    start_single_meas(&rdata->dlsch_resource_mapping_stats);
     int l_prime = 0; // single symbol layer 0
     int l_overline = get_l0(rel15->dlDmrsSymbPos);
 
@@ -908,9 +908,9 @@ static void nr_pdsch_symbol_processing(void *arg)
                   rel15->dmrsConfigType,
                   mod_dmrs + dmrs_idx);
     } // layer loop
-    stop_meas(&rdata->dlsch_resource_mapping_stats);
+    stop_single_meas(&rdata->dlsch_resource_mapping_stats);
 
-    start_meas(&rdata->dlsch_precoding_stats);
+    start_single_meas(&rdata->dlsch_precoding_stats);
     /* The dispatch below is a chain of mutually exclusive branches spliced together with
        #ifdef, and the `else` before the generic loop is unbraced because the chain needs
        it that way. That makes it possible for a statement inserted in the wrong place to
@@ -1055,7 +1055,7 @@ static void nr_pdsch_symbol_processing(void *arg)
        anything to precode at all, never none. A PDU with no logical ports reaches none of
        the branches and precodes nothing, which is what it did before this dispatch existed. */
     DevAssert(precoder_paths == (num_log_ports > 0 ? 1 : 0));
-    stop_meas(&rdata->dlsch_precoding_stats);
+    stop_single_meas(&rdata->dlsch_precoding_stats);
   }
   // Task running in // completed
   completed_task_ans(rdata->ans);
@@ -1211,8 +1211,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
         re_beginning_of_symbol -= n_dmrs;
       }
     }
-    reset_meas(&rdata->dlsch_resource_mapping_stats);
-    reset_meas(&rdata->dlsch_precoding_stats);
+    reset_single_meas(&rdata->dlsch_resource_mapping_stats);
+    reset_single_meas(&rdata->dlsch_precoding_stats);
     for (int l = 0; l < rel15->nrOfLayers; l++)
       rdata->tx_layers[l] = tx_layers[l];
     if (l_symbol < rel15->StartSymbolIndex + rel15->NrOfSymbols - num_pdsch_symbols_per_task) {
@@ -1224,8 +1224,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   }
   join_task_ans(&ans);
   for (int i = 0; i < nb_tasks; i++) {
-    merge_meas(&gNB->dlsch_resource_mapping_stats, &arr[i].dlsch_resource_mapping_stats);
-    merge_meas(&gNB->dlsch_precoding_stats, &arr[i].dlsch_precoding_stats);
+    MERGE_SINGLE_MEAS_FULL_SLOT(&gNB->dlsch_resource_mapping_stats, &arr[i].dlsch_resource_mapping_stats, slot_type, NR_DOWNLINK_SLOT);
+    MERGE_SINGLE_MEAS_FULL_SLOT(&gNB->dlsch_precoding_stats, &arr[i].dlsch_precoding_stats, slot_type, NR_DOWNLINK_SLOT);
   }
   STOP_MEAS_FULL_SLOT(&gNB->dlsch_pdsch_generation_stats, slot_type, NR_DOWNLINK_SLOT);
   /* output and its parts for each dlsch should be aligned on 64 bytes (or 8 * 64 bits)
