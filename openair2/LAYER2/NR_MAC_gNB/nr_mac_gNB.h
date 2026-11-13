@@ -1378,6 +1378,28 @@ typedef struct nr_cell_sched_s {
   time_stats_t rx_ulsch_sdu;
 } nr_cell_sched_t;
 
+#define NR_MAC_MAX_PRS_RESOURCES 64
+
+typedef struct nr_mac_prs_resource_s {
+  uint16_t sequence_id;
+  uint8_t re_offset;
+  uint16_t slot_offset;
+  uint8_t symbol_start;
+  uint8_t num_symbols;
+} nr_mac_prs_resource_t;
+
+typedef struct nr_mac_prs_config_s {
+  uint32_t period;
+  uint32_t offset;
+  uint16_t num_rb;
+  uint16_t rb_offset;
+  uint8_t comb_size;
+  uint8_t repetition;
+  uint8_t time_gap;
+  uint8_t num_prs_resources;
+  nr_mac_prs_resource_t resource[NR_MAC_MAX_PRS_RESOURCES];
+} nr_mac_prs_config_t;
+
 /*! \brief top level gNB MAC structure */
 typedef struct gNB_MAC_INST_s {
   /// F1-C/U network configuration (addresses and ports)
@@ -1435,6 +1457,7 @@ typedef struct gNB_MAC_INST_s {
   seq_arr_t pos_act_ue_arr;
   positioning_measurement_info_t pos_meas_info;
   positioning_config_t *positioning_config;
+  nr_mac_prs_config_t *prs_config;
 } gNB_MAC_INST;
 
 #endif /*__LAYER2_NR_MAC_GNB_H__ */

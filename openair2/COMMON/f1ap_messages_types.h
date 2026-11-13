@@ -1258,11 +1258,42 @@ typedef struct f1ap_ng_ran_cgi_s {
   uint64_t nr_cellid;
 } f1ap_ng_ran_cgi_t;
 
+typedef struct f1ap_prs_resource_s {
+  uint8_t prs_resource_id;
+  uint16_t sequence_id;
+  uint8_t re_offset;
+  uint16_t resource_slot_offset;
+  uint8_t resource_symbol_offset;
+} f1ap_prs_resource_t;
+
+typedef struct f1ap_prs_resource_set_s {
+  uint8_t prs_resource_set_id;
+  uint8_t subcarrier_spacing;
+  uint16_t num_rb;
+  uint16_t start_prb;
+  uint32_t point_a;
+  uint8_t comb_size;
+  uint8_t cp_type;
+  uint32_t resource_set_periodicity;
+  uint32_t resource_set_slot_offset;
+  uint8_t resource_repetition_factor;
+  uint8_t resource_time_gap;
+  uint8_t resource_number_of_symbols;
+  int8_t prs_resource_transmit_power;
+  uint8_t prs_resource_list_length;
+  f1ap_prs_resource_t *prs_resource;
+} f1ap_prs_resource_set_t;
+
+typedef struct f1ap_prs_configuration_s {
+  uint8_t prs_resource_set_list_length;
+  f1ap_prs_resource_set_t *prs_resource_set;
+} f1ap_prs_configuration_t;
+
 typedef union f1ap_trp_information_type_response_item_c {
   uint16_t pci_nr;
   f1ap_ng_ran_cgi_t ng_ran_cgi;
   uint32_t nr_arfcn;
-  // f1ap_prs_configuration_t pRSConfiguration;
+  f1ap_prs_configuration_t prs_configuration;
   // f1ap_ssb_information_t sSBinformation;
   // bit_string_t sFNInitialisationTime;
   // f1ap_spatial_direction_information_t spatialDirectionInformation;
