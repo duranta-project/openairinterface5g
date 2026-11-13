@@ -399,6 +399,18 @@ static rnti_t lcid_crnti_lookahead(uint8_t *pdu, uint32_t pdu_len)
   return 0;
 }
 
+/* Appends an RLC PDU to data_ind[], which holds at most MAX_NUM_DATA_IND entries. Returns
+ * false when it is full: the UE controls how many sub-PDUs a MAC PDU contains. */
+static bool add_data_ind(rnti_t rnti, nr_rlc_data_ind_t *data_ind, int *num_data_ind, nr_rlc_data_ind_t ind)
+{
+  if (*num_data_ind >= MAX_NUM_DATA_IND) {
+    LOG_E(NR_MAC, "RNTI %04x: more than %d RLC PDUs in UL MAC PDU, dropping the rest\n", rnti, MAX_NUM_DATA_IND);
+    return false;
+  }
+  data_ind[(*num_data_ind)++] = ind;
+  return true;
+}
+
 /* Decodes the MAC PDU; its RLC PDUs are returned in data_ind[] (pointing into pduP) for
  * the caller to hand to RLC once sched_lock is released. */
 static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
@@ -498,8 +510,8 @@ static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
 
         if (prepare_initial_ul_rrc_message(nrmac, cell, UE)) {
           nr_rlc_data_ind_t ind = {.ch = 0, .buf = pduP + mac_subheader_len, .len = mac_len};
-          data_ind[(*num_data_ind)++] = ind;
-          DevAssert(*num_data_ind < MAX_NUM_DATA_IND);
+          if (!add_data_ind(UE->rnti, data_ind, num_data_ind, ind))
+            return 0;
         } else {
           LOG_E(NR_MAC, "prepare_initial_ul_rrc_message() returned false, cannot forward CCCH message\n");
         }
@@ -523,8 +535,8 @@ static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
           LOG_I(NR_MAC, "RNTI %04x LCID %d: ignoring %d bytes\n", UE->rnti, lcid, mac_len);
         } else {
           nr_rlc_data_ind_t ind = {.ch = lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
-          data_ind[(*num_data_ind)++] = ind;
-          DevAssert(*num_data_ind < MAX_NUM_DATA_IND);
+          if (!add_data_ind(UE->rnti, data_ind, num_data_ind, ind))
+            return 0;
 
           UE->mac_stats.ul.total_sdu_bytes += mac_len;
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
@@ -550,8 +562,8 @@ static int nr_process_mac_pdu(gNB_MAC_INST *nrmac,
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
 
           nr_rlc_data_ind_t ind = {.ch = lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
-          data_ind[(*num_data_ind)++] = ind;
-          DevAssert(*num_data_ind < MAX_NUM_DATA_IND);
+          if (!add_data_ind(UE->rnti, data_ind, num_data_ind, ind))
+            return 0;
 
           sdus += 1;
           /* Updated estimated buffer when receiving data */
@@ -657,7 +669,7 @@ static void finish_nr_ul_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
   harq->ndi ^= 1;
   harq->round = 0;
 
-  add_tail_nr_list(&sched_ctrl->available_ul_harq, harq_pid);
+  id_list_push_back(&sched_ctrl->available_ul_harq, harq_pid);
 }
 
 static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
@@ -695,10 +707,10 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
       return;
     }
     LOG_D(NR_MAC, "Out-of-order CRC for HARQ PID %d (head=%d) for RNTI 0x%04x\n", crc_harq_id, harq_pid, rnti);
-    remove_nr_list(&sched_ctrl->feedback_ul_harq, crc_harq_id);
+    id_list_remove(&sched_ctrl->feedback_ul_harq, crc_harq_id);
     harq_pid = crc_harq_id;
   } else {
-    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
+    id_list_pop_front(&sched_ctrl->feedback_ul_harq);
   }
   NR_UE_ul_harq_t *harq = &sched_ctrl->ul_harq_processes[harq_pid];
   DevAssert(harq->is_waiting);
@@ -722,7 +734,7 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
           "Ulharq id %d crc failed for RNTI %04x\n",
           harq_pid,
           rnti);
-    add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
+    id_list_push_back(&sched_ctrl->retrans_ul_harq, harq_pid);
   }
 }
 
@@ -981,14 +993,14 @@ static void nr_ul_harq_cleanup_stale(const nr_cell_sched_t *cell, NR_UE_info_t *
           harq_pid,
           harq->feedback_frame,
           harq->feedback_slot);
-    remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
+    id_list_pop_front(&sched_ctrl->feedback_ul_harq);
     harq->is_waiting = false;
     harq->feedback_slot = -1;
     if (harq->round >= cell->ul_bler.harq_round_max - 1)
       abort_nr_ul_harq(UE, harq_pid);
     else {
       harq->round++;
-      add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
+      id_list_push_back(&sched_ctrl->retrans_ul_harq, harq_pid);
     }
     harq_pid = sched_ctrl->feedback_ul_harq.head;
   }
@@ -2494,23 +2506,23 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
     /* PP has not selected a specific HARQ Process, get a new one */
     harq_id = sched_ctrl->available_ul_harq.head;
     AssertFatal(harq_id >= 0, "no free HARQ process available for UE %04x\n", UE->rnti);
-    remove_front_nr_list(&sched_ctrl->available_ul_harq);
+    id_list_pop_front(&sched_ctrl->available_ul_harq);
     sched_pusch->ul_harq_pid = harq_id;
   } else {
     /* PP selected a specific HARQ process. Check whether it will be a new
      * transmission or a retransmission, and remove from the corresponding
      * list */
     if (sched_ctrl->ul_harq_processes[harq_id].round == 0)
-      remove_nr_list(&sched_ctrl->available_ul_harq, harq_id);
+      id_list_remove(&sched_ctrl->available_ul_harq, harq_id);
     else
-      remove_nr_list(&sched_ctrl->retrans_ul_harq, harq_id);
+      id_list_remove(&sched_ctrl->retrans_ul_harq, harq_id);
   }
   NR_UE_ul_harq_t *cur_harq = &sched_ctrl->ul_harq_processes[harq_id];
   DevAssert(!cur_harq->is_waiting);
   if (cell->radio_config.disable_harq) {
     finish_nr_ul_harq(sched_ctrl, harq_id);
   } else {
-    add_tail_nr_list(&sched_ctrl->feedback_ul_harq, harq_id);
+    id_list_push_back(&sched_ctrl->feedback_ul_harq, harq_id);
     cur_harq->feedback_frame = pusch->frame;
     cur_harq->feedback_slot = pusch->slot;
     cur_harq->is_waiting = true;

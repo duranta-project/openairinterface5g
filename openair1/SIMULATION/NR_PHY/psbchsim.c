@@ -26,6 +26,19 @@
 #include "nr-uesoftmodem.h"
 #include "nr_unitary_defs.h"
 
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { return (NULL); }
+
+void free_gNB_ulsch(NR_gNB_ULSCH_t *ulsch, uint16_t N_RB_UL)
+{
+  // intentionally not abort()ed: function required but unused.
+}
+NR_gNB_ULSCH_t new_gNB_ulsch(uint8_t max_ldpc_iterations, uint16_t N_RB_UL)
+{
+  // intentionally not abort()ed: function required but unused.
+  return (NR_gNB_ULSCH_t) {0};
+}
+
+RAN_CONTEXT_t RC;
 uint64_t downlink_frequency[MAX_NUM_CCs][4];
 int64_t uplink_frequency_offset[MAX_NUM_CCs][4];
 THREAD_STRUCT thread_struct;
@@ -195,6 +208,7 @@ static int freq_domain_loopback(PHY_VARS_NR_UE *UE_tx, PHY_VARS_NR_UE *UE_rx, in
   uint8_t decoded_output[4] = {0};
 
   int psbch_e_rx_offset = 0;
+  uint8_t log2_maxh = 0;
   int16_t psbch_e_rx[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2];
   int16_t psbch_unClipped[SL_NR_POLAR_PSBCH_E_NORMAL_CP + 2];
   LOG_I(PHY, "DEBUG: HIJACKING DL CHANNEL ESTIMATES.\n");
@@ -210,7 +224,7 @@ static int freq_domain_loopback(PHY_VARS_NR_UE *UE_tx, PHY_VARS_NR_UE *UE_rx, in
       dlch[j].i = 0;
     }
     /* Extract and produce LLRs */
-    nr_generate_psbch_llr(fp, rxdataF, dl_ch_estimates, s, &psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
+    nr_generate_psbch_llr(fp, rxdataF, dl_ch_estimates, s, &log2_maxh, &psbch_e_rx_offset, psbch_e_rx, psbch_unClipped);
     s = (s == 0) ? 5 : s + 1;
   }
 
@@ -573,7 +587,7 @@ int main(int argc, char **argv)
           sl_uerx->psbch.rx_ok = 1;
         }
       } else
-        psbch_pscch_processing(UE_RX, &proc, &phy_data_rx);
+        psbch_processing(UE_RX, &proc, &phy_data_rx);
 
     } // noise trials
 

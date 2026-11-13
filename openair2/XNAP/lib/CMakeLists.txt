@@ -6,7 +6,7 @@ add_library(xnap_lib OBJECT
             xnap_gNB_mobility_management.c
 )
 
-target_link_libraries(xnap_lib PRIVATE asn1_xnap)
+target_link_libraries(xnap_lib PRIVATE asn1_xnap log_headers)
 
 if(ENABLE_TESTS)
   target_compile_definitions(xnap_lib PRIVATE ENABLE_TESTS)

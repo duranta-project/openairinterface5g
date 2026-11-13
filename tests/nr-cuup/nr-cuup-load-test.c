@@ -174,10 +174,11 @@ static bool recv_ng(protocol_ctxt_t *ctxt,
                     const bool rqi,
                     const int pdusession_id)
 {
-  uint32_t *payload = (uint32_t *) buf;
+  uint32_t payload;
+  memcpy(&payload, buf, sizeof(payload)); // buf is not necessarily 4-byte aligned
   DevAssert(size % 4 == 0);
   struct ue_stat *s = &ue_stat[ue_id][UL];
-  s->count = estimate_packetloss(*payload, s->count, &s->lost);
+  s->count = estimate_packetloss(payload, s->count, &s->lost);
   s->received += size;
 
   return true;
@@ -428,7 +429,7 @@ static void *sender_thread(void *v)
   memset(buf, 0, packet_len);
   /* SDAP UL data PDU: bits[5:0]=QFI (TEST_QOS_FLOW_ID=1), bit6=R=0, bit7=DC=0 (data PDU) */
   buf[2] = TEST_QOS_FLOW_ID;
-  uint32_t *payload = (uint32_t *)(buf + oh);
+  uint8_t *payload = buf + oh; // not necessarily 4-byte aligned
   uint64_t to_send = (float)d->throughput / 8.0 * d->duration;
   const float pps_1ms = (float) d->throughput / 8.0 / d->data_len / 1000;
   float pps_1ms_nextwin = pps_1ms;

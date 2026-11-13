@@ -4524,6 +4524,51 @@ int encode_measgap_config(const measgap_config_t *c, uint8_t *buf)
   return (int)((enc_rval_mgc.encoded + 7) >> 3);
 }
 
+#define NR_MAC_PRS_TX_POWER_DBM 0
+
+static void fill_prs_configuration(f1ap_prs_configuration_t *out,
+                                   const nr_mac_prs_config_t *cfg,
+                                   const f1ap_served_cell_info_t *du_cell)
+{
+  out->prs_resource_set_list_length = 1;
+  out->prs_resource_set = calloc_or_fail(1, sizeof(*out->prs_resource_set));
+  f1ap_prs_resource_set_t *set = &out->prs_resource_set[0];
+
+  set->prs_resource_set_id = 0;
+  if (du_cell->mode == F1AP_MODE_FDD) {
+    set->subcarrier_spacing = du_cell->fdd.dl_tbw.scs;
+    set->point_a = du_cell->fdd.dl_freqinfo.arfcn;
+  } else {
+    set->subcarrier_spacing = du_cell->tdd.tbw.scs;
+    set->point_a = du_cell->tdd.freqinfo.arfcn;
+  }
+  set->num_rb = cfg->num_rb;
+  set->start_prb = cfg->rb_offset;
+  set->comb_size = cfg->comb_size;
+  set->cp_type = 0;
+  set->resource_set_periodicity = cfg->period;
+  set->resource_set_slot_offset = cfg->offset;
+  set->resource_repetition_factor = cfg->repetition;
+  set->resource_time_gap = cfg->time_gap;
+  for (int k = 1; k < cfg->num_prs_resources; k++)
+    AssertFatal(cfg->resource[k].num_symbols == cfg->resource[0].num_symbols,
+                "PRS resources %d and 0 have different NumPRSSymbols: NRPPa has one value per resource set\n",
+                k);
+  set->resource_number_of_symbols = cfg->resource[0].num_symbols;
+  set->prs_resource_transmit_power = NR_MAC_PRS_TX_POWER_DBM;
+
+  set->prs_resource_list_length = cfg->num_prs_resources;
+  set->prs_resource = calloc_or_fail(cfg->num_prs_resources, sizeof(*set->prs_resource));
+  for (int k = 0; k < cfg->num_prs_resources; k++) {
+    f1ap_prs_resource_t *r = &set->prs_resource[k];
+    r->prs_resource_id = k;
+    r->sequence_id = cfg->resource[k].sequence_id;
+    r->re_offset = cfg->resource[k].re_offset;
+    r->resource_slot_offset = cfg->resource[k].slot_offset;
+    r->resource_symbol_offset = cfg->resource[k].symbol_start;
+  }
+}
+
 void create_trp_info_item(const f1ap_trp_information_req_t *req,
                           f1ap_trp_information_t *trp_info_item,
                           positioning_config_t *positioning_config,
@@ -4566,7 +4611,8 @@ void create_trp_info_item(const f1ap_trp_information_req_t *req,
         }
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_PRS_CONFIG:
-        AssertFatal(false, "PRS config not supported\n");
+        trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
+        fill_prs_configuration(&trp_info_type_resp_item->choice.prs_configuration, mac->prs_config, du_cell);
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_SSB_CONFIG:
         AssertFatal(false, "SSB config not supported\n");

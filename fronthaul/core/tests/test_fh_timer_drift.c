@@ -44,7 +44,7 @@ void drift_callback(uint64_t s_abs, void *user_data)
 
   // Theoretical target time as calculated by the library
   uint64_t syms_per_ms = 14 << timer->numerology;
-  typedef __int128_t int128;
+  typedef unsigned __int128 int128;
   uint64_t target_ns = (uint64_t)((int128)s_abs * 1000000ULL / syms_per_ms);
 
   double err = (double)now_ns - (double)target_ns;

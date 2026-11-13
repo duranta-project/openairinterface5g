@@ -15,6 +15,9 @@ void free_nrppa_trp_information_request(nrppa_trp_information_req_t *msg)
   if (msg->trp_information_type_list.trp_information_type_item) {
     free(msg->trp_information_type_list.trp_information_type_item);
   }
+  if (msg->has_trp_list) {
+    free(msg->trp_list.trp_list_item);
+  }
 }
 
 static NRPPA_TRPPositionDirect_t encode_trp_position_direct(nrppa_trp_position_direct_t *in)
@@ -180,6 +183,62 @@ static NRPPA_GeographicalCoordinates_t encode_geographical_coordinates_nrppa(nrp
   return out;
 }
 
+static const int prs_comb_size_lut[] = {2, 4, 6, 12};
+static const int prs_periodicity_lut[] = {4,   5,   8,   10,   16,   20,   32,    40,    64,    80,
+                                          160, 320, 640, 1280, 2560, 5120, 10240, 20480, 40960, 81920};
+static const int prs_repetition_factor_lut[] = {1, 2, 4, 6, 8, 16, 32};
+static const int prs_time_gap_lut[] = {1, 2, 4, 8, 16, 32};
+static const int prs_num_symbols_lut[] = {2, 4, 6, 12};
+
+static long encode_prs_value(int value, const int *lut, int n, const char *name)
+{
+  for (int i = 0; i < n; i++)
+    if (lut[i] == value)
+      return i;
+  AssertFatal(false, "PRS %s %d not representable in NRPPa\n", name, value);
+  return 0;
+}
+
+static void encode_prs_configuration_nrppa(const nrppa_prs_configuration_t *in, NRPPA_PRSConfiguration_t *out)
+{
+  for (int i = 0; i < in->prs_resource_set_list_length; i++) {
+    const nrppa_prs_resource_set_t *s = &in->prs_resource_set[i];
+    asn1cSequenceAdd(out->pRSResourceSet_List.list, NRPPA_PRSResourceSet_Item_t, set);
+    set->pRSResourceSetID = s->prs_resource_set_id;
+    AssertFatal(s->subcarrier_spacing <= NRPPA_PRSResourceSet_Item__subcarrierSpacing_kHz120,
+                "illegal PRS subcarrier spacing %d\n",
+                s->subcarrier_spacing);
+    set->subcarrierSpacing = s->subcarrier_spacing;
+    AssertFatal(s->num_rb >= 24 && s->num_rb <= 272 && s->num_rb % 4 == 0, "illegal PRS NumRB %d\n", s->num_rb);
+    set->pRSbandwidth = (s->num_rb - 20) / 4;
+    set->startPRB = s->start_prb;
+    set->pointA = s->point_a;
+    set->combSize = encode_prs_value(s->comb_size, prs_comb_size_lut, sizeofArray(prs_comb_size_lut), "comb size");
+    AssertFatal(s->cp_type <= NRPPA_PRSResourceSet_Item__cPType_extended, "illegal PRS CP type %d\n", s->cp_type);
+    set->cPType = s->cp_type;
+    set->resourceSetPeriodicity =
+        encode_prs_value(s->resource_set_periodicity, prs_periodicity_lut, sizeofArray(prs_periodicity_lut), "periodicity");
+    set->resourceSetSlotOffset = s->resource_set_slot_offset;
+    set->resourceRepetitionFactor = encode_prs_value(s->resource_repetition_factor,
+                                                     prs_repetition_factor_lut,
+                                                     sizeofArray(prs_repetition_factor_lut),
+                                                     "repetition factor");
+    set->resourceTimeGap = encode_prs_value(s->resource_time_gap, prs_time_gap_lut, sizeofArray(prs_time_gap_lut), "time gap");
+    set->resourceNumberofSymbols =
+        encode_prs_value(s->resource_number_of_symbols, prs_num_symbols_lut, sizeofArray(prs_num_symbols_lut), "number of symbols");
+    set->pRSResourceTransmitPower = s->prs_resource_transmit_power;
+    for (int k = 0; k < s->prs_resource_list_length; k++) {
+      const nrppa_prs_resource_t *r = &s->prs_resource[k];
+      asn1cSequenceAdd(set->pRSResource_List.list, NRPPA_PRSResource_Item_t, res);
+      res->pRSResourceID = r->prs_resource_id;
+      res->sequenceID = r->sequence_id;
+      res->rEOffset = r->re_offset;
+      res->resourceSlotOffset = r->resource_slot_offset;
+      res->resourceSymbolOffset = r->resource_symbol_offset;
+    }
+  }
+}
+
 NRPPA_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item_nrppa(nrppa_trp_information_type_response_item_t *in)
 {
   NRPPA_TRPInformationTypeResponseItem_t out = {0};
@@ -206,7 +265,8 @@ NRPPA_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item_nrppa(
       break;
     case NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
       out.present = NRPPA_TRPInformationTypeResponseItem_PR_pRSConfiguration;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      asn1cCalloc(out.choice.pRSConfiguration, prs_configuration);
+      encode_prs_configuration_nrppa(&in->choice.prs_configuration, prs_configuration);
       break;
     case NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       out.present = NRPPA_TRPInformationTypeResponseItem_PR_sSBinformation;
@@ -233,6 +293,13 @@ NRPPA_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item_nrppa(
   return out;
 }
 
+static void free_nrppa_prs_configuration(nrppa_prs_configuration_t *c)
+{
+  for (int i = 0; i < c->prs_resource_set_list_length; i++)
+    free(c->prs_resource_set[i].prs_resource);
+  free(c->prs_resource_set);
+}
+
 void free_nrppa_trp_information_response(nrppa_trp_information_resp_t *msg)
 {
   nrppa_trp_information_list_t *trp_information_list = &msg->trp_information_list;
@@ -240,6 +307,11 @@ void free_nrppa_trp_information_response(nrppa_trp_information_resp_t *msg)
   for (int i = 0; i < trp_info_item_length; i++) {
     nrppa_trp_information_t *trp_information_item = &trp_information_list->trp_information_item[i];
     nrppa_trp_information_type_response_list_t *trp_info_type_resp_list = &trp_information_item->trp_information_type_response_list;
+    for (int j = 0; j < trp_info_type_resp_list->trp_information_type_response_item_length; j++) {
+      nrppa_trp_information_type_response_item_t *item = &trp_info_type_resp_list->trp_information_type_response_item[j];
+      if (item->present == NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION)
+        free_nrppa_prs_configuration(&item->choice.prs_configuration);
+    }
     free(trp_info_type_resp_list->trp_information_type_response_item);
   }
   free(msg->trp_information_list.trp_information_item);
@@ -1028,7 +1100,16 @@ int nrppa_gNB_handle_trp_information_request(nrppa_gnb_ue_info_t *nrppa_msg_info
   if (ie == NULL) {
     req->has_trp_list = false;
   } else {
-    LOG_W(NRPPA, "TRPInformationRequest IE TRP List : not handled\n");
+    req->has_trp_list = true;
+    uint32_t trp_list_len = ie->value.choice.TRPList.list.count;
+    AssertError(trp_list_len > 0, return false, "at least 1 TRP must be present");
+    nrppa_trp_list_t *trp_list = &req->trp_list;
+    trp_list->trp_list_length = trp_list_len;
+    trp_list->trp_list_item = calloc_or_fail(trp_list_len, sizeof(*trp_list->trp_list_item));
+    for (int i = 0; i < trp_list_len; i++) {
+      const NRPPA_TRPItem_t *item = ie->value.choice.TRPList.list.array[i];
+      trp_list->trp_list_item[i].trp_id = item->tRP_ID;
+    }
   }
 
   // IE TRP Information Type List: mandatory

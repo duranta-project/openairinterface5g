@@ -12,6 +12,7 @@
 #include "LOG/log.h"
 #include "common/utils/time_stat.h"
 #include "common/platform_types.h"
+#include "common/utils/assertions.h"
 
 /* for a given SDU/SDU segment, computes the corresponding PDU header size */
 static int compute_pdu_header_size(nr_rlc_entity_um_t *entity,
@@ -466,8 +467,17 @@ static int generate_tx_pdu(nr_rlc_entity_um_t *entity, char *buffer, int size)
 
   pdu_header_size = compute_pdu_header_size(entity, sdu);
 
-  /* not enough room for at least one byte of data? do nothing */
-  if (pdu_header_size + 1 > size)
+  /* not enough room for at least one byte of data? do nothing
+   * if the SDU has to be segmented, the header of its segment may be bigger
+   * than the one of the complete SDU (a complete SDU has no SN)
+   */
+  int min_header_size = pdu_header_size;
+  if (pdu_header_size + sdu->size > size) {
+    nr_rlc_sdu_segment_t segment = *sdu;
+    segment.is_last = 0;
+    min_header_size = compute_pdu_header_size(entity, &segment);
+  }
+  if (min_header_size + 1 > size)
     return 0;
 
   entity->tx_list = entity->tx_list->next;
@@ -486,8 +496,8 @@ static int generate_tx_pdu(nr_rlc_entity_um_t *entity, char *buffer, int size)
   if (pdu_size > size) {
     nr_rlc_sdu_segment_t *next_sdu;
     next_sdu = resegment(sdu, entity, size);
-    if (next_sdu == NULL)
-      return 0;
+    /* not possible: segment header size checked above */
+    AssertFatal(next_sdu != NULL, "cannot segment SDU\n");
     /* put the second SDU back at the head of the TX list */
     next_sdu->next = entity->tx_list;
     entity->tx_list = next_sdu;

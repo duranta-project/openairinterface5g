@@ -58,7 +58,9 @@ typedef enum {
   SDAP_UL_TX = (1 << 0),
   SDAP_UL_RX = (1 << 1),
   SDAP_DL_TX = (1 << 2),
-  SDAP_DL_RX = (1 << 3)
+  SDAP_DL_RX = (1 << 3),
+  SDAP_SL_TX = (1 << 4),
+  SDAP_SL_RX = (1 << 5)
 } sdap_role_t;
 
 typedef struct qfi2drb_s {

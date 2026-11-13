@@ -11,7 +11,7 @@
 
   <testCase>
     <class>Build_Run_Tests</class>
-    <desc>Build and Run UnitTests (clang)</desc>
+    <desc>Build and Run UnitTests (clang, ASan+UBSan)</desc>
     <dockerfile>docker/Dockerfile.unittest.clang.ubuntu</dockerfile>
     <node>gracehopper3-oai</node>
   </testCase>

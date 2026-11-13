@@ -12,6 +12,7 @@
 
 #include "f1ap_messages_types.h"
 #include "F1AP_F1AP-PDU.h"
+#include "F1AP_TimeToWait.h"
 
 #include "f1ap_lib_common.h"
 #include "f1ap_rrc_message_transfer.h"
@@ -391,14 +392,9 @@ static void test_f1ap_setup_response(void)
 /**
  * @brief Test F1AP Setup Failure Encoding/Decoding
  */
-static void test_f1ap_setup_failure(void)
+static void _test_f1ap_setup_failure(const f1ap_setup_failure_t *orig)
 {
-  /* create message */
-  f1ap_setup_failure_t orig = {
-      .transaction_id = 2,
-      .cause = 4,
-  };
-  F1AP_F1AP_PDU_t *f1enc = encode_f1ap_setup_failure(&orig);
+  F1AP_F1AP_PDU_t *f1enc = encode_f1ap_setup_failure(orig);
   F1AP_F1AP_PDU_t *f1dec = f1ap_encode_decode(f1enc);
   f1ap_msg_free(f1enc);
 
@@ -407,12 +403,37 @@ static void test_f1ap_setup_failure(void)
   AssertFatal(ret, "decode_f1ap_setup_failure(): could not decode message\n");
   f1ap_msg_free(f1dec);
 
-  ret = eq_f1ap_setup_failure(&orig, &decoded);
+  ret = eq_f1ap_setup_failure(orig, &decoded);
   AssertFatal(ret, "eq_f1ap_setup_failure(): decoded message doesn't match\n");
+  free_f1ap_setup_failure(&decoded);
 
-  f1ap_setup_failure_t cp = cp_f1ap_setup_failure(&orig);
-  ret = eq_f1ap_setup_failure(&orig, &cp);
+  f1ap_setup_failure_t cp = cp_f1ap_setup_failure(orig);
+  ret = eq_f1ap_setup_failure(orig, &cp);
   AssertFatal(ret, "eq_f1ap_setup_failure(): copied message doesn't match\n");
+  free_f1ap_setup_failure(&cp);
+}
+
+static void test_f1ap_setup_failure(void)
+{
+  /* the Cause CHOICE and a Time To Wait other than v10s must survive the round trip */
+  int time_to_wait = F1AP_TimeToWait_v1s;
+  f1ap_setup_failure_t orig = {
+      .transaction_id = 2,
+      .cause = F1AP_CAUSE_MISC,
+      .cause_value = F1AP_CauseMisc_unspecified,
+      .time_to_wait = &time_to_wait,
+  };
+  _test_f1ap_setup_failure(&orig);
+
+  orig.cause = F1AP_CAUSE_PROTOCOL;
+  orig.cause_value = F1AP_CauseProtocol_semantic_error;
+  time_to_wait = F1AP_TimeToWait_v60s;
+  _test_f1ap_setup_failure(&orig);
+
+  orig.cause = F1AP_CAUSE_RADIO_NETWORK;
+  orig.cause_value = F1AP_CauseRadioNetwork_plmn_not_served_by_the_gNB_CU;
+  orig.time_to_wait = NULL;
+  _test_f1ap_setup_failure(&orig);
 }
 
 static void _test_f1ap_reset_msg(const f1ap_reset_t *orig)
@@ -2011,7 +2032,7 @@ static void test_f1ap_trp_information_response()
   orig.trp_information_list.trp_information_item =
       calloc_or_fail(trp_info_item_len, sizeof(*orig.trp_information_list.trp_information_item));
 
-  uint8_t trp_info_type_resp_item_len = 3;
+  uint8_t trp_info_type_resp_item_len = 4;
   for (int i = 0; i < trp_info_item_len; i++) {
     f1ap_trp_information_t *tRPInformation = &orig.trp_information_list.trp_information_item[i];
     tRPInformation->trp_information_type_response_list.trp_information_type_response_item_length = trp_info_type_resp_item_len;
@@ -2056,6 +2077,36 @@ static void test_f1ap_trp_information_response()
     trp_pos_cart->location_uncertainty.horizontal_confidence = i + 2;
     trp_pos_cart->location_uncertainty.vertical_uncertainty = i + 3;
     trp_pos_cart->location_uncertainty.vertical_confidence = i + 4;
+    // PRS configuration
+    trp_info_type_resp_item[3].present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
+    f1ap_prs_configuration_t *prs_config = &trp_info_type_resp_item[3].choice.prs_configuration;
+    prs_config->prs_resource_set_list_length = 1;
+    prs_config->prs_resource_set = calloc_or_fail(1, sizeof(*prs_config->prs_resource_set));
+    f1ap_prs_resource_set_t *prs_set = &prs_config->prs_resource_set[0];
+    prs_set->prs_resource_set_id = i;
+    prs_set->subcarrier_spacing = 1;
+    prs_set->num_rb = 104;
+    prs_set->start_prb = 0;
+    prs_set->point_a = 640008 + i;
+    prs_set->comb_size = 4;
+    prs_set->cp_type = 0;
+    const int periodicity[] = {20, 640, 10240};
+    prs_set->resource_set_periodicity = periodicity[i % sizeofArray(periodicity)];
+    prs_set->resource_set_slot_offset = 1 + i;
+    prs_set->resource_repetition_factor = 2;
+    prs_set->resource_time_gap = 1;
+    prs_set->resource_number_of_symbols = 12;
+    prs_set->prs_resource_transmit_power = -10 + i;
+    prs_set->prs_resource_list_length = 2;
+    prs_set->prs_resource = calloc_or_fail(prs_set->prs_resource_list_length, sizeof(*prs_set->prs_resource));
+    for (int k = 0; k < prs_set->prs_resource_list_length; k++) {
+      f1ap_prs_resource_t *prs_res = &prs_set->prs_resource[k];
+      prs_res->prs_resource_id = k;
+      prs_res->sequence_id = 100 * i + k;
+      prs_res->re_offset = k;
+      prs_res->resource_slot_offset = 2 * k;
+      prs_res->resource_symbol_offset = 1;
+    }
   }
 
   F1AP_F1AP_PDU_t *f1enc = encode_trp_information_resp(&orig);

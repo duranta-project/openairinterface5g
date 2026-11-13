@@ -56,7 +56,7 @@ typedef struct registration_accept_msg_tag {
   uint8_t num_configured_slices;
 } registration_accept_msg;
 
-size_t decode_registration_accept(registration_accept_msg *registrationaccept, const byte_array_t buffer);
+int decode_registration_accept(registration_accept_msg *registrationaccept, const byte_array_t buffer);
 
 int encode_registration_accept(const registration_accept_msg *registrationaccept, uint8_t *buffer, uint32_t len);
 

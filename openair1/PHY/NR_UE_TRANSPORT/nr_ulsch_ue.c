@@ -1268,39 +1268,17 @@ void nr_tx_rotation_and_ofdm_mod(const uint8_t slot,
                                  bool no_phase_pre_comp)
 {
   const int N_RB = (linktype == link_type_sl) ? frame_parms->N_RB_SL : frame_parms->N_RB_UL;
-
-  for (int i = 0; i < frame_parms->symbols_per_slot; i++) {
-    if (was_symbol_used[i] == false)
-      continue;
-    for (int ap = 0; ap < n_antenna_ports; ap++) {
-      // Phase compensation
-      if (!no_phase_pre_comp)
-        apply_nr_rotation_TX(frame_parms, txdataF[ap], frame_parms->symbol_rotation[linktype], slot, N_RB, i, 1);
-      // Inverse FFT shift: L1 fills txdataF FFT shifted, the IDFT needs the native FFT layout
-      fftshift_inverse_inplace(txdataF[ap] + i * frame_parms->ofdm_symbol_size,
-                               N_RB * NR_NB_SC_PER_RB,
-                               frame_parms->ofdm_symbol_size);
-    }
-  }
+  const c16_t *rotation = no_phase_pre_comp ? NULL : frame_parms->symbol_rotation[linktype];
 
   for (int ap = 0; ap < n_antenna_ports; ap++) {
-    if (frame_parms->Ncp == 1) { // extended cyclic prefix
-      for (int i = 0; i < frame_parms->symbols_per_slot; i++) {
-        if (was_symbol_used[i] == false) {
-          memset(&txdata[ap][(frame_parms->ofdm_symbol_size + frame_parms->nb_prefix_samples) * i],
-                 0,
-                 (frame_parms->nb_prefix_samples + frame_parms->ofdm_symbol_size) * sizeof(int32_t));
-          continue;
-        }
-        PHY_ofdm_mod((int *)&txdataF[ap][frame_parms->ofdm_symbol_size * i],
-                     (int *)&txdata[ap][frame_parms->ofdm_symbol_size * i],
-                     frame_parms->ofdm_symbol_size,
-                     1,
-                     frame_parms->nb_prefix_samples,
-                     CYCLIC_PREFIX);
-      }
-    } else { // normal cyclic prefix
-      nr_normal_prefix_mod(txdataF[ap], txdata[ap], frame_parms->symbols_per_slot, frame_parms, slot, was_symbol_used);
+    c16_t *out = txdata[ap];
+    for (int i = 0; i < frame_parms->symbols_per_slot; i++) {
+      const int len = get_samples_symbol_duration(frame_parms, slot, i, 1);
+      if (was_symbol_used[i])
+        nr_ofdm_mod_symbol(frame_parms, rotation, N_RB, slot, i, txdataF[ap] + i * frame_parms->ofdm_symbol_size, out);
+      else
+        memset(out, 0, len * sizeof(c16_t));
+      out += len;
     }
   }
 }

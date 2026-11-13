@@ -5,6 +5,7 @@
 #include "PHY/defs_gNB.h"
 #include "PHY/impl_defs_nr.h"
 #include "phy_ofdm_mod.h"
+#include "nr_modulation.h"
 #include "common/utils/LOG/log.h"
 //#define DEBUG_OFDM_MOD
 
@@ -73,6 +74,44 @@ void nr_normal_prefix_mod(c16_t *txdataF,
         memset(tx_data_ptr, 0, (cp + frame_parms->ofdm_symbol_size) * sizeof(c16_t));
       tx_data_ptr += cp + frame_parms->ofdm_symbol_size;
     }
+  }
+}
+
+// Cyclic prefix of a normal-CP symbol: the long one starts every half subframe.
+static int nr_symbol_cp(const NR_DL_FRAME_PARMS *fp, int slot, int symbol)
+{
+  if (fp->numerology_index == 0)
+    return symbol % 7 == 0 ? fp->nb_prefix_samples0 : fp->nb_prefix_samples;
+  return symbol == 0 && slot % (fp->slots_per_subframe / 2) == 0 ? fp->nb_prefix_samples0 : fp->nb_prefix_samples;
+}
+
+void nr_ofdm_mod_symbol(const NR_DL_FRAME_PARMS *fp,
+                        const c16_t *symbol_rotation,
+                        int nb_rb,
+                        int slot,
+                        int symbol,
+                        c16_t *txdataF,
+                        c16_t *txdata)
+{
+  const int n_re = nb_rb * NR_NB_SC_PER_RB;
+  if (symbol_rotation) {
+    const c16_t rot = symbol_rotation[(slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol];
+    rotate_cpx_vector(txdataF, rot, txdataF, n_re, 15);
+  }
+  // L1 fills txdataF FFT shifted, the IDFT needs the native FFT layout
+  fftshift_inverse_inplace(txdataF, n_re, fp->ofdm_symbol_size);
+  const int cp = nr_symbol_cp(fp, slot, symbol);
+  PHY_ofdm_mod((int *)txdataF, (int *)txdata, fp->ofdm_symbol_size, 1, cp, CYCLIC_PREFIX);
+}
+
+void nr_prach_ofdm_mod(const c16_t *prachF, int dftlen, int ncp, int repetitions, c16_t *scratch, c16_t *txdata)
+{
+  idft(get_idft(dftlen), (int16_t *)prachF, (int16_t *)scratch, 1);
+  memcpy(txdata, scratch + dftlen - ncp, ncp * sizeof(c16_t));
+  txdata += ncp;
+  for (int i = 0; i < repetitions; i++) {
+    memcpy(txdata, scratch, dftlen * sizeof(c16_t));
+    txdata += dftlen;
   }
 }
 

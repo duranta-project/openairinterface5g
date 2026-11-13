@@ -188,7 +188,12 @@ static void get_epochtime_from_sib19scheduling(NR_UE_RRC_SI_INFO *SI_info, int *
 
   *frame += (slot_end_sib19_window / N);
   int slot = slot_end_sib19_window % N;
-  *subframe = ceil(slot / slots_per_subframe);
+  *subframe = (slot + slots_per_subframe - 1) / slots_per_subframe;
+  if (*subframe >= 10) {
+    *frame += *subframe / 10;
+    *subframe %= 10;
+  }
+  *frame %= 1024;
 
   LOG_I(NR_RRC,
         "Get EPOCHTIME: x:%d, N:%d, slot_endw:%d, frame:%d, subframe:%d , slot:%d\n",
@@ -3563,7 +3568,8 @@ void *rrc_nrue(void *notUsed)
       RRCLOG_I("Initial NAS UL: no SRB yet; buffered %u B for RRCSetupComplete dedicatedNAS (RRC state=%d)\n",
                req->nasMsg.length,
                rrc->nrRrcState);
-      if (rrc->nrRrcState == RRC_STATE_IDLE_NR) {
+      /* Without a valid SIB1, cell selection is ongoing: SIB1 reception starts RA (nr_rrc_process_sib1()). */
+      if (rrc->nrRrcState == RRC_STATE_IDLE_NR && rrc->perNB[0].SInfo.sib1_validity) {
         RA_trigger_t prev_trigger = rrc->ra_trigger;
         rrc->ra_trigger = RRC_CONNECTION_SETUP;
         nr_rrc_ue_prepare_RRCSetupRequest(rrc);
@@ -4013,11 +4019,20 @@ void start_sidelink(int instance)
 {
 
   NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(instance);
+  nr_pdcp_entity_security_keys_and_algos_t security_up_parameters = get_security_rrc_parameters(rrc, false);
 
-  if (get_softmodem_params()->sl_mode == 2) {
+  // these 3 are configured differently in Sidelink 
+  int has_integrity = 0;
+  int has_ciphering = 0;
+  // int has_rohc = 0;
+
+  security_up_parameters.ciphering_algorithm = has_ciphering ? rrc->cipheringAlgorithm : 0;
+  security_up_parameters.integrity_algorithm = has_integrity ? rrc->integrityProtAlgorithm : 0;
+
+  if (get_softmodem_params()->sl_mode == SL_MODE2_SUPPORTED) {
 
     //Process the Sidelink Preconfiguration
-    rrc_ue_process_sidelink_Preconfiguration(rrc, get_softmodem_params()->sync_ref);
+    rrc_ue_process_sidelink_Preconfiguration(rrc, get_softmodem_params()->sync_ref, &security_up_parameters);
 
   }
 }

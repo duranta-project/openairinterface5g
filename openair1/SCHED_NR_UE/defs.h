@@ -66,7 +66,7 @@
 void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp);
 
 int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
-void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data,int pscch_processing);
 
 void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
 
@@ -107,14 +107,16 @@ void nr_pdcch_generate_llr(PHY_VARS_NR_UE *ue,
                            int num_monitoring_occ,
                            int max_symb,
                            c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
-                           c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol]);
+                           c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol],
+			   int pscch_processing);
 
 void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
                              int llr_size,
                              int max_monOcc,
                              PHY_VARS_NR_UE *ue,
                              nr_phy_data_t *phy_data,
-                             c16_t llr[phy_data->phy_pdcch_config.nb_search_space][max_monOcc][llr_size]);
+                             c16_t llr[phy_data->phy_pdcch_config.nb_search_space][max_monOcc][llr_size],
+			     int sci_indication);
 
 void nr_ue_csi_im_procedures(PHY_VARS_NR_UE *ue,
                              const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
@@ -130,22 +132,27 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
 
 void trs_freq_correction(PHY_VARS_NR_UE *ue, int cfo);
 
-int psbch_pscch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void nr_sl_print_phy_stats(PHY_VARS_NR_UE *ue, int frame_rx, int nr_slot_rx, bool *stats_printed);
+int psbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void pscch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void psfch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+void pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data);
+int nr_sl_psfch_feedback_abs_slot(const nr_phy_data_t *phy_data, const UE_nr_rxtx_proc_t *proc, int slots_per_frame);
 void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp);
-/*! \brief This function prepares the sl indication to pass to the MAC
- */
-void nr_fill_sl_indication(nr_sidelink_indication_t *sl_ind,
-                           sl_nr_rx_indication_t *rx_ind,
-                           sl_nr_sci_indication_t *sci_ind,
-                           const UE_nr_rxtx_proc_t *proc,
-                           PHY_VARS_NR_UE *ue,
-                           void *phy_data);
 void nr_fill_sl_rx_indication(sl_nr_rx_indication_t *rx_ind,
                               uint8_t pdu_type,
                               PHY_VARS_NR_UE *ue,
                               uint16_t n_pdus,
                               void *typeSpecific,
                               uint16_t rx_slss_id);
+
+typedef struct {
+  //ldpcDecode_t *rdata;
+  uint8_t *b;
+  int TBS;
+  int harq_pid;
+  bool rxok;
+} slsch_status_t;
 
 #endif
 /** @}*/

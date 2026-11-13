@@ -57,6 +57,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "PHY/TOOLS/phy_scope_interface.h"
 #include "PHY/TOOLS/nr_phy_scope.h"
 #include "executables/nr-ue-ru.h"
+#include "executables/nr-ue-fd.h"
 #include <executables/nr-uesoftmodem.h>
 #include "executables/position_interface.h"
 #include "executables/softmodem-common.h"
@@ -77,6 +78,21 @@ int64_t         uplink_frequency_offset[MAX_NUM_CCs][4];
 uint64_t        sidelink_frequency[MAX_NUM_CCs][4];
 
 // UE and OAI config variables
+
+// TODO sidelink: avoid linker errors for including gNB
+NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { abort(); return NULL; }
+int get_nr_prach_duration(uint8_t prach_format) { abort(); return 0; }
+int beam_index_allocation(bool das,
+                          int fapi_beam_index,
+                          NR_gNB_COMMON *common_vars,
+                          int slot,
+                          int symbols_per_slot,
+                          int bitmap_symbols)
+{
+  abort(); return 0;
+}
+int nr_slot_select() { abort(); }
+int get_first_ant_idx() { abort(); }
 
 int create_tasks_nrue(uint32_t ue_nb) {
   LOG_D(NR_RRC, "%s(ue_nb:%d)\n", __FUNCTION__, ue_nb);
@@ -171,7 +187,8 @@ static void trigger_stop(int sig)
 }
 static void trigger_deregistration(int sig)
 {
-  if (!stop_immediately && IS_SA_MODE(get_softmodem_params())) {
+  // Sidelink has no NAS registration; detaching would release MAC state still used by the PHY workers.
+  if (!stop_immediately && IS_SA_MODE(get_softmodem_params()) && !get_softmodem_params()->sl_mode) {
     for (int ue_inst = 0; ue_inst < NB_UE_INST; ue_inst++) {
       MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, ue_inst, NAS_DEREGISTRATION_REQ);
       NAS_DEREGISTRATION_REQ(msg).cause = AS_DETACH;
@@ -322,7 +339,7 @@ int main(int argc, char **argv)
                   nrue_get_cell_count());
       nrUE_cell_params_t cell = *nrue_get_cell(cell_id);
 
-      AssertFatal(cell.used_by_ue == -1,
+      AssertFatal(cell.used_by_ue == -1 || get_nrUE_params()->use_ue_fd,
                   "Cell %d is already used by UE %d and cannot also be used by UE %d as cells map 1:1 to RUs and RU sharing is not implemented\n",
                   cell_id,
                   cell.used_by_ue,
@@ -363,21 +380,30 @@ int main(int argc, char **argv)
       init_nr_ue_vars(UE_CC, inst);
 
       if (UE_CC->sl_mode) {
-        AssertFatal(UE_CC->sl_mode == 2, "Only Sidelink mode 2 supported. Mode 1 not yet supported\n");
+        AssertFatal(UE_CC->sl_mode == SL_MODE2_SUPPORTED, "Only Sidelink mode 2 supported. Mode 1 not yet supported\n");
         DevAssert(mac->if_module != NULL && mac->if_module->sl_phy_config_request != NULL);
+        // Patch antenna counts from CLI and push to PHY so sl_config is fully populated.
         nr_sl_phy_config_t *phycfg = &mac->SL_MAC_PARAMS->sl_phy_config;
         phycfg->sl_config_req.sl_carrier_config.sl_num_rx_ant = get_nrUE_params()->nb_antennas_rx;
         phycfg->sl_config_req.sl_carrier_config.sl_num_tx_ant = get_nrUE_params()->nb_antennas_tx;
         mac->if_module->sl_phy_config_request(phycfg);
+        // Derive sl_frame_params (N_RB_SL, ofdm_symbol_size, nb_antennas_tx ...) from sl_config
+        // before HARQ buffer allocation and PHY signal init.
         sl_nr_ue_phy_params_t *sl_phy = &UE_CC->SL_UE_PHY_PARAMS;
         nr_init_frame_parms_ue_sl(&sl_phy->sl_frame_params,
                                   &sl_phy->sl_config,
                                   get_softmodem_params()->threequarter_fs,
                                   get_nrUE_params()->ofdm_offset_divisor);
+        // Allocate SL HARQ buffers now that N_RB_SL and nb_antennas_tx are known.
+        init_nr_ue_sl_transport(UE_CC);
+
         sl_ue_phy_init(UE_CC);
       }
 
-      cell_id++; // initially connect each UE and carrier to its own cell
+      // FD-UE instances share one physical device/cell by design (see nr-ue-fd.c);
+      // every other mode connects each UE/carrier to its own cell.
+      if (!get_nrUE_params()->use_ue_fd)
+        cell_id++;
     }
   }
 
@@ -400,15 +426,27 @@ int main(int argc, char **argv)
     load_module_shlib("imscope_record", NULL, 0, nrPHY_vars_UE_g[0][0]);
   }
 
-  // Launch a temporary high-priority thread to start the UE RU, ensuring radio library threads inherit this priority
-  pthread_t ru_start_thread;
-  threadCreate(&ru_start_thread, nrue_ru_start_thread, NULL, "ru_start_thread", -1, OAI_PRIORITY_RT_MAX);
-  int ret = pthread_join(ru_start_thread, NULL);
-  AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+  // FD-UE manages its own RF device; skip the regular RU start.
+  if (!get_nrUE_params()->use_ue_fd) {
+    // Launch a temporary high-priority thread to start the UE RU, ensuring radio library threads inherit this priority
+    pthread_t ru_start_thread;
+    threadCreate(&ru_start_thread, nrue_ru_start_thread, NULL, "ru_start_thread", -1, OAI_PRIORITY_RT_MAX);
+    int ret = pthread_join(ru_start_thread, NULL);
+    AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+  }
 
-  for (int inst = 0; inst < NB_UE_INST; inst++) {
-    LOG_I(PHY,"Intializing UE Threads for instance %d ...\n", inst);
-    init_NR_UE_threads(nrPHY_vars_UE_g[inst][0]);
+  if (get_nrUE_params()->use_ue_fd) {
+    // Every instance is a client of one UE Low-PHY (one radio, one cell).
+    PHY_VARS_NR_UE *UE_list[MAX_NUM_NR_UE_INST];
+    for (int inst = 0; inst < NB_UE_INST; inst++)
+      UE_list[inst] = nrPHY_vars_UE_g[inst][0];
+    LOG_I(PHY, "Initializing FD-UE threads for %d instance(s) ...\n", NB_UE_INST);
+    init_NR_UE_fd(UE_list, NB_UE_INST);
+  } else {
+    for (int inst = 0; inst < NB_UE_INST; inst++) {
+      LOG_I(PHY, "Initializing UE Threads for instance %d ...\n", inst);
+      init_NR_UE_threads(nrPHY_vars_UE_g[inst][0]);
+    }
   }
 
   // wait for end of program
@@ -428,7 +466,12 @@ int main(int argc, char **argv)
 
   nrue_ru_stop();
 
-  if (nrPHY_vars_UE_g && nrPHY_vars_UE_g[0]) {
+  if (get_nrUE_params()->use_ue_fd) {
+    PHY_VARS_NR_UE *UE_list[MAX_NUM_NR_UE_INST];
+    for (int inst = 0; inst < NB_UE_INST; inst++)
+      UE_list[inst] = nrPHY_vars_UE_g[inst][0];
+    term_NR_UE_fd(UE_list, NB_UE_INST);
+  } else if (nrPHY_vars_UE_g && nrPHY_vars_UE_g[0]) {
     for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
       PHY_VARS_NR_UE *phy_vars = nrPHY_vars_UE_g[0][CC_id];
       if (phy_vars) {

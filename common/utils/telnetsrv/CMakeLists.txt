@@ -32,7 +32,7 @@ target_link_libraries(telnetsrv_5Gue PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs 
 
 message(STATUS "Add CI specific telnet functions in libtelnetsrv_ci.so")
 add_library(telnetsrv_ci MODULE telnetsrv_ci.c)
-target_link_libraries(telnetsrv_ci PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_link_libraries(telnetsrv_ci PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs log_headers)
 add_dependencies(telnetsrv telnetsrv_ci)
 
 message(STATUS "Add CI specific telnet functions for nrUE in telnetsrv_ciUE.so")
@@ -42,17 +42,17 @@ add_dependencies(telnetsrv telnetsrv_ciUE)
 
 message(STATUS "Add bearer specific telnet functions in libtelnetsrv_bearer.so")
 add_library(telnetsrv_bearer MODULE telnetsrv_bearer.c)
-target_link_libraries(telnetsrv_bearer PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_link_libraries(telnetsrv_bearer PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs log_headers)
 add_dependencies(telnetsrv telnetsrv_bearer)
 
 message(STATUS "Add RRC specific telnet functions in libtelnetsrv_rrc.so")
 add_library(telnetsrv_rrc MODULE telnetsrv_rrc.c)
-target_link_libraries(telnetsrv_rrc PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_link_libraries(telnetsrv_rrc PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs log_headers)
 add_dependencies(telnetsrv telnetsrv_rrc)
 
 message(STATUS "Add CI specific telnet functions in libtelnetsrv_o1.so")
 add_library(telnetsrv_o1 MODULE telnetsrv_o1.c)
-target_link_libraries(telnetsrv_o1 PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_link_libraries(telnetsrv_o1 PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs log_headers)
 add_dependencies(telnetsrv telnetsrv_o1)
 
 # all libraries should be written to root build dir

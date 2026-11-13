@@ -62,6 +62,7 @@ void *nrmac_stats_thread(void *arg) {
       p += snprintf(p, end - p, "=== Cell %zu ===\n", i);
       p += dump_mac_stats(gNB, cell, p, end - p, false);
       p += snprintf(p, end - p, "\n");
+      p += print_meas_log_header(NULL, NULL, p, end - p, cpu_meas_enabled);
       p += print_meas_log(&cell->gNB_scheduler, "gNB_scheduler", NULL, NULL, p, end - p);
       p += print_meas_log(&cell->rx_ulsch_sdu, "rx_ulsch_sdu", NULL, NULL, p, end - p);
       p += print_meas_log(&cell->schedule_dlsch, "dlsch scheduler", NULL, NULL, p, end - p);
@@ -350,6 +351,7 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);
   free(mac->positioning_config);
+  free(mac->prs_config);
 
   seq_arr_free(&mac->cells, seq_arr_cell_free);
 }
