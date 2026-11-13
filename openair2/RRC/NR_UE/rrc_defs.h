@@ -242,7 +242,9 @@ typedef struct NR_UE_RRC_INST_s {
   bool as_security_activated;
   /// Next Hop Chaining Count
   uint8_t nh[32];
-  uint64_t nhcc;
+  uint8_t nh_ncc;
+  /// NCC associated with the currently active KgNB
+  uint8_t kgnb_ncc;
 
   bool detach_after_release;
   NR_timer_t release_timer;
@@ -273,7 +275,8 @@ typedef struct NR_UE_RRC_INST_s {
     rnti_t rnti;
     uint8_t kgnb[32];
     uint8_t nh[32];
-    uint64_t nhcc;
+    uint8_t nh_ncc;
+    uint8_t kgnb_ncc;
     NR_CipheringAlgorithm_t cipheringAlgorithm;
     e_NR_IntegrityProtAlgorithm integrityProtAlgorithm;
     long keyToUse;

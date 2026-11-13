@@ -557,45 +557,40 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
  * Use cases: Master Key Update, RRC Reestablishment: The UE receives an NCC value that is
  * different from the NCC associated with the currently active KgNB. The NH chain is synchronized
  * by computing the function defined in Annex A.10 iteratively (and increasing the NCC value until
- * it matches the NCC value received from the source ng-gNB).
+ * it matches the NCC value received from the source ng-gNB). The NCC is 3 bits, so NCC 0 follows 7.
  *
  * @param kamf K_AMF key from NAS
- * @param kgnb Current KgNB key (input/output)
  * @param nh Current NH parameter (input/output)
- * @param nhcc Pointer to current nextHopChainingCount (input/output)
+ * @param nh_ncc Pointer to the NCC of nh (input/output)
  * @param target_ncc Target nextHopChainingCount value to synchronize to */
 static void nr_sync_nh_chain(const uint8_t kamf[SECURITY_KEY_LEN],
-                             uint8_t kgnb[SECURITY_KEY_LEN],
                              uint8_t nh[SECURITY_KEY_LEN],
-                             uint64_t *nhcc,
+                             uint8_t *nh_ncc,
                              const int8_t target_ncc)
 {
-  // If the UE received an NCC value that was different from the NCC associated with the
-  // currently active KgNB, the UE shall first synchronize the locally kept NH
-  // parameter by computing the function defined in Annex A.10 iteratively (and increasing
-  // the NCC value until it matches the NCC value received from the source ng-gNB).
-  if (target_ncc <= *nhcc) {
-    LOG_W(NR_RRC, "Received NCC=%d is less than or equal to current nhcc=%ld (nothing to sync)\n", target_ncc, *nhcc);
-    return;
+  LOG_I(NR_RRC, "Synchronizing NH chain: current nh_ncc=%d, target ncc=%d\n", *nh_ncc, target_ncc);
+  while (*nh_ncc != target_ncc) {
+    nr_derive_nh(kamf, nh, nh);
+    *nh_ncc = (*nh_ncc + 1) & 7;
   }
-  if (target_ncc > *nhcc) {
-    LOG_I(NR_RRC, "Synchronizing NH chain: current nhcc=%ld, target ncc=%d\n", *nhcc, target_ncc);
-    if (*nhcc == 0) {
-      // First derivation: derive KgNB from KAMF, then derive NH from KgNB (per TS 33.501 A.10)
-      // Note: For the first NH derivation, we use UL NAS COUNT = 0 to match the AMF's derivation
-      // during handover. The AMF derives the first NH using the UL NAS COUNT from the last
-      // successful NAS SMC, which is 0 for the initial derivation.
-      derive_kgnb(kamf, 0, kgnb);
-      nr_derive_nh(kamf, kgnb, nh);
-      *nhcc = 1;
-    }
-    // Following derivations: iterate from current nhcc to target_ncc
-    for (uint8_t i = *nhcc; i < target_ncc; i++) {
-      LOG_D(NR_RRC, "Derive keys for ChainingCount = %d\n", i);
-      nr_derive_nh(kamf, nh, nh);
-    }
-    *nhcc = target_ncc;
-  }
+}
+
+/** @brief Take a KgNB derived from KAMF into use: NCC 0, first NH derived from it with NCC 1 (TS 33.501 §6.9.2.1.1) */
+static void nr_rrc_set_initial_kgnb(NR_UE_RRC_INST_t *rrc, const uint8_t kgnb[SECURITY_KEY_LEN])
+{
+  const nr_ue_nas_t *nas = get_ue_nas_info(rrc->ue_id);
+  memcpy(rrc->kgnb, kgnb, sizeof(rrc->kgnb));
+  rrc->kgnb_ncc = 0;
+  nr_derive_nh(nas->security.kamf, rrc->kgnb, rrc->nh);
+  rrc->nh_ncc = 1;
+}
+
+static void nr_rrc_discard_kgnb(NR_UE_RRC_INST_t *rrc)
+{
+  memset(rrc->kgnb, 0, sizeof(rrc->kgnb));
+  memset(rrc->nh, 0, sizeof(rrc->nh));
+  rrc->kgnb_ncc = 0;
+  rrc->nh_ncc = 0;
 }
 
 /** @brief Derive KNG-RAN* (KgNB*) using horizontal derivation
@@ -645,10 +640,10 @@ static void nr_derive_kgnb_vertical(const uint16_t pci,
  * as specified in 3GPP TS 33.501 6.9.2.3.4.
  *
  * Per 33.501 6.9.2.3.4 and Fig 6.9.2.1.1-1:
- * - If NCC received == current NCC: use horizontal derivation (from currently active KgNB)
+ * - If NCC received == NCC of the currently active KgNB: use horizontal derivation (from currently active KgNB)
  *   This applies regardless of whether NCC is 0 or >0. For a fixed NCC level, multiple
  *   horizontal derivations can be done within that level.
- * - If NCC received > current NCC: synchronize NH chain (Annex A.10), then use vertical
+ * - If NCC received != NCC of the currently active KgNB: synchronize NH chain (Annex A.10), then use vertical
  *   derivation (from NH) to enter the new NCC level.
  *
  * Horizontal derivation = derive KNG-RAN* from currently active KgNB + (PCI, ARFCN-DL)
@@ -659,27 +654,19 @@ static void nr_derive_kgnb_vertical(const uint16_t pci,
  * @param received_ncc Received nextHopChainingCount value */
 static void nr_update_kgnb_from_ncc(NR_UE_RRC_INST_t *rrc, const uint8_t kamf[SECURITY_KEY_LEN], int8_t received_ncc)
 {
-  const uint64_t original_nhcc = rrc->nhcc;
-
-  if (received_ncc == original_nhcc) {
+  if (received_ncc == rrc->kgnb_ncc) {
     // NCC values match: use horizontal derivation from currently active KgNB
     // Per TS 33.501 6.9.2.3.4: "derive the KNG-RAN* from the currently active KgNB"
     // This applies regardless of NCC being 0 or >0. For a fixed NCC level, we stay
     // within that level using horizontal derivations.
     RRCLOG_D("NCC values match (%d), using horizontal derivation\n", received_ncc);
     nr_derive_kgnb_horizontal(rrc->phyCellID, rrc->arfcn_ssb, rrc->kgnb);
-  } else if (received_ncc < original_nhcc) {
-    // Note: According to spec, NCC should only increase. If received_ncc < original_nhcc,
-    // this is an error condition, but we handle it gracefully.
-    RRCLOG_W("Received NCC=%d is less than current nhcc=%ld (unexpected per spec, NH chain should only increase)\n",
-             received_ncc,
-             original_nhcc);
   } else {
-    // received_ncc > original_nhcc: synchronize NH chain first (per 33.501 A.10)
-    nr_sync_nh_chain(kamf, rrc->kgnb, rrc->nh, &rrc->nhcc, received_ncc);
+    // synchronize NH chain first (per 33.501 A.10)
+    nr_sync_nh_chain(kamf, rrc->nh, &rrc->nh_ncc, received_ncc);
     // Store the received nextHopChainingCount value (per 38.331 5.3.7.5)
     RRCLOG_D("Synchronizing NH chain to target NCC %d\n", received_ncc);
-    rrc->nhcc = received_ncc;
+    rrc->kgnb_ncc = received_ncc;
     // After synchronization, derive KNG-RAN* from synchronized NH (vertical derivation)
     // per 33.501 6.9.2.3.4: "When the NCC values match, the UE shall compute the K NG-RAN *
     // from the synchronized NH parameter"
@@ -1037,7 +1024,8 @@ static void nr_rrc_process_reconfigurationWithSync(NR_UE_RRC_INST_t *rrc,
     rrc->ho_source.rnti = rrc->rnti;
     memcpy(rrc->ho_source.kgnb, rrc->kgnb, sizeof(rrc->ho_source.kgnb));
     memcpy(rrc->ho_source.nh, rrc->nh, sizeof(rrc->ho_source.nh));
-    rrc->ho_source.nhcc = rrc->nhcc;
+    rrc->ho_source.nh_ncc = rrc->nh_ncc;
+    rrc->ho_source.kgnb_ncc = rrc->kgnb_ncc;
     rrc->ho_source.cipheringAlgorithm = rrc->cipheringAlgorithm;
     rrc->ho_source.integrityProtAlgorithm = rrc->integrityProtAlgorithm;
     rrc->ho_source.keyToUse = rrc->keyToUse;
@@ -2380,7 +2368,7 @@ static void rrc_ue_generate_RRCSetupComplete(NR_UE_RRC_INST_t *rrc, const uint8_
        * NAS holds the derived KgNB value: copy into RRC so AS SMC and RRC keys (§6.2.3.1, §6.5) match after RRC release
        * cleared AS keys (§6.8.1.2.1). */
       if (nas->security_container && nas->security_container->integrity_context)
-        memcpy(rrc->kgnb, nas->security.kgnb, sizeof(rrc->kgnb));
+        nr_rrc_set_initial_kgnb(rrc, nas->security.kgnb);
     } else {
       // Send Initial NAS message (Registration Request) before Security Mode control procedure
       generateRegistrationRequest(&initialNasMsg, nas, false);
@@ -2428,7 +2416,7 @@ static void nr_rrc_rrcsetup_fallback(NR_UE_RRC_INST_t *rrc)
   // discard any current AS security context including
   // K_RRCenc key, the K_RRCint key, the K_UPint key and the K_UPenc key
   // TODO only kgnb is stored
-  memset(rrc->kgnb, 0, sizeof(rrc->kgnb));
+  nr_rrc_discard_kgnb(rrc);
   rrc->as_security_activated = false;
 
   // release the RRC configuration except for the default L1 parameter values,
@@ -2824,7 +2812,7 @@ static void nr_rrc_ue_process_rrcReestablishment(NR_UE_RRC_INST_t *rrc,
 
   // Update KgNB based on the current K gNB key or the NH,
   // using the received nextHopChainingCount (per 33.501 6.9.2.3.4)
-  // received from RRCReestablishment and update the stored value in rrc->nhcc
+  // received from RRCReestablishment and update the stored value in rrc->kgnb_ncc
   int8_t received_ncc = ies->nextHopChainingCount;
   nr_ue_nas_t *nas = get_ue_nas_info(rrc->ue_id);
   const uint8_t *kamf = nas->security.kamf;
@@ -3538,7 +3526,7 @@ void *rrc_nrue(void *notUsed)
     break;
 
   case NAS_KENB_REFRESH_REQ:
-    memcpy(rrc->kgnb, NAS_KENB_REFRESH_REQ(msg_p).kenb, sizeof(rrc->kgnb));
+    nr_rrc_set_initial_kgnb(rrc, NAS_KENB_REFRESH_REQ(msg_p).kenb);
     break;
 
   case NAS_DETACH_REQ:
@@ -3778,7 +3766,8 @@ void handle_t304_expiry(NR_UE_RRC_INST_t *rrc)
     rrc->rnti = rrc->ho_source.rnti;
     memcpy(rrc->kgnb, rrc->ho_source.kgnb, sizeof(rrc->kgnb));
     memcpy(rrc->nh, rrc->ho_source.nh, sizeof(rrc->nh));
-    rrc->nhcc = rrc->ho_source.nhcc;
+    rrc->nh_ncc = rrc->ho_source.nh_ncc;
+    rrc->kgnb_ncc = rrc->ho_source.kgnb_ncc;
     rrc->cipheringAlgorithm = rrc->ho_source.cipheringAlgorithm;
     rrc->integrityProtAlgorithm = rrc->ho_source.integrityProtAlgorithm;
     rrc->keyToUse = rrc->ho_source.keyToUse;
@@ -3888,7 +3877,7 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
   // TODO suspendConfig not handled yet
 
   // discard the keys (only kgnb is stored)
-  memset(rrc->kgnb, 0, sizeof(rrc->kgnb));
+  nr_rrc_discard_kgnb(rrc);
   rrc->integrityProtAlgorithm = 0;
   rrc->cipheringAlgorithm = 0;
 
