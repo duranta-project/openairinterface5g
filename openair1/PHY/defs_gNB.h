@@ -419,6 +419,8 @@ typedef struct PHY_VARS_gNB_s {
 
   /// counter to average prach energh over first 100 prach opportunities
   int prach_energy_counter;
+  /// prach_I0 holds a noise measurement (0: still its initial value)
+  int prach_I0_samples;
 
   int pucch0_thres;
   int pusch_thres;

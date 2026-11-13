@@ -42,11 +42,14 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
     const bool prach_noise_ready = gNB->prach_energy_counter == NUM_PRACH_RX_FOR_NOISE_ESTIMATE;
     const bool prach_above_threshold = res.max_preamble_energy > gNB->measurements.prach_I0 + gNB->prach_thres;
     const bool prach_ind_has_space = rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS;
-    const bool prach_accepted = prach_noise_ready && prach_above_threshold && prach_ind_has_space;
+    // with many preambles in the occasion, the sum of their cross-correlations can exceed a preamble peak: the max is
+    // then a wrong preamble or a wrong delay, and the UE that sent this preamble would apply a wrong timing advance
+    const bool prach_peak_distinct = res.num_detected > 0;
+    const bool prach_accepted = prach_noise_ready && prach_above_threshold && prach_peak_distinct && prach_ind_has_space;
     LOG_D(NR_PHY,
           "[RAPROC] %d.%d occasion %d symbol %u format %u sequence-length %d N_ZC %d PRACH-SCS %d UL-mu %d NCS %u "
           "RAPID %u energy %.1f dB I0 %.1f dB threshold %.1f dB raw-delay %u TA %u "
-          "noise %d/%d noise-ready %d threshold-pass %d indication-space %d accepted %d\n",
+          "noise %d/%d noise-ready %d threshold-pass %d peak-to-floor %.1f dB indication-space %d accepted %d\n",
           frame,
           slot,
           prach_oc,
@@ -67,31 +70,11 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
           NUM_PRACH_RX_FOR_NOISE_ESTIMATE,
           prach_noise_ready,
           prach_above_threshold,
+          res.peak_to_floor / 10.0,
           prach_ind_has_space,
           prach_accepted);
 
     if (prach_accepted) {
-      LOG_A(NR_PHY,
-            "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %.1f dB (I0 %.1f dB, thres %.1f dB), delay %d "
-            "start symbol %u freq index %u\n",
-            frame,
-            slot,
-            res.max_preamble,
-            res.max_preamble_energy / 10.0,
-            gNB->measurements.prach_I0 / 10.0,
-            gNB->prach_thres / 10.0,
-            res.max_preamble_delay,
-            prachStartSymbol,
-            prach_pdu->num_ra);
-
-      T(T_ENB_PHY_INITIATE_RA_PROCEDURE,
-        T_INT(gNB->Mod_id),
-        T_INT(frame),
-        T_INT(slot),
-        T_INT(res.max_preamble),
-        T_INT(res.max_preamble_energy),
-        T_INT(res.max_preamble_delay));
-
       nfapi_nr_prach_indication_pdu_t *ind = rach_ind->pdu_list + rach_ind->number_of_pdus;
       *ind = (nfapi_nr_prach_indication_pdu_t){
           .phy_cell_id = gNB->gNB_config.cell_config.phy_cell_id.value,
@@ -100,19 +83,67 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_
           .freq_index = prach_pdu->num_ra,
           .avg_rssi = max(0, min(254, 128 + res.max_preamble_energy / 5)), // uint8: the energy is signed
           .avg_snr = 0xff, // invalid for now
-          .num_preamble = 1,
-          .preamble_list = {
-              {.preamble_index = res.max_preamble, .timing_advance = res.max_preamble_delay, .preamble_pwr = 0xffffffff}}};
-      rach_ind->number_of_pdus++;
+      };
+      // every preamble of the occasion above the detection threshold: several UEs can use the same occasion
+      for (int d = 0; d < res.num_detected; d++) {
+        if (res.detected[d].energy <= gNB->measurements.prach_I0 + gNB->prach_thres)
+          break; // strongest first
+        LOG_A(NR_PHY,
+              "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %.1f dB (I0 %.1f dB, thres %.1f dB, peak/floor "
+              "%.1f dB), delay %d start symbol %u freq index %u\n",
+              frame,
+              slot,
+              res.detected[d].preamble,
+              res.detected[d].energy / 10.0,
+              gNB->measurements.prach_I0 / 10.0,
+              gNB->prach_thres / 10.0,
+              res.detected[d].peak_to_floor / 10.0,
+              res.detected[d].delay,
+              prachStartSymbol,
+              prach_pdu->num_ra);
+        T(T_ENB_PHY_INITIATE_RA_PROCEDURE,
+          T_INT(gNB->Mod_id),
+          T_INT(frame),
+          T_INT(slot),
+          T_INT(res.detected[d].preamble),
+          T_INT(res.detected[d].energy),
+          T_INT(res.detected[d].delay));
+        ind->preamble_list[ind->num_preamble++] = (nfapi_nr_prach_indication_preamble_t){
+            .preamble_index = res.detected[d].preamble,
+            .timing_advance = res.detected[d].delay,
+            .preamble_pwr = 0xffffffff,
+        };
+      }
+      if (ind->num_preamble > 0)
+        rach_ind->number_of_pdus++;
     }
     // PRACH noise estimate: from every occasion during the first NUM_PRACH_RX_FOR_NOISE_ESTIMATE ones (the MAC does not
     // broadcast the MIB before, so they contain only noise), then only from occasions without detected preamble: otherwise
     // under a sustained RACH load I0 follows the preamble energy, the detection threshold rises above it and the gNB stops
     // detecting the preambles.
-    // Occasions without any energy (-900, e.g. empty occasions in rfsim without noise) are not noise samples: they would
-    // pull I0 down to -90 dB and make the gNB detect anything.
-    if ((!prach_noise_ready || !prach_above_threshold) && res.max_preamble_energy > -900)
-      gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
+    // Occasions without any energy (-900, e.g. empty occasions in rfsim or vrtsim without noise) are not noise samples:
+    // they would pull I0 down to -90 dB and make the gNB detect anything. They still count in the first occasions: in a
+    // channel without noise, I0 keeps its initial value 0 dB, as no energy ever comes from noise.
+    // An occasion with a correlation peak standing out of the floor holds a preamble, it is never a noise sample: when
+    // the noise appears after the first occasions (rfsim with the noise added by the UEs), the first occasions with
+    // energy are noise ones, and the first of them sets I0 instead of averaging it with the initial 0 dB; in a channel
+    // without noise, the occasions with energy are the preambles, and I0 must not follow them.
+    // A preamble just below the threshold is not noise either: counted, it raised I0 by a few tenths of dB, the threshold
+    // with it, more preambles fell below it, until no preamble was detected any more (rfsim, 64 UEs: no attach after the
+    // 29th). Once measured, I0 is updated only by an occasion at most PRACH_I0_MAX_RISE above it: I0 cannot climb to the
+    // preambles, and still follows a rising noise floor by steps.
+#define PRACH_I0_MAX_RISE 60 // dB x10
+    const bool energy = res.max_preamble_energy > -900;
+    const bool noise_sample = energy && res.num_detected == 0
+                              && (!prach_noise_ready || gNB->prach_I0_samples == 0
+                                  || res.max_preamble_energy <= gNB->measurements.prach_I0 + PRACH_I0_MAX_RISE);
+    if (noise_sample) {
+      if (gNB->prach_I0_samples == 0) {
+        gNB->measurements.prach_I0 = res.max_preamble_energy;
+        gNB->prach_I0_samples = 1;
+      } else
+        gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
+    }
     if (frame == 0)
       LOG_I(PHY, "prach_I0 = %.1f dB\n", gNB->measurements.prach_I0 / 10.0);
     if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)

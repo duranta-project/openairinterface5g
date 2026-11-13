@@ -451,6 +451,53 @@ void rx_nr_prach_ru_rep(prach_item_t *p,
   rx_nr_prach_ru_internal_rep(p, 0, rxdata, fp, N_TA_offset, rep, &params, rxsigF);
 }
 
+/* PRACH correlation delay (IFFT bins) to TA, see the comment in rx_nr_prach() */
+static uint16_t prach_raw_delay_to_ta(const prach_item_t *in, uint32_t raw_delay)
+{
+  const int prach_fmt = in->pdu.prach_format;
+  const int mu = in->numerology_index;
+  if (in->prach_sequence_length == 0) {
+    const uint32_t mu_scale = 1U << mu;
+
+    if (prach_fmt == 0 || prach_fmt == 1 || prach_fmt == 2)
+      return (raw_delay * 3U * mu_scale + 1U) / 2U;
+    else if (prach_fmt == 3)
+      return (raw_delay * 3U * mu_scale + 4U) / 8U;
+  } else {
+    return (raw_delay + 1U) / 2U;
+  }
+  return 0;
+}
+
+// median of a[0..n-1] (n > 0) by quickselect: O(n), reorders a
+static uint64_t median_u64(uint64_t *a, int n)
+{
+  const int k = n / 2;
+  int lo = 0, hi = n - 1;
+  while (lo < hi) {
+    const uint64_t pivot = a[lo + (hi - lo) / 2];
+    int i = lo, j = hi;
+    while (i <= j) {
+      while (a[i] < pivot)
+        i++;
+      while (a[j] > pivot)
+        j--;
+      if (i <= j) {
+        const uint64_t t = a[i];
+        a[i++] = a[j];
+        a[j--] = t;
+      }
+    }
+    if (k <= j)
+      hi = j;
+    else if (k >= i)
+      lo = i;
+    else
+      break;
+  }
+  return a[k];
+}
+
 rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 {
   const int nb_rx = in->nb_rx;
@@ -484,6 +531,11 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
   // An unrestricted NCS=0 preamble uses its own root and the full correlation window.
   if (NCS2 == 0)
     NCS2 = NCS == 0 && in->restricted_set == 0 ? dft_sz : N_ZC;
+  // the correlation peak of the next cyclic shift starts NCS2 bins after the window start and spreads over about
+  // dft_sz / N_ZC bins on each side: don't search these last bins, a preamble there would be reported with the maximum delay
+  const int guard = (dft_sz + N_ZC - 1) / N_ZC;
+  if (NCS != 0 && NCS2 > 2 * guard)
+    NCS2 -= guard;
 
   int old_offset = INT_MIN;
   int preamble_offset = 0, preamble_offset_old = 99, preamble_shift = 0, preamble_index0 = 0, numshift = 0,
@@ -496,6 +548,22 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
     uint distance;
     uint preamble;
   } max = {0, UINT_MAX, 0};
+  /* correlation energy of all the bins of all the roots, for the floor the peaks must stand out of. The floor is their
+     median, not their mean: in a RA burst, tens of preambles of one root fill a quarter of the bins with their peaks
+     and the mean rose to a few dB below each peak, so that none was detected, the UEs ramped up to Pcmax and the
+     burst never ended */
+  /* The floor is taken on NR_PRACH_FLOOR_BINS_PER_ROOT bins evenly spread over the correlation of each root, and its
+     median found by quickselect: sorting all the bins (up to 64 x 1024) took about 1 ms per occasion, enough to delay
+     the L1 RX thread by slots on a real time system (the RA indication came after the RA window, Msg3 were lost). */
+#define NR_PRACH_FLOOR_BINS_PER_ROOT 32
+  const int floor_stride = dft_sz / NR_PRACH_FLOOR_BINS_PER_ROOT;
+  uint64_t floor_bin[64 * NR_PRACH_FLOOR_BINS_PER_ROOT];
+  int floor_bins = 0;
+  // peak of each preamble in its search window
+  struct pre_peak {
+    uint64_t energy;
+    uint distance;
+  } peak[64] = {0};
 
   for (int preamble_index = 0; preamble_index < 64; preamble_index++) {
     if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
@@ -592,10 +660,21 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
           prach_ifft[i] += squaredMod(tmp);
         }
       }
+      if (floor_bins + NR_PRACH_FLOOR_BINS_PER_ROOT <= sizeofArray(floor_bin))
+        for (int i = 0; i < dft_sz; i += floor_stride)
+          floor_bin[floor_bins++] = prach_ifft[i];
     }
 
     // Search window of this preamble: its cyclic shift converted to IFFT bins
     uint64_t *search = prach_ifft + (preamble_shift * dft_sz) / N_ZC;
+
+    struct pre_peak *pk = &peak[preamble_index];
+    for (int i = 0; i < NCS2; i++) {
+      if (search[i] > pk->energy) {
+        pk->energy = search[i];
+        pk->distance = i;
+      }
+    }
 
     for (int i = 0; i < NCS2; i++) {
       if (search[i] > max.energy || (search[i] == max.energy && max.distance > i)) {
@@ -629,21 +708,34 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 
   // Energy normalized over the IFFT size and the receive antennas (-900, i.e. 0 in dB x10, for an empty occasion)
   rx_prach_out_t out = {.max_preamble_energy = dB_fixed_times10(max.energy / (dft_sz * nb_rx))};
+  // the energy of a noise bin is exponential: its mean is the median / ln(2)
+  int floor_db = 0;
+  if (floor_bins > 0) {
+    floor_db = dB_fixed_times10(max((uint64_t)(median_u64(floor_bin, floor_bins) / M_LN2), 1));
+  }
+  if (max.energy > 0 && floor_bins > 0)
+    out.peak_to_floor = dB_fixed_times10(max.energy) - floor_db;
   if (max.energy > 0) {
     out.max_preamble = max.preamble;
     out.max_preamble_delay_raw = max.distance;
-    const uint32_t raw_delay = out.max_preamble_delay_raw;
-    const int mu = in->numerology_index;
-    if (in->prach_sequence_length == 0) {
-      const uint32_t mu_scale = 1U << mu;
+    out.max_preamble_delay = prach_raw_delay_to_ta(in, max.distance);
+  }
 
-      if (prach_fmt == 0 || prach_fmt == 1 || prach_fmt == 2)
-        out.max_preamble_delay = (raw_delay * 3U * mu_scale + 1U) / 2U;
-      else if (prach_fmt == 3)
-        out.max_preamble_delay = (raw_delay * 3U * mu_scale + 4U) / 8U;
-    } else {
-      out.max_preamble_delay = (raw_delay + 1U) / 2U;
+  // several preambles: every preamble whose peak stands NR_PRACH_MIN_PEAK_TO_FLOOR above the floor
+  for (int p = 0; p < 64 && floor_bins > 0; p++) {
+    if (peak[p].energy == 0 || dB_fixed_times10(peak[p].energy) - floor_db < NR_PRACH_MIN_PEAK_TO_FLOOR)
+      continue;
+    int k = out.num_detected++;
+    const int en = dB_fixed_times10(peak[p].energy / (dft_sz * nb_rx));
+    // strongest first
+    while (k > 0 && out.detected[k - 1].energy < en) {
+      out.detected[k] = out.detected[k - 1];
+      k--;
     }
+    out.detected[k].preamble = p;
+    out.detected[k].energy = en;
+    out.detected[k].delay = prach_raw_delay_to_ta(in, peak[p].distance);
+    out.detected[k].peak_to_floor = dB_fixed_times10(peak[p].energy) - floor_db;
   }
   stop_meas(in->rx_prach);
   return out;

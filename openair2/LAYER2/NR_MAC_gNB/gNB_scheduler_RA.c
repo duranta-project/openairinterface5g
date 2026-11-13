@@ -1126,16 +1126,37 @@ static void nr_generate_Msg3_retransmission(nr_cell_sched_t *cell,
   ra->Msg3_slot = sched.s;
 }
 
-static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
+/* Msg3 is in the initial UL BWP, or in the active one if the initial one is not within it */
+static void get_msg3_bwp(const NR_UE_info_t *UE, int *bwp_start, int *bwp_size)
+{
+  const NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
+  const NR_UE_ServingCell_Info_t *sc_info = &UE->sc_info;
+  *bwp_size = sc_info->initial_ul_BWPSize;
+  *bwp_start = sc_info->initial_ul_BWPStart;
+  if (*bwp_size != ul_bwp->BWPSize || *bwp_start != ul_bwp->BWPStart) {
+    if (!(*bwp_start >= ul_bwp->BWPStart && *bwp_start + *bwp_size <= ul_bwp->BWPStart + ul_bwp->BWPSize))
+      *bwp_start = ul_bwp->BWPStart;
+  }
+}
+
+/* first TDA whose Msg3 slot is UL, with a beam and msg3_nb_rb free PRBs on its symbols: the first TDA of a slot ends
+   on the symbol of the periodic SRS, that is reserved in the whole BWP. Without checking the PRBs, Msg3 could not be
+   allocated in any slot with an SRS, Msg2 was postponed beyond the RA window, and once there were SRS in most UL slots
+   the UEs ramped their preambles up to Pcmax */
+static bool get_feasible_msg3_tda(nr_cell_sched_t *cell,
                                   int mu_delta,
                                   const NR_PUSCH_TimeDomainResourceAllocationList_t *tda_list,
                                   int frame,
                                   int slot,
                                   NR_RA_t *ra,
-                                  NR_beam_info_t *beam_info,
                                   int ue_beam_idx,
-                                  const frame_structure_t *fs)
+                                  int msg3_nb_rb,
+                                  int bwp_start,
+                                  int bwp_size)
 {
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
+  NR_beam_info_t *beam_info = &cell->beam_info;
+  const frame_structure_t *fs = &cell->frame_structure;
   DevAssert(tda_list != NULL);
 
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
@@ -1165,7 +1186,14 @@ static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
     NR_beam_alloc_t beam = beam_allocation_procedure(beam_info, temp.f, temp.s, ue_beam_idx, slots_per_frame);
     if (beam.idx < 0)
       continue;
-      
+    const int index = ul_buffer_index(temp.f, temp.s, slots_per_frame, cell->vrb_map_UL_size);
+    const uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
+    int rb_start, rb_size;
+    if (!get_rb_alloc(msg3_nb_rb, msg3_nb_rb, bwp_start, bwp_size, vrb_map_UL, msg3_mask, &rb_start, &rb_size)) {
+      reset_beam_status(beam_info, temp.f, temp.s, ue_beam_idx, slots_per_frame, beam.new_beam);
+      continue;
+    }
+
     // is in mixed slot with more or equal than 3 symbols, or UL slot
     ra->Msg3_frame = temp.f;
     ra->Msg3_slot = temp.s;
@@ -1309,7 +1337,6 @@ static bool nr_get_Msg3alloc(nr_cell_sched_t *cell, int current_slot, frame_t cu
   uint16_t msg3_nb_rb = max(8, cell->min_grant_prb); // sdu has 6 or 8 bytes
 
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
-  NR_UE_ServingCell_Info_t *sc_info = &UE->sc_info;
 
   const NR_PUSCH_TimeDomainResourceAllocationList_t *pusch_TimeDomainAllocationList = ul_bwp->tdaList_Common;
 
@@ -1323,14 +1350,8 @@ static bool nr_get_Msg3alloc(nr_cell_sched_t *cell, int current_slot, frame_t cu
                                            cell->vrb_map_UL_size);
   uint16_t *vrb_map_UL = &cell->common_channels.vrb_map_UL[ra->Msg3_beam.idx][buffer_index * MAX_BWP_SIZE];
 
-  int bwpSize = sc_info->initial_ul_BWPSize;
-  int bwpStart = sc_info->initial_ul_BWPStart;
-  if (bwpSize != ul_bwp->BWPSize || bwpStart != ul_bwp->BWPStart) {
-    int act_bwp_start = ul_bwp->BWPStart;
-    int act_bwp_size  = ul_bwp->BWPSize;
-    if (!((bwpStart >= act_bwp_start) && ((bwpStart+bwpSize) <= (act_bwp_start+act_bwp_size))))
-      bwpStart = act_bwp_start;
-  }
+  int bwpStart, bwpSize;
+  get_msg3_bwp(UE, &bwpStart, &bwpSize);
 
   /* search msg3_nb_rb free RBs */
   int rbSize = 0;
@@ -1712,15 +1733,18 @@ static bool nr_generate_Msg2(gNB_MAC_INST *nr_mac,
   // §5.1.4 does not clearly exclude Msg3, and UL TA might still be useful.
   // Before the change in this commit, we used CFRA but required Msg3, which
   // COTS UE would often (but not always) send.
-  bool ret = get_feasible_msg3_tda(scc,
+  int msg3_bwp_start, msg3_bwp_size;
+  get_msg3_bwp(UE, &msg3_bwp_start, &msg3_bwp_size);
+  bool ret = get_feasible_msg3_tda(cell,
                                    get_delta_for_k2(ul_bwp->scs),
                                    ul_bwp->tdaList_Common,
                                    frameP,
                                    slotP,
                                    ra,
-                                   &cell->beam_info,
                                    UE->UE_beam_index,
-                                   &cell->frame_structure);
+                                   max(8, cell->min_grant_prb), // as nr_get_Msg3alloc()
+                                   msg3_bwp_start,
+                                   msg3_bwp_size);
   if (!ret || ra->Msg3_tda_id > 15) {
     LOG_D(NR_MAC, "UE RNTI %04x %d.%d: infeasible Msg3 TDA\n", UE->rnti, frameP, slotP);
     reset_beam_status(&cell->beam_info, frameP, slotP, UE->UE_beam_index, n_slots_frame, beam.new_beam);
@@ -2269,6 +2293,8 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
   // releasing a UE modifies access_ue_list: collect them and release after the loop
   rnti_t to_release[NR_NB_RA_PROC_MAX];
   int num_release = 0;
+  uint16_t msg2_rnti[NR_NB_RA_PROC_MAX]; // RA-RNTIs that got a Msg2 in this slot
+  int num_msg2_rnti = 0;
   FOR_EACH_RA_UE(&mac->UE_info, UE) {
     if (UE->pcell != cell)
       continue;
@@ -2291,10 +2317,20 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
     }
 
     switch (ra->ra_state) {
-      case nrRA_Msg2:
+      case nrRA_Msg2: {
+        /* one Msg2 per RA-RNTI per slot: it has the RAR of one preamble, the UEs of the other preambles of the same
+         * occasion keep monitoring the RA-RNTI during their RAR window (TS 38.321 5.1.4) and get theirs later */
+        bool rnti_sent = false;
+        for (int r = 0; r < num_msg2_rnti; r++)
+          rnti_sent |= msg2_rnti[r] == ra->RA_rnti;
+        if (rnti_sent)
+          break;
         if (nr_generate_Msg2(mac, cell, frameP, slotP, UE, DL_req, TX_req))
           to_release[num_release++] = UE->rnti;
+        else if (ra->ra_state != nrRA_Msg2)
+          msg2_rnti[num_msg2_rnti++] = ra->RA_rnti;
         break;
+      }
       case nrRA_Msg3_retransmission:
         nr_generate_Msg3_retransmission(cell, frameP, slotP, UE, ul_dci_req);
         break;
