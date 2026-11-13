@@ -4,16 +4,10 @@
   <htmlTabName>Build and Run Unit Tests</htmlTabName>
 
   <testCase>
-    <class>Create_Workspace</class>
-    <desc>Create new Workspace</desc>
-    <node>obelix</node>
-  </testCase>
-
-  <testCase>
     <class>Build_Run_Tests</class>
     <desc>Build and Run UnitTests</desc>
     <dockerfile>docker/Dockerfile.unittest.ubuntu</dockerfile>
-    <node>obelix</node>
+    <node>localhost</node>
   </testCase>
 
 </testCaseList>

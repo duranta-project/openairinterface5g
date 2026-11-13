@@ -62,8 +62,7 @@ pipeline {
             allParametersPresent = false
           }
           if (params.workspace == null) {
-            echo "no workspace given"
-            allParametersPresent = false
+            echo "no workspace given, using ${env.WORKSPACE}"
           }
           if (params.OC_Credentials != null) {
             echo "This pipeline is configured to run with Openshift Cluster."
@@ -114,7 +113,7 @@ pipeline {
                       python3 main.py --repository=${testRepository} \
                                       --branch=${testBranch} \
                                       ${mergeWithTarget} --targetBranch=${targetBranch} \
-                                      --workspace=${params.workspace} \
+                                      --workspace=${params.workspace ?: env.WORKSPACE} \
                                       --OCUserName=${OC_Username} --OCPassword=${OC_Password} --OCProjectName=${OC_ProjectName} \
                                       ${flexricOption} \
                                       ${mainPythonAllXmlFiles}
@@ -132,7 +131,7 @@ pipeline {
                     python3 main.py --repository=${testRepository} \
                                     --branch=${testBranch} \
                                     ${mergeWithTarget} --targetBranch=${targetBranch} \
-                                    --workspace=${params.workspace} \
+                                    --workspace=${params.workspace ?: env.WORKSPACE} \
                                     ${flexricOption} \
                                     ${mainPythonAllXmlFiles}
                   """

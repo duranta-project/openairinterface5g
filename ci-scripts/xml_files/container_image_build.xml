@@ -4,22 +4,16 @@
   <htmlTabName>Build Container Images</htmlTabName>
 
   <testCase>
-    <class>Create_Workspace</class>
-    <desc>Create new Workspace</desc>
-    <node>obelix</node>
-  </testCase>
-
-  <testCase>
     <class>Build_Image</class>
     <desc>Build all Images</desc>
-    <node>obelix</node>
+    <node>localhost</node>
     <kind>x86</kind>
   </testCase>
 
   <testCase>
     <class>Push_Local_Registry</class>
     <desc>Push Images to Local Registry</desc>
-    <node>obelix</node>
+    <node>localhost</node>
   </testCase>
 
 </testCaseList>
