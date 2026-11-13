@@ -1821,6 +1821,7 @@ add_executable(nr-softmodem
   ${OPENAIR_DIR}/common/utils/lte/prach_utils.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   )
+target_link_libraries(nr-softmodem PRIVATE cpu_features)
 
 target_link_libraries(nr-softmodem PRIVATE
   -Wl,--start-group
@@ -1895,7 +1896,7 @@ add_executable(nr-uesoftmodem
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   ${NFAPI_USER_DIR}/nfapi.c
   )
-
+target_link_libraries(nr-uesoftmodem PRIVATE cpu_features)
 target_link_libraries(nr-uesoftmodem PRIVATE
   -Wl,--start-group
   nr_rrc SECURITY UTIL SCHED_NR_UE_LIB
