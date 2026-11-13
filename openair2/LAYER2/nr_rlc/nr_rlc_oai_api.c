@@ -11,6 +11,8 @@
 #include "nr_rlc_ue_manager.h"
 #include "nr_rlc_entity.h"
 #include "nr_rlc_oai_api.h"
+#include "nr_rlc_data_req_queue.h"
+#include "openair2/LAYER2/nr_up/nr_up.h"
 #include "NR_RLC-BearerConfig.h"
 #include "NR_DRB-ToAddMod.h"
 #include "NR_DRB-ToAddModList.h"
@@ -24,7 +26,6 @@
 #include "openair2/F1AP/f1ap_du_rrc_message_transfer.h"
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/F1AP/f1ap_ids.h"
-#include "openair3/ocp-gtpu/gtp_itf.h"
 #include <stdint.h>
 
 #include <executables/softmodem-common.h>
@@ -126,6 +127,7 @@ static nr_rlc_entity_t *get_rlc_entity_from_lcid(nr_rlc_ue_t *ue, logical_chan_i
     return ue->drb[rb->choice.drb_id - 1];
   }
 }
+
 
 void nr_rlc_release_entity(int ue_id, logical_chan_id_t channel_id)
 {
@@ -296,16 +298,17 @@ void nr_mac_rlc_status_ind(uint16_t ue_id, frame_t frame, int n_ch, const logica
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
-rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
-                                const srb_flag_t srb_flagP,
-                                const rb_id_t rb_idP,
-                                const mui_t muiP,
-                                sdu_size_t sdu_sizeP,
-                                uint8_t *sdu_pP)
+int nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
+                    const srb_flag_t srb_flagP,
+                    const rb_id_t rb_idP,
+                    const mui_t muiP,
+                    sdu_size_t sdu_sizeP,
+                    uint8_t *sdu_pP)
 {
   int ue_id = ctxt_pP->rntiMaybeUEid;
   nr_rlc_ue_t *ue;
   nr_rlc_entity_t *rb;
+  int tx_space;
 
   LOG_D(RLC, "UE %d srb_flag %d rb_id %ld mui %d sdu_size %d\n", ue_id, srb_flagP, rb_idP, muiP, sdu_sizeP);
 
@@ -327,16 +330,20 @@ rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
 
   if (rb != NULL) {
     rb->set_time(rb, get_nr_rlc_current_time());
-    rb->recv_sdu(rb, (char *)sdu_pP, sdu_sizeP, muiP);
+    /* SDU present: normal PDU. NULL/0: DBS refresh only. */
+    if (sdu_pP != NULL && sdu_sizeP > 0)
+      rb->recv_sdu(rb, (char *)sdu_pP, sdu_sizeP, muiP);
+    tx_space = rb->available_tx_space(rb);
   } else {
     LOG_E(RLC, "%s:%d:%s: fatal: SDU sent to unknown RB\n", __FILE__, __LINE__, __FUNCTION__);
+    tx_space = -1;
   }
 
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 
   free(sdu_pP);
 
-  return RLC_OP_STATUS_OK;
+  return tx_space;
 }
 
 int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t channel_idP)
@@ -358,6 +365,7 @@ int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t chann
 
   return ret;
 }
+
 
 int nr_rlc_tx_list_occupancy(int ue_id, logical_chan_id_t lcid)
 {
@@ -403,6 +411,10 @@ int nr_rlc_module_init(nr_rlc_op_mode_t mode)
     inited_ue = 1;
 
   nr_rlc_ue_manager = new_nr_rlc_ue_manager(mode);
+
+  /* Async queue is for colocated PDCP->RLC only (mono gNB / UE) */
+  if (mode != NR_RLC_OP_MODE_SPLIT_GNB)
+    nr_rlc_data_req_queue_init();
 
   if (pthread_mutex_unlock(&lock)) abort();
 
@@ -488,17 +500,19 @@ rb_found:
         F1AP_UL_RRC_MESSAGE(msg).rrc_container_length = size;
         itti_send_msg_to_task(TASK_DU_F1, ENB_MODULE_ID_TO_INSTANCE(0 /*ctxt_pP->module_id*/), msg);
         return;
-      } else {
-        LOG_D(RLC, "Received uplink user-plane traffic at RLC-DU to be sent to the CU, size %d \n", size);
-        const f1ap_cudu_inst_t *inst = getCxt(0);
-        DevAssert(inst);
-        gtpv1uSendDirect(inst->gtpInst, ue->ue_id, rb_id, (uint8_t*) buf, size, false, false);
-        return;
       }
     }
   }
 
-  /* UE or monolithic gNB */
+  /* DRB UL: nr-up backend (F1-U or mono/UE direct) */
+  if (!is_srb) {
+    nr_up_if_t *iface = get_nr_up_if();
+    DevAssert(iface != NULL && iface->ul_user_data != NULL);
+    iface->ul_user_data(&ctx, ue->ue_id, rb_id, (uint8_t *)buf, size, entity->available_tx_space(entity));
+    return;
+  }
+
+  /* SRB: UE or monolithic direct RLC to local PDCP */
   memblock = malloc16(size);
   if (memblock == NULL) {
     LOG_E(RLC, "%s:%d:%s: ERROR: malloc16 failed\n", __FILE__, __LINE__, __FUNCTION__);

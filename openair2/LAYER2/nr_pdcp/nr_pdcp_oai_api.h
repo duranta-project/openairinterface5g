@@ -76,7 +76,8 @@ bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
                      unsigned char *const sdu_buffer,
                      const pdcp_transmission_mode_t mode,
                      const uint32_t *const sourceL2Id,
-                     const uint32_t *const destinationL2Id);
+                     const uint32_t *const destinationL2Id,
+                     bool is_poll);
 
 typedef void (*deliver_pdu)(void *data, ue_id_t ue_id, int srb_id,
                             char *buf, int size, int sdu_id);

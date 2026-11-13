@@ -26,8 +26,36 @@
 #include "openair2/E1AP/lib/e1ap_bearer_context_management.h"
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/F1AP/f1ap_ids.h"
+#include "openair2/LAYER2/nr_up/nr_up.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
+#include "openair2/LAYER2/nr_up/nr_up_f1u.h"
 #include "openair3/ocp-gtpu/gtp_itf.h"
+
+/** @brief GTP gtpCallback adapter: ignore is_poll, forward to nr_pdcp_data_req_drb */
+static bool n3_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
+                                 const srb_flag_t srb_flagP,
+                                 const rb_id_t rb_id,
+                                 const mui_t muiP,
+                                 const confirm_t confirmP,
+                                 const sdu_size_t sdu_buffer_size,
+                                 unsigned char *const sdu_buffer,
+                                 const pdcp_transmission_mode_t mode,
+                                 const uint32_t *const sourceL2Id,
+                                 const uint32_t *const destinationL2Id,
+                                 bool is_poll)
+{
+  UNUSED(is_poll);
+  return nr_pdcp_data_req_drb(ctxt_pP,
+                              srb_flagP,
+                              rb_id,
+                              muiP,
+                              confirmP,
+                              sdu_buffer_size,
+                              sdu_buffer,
+                              mode,
+                              sourceL2Id,
+                              destinationL2Id);
+}
 
 static NR_DRB_ToAddMod_t *get_rrc_drb_to_addmod(const DRB_nGRAN_to_setup_t *drb,
                                                 const long sessionId,
@@ -118,10 +146,12 @@ static UP_TL_information_t f1_drb_gtpu_create(const instance_t f1inst,
 {
   UP_TL_information_t out = {0};
 
+  nr_up_add_drb(req->ue_id, req->incoming_rb_id);
+
   LOG_I(GTPU, "Incoming DRB %d / PDU Session %d - UL TEID %d\n", req->incoming_rb_id, req->pdusession_id, req->outgoing_teid);
 
   gtpv1u_gnb_create_tunnel_resp_t resp = {0};
-  int ret = gtpv1u_create_ngu_tunnel(f1inst, req, &resp, cu_f1u_data_req, NULL, NULL);
+  int ret = gtpv1u_create_ngu_tunnel(f1inst, req, &resp, cu_f1u_data_req, NULL, NULL, nr_up_f1u_ddds_indication);
   AssertFatal(ret >= 0, "Unable to create GTP-U tunnel for F1-U\n");
   AssertFatal(resp.gnb_addr.length == sizeof(in_addr_t),
               "GTP tunnel response address length %d does not match IPv4 size %zu\n",
@@ -149,7 +179,7 @@ static UP_TL_information_t n3_gtpu_create(const gtpv1u_gnb_create_tunnel_req_t *
   LOG_I(GTPU, "N3 GTP-U tunnel: PDUSession=%d/UL TEID=0x%08x\n", req->pdusession_id, req->outgoing_teid);
 
   gtpv1u_gnb_create_tunnel_resp_t resp = {0};
-  int ret = gtpv1u_create_ngu_tunnel(n3inst, req, &resp, nr_pdcp_data_req_drb, sdap_data_req, n3_error_indication);
+  int ret = gtpv1u_create_ngu_tunnel(n3inst, req, &resp, n3_pdcp_data_req_drb, sdap_data_req, n3_error_indication, NULL);
   AssertFatal(ret >= 0, "Unable to create GTP-U tunnel for N3\n");
   AssertFatal(resp.gnb_addr.length == sizeof(in_addr_t),
               "GTP tunnel response address length %d does not match IPv4 size %zu\n",

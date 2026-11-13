@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 #include <unistd.h>
 #include "T.h"
 #include "assertions.h"
@@ -110,6 +111,24 @@ void nr_pdcp_submit_sdap_ctrl_pdu(ue_id_t ue_id, int sdap_ctrl_pdu_drb, nr_sdap_
   return;
 }
 
+/** @brief Rate-limit PDCP refuse logs */
+static void sdap_log_pdcp_refused(void)
+{
+  static unsigned int refused_count = 0;
+  static uint64_t t_log_refused_ms = 0;
+  struct timespec ts;
+  uint64_t now_ms;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  now_ms = ts.tv_sec * 1000ULL + ts.tv_nsec / 1000000ULL;
+  if (refused_count != 0 && now_ms > t_log_refused_ms + 1280) { /* 1280 ms */
+    LOG_W(SDAP, "PDCP refused PDU (%u times)\n", refused_count);
+    refused_count = 0;
+    t_log_refused_ms = now_ms;
+  }
+  refused_count++;
+}
+
 static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
                               protocol_ctxt_t *ctxt_p,
                               const srb_flag_t srb_flag,
@@ -159,8 +178,8 @@ static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
                                sourceL2Id,
                                destinationL2Id);
 
-    if(!ret)
-      LOG_E(SDAP, "%s:%d:%s: PDCP refused PDU\n", __FILE__, __LINE__, __FUNCTION__);
+    if (!ret)
+      sdap_log_pdcp_refused();
 
     return ret;
   }
@@ -242,8 +261,8 @@ static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
                              sourceL2Id,
                              destinationL2Id);
 
-  if(!ret)
-    LOG_E(SDAP, "%s:%d:%s: PDCP refused PDU\n", __FILE__, __LINE__, __FUNCTION__);
+  if (!ret)
+    sdap_log_pdcp_refused();
 
   return ret;
 }
@@ -318,7 +337,7 @@ nr_sdap_rx_entity(nr_sdap_entity_t *entity, int drb_id, int is_gnb, int pdusessi
       /* N3-U tunnel with no SDAP header: no QFI marking */
       DevAssert(qfi == -1);
       LOG_D(SDAP, "UL SDAP->GTP: ue=%lu pdu_session=%d payload_len=%d\n", ue_id, pdusession_id, size);
-      gtpv1uSendDirect(*N3GTPUInst, ue_id, pdusession_id, (uint8_t *)buf, size, false, false);
+      gtpv1uSendDirect(*N3GTPUInst, ue_id, pdusession_id, (uint8_t *)buf, size, false, false, false, 0);
     }
   } else { //nrUE
     /*
