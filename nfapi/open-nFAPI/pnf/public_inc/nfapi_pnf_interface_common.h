@@ -17,6 +17,7 @@ extern "C" {
 #include <sys/types.h>
 
 typedef struct pnf_s pnf_t;
+typedef struct pnf_nr_s pnf_nr_t;
 typedef struct pnf_p7_s pnf_p7_t;
 
 typedef enum { NFAPI_PNF_IDLE = 0, NFAPI_PNF_CONFIGURED, NFAPI_PNF_RUNNING } nfapi_pnf_state_e;

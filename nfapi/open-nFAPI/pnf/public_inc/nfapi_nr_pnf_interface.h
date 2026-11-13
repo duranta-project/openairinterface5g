@@ -64,7 +64,7 @@ typedef struct nfapi_nr_pnf_config {
                           void* pUnpackedBuf,
                           uint32_t unpackedBufLen,
                           nfapi_p4_p5_codec_config_t* config);
-  bool (*send_p5_msg)(pnf_t* pnf, nfapi_nr_p4_p5_message_header_t* msg, uint32_t msg_len);
+  bool (*send_p5_msg)(pnf_nr_t* pnf, nfapi_nr_p4_p5_message_header_t* msg, uint32_t msg_len);
 } nfapi_nr_pnf_config_t;
 
 nfapi_nr_pnf_config_t* nfapi_nr_pnf_config_create(void);

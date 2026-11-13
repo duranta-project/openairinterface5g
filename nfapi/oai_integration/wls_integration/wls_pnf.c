@@ -3,6 +3,7 @@
  */
 
 #include "wls_pnf.h"
+#include "pnf_nr.h"
 
 #include <rte_eal.h>
 #include <rte_string_fns.h>
@@ -13,7 +14,6 @@
 #include <sys/time.h>
 
 #include "wls_lib.h"
-#include "pnf.h"
 #include "nr_nfapi_p7.h"
 #include "nfapi/open-nFAPI/fapi/inc/nr_fapi_p7_utils.h"
 
@@ -32,7 +32,7 @@ uint8_t phy_wls_init(const char *dev_name, uint64_t nWlsMacMemSize, uint64_t nWl
 void phy_mac_recv();
 void wls_mac_print_stats(void);
 
-pnf_t *_this = NULL;
+pnf_nr_t *_this = NULL;
 
 static PWLS_MAC_CTX wls_mac_get_ctx(void)
 {
@@ -80,7 +80,7 @@ int wls_fapi_nr_pnf_start()
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
 
-  _this = PNF_FROM_NR_CONFIG(cfg);
+  _this = (pnf_nr_t*)cfg;
   _this->terminate = 0;
   // Init PNF config
   nfapi_pnf_phy_config_t *phy = malloc_or_fail(sizeof(nfapi_pnf_phy_config_t));
@@ -88,8 +88,8 @@ int wls_fapi_nr_pnf_start()
 
   phy->state = NFAPI_PNF_PHY_IDLE;
   phy->phy_id = 0;
-  phy->next = (_this->_public).phys;
-  (_this->_public).phys = phy;
+  phy->next = _this->_public.phys;
+  _this->_public.phys = phy;
   _this->_public.state = NFAPI_PNF_RUNNING;
 
   // DPDK init
@@ -164,7 +164,7 @@ uint8_t phy_wls_init(const char *dev_name, uint64_t nWlsMacMemSize, uint64_t nWl
   return true;
 }
 
-bool wls_pnf_nr_send_p5_message(pnf_t *pnf, nfapi_nr_p4_p5_message_header_t *msg, uint32_t msg_len)
+bool wls_pnf_nr_send_p5_message(pnf_nr_t *pnf, nfapi_nr_p4_p5_message_header_t *msg, uint32_t msg_len)
 {
   int packed_len = cfg->pack_func(msg, msg_len, pnf->tx_message_buffer, sizeof(pnf->tx_message_buffer), &cfg->codec_config);
 

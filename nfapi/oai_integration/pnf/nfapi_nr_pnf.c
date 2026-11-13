@@ -27,7 +27,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <errno.h>
-#include <pnf.h>
+#include <pnf_nr.h>
 
 #include <vendor_ext.h>
 

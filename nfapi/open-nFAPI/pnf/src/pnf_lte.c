@@ -15,7 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include "pnf.h"
+#include "pnf_lte.h"
 #include "common/platform_types.h"
 #include "common/platform_constants.h"
 #include "common/ran_context.h"

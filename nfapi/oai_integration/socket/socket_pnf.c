@@ -13,13 +13,13 @@ void socket_nfapi_nr_pnf_stop()
   config->nr_stop_req(config, 0, &req);
 }
 
-bool pnf_nr_send_p5_message(pnf_t *pnf, nfapi_nr_p4_p5_message_header_t *msg, uint32_t msg_len)
+bool pnf_nr_send_p5_message(pnf_nr_t *pnf, nfapi_nr_p4_p5_message_header_t *msg, uint32_t msg_len)
 {
-  int packed_len = pnf->_nr_public.pack_func(msg,
-                                             msg_len,
-                                             pnf->tx_message_buffer,
-                                             sizeof(pnf->tx_message_buffer),
-                                             &pnf->_nr_public.codec_config);
+  int packed_len = pnf->_public.pack_func(msg,
+                                          msg_len,
+                                          pnf->tx_message_buffer,
+                                          sizeof(pnf->tx_message_buffer),
+                                          &pnf->_public.codec_config);
 
   if (packed_len < 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "p5_message_pack failed (%d)\n", packed_len);
@@ -159,7 +159,7 @@ void *pnf_start_p5_thread(void *ptr)
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
 
-  pnf_t *_this = PNF_FROM_NR_CONFIG(config);
+  pnf_nr_t *_this = (pnf_nr_t*)config;
 
   while (_this->terminate == 0) {
     int connect_result = pnf_connect_socket(_this);
@@ -178,19 +178,19 @@ void *pnf_start_p5_thread(void *ptr)
   return 0;
 }
 
-int pnf_connect_socket(pnf_t *pnf)
+int pnf_connect_socket(pnf_nr_t *pnf)
 {
   uint8_t socketConnected = 0;
 
-  if (pnf->_nr_public.vnf_ip_addr == 0) {
+  if (pnf->_public.vnf_ip_addr == 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "vnfIpAddress is null\n");
     return -1;
   }
 
   NFAPI_TRACE(NFAPI_TRACE_INFO,
               "Starting P5 PNF connection to VNF at %s:%u\n",
-              pnf->_nr_public.vnf_ip_addr,
-              pnf->_nr_public.vnf_p5_port);
+              pnf->_public.vnf_ip_addr,
+              pnf->_public.vnf_p5_port);
 
   // todo split the vnf address list. currently only supporting 1
 
@@ -201,9 +201,9 @@ int pnf_connect_socket(pnf_t *pnf)
   // todo : randomize which address to connect to?
 
   char port_str[8];
-  snprintf(port_str, sizeof(port_str), "%d", pnf->_nr_public.vnf_p5_port);
-  if (getaddrinfo(pnf->_nr_public.vnf_ip_addr, port_str, &hints, &servinfo) != 0) {
-    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get host (%s) addr info h_errno:%d \n", pnf->_nr_public.vnf_ip_addr, h_errno);
+  snprintf(port_str, sizeof(port_str), "%d", pnf->_public.vnf_p5_port);
+  if (getaddrinfo(pnf->_public.vnf_ip_addr, port_str, &hints, &servinfo) != 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get host (%s) addr info h_errno:%d \n", pnf->_public.vnf_ip_addr, h_errno);
     return -1;
   }
 
@@ -278,8 +278,8 @@ int pnf_connect_socket(pnf_t *pnf)
     if (connect(pnf->p5_sock, p->ai_addr, p->ai_addrlen) < 0) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR,
                   "After connect (address:%s port:%d) errno: %d\n",
-                  pnf->_nr_public.vnf_ip_addr,
-                  pnf->_nr_public.vnf_p5_port,
+                  pnf->_public.vnf_ip_addr,
+                  pnf->_public.vnf_p5_port,
                   errno);
 
       if (errno == EINVAL) {
@@ -344,7 +344,7 @@ int pnf_connect_socket(pnf_t *pnf)
   return socketConnected;
 }
 
-static int pnf_nr_read_dispatch_message(pnf_t *pnf)
+static int pnf_nr_read_dispatch_message(pnf_nr_t *pnf)
 {
   int socket_connected = 1;
 
@@ -384,13 +384,13 @@ static int pnf_nr_read_dispatch_message(pnf_t *pnf)
       message_size = recv(pnf->p5_sock, header_buffer, header_buffer_size, flags);
     }
 
-    if (message_size < NFAPI_NR_P5_HEADER_LENGTH) {
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF Failed to peek sctp message size errno:%d\n", errno);
+    if ((int)message_size < NFAPI_NR_P5_HEADER_LENGTH) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF Failed to peek message header errno:%d\n", errno);
       return 0;
     }
 
     nfapi_nr_p4_p5_message_header_t header;
-    const bool result = pnf->_nr_public.hdr_unpack_func(header_buffer, header_buffer_size, &header, sizeof(header), 0);
+    const bool result = pnf->_public.hdr_unpack_func(header_buffer, header_buffer_size, &header, sizeof(header), 0);
     if (!result) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF Failed to unpack p5 message header\n");
       return 0;
@@ -405,7 +405,7 @@ static int pnf_nr_read_dispatch_message(pnf_t *pnf)
 
     if (dynamic_buffer == NULL) {
       // todo : add error mesage
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF Failed to allocate dynamic buffer for sctp_recvmsg size:%d\n", message_size);
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF Failed to allocate dynamic buffer for recvmsg size:%d\n", message_size);
       return -1;
     }
 
@@ -420,52 +420,23 @@ static int pnf_nr_read_dispatch_message(pnf_t *pnf)
       recvmsg_result =
           sctp_recvmsg(pnf->p5_sock, read_buffer, message_size, (struct sockaddr *)&addr, &addr_len, &sndrcvinfo, &flags);
     } else {
-      if ((recvmsg_result = recv(pnf->p5_sock, read_buffer, message_size, flags)) <= 0) {
+      if ((recvmsg_result = recv(pnf->p5_sock, read_buffer, message_size, flags)) <= 0)
         recvmsg_result = -1;
-      }
     }
     if (recvmsg_result == -1) {
-      int tmp = errno;
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "Failed to read sctp message size error %s errno:%d\n", strerror(tmp), tmp);
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "Failed to read message errno:%d\n", errno);
     } else {
-#if 0
-			// print the received message
-			printf("\n MESSAGE RECEIVED: \n");
-			for(int i=0; i<message_size; i++){
-				printf("read_buffer[%d] = 0x%02x\n",i, read_buffer[i]);
-			}
-			printf("\n");
-#endif
-
       if (flags & MSG_NOTIFICATION) {
         NFAPI_TRACE(NFAPI_TRACE_INFO, "Notification received from %s:%u\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
 
         // todo - handle the events
       } else {
-        /*
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "Received message fd:%d from %s:%u assoc:%d on stream %d, PPID %d, length %d, flags 0x%x\n",
-            pnf->p5_sock,
-            inet_ntoa(addr.sin_addr),
-            ntohs(addr.sin_port),
-            sndrcvinfo.sinfo_assoc_id,
-            sndrcvinfo.sinfo_stream,
-            ntohl(sndrcvinfo.sinfo_ppid),
-            message_size,
-            flags);
-        */
-
         // handle now if complete message in one or more segments
         if ((flags & 0x80) == 0x80 || !pnf->sctp) {
           pnf_nr_handle_p5_message(pnf, read_buffer, message_size);
         } else {
-          int tmp = errno;
-          NFAPI_TRACE(NFAPI_TRACE_WARN,
-                      "sctp_recvmsg: unhandled mode with flags 0x%x and error %s errno:%d\n",
-                      flags,
-                      strerror(tmp),
-                      tmp);
+          NFAPI_TRACE(NFAPI_TRACE_WARN, "sctp_recvmsg: unhandled mode with flags 0x%x\n", flags);
           // assume socket disconnected
-          NFAPI_TRACE(NFAPI_TRACE_WARN, "Disconnected socket\n");
           socket_connected = 0;
         }
       }
@@ -479,7 +450,7 @@ static int pnf_nr_read_dispatch_message(pnf_t *pnf)
   return socket_connected;
 }
 
-int pnf_nr_message_pump(pnf_t *pnf)
+int pnf_nr_message_pump(pnf_nr_t *pnf)
 {
   uint8_t socketConnected = 1;
 
@@ -518,7 +489,7 @@ int pnf_nr_message_pump(pnf_t *pnf)
   }
 
   // Drop back to idle if we have lost connection
-  pnf->_nr_public.state = NFAPI_PNF_IDLE;
+  pnf->_public.state = NFAPI_PNF_IDLE;
 
   // close the connection and socket
   if (close(pnf->p5_sock) < 0) {
@@ -634,7 +605,7 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
   pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7, &(pnf_p7->reassembly_queue), rx_hr_time, 10000);
 }
 
-static void pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now_hr_time)
+static void pnf_nr_socket_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now_hr_time)
 {
   int recvfrom_result = 0;
   struct sockaddr_in remote_addr;
@@ -695,7 +666,7 @@ static void pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now
   } while (recvfrom_result > 0);
 }
 
-int pnf_nr_p7_message_pump(pnf_p7_t *pnf_p7)
+static int pnf_nr_socket_p7_message_pump(pnf_p7_t *pnf_p7)
 {
   // initialize the mutex lock
   if (pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0) {
@@ -828,7 +799,7 @@ int pnf_nr_p7_message_pump(pnf_p7_t *pnf_p7)
     if (FD_ISSET(pnf_p7->p7_sock, &rfds))
 
     {
-      pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time);
+      pnf_nr_socket_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time);
     }
   }
   NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF_P7 Terminating..\n");
@@ -858,7 +829,7 @@ static int local_nfapi_nr_pnf_p7_start(nfapi_nr_pnf_p7_config_t *config)
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
 
-  pnf_nr_p7_message_pump(_this);
+  pnf_nr_socket_p7_message_pump(_this);
 
   return 0;
 }

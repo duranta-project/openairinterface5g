@@ -15,7 +15,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include "pnf.h"
+#include "pnf_lte.h"
+#include "pnf_nr.h"
 
 #define MAX_SCTP_STREAMS 16
 
@@ -106,33 +107,29 @@ int pnf_pack_and_send_p4_message(pnf_t* pnf, nfapi_p4_p5_message_header_t* msg, 
   return pnf_send_message(pnf, pnf->tx_message_buffer, packed_len, 0 /*msg->stream_id*/);
 }
 
-int pnf_connect(pnf_t* pnf)
+static int pnf_connect_impl(const char *ip_addr, int port, uint8_t use_sctp, int *p5_sock, uint8_t *terminate)
 {
   struct sockaddr_in servaddr;
   uint8_t socketConnected = 0;
 
-  if (pnf->_public.vnf_ip_addr == 0) {
+  if (ip_addr == 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "vnfIpAddress is null\n");
     return -1;
   }
 
   (void)memset(&servaddr, 0, sizeof(struct sockaddr_in));
 
-  NFAPI_TRACE(NFAPI_TRACE_INFO, "Starting P5 PNF connection to VNF at %s:%u\n", pnf->_public.vnf_ip_addr, pnf->_public.vnf_p5_port);
-
-  // todo split the vnf address list. currently only supporting 1
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "Starting P5 PNF connection to VNF at %s:%u\n", ip_addr, port);
 
   struct addrinfo hints, *servinfo;
   memset(&hints, 0, sizeof(hints));
 
-  hints.ai_socktype = SOCK_STREAM; // For SCTP we are only interested in SOCK_STREAM
-  // todo : allow the client to restrict IPV4 or IPV6
-  // todo : randomize which address to connect to?
+  hints.ai_socktype = SOCK_STREAM;
 
   char port_str[8];
-  snprintf(port_str, sizeof(port_str), "%d", pnf->_public.vnf_p5_port);
-  if (getaddrinfo(pnf->_public.vnf_ip_addr, port_str, &hints, &servinfo) != 0) {
-    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get host (%s) addr info h_errno:%d \n", pnf->_public.vnf_ip_addr, h_errno);
+  snprintf(port_str, sizeof(port_str), "%d", port);
+  if (getaddrinfo(ip_addr, port_str, &hints, &servinfo) != 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get host (%s) addr info h_errno:%d \n", ip_addr, h_errno);
     return -1;
   }
 
@@ -159,9 +156,8 @@ int pnf_connect(pnf_t* pnf)
     NFAPI_TRACE(NFAPI_TRACE_NOTE, "Host address info  %d Family:%s Address:%s\n", i++, family, address);
 #endif
 
-    if (pnf->sctp) {
-      // open the SCTP socket
-      if ((pnf->p5_sock = socket(p->ai_family, SOCK_STREAM, IPPROTO_SCTP)) < 0) {
+    if (use_sctp) {
+      if ((*p5_sock = socket(p->ai_family, SOCK_STREAM, IPPROTO_SCTP)) < 0) {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P5 socket errno: %d\n", errno);
         freeaddrinfo(servinfo);
         return -1;
@@ -171,17 +167,16 @@ int pnf_connect(pnf_t* pnf)
 
       (void)memset(&initMsg, 0, sizeof(struct sctp_initmsg));
 
-      // configure the socket options
       NFAPI_TRACE(NFAPI_TRACE_NOTE, "PNF Setting the SCTP_INITMSG\n");
-      initMsg.sinit_num_ostreams = 5; // MAX_SCTP_STREAMS;  // number of output streams can be greater
-      initMsg.sinit_max_instreams = 5; // MAX_SCTP_STREAMS;  // number of output streams can be greater
-      if (setsockopt(pnf->p5_sock, IPPROTO_SCTP, SCTP_INITMSG, &initMsg, sizeof(initMsg)) < 0) {
+      initMsg.sinit_num_ostreams = 5;
+      initMsg.sinit_max_instreams = 5;
+      if (setsockopt(*p5_sock, IPPROTO_SCTP, SCTP_INITMSG, &initMsg, sizeof(initMsg)) < 0) {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "After setsockopt errno: %d\n", errno);
         freeaddrinfo(servinfo);
         return -1;
       }
       noDelay = 1;
-      if (setsockopt(pnf->p5_sock, IPPROTO_SCTP, SCTP_NODELAY, &noDelay, sizeof(noDelay)) < 0) {
+      if (setsockopt(*p5_sock, IPPROTO_SCTP, SCTP_NODELAY, &noDelay, sizeof(noDelay)) < 0) {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "After setsockopt errno: %d\n", errno);
         freeaddrinfo(servinfo);
         return -1;
@@ -191,14 +186,13 @@ int pnf_connect(pnf_t* pnf)
       memset((void*)&events, 0, sizeof(events));
       events.sctp_data_io_event = 1;
 
-      if (setsockopt(pnf->p5_sock, SOL_SCTP, SCTP_EVENTS, (const void*)&events, sizeof(events)) < 0) {
+      if (setsockopt(*p5_sock, SOL_SCTP, SCTP_EVENTS, (const void*)&events, sizeof(events)) < 0) {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "After setsockopt errno: %d\n", errno);
         freeaddrinfo(servinfo);
         return -1;
       }
     } else {
-      // Create an IP socket point
-      if ((pnf->p5_sock = socket(p->ai_family, SOCK_STREAM, IPPROTO_IP)) < 0) {
+      if ((*p5_sock = socket(p->ai_family, SOCK_STREAM, IPPROTO_IP)) < 0) {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P5 socket errno: %d\n", errno);
         freeaddrinfo(servinfo);
         return -1;
@@ -207,22 +201,22 @@ int pnf_connect(pnf_t* pnf)
 
     NFAPI_TRACE(NFAPI_TRACE_INFO, "P5 socket created...\n");
 
-    if (connect(pnf->p5_sock, p->ai_addr, p->ai_addrlen) < 0) {
+    if (connect(*p5_sock, p->ai_addr, p->ai_addrlen) < 0) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR,
                   "After connect (address:%s port:%d) errno: %d\n",
-                  pnf->_public.vnf_ip_addr,
-                  pnf->_public.vnf_p5_port,
+                  ip_addr,
+                  port,
                   errno);
 
       if (errno == EINVAL) {
         freeaddrinfo(servinfo);
         return -1;
       } else {
-        if (pnf->terminate != 0) {
+        if (*terminate != 0) {
           freeaddrinfo(servinfo);
           return 0;
         } else {
-          close(pnf->p5_sock);
+          close(*p5_sock);
           sleep(1);
         }
       }
@@ -237,20 +231,18 @@ int pnf_connect(pnf_t* pnf)
 
   freeaddrinfo(servinfo);
 
-  // If we have failed to connect return 0 and it is retry
   if (connected == 0)
     return 0;
 
   NFAPI_TRACE(NFAPI_TRACE_NOTE, "After connect loop\n");
-  if (pnf->sctp) {
+  if (use_sctp) {
     socklen_t optLen;
     struct sctp_status status;
 
     (void)memset(&status, 0, sizeof(struct sctp_status));
 
-    // check the connection status
     optLen = (socklen_t)sizeof(struct sctp_status);
-    if (getsockopt(pnf->p5_sock, IPPROTO_SCTP, SCTP_STATUS, &status, &optLen) < 0) {
+    if (getsockopt(*p5_sock, IPPROTO_SCTP, SCTP_STATUS, &status, &optLen) < 0) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR, "After getsockopt errno: %d\n", errno);
       return -1;
     } else {
@@ -265,11 +257,10 @@ int pnf_connect(pnf_t* pnf)
     int error;
     socklen_t len = sizeof(error);
 
-    if (getsockopt(pnf->p5_sock, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+    if (getsockopt(*p5_sock, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR, "After getsockopt errno: %d\n", errno);
       return -1;
     } else {
-      // If error is zero, the socket is connected
       if (error == 0) {
         socketConnected = 1;
       }
@@ -280,17 +271,35 @@ int pnf_connect(pnf_t* pnf)
   return socketConnected;
 }
 
+int pnf_connect(pnf_t* pnf)
+{
+  return pnf_connect_impl(pnf->_public.vnf_ip_addr, pnf->_public.vnf_p5_port, pnf->sctp, &pnf->p5_sock, &pnf->terminate);
+}
+
+int pnf_nr_connect(pnf_nr_t* pnf)
+{
+  return pnf_connect_impl(pnf->_public.vnf_ip_addr, pnf->_public.vnf_p5_port, pnf->sctp, &pnf->p5_sock, &pnf->terminate);
+}
+
 int pnf_send_message(pnf_t* pnf, uint8_t* msg, uint32_t len, uint16_t stream)
 {
   if (pnf->sctp) {
-#if 0
-    printf("\nPNF SENDS: \n");
-    for(int i=0; i<len; i++){
-      printf("%d", msg[i]);
+    if (sctp_sendmsg(pnf->p5_sock, msg, len, NULL, 0, 42 /*config->sctp_stream_number*/, 0, stream /*P5_STREAM_ID*/, 0, 0) < 0) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "sctp_sendmsg failed errno: %d\n", errno);
+      return -1;
     }
-    printf("\n");
-#endif
+  } else {
+    if (write(pnf->p5_sock, msg, len) != len) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "read failed errno: %d\n", errno);
+      return -1;
+    }
+  }
+  return 0;
+}
 
+int pnf_nr_send_message(pnf_nr_t* pnf, uint8_t* msg, uint32_t len, uint16_t stream)
+{
+  if (pnf->sctp) {
     if (sctp_sendmsg(pnf->p5_sock, msg, len, NULL, 0, 42 /*config->sctp_stream_number*/, 0, stream /*P5_STREAM_ID*/, 0, 0) < 0) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR, "sctp_sendmsg failed errno: %d\n", errno);
       return -1;

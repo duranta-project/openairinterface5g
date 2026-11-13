@@ -4,7 +4,8 @@
  * Copyright 2017 Cisco Systems, Inc.
  */
 
-#include "pnf.h"
+#include "pnf_lte.h"
+#include "pnf_nr.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -65,29 +66,29 @@ int nfapi_pnf_vendor_extension(nfapi_pnf_config_t* config, nfapi_p4_p5_message_h
 
 nfapi_nr_pnf_config_t* nfapi_nr_pnf_config_create(void)
 {
-  pnf_t* _this = (pnf_t*)malloc(sizeof(pnf_t));
+  pnf_nr_t* _this = (pnf_nr_t*)malloc(sizeof(pnf_nr_t));
   if (!_this)
     return NULL;
-  memset(_this, 0, sizeof(pnf_t));
+  memset(_this, 0, sizeof(pnf_nr_t));
   _this->sctp = 1;
-  _this->_nr_public.vnf_p5_port = NFAPI_P5_SCTP_PORT;
-  _this->_nr_public.malloc = &malloc;
-  _this->_nr_public.free = &free;
-  _this->_nr_public.codec_config.allocate = &malloc;
-  _this->_nr_public.codec_config.deallocate = &free;
-  return &_this->_nr_public;
+  _this->_public.vnf_p5_port = NFAPI_P5_SCTP_PORT;
+  _this->_public.malloc = &malloc;
+  _this->_public.free = &free;
+  _this->_public.codec_config.allocate = &malloc;
+  _this->_public.codec_config.deallocate = &free;
+  return &_this->_public;
 }
 
 void nfapi_nr_pnf_config_destroy(nfapi_nr_pnf_config_t* config)
 {
   if (config)
-    free(PNF_FROM_NR_CONFIG(config));
+    free((pnf_nr_t*)config);
 }
 
 int nfapi_nr_pnf_stop(nfapi_nr_pnf_config_t* config)
 {
   if (!config)
     return -1;
-  PNF_FROM_NR_CONFIG(config)->terminate = 1;
+  ((pnf_nr_t*)config)->terminate = 1;
   return 0;
 }

@@ -4,20 +4,20 @@
  * Copyright 2017 Cisco Systems, Inc.
  */
 
-#include "pnf.h"
+#include "pnf_nr.h"
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
 #include <unistd.h>
 
-int pnf_nr_pack_and_send_p5_message(pnf_t* pnf, nfapi_p4_p5_message_header_t* msg, uint32_t msg_len)
+int pnf_nr_pack_and_send_p5_message(pnf_nr_t* pnf, nfapi_p4_p5_message_header_t* msg, uint32_t msg_len)
 {
   int packed_len =
-      nfapi_nr_p5_message_pack(msg, msg_len, pnf->tx_message_buffer, sizeof(pnf->tx_message_buffer), &pnf->_nr_public.codec_config);
+      nfapi_nr_p5_message_pack(msg, msg_len, pnf->tx_message_buffer, sizeof(pnf->tx_message_buffer), &pnf->_public.codec_config);
   if (packed_len < 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "nfapi_nr_p5_message_pack failed (%d)\n", packed_len);
     return -1;
   }
-  return pnf_send_message(pnf, pnf->tx_message_buffer, packed_len, 0);
+  return pnf_nr_send_message(pnf, pnf->tx_message_buffer, packed_len, 0);
 }
 
 int nfapi_nr_pnf_start(nfapi_nr_pnf_config_t* config)
@@ -26,12 +26,9 @@ int nfapi_nr_pnf_start(nfapi_nr_pnf_config_t* config)
     return -1;
 #ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
-  pnf_t* _this = PNF_FROM_NR_CONFIG(config);
-  /* pnf_connect() reads _public.vnf_ip_addr and _public.vnf_p5_port */
-  _this->_public.vnf_ip_addr = config->vnf_ip_addr;
-  _this->_public.vnf_p5_port = config->vnf_p5_port;
+  pnf_nr_t* _this = (pnf_nr_t*)config;
   while (_this->terminate == 0) {
-    int connect_result = pnf_connect(_this);
+    int connect_result = pnf_nr_connect(_this);
     if (connect_result > 0)
       pnf_nr_message_pump(_this);
     else if (connect_result < 0)
@@ -51,7 +48,7 @@ int nfapi_nr_pnf_vendor_extension(nfapi_nr_pnf_config_t* config, nfapi_p4_p5_mes
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: NULL parameters\n", __FUNCTION__);
     return -1;
   }
-  return pnf_nr_pack_and_send_p5_message(PNF_FROM_NR_CONFIG(config), msg, msg_len);
+  return pnf_nr_pack_and_send_p5_message((pnf_nr_t*)config, msg, msg_len);
 }
 
 int nfapi_nr_pnf_pnf_param_resp(nfapi_nr_pnf_config_t* config, nfapi_nr_pnf_param_response_t* resp)
@@ -61,7 +58,7 @@ int nfapi_nr_pnf_pnf_param_resp(nfapi_nr_pnf_config_t* config, nfapi_nr_pnf_para
     return -1;
   }
 
-  pnf_t* _this = PNF_FROM_NR_CONFIG(config);
+  pnf_nr_t* _this = (pnf_nr_t*)config;
   AssertFatal(config->send_p5_msg, "Function pointer must be configured!");
   return config->send_p5_msg(_this, &(resp->header), sizeof(nfapi_nr_pnf_param_response_t));
 }
@@ -76,7 +73,7 @@ int nfapi_nr_pnf_pnf_config_resp(nfapi_nr_pnf_config_t* config, nfapi_nr_pnf_con
   if (resp->error_code == NFAPI_MSG_OK)
     config->state = NFAPI_PNF_CONFIGURED;
 
-  pnf_t* _this = PNF_FROM_NR_CONFIG(config);
+  pnf_nr_t* _this = (pnf_nr_t*)config;
   AssertFatal(config->send_p5_msg, "Function pointer must be configured|");
   return config->send_p5_msg(_this, &(resp->header), sizeof(nfapi_nr_pnf_config_response_t));
 }
@@ -91,7 +88,7 @@ int nfapi_nr_pnf_pnf_start_resp(nfapi_nr_pnf_config_t* config, nfapi_nr_pnf_star
   if (resp->error_code == NFAPI_MSG_OK)
     config->state = NFAPI_PNF_RUNNING;
 
-  pnf_t* _this = PNF_FROM_NR_CONFIG(config);
+  pnf_nr_t* _this = (pnf_nr_t*)config;
   AssertFatal(config->send_p5_msg, "Function pointer must be configured|");
   return config->send_p5_msg(_this, &(resp->header), sizeof(nfapi_nr_pnf_start_response_t));
 }
@@ -103,7 +100,7 @@ int nfapi_nr_pnf_param_resp(nfapi_nr_pnf_config_t* config, nfapi_nr_param_respon
     return -1;
   }
 
-  pnf_t* _this = PNF_FROM_NR_CONFIG(config);
+  pnf_nr_t* _this = (pnf_nr_t*)config;
   AssertFatal(config->send_p5_msg, "Function pointer must be configured|");
   return config->send_p5_msg(_this, &(resp->header), sizeof(nfapi_nr_param_response_scf_t));
 }
@@ -115,7 +112,7 @@ int nfapi_nr_pnf_config_resp(nfapi_nr_pnf_config_t* config, nfapi_nr_config_resp
     return -1;
   }
 
-  pnf_t* _this = PNF_FROM_NR_CONFIG(config);
+  pnf_nr_t* _this = (pnf_nr_t*)config;
 
   /* cast via common initial sequence: phys is at same offset in both structs */
   nfapi_pnf_phy_config_t* phy = nfapi_pnf_phy_config_find((nfapi_pnf_config_t*)config, resp->header.phy_id);
@@ -137,7 +134,7 @@ int nfapi_nr_pnf_start_resp(nfapi_nr_pnf_config_t* config, nfapi_nr_start_respon
     return -1;
   }
 
-  pnf_t* _this = PNF_FROM_NR_CONFIG(config);
+  pnf_nr_t* _this = (pnf_nr_t*)config;
 
   /* cast via common initial sequence: phys is at same offset in both structs */
   nfapi_pnf_phy_config_t* phy = nfapi_pnf_phy_config_find((nfapi_pnf_config_t*)config, resp->header.phy_id);
@@ -159,7 +156,7 @@ int nfapi_nr_stop_indication(nfapi_nr_pnf_config_t* config, nfapi_nr_stop_indica
     return -1;
   }
 
-  pnf_t* _this = PNF_FROM_NR_CONFIG(config);
+  pnf_nr_t* _this = (pnf_nr_t*)config;
   AssertFatal(config->send_p5_msg, "Function pointer must be configured|");
   return config->send_p5_msg(_this, &(resp->header), sizeof(nfapi_nr_stop_indication_scf_t));
 }
