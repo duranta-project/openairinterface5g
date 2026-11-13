@@ -269,6 +269,11 @@ typedef struct {
   int used_by_ue;
 } nrUE_cell_params_t;
 
+typedef struct UE_nr_rxtx_proc_s UE_nr_rxtx_proc_t;
+
+/// FD-UE interface device, see executables/nr-ue-fd.h
+typedef struct nr_ue_fd_ifdevice_s nr_ue_fd_ifdevice_t;
+
 /// Top-level PHY Data Structure for UE
 typedef struct PHY_VARS_NR_UE_s {
   /// \brief Module ID indicator for this instance
@@ -438,6 +443,9 @@ typedef struct PHY_VARS_NR_UE_s {
   // Gain change required for automation RX gain change
   int adjust_rxgain;
 
+  /// FD-UE interface device; NULL: FFT/IFFT on the radio's samples
+  nr_ue_fd_ifdevice_t *fd_ifdevice;
+
   // Sidelink parameters
   sl_nr_sidelink_mode_t sl_mode;
   sl_nr_ue_phy_params_t SL_UE_PHY_PARAMS;
@@ -466,7 +474,7 @@ typedef struct PHY_VARS_NR_UE_s {
 } PHY_VARS_NR_UE;
 typedef struct pdsch_scratch_s pdsch_scratch_t;
 
-typedef struct {
+typedef struct UE_nr_rxtx_proc_s {
   openair0_timestamp_t timestamp_tx;
   int gNB_id;
   /// NR slot index within frame_tx [0 .. slots_per_frame - 1] to act upon for transmission
