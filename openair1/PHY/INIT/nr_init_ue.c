@@ -16,7 +16,7 @@
 #include "PHY/NR_REFSIG/dmrs_nr.h"
 #include "PHY/NR_REFSIG/nr_mod_table.h"
 #include "openair2/COMMON/prs_nr_paramdef.h"
-#include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
+#include "openair2/LAYER2/NR_MAC_COMMON/nr_compute_tbs.h"
 #include "SCHED_NR_UE/harq_nr.h"
 #include "nr-uesoftmodem.h"
 #include "common/config/config_userapi.h"
