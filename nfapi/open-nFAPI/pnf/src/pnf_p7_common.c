@@ -15,7 +15,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
-#include "pnf_p7.h"
+#include "pnf_p7_lte.h"
+#include "pnf_p7_nr.h"
 
 uint32_t pnf_get_current_time_hr(void)
 {
@@ -205,7 +206,7 @@ int pnf_p7_send_message(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
 
 int pnf_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_p7_message_header_t* header, uint32_t msg_len)
 {
-  UNUSED(msg_len)
+  (void)msg_len;
   header->m_segment_sequence = NFAPI_P7_SET_MSS(0, 0, pnf_p7->sequence_number);
 
   // Need to guard against different threads calling the encode function at the same time
@@ -328,4 +329,139 @@ struct timespec pnf_timespec_sub(struct timespec lhs, struct timespec rhs)
     result.tv_nsec = lhs.tv_nsec - rhs.tv_nsec;
   }
   return result;
+}
+
+void* pnf_p7_nr_malloc(pnf_p7_nr_t* pnf_p7, size_t size)
+{
+  if (pnf_p7->_public.malloc) {
+    return (pnf_p7->_public.malloc)(size);
+  } else {
+    return calloc(1, size);
+  }
+}
+
+void pnf_p7_nr_free(pnf_p7_nr_t* pnf_p7, void* ptr)
+{
+  if (pnf_p7->_public.free) {
+    return (pnf_p7->_public.free)(ptr);
+  } else {
+    return free(ptr);
+  }
+}
+
+pnf_p7_rx_message_t* pnf_p7_nr_rx_reassembly_queue_add_segment(pnf_p7_nr_t* pnf_p7,
+                                                                pnf_p7_rx_reassembly_queue_t* queue,
+                                                                uint32_t rx_hr_time,
+                                                                uint16_t sequence_number,
+                                                                uint16_t segment_number,
+                                                                uint8_t m,
+                                                                uint8_t* data,
+                                                                uint16_t data_len)
+{
+  pnf_p7_rx_message_t* msg = 0;
+  pnf_p7_rx_message_t* iterator = queue->msg_queue;
+  while (iterator != 0) {
+    if (iterator->sequence_number == sequence_number) {
+      msg = iterator;
+      break;
+    }
+    iterator = iterator->next;
+  }
+
+  if (msg != 0) {
+    msg->segments[segment_number].buffer = (uint8_t*)pnf_p7_nr_malloc(pnf_p7, data_len);
+    memcpy(msg->segments[segment_number].buffer, data, data_len);
+    msg->segments[segment_number].length = data_len;
+
+    msg->num_segments_received++;
+
+    if (m == 0)
+      msg->num_segments_expected = segment_number + 1;
+  } else {
+    msg = (pnf_p7_rx_message_t*)(pnf_p7_nr_malloc(pnf_p7, sizeof(pnf_p7_rx_message_t)));
+    memset(msg, 0, sizeof(pnf_p7_rx_message_t));
+
+    msg->sequence_number = sequence_number;
+    msg->num_segments_expected = m ? 255 : segment_number + 1;
+    msg->num_segments_received = 1;
+    msg->rx_hr_time = rx_hr_time;
+
+    msg->segments[segment_number].buffer = (uint8_t*)pnf_p7_nr_malloc(pnf_p7, data_len);
+    memcpy(msg->segments[segment_number].buffer, data, data_len);
+    msg->segments[segment_number].length = data_len;
+
+    msg->next = queue->msg_queue;
+    queue->msg_queue = msg;
+  }
+
+  return msg;
+}
+
+void pnf_p7_nr_rx_reassembly_queue_remove_msg(pnf_p7_nr_t* pnf_p7,
+                                              pnf_p7_rx_reassembly_queue_t* queue,
+                                              pnf_p7_rx_message_t* msg)
+{
+  pnf_p7_rx_message_t* iterator = queue->msg_queue;
+  pnf_p7_rx_message_t* previous = 0;
+
+  while (iterator != 0) {
+    if (iterator->sequence_number == msg->sequence_number) {
+      if (previous == 0) {
+        queue->msg_queue = iterator->next;
+      } else {
+        previous->next = iterator->next;
+      }
+
+      uint16_t i;
+      for (i = 0; i < 128; ++i) {
+        if (iterator->segments[i].buffer)
+          pnf_p7_nr_free(pnf_p7, iterator->segments[i].buffer);
+      }
+      pnf_p7_nr_free(pnf_p7, iterator);
+
+      break;
+    }
+
+    previous = iterator;
+    iterator = iterator->next;
+  }
+}
+
+void pnf_p7_nr_rx_reassembly_queue_remove_old_msgs(pnf_p7_nr_t* pnf_p7,
+                                                   pnf_p7_rx_reassembly_queue_t* queue,
+                                                   uint32_t rx_hr_time,
+                                                   uint32_t delta)
+{
+  pnf_p7_rx_message_t* iterator = queue->msg_queue;
+  pnf_p7_rx_message_t* previous = 0;
+
+  while (iterator != 0) {
+    if (rx_hr_time - iterator->rx_hr_time > delta) {
+      if (previous == 0) {
+        queue->msg_queue = iterator->next;
+      } else {
+        previous->next = iterator->next;
+      }
+
+      NFAPI_TRACE(NFAPI_TRACE_WARN,
+                  "Deleting stale reassembly message (packet rx_hr_time %u current rx_hr_time %u delta %d us)\n",
+                  iterator->rx_hr_time,
+                  rx_hr_time,
+                  delta);
+
+      pnf_p7_rx_message_t* to_delete = iterator;
+      iterator = iterator->next;
+
+      uint16_t i;
+      for (i = 0; i < 128; ++i) {
+        if (to_delete->segments[i].buffer)
+          pnf_p7_nr_free(pnf_p7, to_delete->segments[i].buffer);
+      }
+      pnf_p7_nr_free(pnf_p7, to_delete);
+
+    } else {
+      previous = iterator;
+      iterator = iterator->next;
+    }
+  }
 }

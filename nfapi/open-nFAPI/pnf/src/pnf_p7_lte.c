@@ -15,7 +15,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
-#include "pnf_p7.h"
+#include "pnf_p7_lte.h"
 
 extern int sf_ahead;
 
@@ -250,7 +250,7 @@ void send_dummy_subframe(pnf_p7_t* pnf_p7, uint16_t sfn_sf)
 
 int pnf_p7_subframe_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn_sf)
 {
-  UNUSED(phy_id)
+  (void)phy_id;
   // We could either send an event to the p7 thread have have it run the
   // subframe or we could handle it here and lock access to the subframe
   // buffers. If we do it on the p7 thread then we run the risk of blocking

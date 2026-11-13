@@ -38,7 +38,7 @@
 #include "openair1/PHY/defs_gNB.h"
 #include "executables/nr-softmodem.h"
 #include "executables/softmodem-common.h"
-#include "nfapi/open-nFAPI/pnf/inc/pnf_p7.h"
+#include <pnf_p7_nr.h>
 
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 
@@ -752,7 +752,7 @@ int nr_start_request(nfapi_nr_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,
   // check that SCS has actually been received
   const nfapi_uint8_tlv_t *scs = &gNB->gNB_config.ssb_config.scs_common;
   DevAssert(scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG);
-  pnf_p7_t *pnf_p7 = PNF_P7_FROM_NR_CONFIG(p7_config);
+  pnf_p7_nr_t *pnf_p7 = (pnf_p7_nr_t*)p7_config;
   pnf_p7->mu = scs->value;
 
   // Need to wait for main thread to create RU structures
@@ -812,7 +812,7 @@ int nr_stop_request(nfapi_nr_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, 
   nfapi_nr_stop_indication(config, &resp);
   has_sent_stop_ind = true;
   // Upon sending the STOP.indication mark P7 PNF to terminate, to not send any further messages to the VNF
-  pnf_p7_t *pnf_p7 = PNF_P7_FROM_NR_CONFIG(p7_config_g);
+  pnf_p7_nr_t *pnf_p7 = (pnf_p7_nr_t*)p7_config_g;
   pnf_p7->terminate = 1;
 #ifdef ENABLE_WLS
   wls_pnf_close(pnf_p5_init_and_receive_pthread);
@@ -919,7 +919,7 @@ static void maybe_slow_down_pnf(int mu)
 void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
 {
   nfapi_nr_pnf_p7_config_t *config = p7_config_g;
-  pnf_p7_t *_this = PNF_P7_FROM_NR_CONFIG(config);
+  pnf_p7_nr_t *_this = (pnf_p7_nr_t*)config;
   int mu = _this->mu;
 
   if (IS_SOFTMODEM_RFSIM) {

@@ -37,7 +37,7 @@
 #include "PHY/LTE_TRANSPORT/transport_proto.h"
 #include <openair1/SCHED/fapi_l1.h>
 #include "executables/lte-softmodem.h"
-#include "nfapi/open-nFAPI/pnf/inc/pnf_p7.h"
+#include <pnf_p7_lte.h>
 
 extern void phy_init_RU(RU_t *);
 extern int config_sync_var;

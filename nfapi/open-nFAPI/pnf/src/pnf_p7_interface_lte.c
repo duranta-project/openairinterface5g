@@ -4,7 +4,7 @@
  * Copyright 2017 Cisco Systems, Inc.
  */
 
-#include "pnf_p7.h"
+#include "pnf_p7_lte.h"
 #include <stdlib.h>
 #include <string.h>
 

@@ -29,12 +29,12 @@ bool pnf_nr_send_p5_message(pnf_nr_t *pnf, nfapi_nr_p4_p5_message_header_t *msg,
   return socket_send_p5_msg(pnf->sctp, pnf->p5_sock, NULL, pnf->tx_message_buffer, packed_len, 0) == packed_len;
 }
 
-static int send_p7_msg(pnf_p7_t *pnf_p7, uint8_t *msg, uint32_t len)
+static int send_p7_msg(pnf_p7_nr_t *pnf_p7, uint8_t *msg, uint32_t len)
 {
   // todo : consider how to do this only once
-  struct sockaddr_in remote_addr = {.sin_family = AF_INET, .sin_port = htons(pnf_p7->_nr_public.remote_p7_port)};
+  struct sockaddr_in remote_addr = {.sin_family = AF_INET, .sin_port = htons(pnf_p7->_public.remote_p7_port)};
 
-  if (inet_aton(pnf_p7->_nr_public.remote_p7_addr, &remote_addr.sin_addr) == -1) {
+  if (inet_aton(pnf_p7->_public.remote_p7_addr, &remote_addr.sin_addr) == -1) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "inet_aton failed %d\n", errno);
     return -1;
   }
@@ -46,8 +46,8 @@ static int send_p7_msg(pnf_p7_t *pnf_p7, uint8_t *msg, uint32_t len)
     NFAPI_TRACE(NFAPI_TRACE_ERROR,
                 "%s %s:%d sendto(%d, %p, %d) %d failed errno: %d\n",
                 __FUNCTION__,
-                pnf_p7->_nr_public.remote_p7_addr,
-                pnf_p7->_nr_public.remote_p7_port,
+                pnf_p7->_public.remote_p7_addr,
+                pnf_p7->_public.remote_p7_port,
                 (int)pnf_p7->p7_sock,
                 (const char *)msg,
                 len,
@@ -62,7 +62,7 @@ static int send_p7_msg(pnf_p7_t *pnf_p7, uint8_t *msg, uint32_t len)
   return 0;
 }
 
-bool pnf_nr_send_p7_message(pnf_p7_t *pnf_p7, nfapi_nr_p7_message_header_t *header, uint32_t msg_len)
+bool pnf_nr_send_p7_message(pnf_p7_nr_t *pnf_p7, nfapi_nr_p7_message_header_t *header, uint32_t msg_len)
 {
   UNUSED(msg_len);
   if (pnf_p7->terminate) {
@@ -78,7 +78,7 @@ bool pnf_nr_send_p7_message(pnf_p7_t *pnf_p7, nfapi_nr_p7_message_header_t *head
   }
 
   uint8_t tx_buf[131072]; // four times NFAPI_MAX_PACKED_MESSAGE_SIZE as of this commit
-  int len = pnf_p7->_nr_public.pack_func(header, tx_buf, sizeof(tx_buf), &pnf_p7->_nr_public.codec_config);
+  int len = pnf_p7->_public.pack_func(header, tx_buf, sizeof(tx_buf), &pnf_p7->_public.codec_config);
 
   if (len < 0) {
     if (pthread_mutex_unlock(&(pnf_p7->pack_mutex)) != 0) {
@@ -90,17 +90,17 @@ bool pnf_nr_send_p7_message(pnf_p7_t *pnf_p7, nfapi_nr_p7_message_header_t *head
     return false;
   }
 
-  if (len > pnf_p7->_nr_public.segment_size) {
+  if (len > pnf_p7->_public.segment_size) {
     int msg_body_len = len - NFAPI_NR_P7_HEADER_LENGTH;
-    int seg_body_len = pnf_p7->_nr_public.segment_size - NFAPI_NR_P7_HEADER_LENGTH;
+    int seg_body_len = pnf_p7->_public.segment_size - NFAPI_NR_P7_HEADER_LENGTH;
     int segment_count = (msg_body_len / (seg_body_len)) + ((msg_body_len % seg_body_len) ? 1 : 0);
 
     int segment = 0;
     int offset = NFAPI_NR_P7_HEADER_LENGTH;
-    uint8_t buffer[pnf_p7->_nr_public.segment_size];
+    uint8_t buffer[pnf_p7->_public.segment_size];
     for (segment = 0; segment < segment_count; ++segment) {
       uint8_t last = 0;
-      uint32_t size = pnf_p7->_nr_public.segment_size - NFAPI_NR_P7_HEADER_LENGTH;
+      uint32_t size = pnf_p7->_public.segment_size - NFAPI_NR_P7_HEADER_LENGTH;
       if (segment + 1 == segment_count) {
         last = 1;
         size = (msg_body_len) - (seg_body_len * segment);
@@ -120,14 +120,14 @@ bool pnf_nr_send_p7_message(pnf_p7_t *pnf_p7, nfapi_nr_p7_message_header_t *head
       memcpy(&buffer[NFAPI_NR_P7_HEADER_LENGTH], tx_buf + offset, size);
       offset += size;
 
-      if (pnf_p7->_nr_public.checksum_enabled) {
+      if (pnf_p7->_public.checksum_enabled) {
         nfapi_nr_p7_update_checksum(buffer, segment_size);
       }
 
       send_p7_msg(pnf_p7, &buffer[0], segment_size);
     }
   } else {
-    if (pnf_p7->_nr_public.checksum_enabled) {
+    if (pnf_p7->_public.checksum_enabled) {
       nfapi_nr_p7_update_checksum(tx_buf, len);
     }
 
@@ -499,7 +499,7 @@ int pnf_nr_message_pump(pnf_nr_t *pnf)
   return 0;
 }
 
-static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, pnf_p7_t *pnf_p7, uint32_t rx_hr_time)
+static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, pnf_p7_nr_t *pnf_p7, uint32_t rx_hr_time)
 {
   nfapi_nr_p7_message_header_t messageHeader;
 
@@ -510,11 +510,11 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
   }
 
   // unpack the message header
-  const bool result = pnf_p7->_nr_public.hdr_unpack_func(pRecvMsg,
-                                                         recvMsgLen,
-                                                         &messageHeader,
-                                                         sizeof(messageHeader),
-                                                         &pnf_p7->_nr_public.codec_config);
+  const bool result = pnf_p7->_public.hdr_unpack_func(pRecvMsg,
+                                                      recvMsgLen,
+                                                      &messageHeader,
+                                                      sizeof(messageHeader),
+                                                      &pnf_p7->_public.codec_config);
   if (!result) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "Unpack message header failed, ignoring\n");
     return;
@@ -524,7 +524,7 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
   uint8_t sequence_num = NFAPI_P7_GET_SEQUENCE(messageHeader.m_segment_sequence);
   uint8_t segment_num = NFAPI_P7_GET_SEGMENT(messageHeader.m_segment_sequence);
 
-  if (pnf_p7->_nr_public.checksum_enabled) {
+  if (pnf_p7->_public.checksum_enabled) {
     uint32_t checksum = nfapi_nr_p7_calculate_checksum(pRecvMsg, recvMsgLen);
     if (checksum != messageHeader.checksum) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR, "Checksum verification failed %d %d\n", checksum, messageHeader.checksum);
@@ -542,14 +542,14 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
 
     pnf_nr_handle_p7_message(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
   } else {
-    pnf_p7_rx_message_t *rx_msg = pnf_p7_rx_reassembly_queue_add_segment(pnf_p7,
-                                                                         &(pnf_p7->reassembly_queue),
-                                                                         rx_hr_time,
-                                                                         sequence_num,
-                                                                         segment_num,
-                                                                         m,
-                                                                         pRecvMsg,
-                                                                         recvMsgLen);
+    pnf_p7_rx_message_t *rx_msg = pnf_p7_nr_rx_reassembly_queue_add_segment(pnf_p7,
+                                                                             &(pnf_p7->reassembly_queue),
+                                                                             rx_hr_time,
+                                                                             sequence_num,
+                                                                             segment_num,
+                                                                             m,
+                                                                             pRecvMsg,
+                                                                             recvMsgLen);
 
     if (rx_msg->num_segments_received == rx_msg->num_segments_expected) {
       // send the buffer on
@@ -560,13 +560,13 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
       }
 
       if (pnf_p7->reassemby_buffer_size < length) {
-        pnf_p7_free(pnf_p7, pnf_p7->reassemby_buffer);
+        pnf_p7_nr_free(pnf_p7, pnf_p7->reassemby_buffer);
         pnf_p7->reassemby_buffer = 0;
       }
 
       if (pnf_p7->reassemby_buffer == 0) {
         NFAPI_TRACE(NFAPI_TRACE_NOTE, "Resizing PNF_P7 Reassembly buffer %d->%d\n", pnf_p7->reassemby_buffer_size, length);
-        pnf_p7->reassemby_buffer = (uint8_t *)pnf_p7_malloc(pnf_p7, length);
+        pnf_p7->reassemby_buffer = (uint8_t *)pnf_p7_nr_malloc(pnf_p7, length);
 
         if (pnf_p7->reassemby_buffer == 0) {
           NFAPI_TRACE(NFAPI_TRACE_NOTE, "Failed to allocate PNF_P7 reassemby buffer len:%d\n", length);
@@ -592,7 +592,7 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
       pnf_nr_handle_p7_message(pnf_p7->reassemby_buffer, length, pnf_p7, rx_msg->rx_hr_time);
 
       // delete the structure
-      pnf_p7_rx_reassembly_queue_remove_msg(pnf_p7, &(pnf_p7->reassembly_queue), rx_msg);
+      pnf_p7_nr_rx_reassembly_queue_remove_msg(pnf_p7, &(pnf_p7->reassembly_queue), rx_msg);
     }
   }
 
@@ -602,10 +602,10 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
   // (e.g., if the sequence numbers advances sufficiently); in the branch of
   // this commit, our goal is to make the PNF work, so we content ourselves to
   // just remove very old messages.
-  pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7, &(pnf_p7->reassembly_queue), rx_hr_time, 10000);
+  pnf_p7_nr_rx_reassembly_queue_remove_old_msgs(pnf_p7, &(pnf_p7->reassembly_queue), rx_hr_time, 10000);
 }
 
-static void pnf_nr_socket_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now_hr_time)
+static void pnf_nr_socket_nfapi_p7_read_dispatch_message(pnf_p7_nr_t *pnf_p7, uint32_t now_hr_time)
 {
   int recvfrom_result = 0;
   struct sockaddr_in remote_addr;
@@ -623,7 +623,7 @@ static void pnf_nr_socket_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint3
     if (recvfrom_result > 0) {
       // get the segment size
       nfapi_nr_p7_message_header_t header;
-      pnf_p7->_nr_public.hdr_unpack_func(header_buffer, NFAPI_NR_P7_HEADER_LENGTH, &header, 34, 0);
+      pnf_p7->_public.hdr_unpack_func(header_buffer, NFAPI_NR_P7_HEADER_LENGTH, &header, 34, 0);
 
       // resize the buffer if we have a large segment
       if (header.message_length > pnf_p7->rx_message_buffer_size) {
@@ -666,7 +666,7 @@ static void pnf_nr_socket_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint3
   } while (recvfrom_result > 0);
 }
 
-static int pnf_nr_socket_p7_message_pump(pnf_p7_t *pnf_p7)
+static int pnf_nr_socket_p7_message_pump(pnf_p7_nr_t *pnf_p7)
 {
   // initialize the mutex lock
   if (pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0) {
@@ -710,18 +710,18 @@ static int pnf_nr_socket_p7_message_pump(pnf_p7_t *pnf_p7)
 
   struct sockaddr_in addr = {0};
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(pnf_p7->_nr_public.local_p7_port);
+  addr.sin_port = htons(pnf_p7->_public.local_p7_port);
 
-  if (pnf_p7->_nr_public.local_p7_addr == 0) {
+  if (pnf_p7->_public.local_p7_addr == 0) {
     addr.sin_addr.s_addr = INADDR_ANY;
   } else {
-    // addr.sin_addr.s_addr = inet_addr(pnf_p7->_nr_public.local_p7_addr);
-    if (inet_aton(pnf_p7->_nr_public.local_p7_addr, &addr.sin_addr) == -1) {
+    // addr.sin_addr.s_addr = inet_addr(pnf_p7->_public.local_p7_addr);
+    if (inet_aton(pnf_p7->_public.local_p7_addr, &addr.sin_addr) == -1) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "inet_aton failed\n");
     }
   }
 
-  NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF P7 binding %d too %s:%d\n", pnf_p7->p7_sock, inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF P7 binding %d to %s:%d\n", pnf_p7->p7_sock, inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
   if (bind(pnf_p7->p7_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF_P7 bind error fd:%d errno: %d\n", pnf_p7->p7_sock, errno);
     return -1;
@@ -825,7 +825,7 @@ static int local_nfapi_nr_pnf_p7_start(nfapi_nr_pnf_p7_config_t *config)
   if (config == 0)
     return -1;
 
-  pnf_p7_t *_this = PNF_P7_FROM_NR_CONFIG(config);
+  pnf_p7_nr_t *_this = (pnf_p7_nr_t*)config;
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
 

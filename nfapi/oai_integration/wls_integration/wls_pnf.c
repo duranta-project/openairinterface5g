@@ -10,7 +10,7 @@
 #include <rte_common.h>
 #include <rte_lcore.h>
 #include <rte_debug.h>
-#include <pnf_p7.h>
+#include <pnf_p7_nr.h>
 #include <sys/time.h>
 
 #include "wls_lib.h"
@@ -19,11 +19,11 @@
 
 // A copy of the PNF P7 config is needed for the message processing thread, in other transport mechanisms where P7 is handled in a
 // different thread, the config is passed to it upon the thread creation
-nfapi_pnf_p7_config_t *wls_pnf_p7_config = NULL;
+nfapi_nr_pnf_p7_config_t *wls_pnf_p7_config = NULL;
 
 void wls_pnf_set_p7_config(void *p7_config)
 {
-  wls_pnf_p7_config = (nfapi_pnf_p7_config_t *)p7_config;
+  wls_pnf_p7_config = (nfapi_nr_pnf_p7_config_t *)p7_config;
 }
 
 static WLS_MAC_CTX g_phy_wls;
@@ -181,7 +181,7 @@ bool wls_pnf_nr_send_p5_message(pnf_nr_t *pnf, nfapi_nr_p4_p5_message_header_t *
   return wls_send_fapi_msg(pWls, msg->message_id, packed_len, pnf->tx_message_buffer);
 }
 
-bool wls_pnf_nr_send_p7_message(pnf_p7_t *pnf_p7, nfapi_nr_p7_message_header_t *msg, uint32_t msg_len)
+bool wls_pnf_nr_send_p7_message(pnf_p7_nr_t *pnf_p7, nfapi_nr_p7_message_header_t *msg, uint32_t msg_len)
 {
   UNUSED(msg_len);
   if (pnf_p7->terminate) {
@@ -221,7 +221,7 @@ bool wls_pnf_nr_send_p7_message(pnf_p7_t *pnf_p7, nfapi_nr_p7_message_header_t *
   fill_fapi_list_elem(headerElem, fapiMsgElem, FAPI_VENDOR_MSG_HEADER_IND, 1, 2);
   memcpy((uint8_t *)(headerElem + 1), wls_header, 2);
 
-  const int packed_len = ((nfapi_pnf_p7_config_t *)pnf_p7)->pack_func(msg, (fapiMsgElem + 1), NFAPI_MAX_PACKED_MESSAGE_SIZE, NULL);
+  const int packed_len = pnf_p7->_public.pack_func(msg, (fapiMsgElem + 1), NFAPI_MAX_PACKED_MESSAGE_SIZE, NULL);
 
   if (packed_len < 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "nfapi_p7_message_pack failed (%d)\n", packed_len);
@@ -246,7 +246,7 @@ static void procPhyMessages(uint32_t msg_size, void *msg_buf, uint16_t msg_id)
       pnf_nr_handle_p5_message(_this, msg_buf, msg_size);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST ... NFAPI_NR_PHY_MSG_TYPE_RACH_INDICATION: {
-      pnf_nr_handle_p7_message(msg_buf, msg_size, (pnf_p7_t *)wls_pnf_p7_config, 0);
+      pnf_nr_handle_p7_message(msg_buf, msg_size, (pnf_p7_nr_t *)wls_pnf_p7_config, 0);
       break;
     }
     default:

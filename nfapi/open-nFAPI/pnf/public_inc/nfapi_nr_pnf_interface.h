@@ -139,7 +139,7 @@ typedef struct nfapi_nr_pnf_p7_config {
                           void* pUnpackedBuf,
                           uint32_t unpackedBufLen,
                           nfapi_p7_codec_config_t* config);
-  bool (*send_p7_msg)(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_header_t* header, uint32_t msg_len);
+  bool (*send_p7_msg)(pnf_p7_nr_t* pnf_p7, nfapi_nr_p7_message_header_t* header, uint32_t msg_len);
 } nfapi_nr_pnf_p7_config_t;
 
 nfapi_nr_pnf_p7_config_t* nfapi_nr_pnf_p7_config_create(void);
