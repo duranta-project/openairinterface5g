@@ -19,6 +19,9 @@
 #include "NRPPA_asn_constant.h"
 #include "NRPPA_TRPInformationRequest.h"
 #include "NRPPA_TRPInformationTypeResponseItem.h"
+#include "NRPPA_PRSConfiguration.h"
+#include "NRPPA_PRSResourceSet-Item.h"
+#include "NRPPA_PRSResource-Item.h"
 #include "NRPPA_TRPPositionDirect.h"
 #include "NRPPA_NG-RANAccessPointPosition.h"
 #include "NRPPA_NGRANHighAccuracyAccessPointPosition.h"
@@ -60,6 +63,7 @@
 #include "NRPPA_TRP-MeasurementResponseList.h"
 #include "NRPPA_TRP-MeasurementResponseItem.h"
 #include "NRPPA_TrpMeasurementResultItem.h"
+#include "NRPPA_TRPItem.h"
 #include "NRPPA_UL-RTOAMeasurement.h"
 #include "NRPPA_GNB-RxTxTimeDiff.h"
 

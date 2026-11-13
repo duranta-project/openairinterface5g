@@ -739,6 +739,37 @@ void RCconfig_nr_prs(void)
   }
 }
 
+static nr_mac_prs_config_t *get_l1_prs_config(void)
+{
+  if (RC.nb_nr_L1_inst == 0 || RC.gNB == NULL || RC.gNB[0]->prs_vars.NumPRSResources == 0) {
+    LOG_I(GNB_APP, "No L1 PRS configuration: PRS cannot be reported over NRPPa\n");
+    return NULL;
+  }
+  const NR_gNB_PRS *prs = &RC.gNB[0]->prs_vars;
+  AssertFatal(prs->NumPRSResources <= NR_MAC_MAX_PRS_RESOURCES, "Too many PRS resources (%d)\n", prs->NumPRSResources);
+
+  const prs_config_t *c = &prs->prs_cfg[0];
+  nr_mac_prs_config_t *out = calloc_or_fail(1, sizeof(*out));
+  out->period = c->PRSResourceSetPeriod[0];
+  out->offset = c->PRSResourceSetPeriod[1];
+  out->num_rb = c->NumRB;
+  out->rb_offset = c->RBOffset;
+  out->comb_size = c->CombSize;
+  out->repetition = c->PRSResourceRepetition;
+  out->time_gap = c->PRSResourceTimeGap;
+  out->num_prs_resources = prs->NumPRSResources;
+  for (int k = 0; k < prs->NumPRSResources; k++) {
+    const prs_config_t *rc = &prs->prs_cfg[k];
+    nr_mac_prs_resource_t *r = &out->resource[k];
+    r->sequence_id = rc->NPRSID;
+    r->re_offset = rc->REOffset;
+    r->slot_offset = rc->PRSResourceOffset;
+    r->symbol_start = rc->SymbolStart;
+    r->num_symbols = rc->NumPRSSymbols;
+  }
+  return out;
+}
+
 #define ALL_SYMBOLS_TAKEN 0x3FFF
 
 /**
@@ -1992,6 +2023,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 
   }
   nrmac->positioning_config = RCconfig_nr_positioning();
+  nrmac->prs_config = get_l1_prs_config();
 
   // Transport related parameters we only read from the first MACRLC instance
   macrlc_p = MacRLC_ParamList.paramarray[0];

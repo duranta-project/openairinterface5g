@@ -154,6 +154,42 @@ static nrppa_geographical_coordinates_t f1ap2nrppa_geographical_coordinates(cons
   return out;
 }
 
+static nrppa_prs_configuration_t f1ap2nrppa_prs_configuration(const f1ap_prs_configuration_t *in)
+{
+  nrppa_prs_configuration_t out = {0};
+  out.prs_resource_set_list_length = in->prs_resource_set_list_length;
+  if (in->prs_resource_set_list_length > 0)
+    out.prs_resource_set = calloc_or_fail(in->prs_resource_set_list_length, sizeof(*out.prs_resource_set));
+  for (int i = 0; i < in->prs_resource_set_list_length; i++) {
+    const f1ap_prs_resource_set_t *s_in = &in->prs_resource_set[i];
+    nrppa_prs_resource_set_t *s_out = &out.prs_resource_set[i];
+    s_out->prs_resource_set_id = s_in->prs_resource_set_id;
+    s_out->subcarrier_spacing = s_in->subcarrier_spacing;
+    s_out->num_rb = s_in->num_rb;
+    s_out->start_prb = s_in->start_prb;
+    s_out->point_a = s_in->point_a;
+    s_out->comb_size = s_in->comb_size;
+    s_out->cp_type = s_in->cp_type;
+    s_out->resource_set_periodicity = s_in->resource_set_periodicity;
+    s_out->resource_set_slot_offset = s_in->resource_set_slot_offset;
+    s_out->resource_repetition_factor = s_in->resource_repetition_factor;
+    s_out->resource_time_gap = s_in->resource_time_gap;
+    s_out->resource_number_of_symbols = s_in->resource_number_of_symbols;
+    s_out->prs_resource_transmit_power = s_in->prs_resource_transmit_power;
+    s_out->prs_resource_list_length = s_in->prs_resource_list_length;
+    if (s_in->prs_resource_list_length > 0)
+      s_out->prs_resource = calloc_or_fail(s_in->prs_resource_list_length, sizeof(*s_out->prs_resource));
+    for (int k = 0; k < s_in->prs_resource_list_length; k++) {
+      s_out->prs_resource[k].prs_resource_id = s_in->prs_resource[k].prs_resource_id;
+      s_out->prs_resource[k].sequence_id = s_in->prs_resource[k].sequence_id;
+      s_out->prs_resource[k].re_offset = s_in->prs_resource[k].re_offset;
+      s_out->prs_resource[k].resource_slot_offset = s_in->prs_resource[k].resource_slot_offset;
+      s_out->prs_resource[k].resource_symbol_offset = s_in->prs_resource[k].resource_symbol_offset;
+    }
+  }
+  return out;
+}
+
 static nrppa_trp_information_type_response_item_t f1ap2nrppa_trp_info_type_response_item(
     const f1ap_trp_information_type_response_item_t *in)
 {
@@ -179,7 +215,7 @@ static nrppa_trp_information_type_response_item_t f1ap2nrppa_trp_info_type_respo
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
       out.present = NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      out.choice.prs_configuration = f1ap2nrppa_prs_configuration(&in->choice.prs_configuration);
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       out.present = NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION;

@@ -2622,6 +2622,105 @@ static bool eq_geographical_coordinates(const f1ap_geographical_coordinates_t *i
   return true;
 }
 
+static const int prs_comb_size_lut[] = {2, 4, 6, 12};
+static const int prs_periodicity_lut[] = {4,   5,   8,   10,   16,   20,   32,    40,    64,    80,
+                                          160, 320, 640, 1280, 2560, 5120, 10240, 20480, 40960, 81920};
+static const int prs_repetition_factor_lut[] = {1, 2, 4, 6, 8, 16, 32};
+static const int prs_time_gap_lut[] = {1, 2, 4, 8, 16, 32};
+static const int prs_num_symbols_lut[] = {2, 4, 6, 12};
+
+static long encode_prs_value(int value, const int *lut, int n, const char *name)
+{
+  for (int i = 0; i < n; i++)
+    if (lut[i] == value)
+      return i;
+  AssertFatal(false, "PRS %s %d not representable in F1AP\n", name, value);
+  return 0;
+}
+
+static void encode_prs_configuration(const f1ap_prs_configuration_t *in, F1AP_PRSConfiguration_t *out)
+{
+  for (int i = 0; i < in->prs_resource_set_list_length; i++) {
+    const f1ap_prs_resource_set_t *s = &in->prs_resource_set[i];
+    asn1cSequenceAdd(out->pRSResourceSet_List.list, F1AP_PRSResourceSet_Item_t, set);
+    set->pRSResourceSetID = s->prs_resource_set_id;
+    AssertFatal(s->subcarrier_spacing <= F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz120,
+                "illegal PRS subcarrier spacing %d\n",
+                s->subcarrier_spacing);
+    set->subcarrierSpacing = s->subcarrier_spacing;
+    AssertFatal(s->num_rb >= 24 && s->num_rb <= 272 && s->num_rb % 4 == 0, "illegal PRS NumRB %d\n", s->num_rb);
+    set->pRSbandwidth = (s->num_rb - 20) / 4;
+    set->startPRB = s->start_prb;
+    set->pointA = s->point_a;
+    set->combSize = encode_prs_value(s->comb_size, prs_comb_size_lut, sizeofArray(prs_comb_size_lut), "comb size");
+    AssertFatal(s->cp_type <= F1AP_PRSResourceSet_Item__cPType_extended, "illegal PRS CP type %d\n", s->cp_type);
+    set->cPType = s->cp_type;
+    set->resourceSetPeriodicity =
+        encode_prs_value(s->resource_set_periodicity, prs_periodicity_lut, sizeofArray(prs_periodicity_lut), "periodicity");
+    set->resourceSetSlotOffset = s->resource_set_slot_offset;
+    set->resourceRepetitionFactor = encode_prs_value(s->resource_repetition_factor,
+                                                     prs_repetition_factor_lut,
+                                                     sizeofArray(prs_repetition_factor_lut),
+                                                     "repetition factor");
+    set->resourceTimeGap = encode_prs_value(s->resource_time_gap, prs_time_gap_lut, sizeofArray(prs_time_gap_lut), "time gap");
+    set->resourceNumberofSymbols =
+        encode_prs_value(s->resource_number_of_symbols, prs_num_symbols_lut, sizeofArray(prs_num_symbols_lut), "number of symbols");
+    set->pRSResourceTransmitPower = s->prs_resource_transmit_power;
+    for (int k = 0; k < s->prs_resource_list_length; k++) {
+      const f1ap_prs_resource_t *r = &s->prs_resource[k];
+      asn1cSequenceAdd(set->pRSResource_List.list, F1AP_PRSResource_Item_t, res);
+      res->pRSResourceID = r->prs_resource_id;
+      res->sequenceID = r->sequence_id;
+      res->rEOffset = r->re_offset;
+      res->resourceSlotOffset = r->resource_slot_offset;
+      res->resourceSymbolOffset = r->resource_symbol_offset;
+    }
+  }
+}
+
+static bool decode_prs_configuration(const F1AP_PRSConfiguration_t *in, f1ap_prs_configuration_t *out)
+{
+  out->prs_resource_set_list_length = in->pRSResourceSet_List.list.count;
+  out->prs_resource_set = calloc_or_fail(out->prs_resource_set_list_length, sizeof(*out->prs_resource_set));
+  for (int i = 0; i < out->prs_resource_set_list_length; i++) {
+    const F1AP_PRSResourceSet_Item_t *set = in->pRSResourceSet_List.list.array[i];
+    f1ap_prs_resource_set_t *s = &out->prs_resource_set[i];
+    s->prs_resource_set_id = set->pRSResourceSetID;
+    _F1_CHECK_EXP(set->subcarrierSpacing <= F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz120);
+    s->subcarrier_spacing = set->subcarrierSpacing;
+    _F1_CHECK_EXP(set->pRSbandwidth >= 1 && set->pRSbandwidth <= 63);
+    s->num_rb = 4 * set->pRSbandwidth + 20;
+    s->start_prb = set->startPRB;
+    s->point_a = set->pointA;
+    _F1_CHECK_EXP(set->combSize >= 0 && set->combSize < sizeofArray(prs_comb_size_lut));
+    s->comb_size = prs_comb_size_lut[set->combSize];
+    _F1_CHECK_EXP(set->cPType <= F1AP_PRSResourceSet_Item__cPType_extended);
+    s->cp_type = set->cPType;
+    _F1_CHECK_EXP(set->resourceSetPeriodicity >= 0 && set->resourceSetPeriodicity < sizeofArray(prs_periodicity_lut));
+    s->resource_set_periodicity = prs_periodicity_lut[set->resourceSetPeriodicity];
+    s->resource_set_slot_offset = set->resourceSetSlotOffset;
+    _F1_CHECK_EXP(set->resourceRepetitionFactor >= 0 && set->resourceRepetitionFactor < sizeofArray(prs_repetition_factor_lut));
+    s->resource_repetition_factor = prs_repetition_factor_lut[set->resourceRepetitionFactor];
+    _F1_CHECK_EXP(set->resourceTimeGap >= 0 && set->resourceTimeGap < sizeofArray(prs_time_gap_lut));
+    s->resource_time_gap = prs_time_gap_lut[set->resourceTimeGap];
+    _F1_CHECK_EXP(set->resourceNumberofSymbols >= 0 && set->resourceNumberofSymbols < sizeofArray(prs_num_symbols_lut));
+    s->resource_number_of_symbols = prs_num_symbols_lut[set->resourceNumberofSymbols];
+    s->prs_resource_transmit_power = set->pRSResourceTransmitPower;
+    s->prs_resource_list_length = set->pRSResource_List.list.count;
+    s->prs_resource = calloc_or_fail(s->prs_resource_list_length, sizeof(*s->prs_resource));
+    for (int k = 0; k < s->prs_resource_list_length; k++) {
+      const F1AP_PRSResource_Item_t *res = set->pRSResource_List.list.array[k];
+      f1ap_prs_resource_t *r = &s->prs_resource[k];
+      r->prs_resource_id = res->pRSResourceID;
+      r->sequence_id = res->sequenceID;
+      r->re_offset = res->rEOffset;
+      r->resource_slot_offset = res->resourceSlotOffset;
+      r->resource_symbol_offset = res->resourceSymbolOffset;
+    }
+  }
+  return true;
+}
+
 static F1AP_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item(const f1ap_trp_information_type_response_item_t *in)
 {
   F1AP_TRPInformationTypeResponseItem_t out = {0};
@@ -2648,7 +2747,8 @@ static F1AP_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item(
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
       out.present = F1AP_TRPInformationTypeResponseItem_PR_pRSConfiguration;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      asn1cCalloc(out.choice.pRSConfiguration, prs_configuration);
+      encode_prs_configuration(&in->choice.prs_configuration, prs_configuration);
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       out.present = F1AP_TRPInformationTypeResponseItem_PR_sSBinformation;
@@ -2675,7 +2775,7 @@ static F1AP_TRPInformationTypeResponseItem_t encode_trp_info_type_response_item(
   return out;
 }
 
-static void decode_trp_info_type_response_item(const F1AP_TRPInformationTypeResponseItem_t *in,
+static bool decode_trp_info_type_response_item(const F1AP_TRPInformationTypeResponseItem_t *in,
                                                f1ap_trp_information_type_response_item_t *out)
 {
   switch (in->present) {
@@ -2702,7 +2802,7 @@ static void decode_trp_info_type_response_item(const F1AP_TRPInformationTypeResp
       break;
     case F1AP_TRPInformationTypeResponseItem_PR_pRSConfiguration:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      _F1_CHECK_EXP(decode_prs_configuration(in->choice.pRSConfiguration, &out->choice.prs_configuration));
       break;
     case F1AP_TRPInformationTypeResponseItem_PR_sSBinformation:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION;
@@ -2721,9 +2821,69 @@ static void decode_trp_info_type_response_item(const F1AP_TRPInformationTypeResp
       decode_geographical_coordinates(in->choice.geographicalCoordinates, &out->choice.geographical_coordinates);
       break;
     default:
-      AssertFatal(false, "received illegal trp information type response item %d\n", in->present);
-      break;
+      PRINT_ERROR("received illegal trp information type response item %d\n", in->present);
+      return false;
   }
+  return true;
+}
+
+static f1ap_prs_configuration_t cp_prs_configuration(const f1ap_prs_configuration_t *in)
+{
+  f1ap_prs_configuration_t out = {0};
+  out.prs_resource_set_list_length = in->prs_resource_set_list_length;
+  if (in->prs_resource_set_list_length > 0)
+    out.prs_resource_set = calloc_or_fail(in->prs_resource_set_list_length, sizeof(*out.prs_resource_set));
+  for (int i = 0; i < in->prs_resource_set_list_length; i++) {
+    const f1ap_prs_resource_set_t *set_in = &in->prs_resource_set[i];
+    f1ap_prs_resource_set_t *set_out = &out.prs_resource_set[i];
+    *set_out = *set_in;
+    set_out->prs_resource = NULL;
+    if (set_in->prs_resource_list_length > 0) {
+      set_out->prs_resource = calloc_or_fail(set_in->prs_resource_list_length, sizeof(*set_out->prs_resource));
+      memcpy(set_out->prs_resource, set_in->prs_resource, set_in->prs_resource_list_length * sizeof(*set_out->prs_resource));
+    }
+  }
+  return out;
+}
+
+static bool eq_prs_configuration(const f1ap_prs_configuration_t *a, const f1ap_prs_configuration_t *b)
+{
+  _EQ_CHECK_INT(a->prs_resource_set_list_length, b->prs_resource_set_list_length);
+  for (int i = 0; i < a->prs_resource_set_list_length; i++) {
+    const f1ap_prs_resource_set_t *sa = &a->prs_resource_set[i];
+    const f1ap_prs_resource_set_t *sb = &b->prs_resource_set[i];
+    _EQ_CHECK_INT(sa->prs_resource_set_id, sb->prs_resource_set_id);
+    _EQ_CHECK_INT(sa->subcarrier_spacing, sb->subcarrier_spacing);
+    _EQ_CHECK_INT(sa->num_rb, sb->num_rb);
+    _EQ_CHECK_INT(sa->start_prb, sb->start_prb);
+    _EQ_CHECK_INT(sa->point_a, sb->point_a);
+    _EQ_CHECK_INT(sa->comb_size, sb->comb_size);
+    _EQ_CHECK_INT(sa->cp_type, sb->cp_type);
+    _EQ_CHECK_INT(sa->resource_set_periodicity, sb->resource_set_periodicity);
+    _EQ_CHECK_INT(sa->resource_set_slot_offset, sb->resource_set_slot_offset);
+    _EQ_CHECK_INT(sa->resource_repetition_factor, sb->resource_repetition_factor);
+    _EQ_CHECK_INT(sa->resource_time_gap, sb->resource_time_gap);
+    _EQ_CHECK_INT(sa->resource_number_of_symbols, sb->resource_number_of_symbols);
+    _EQ_CHECK_INT(sa->prs_resource_transmit_power, sb->prs_resource_transmit_power);
+    _EQ_CHECK_INT(sa->prs_resource_list_length, sb->prs_resource_list_length);
+    for (int k = 0; k < sa->prs_resource_list_length; k++) {
+      const f1ap_prs_resource_t *ra = &sa->prs_resource[k];
+      const f1ap_prs_resource_t *rb = &sb->prs_resource[k];
+      _EQ_CHECK_INT(ra->prs_resource_id, rb->prs_resource_id);
+      _EQ_CHECK_INT(ra->sequence_id, rb->sequence_id);
+      _EQ_CHECK_INT(ra->re_offset, rb->re_offset);
+      _EQ_CHECK_INT(ra->resource_slot_offset, rb->resource_slot_offset);
+      _EQ_CHECK_INT(ra->resource_symbol_offset, rb->resource_symbol_offset);
+    }
+  }
+  return true;
+}
+
+static void free_prs_configuration(f1ap_prs_configuration_t *c)
+{
+  for (int i = 0; i < c->prs_resource_set_list_length; i++)
+    free(c->prs_resource_set[i].prs_resource);
+  free(c->prs_resource_set);
 }
 
 static f1ap_trp_information_type_response_item_t cp_trp_info_type_response_item(const f1ap_trp_information_type_response_item_t *in)
@@ -2750,7 +2910,7 @@ static f1ap_trp_information_type_response_item_t cp_trp_info_type_response_item(
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
       out.present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-      AssertFatal(false, "TRP information type response item PRS configuration unsupported\n");
+      out.choice.prs_configuration = cp_prs_configuration(&in->choice.prs_configuration);
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       out.present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION;
@@ -2796,8 +2956,7 @@ static bool eq_trp_info_type_response_item(const f1ap_trp_information_type_respo
       _EQ_CHECK_INT(in->choice.nr_arfcn, out->choice.nr_arfcn);
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
-      PRINT_ERROR("TRP information type response item PRS configuration unsupported\n");
-      return false;
+      _F1_CHECK_EXP(eq_prs_configuration(&in->choice.prs_configuration, &out->choice.prs_configuration));
       break;
     case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION:
       PRINT_ERROR("TRP information type response item SSB Information unsupported\n");
@@ -4861,7 +5020,7 @@ bool decode_trp_information_resp(const F1AP_F1AP_PDU_t *pdu, f1ap_trp_informatio
           for (int j = 0; j < trp_info_type_resp_item_len; j++) {
             f1ap_trp_information_type_response_item_t *trp_info_type_resp_item =
                 &trp_info_resp_list->trp_information_type_response_item[j];
-            decode_trp_info_type_response_item(f1_trp_info_type_resp_list->list.array[j], trp_info_type_resp_item);
+            _F1_CHECK_EXP(decode_trp_info_type_response_item(f1_trp_info_type_resp_list->list.array[j], trp_info_type_resp_item));
           }
         }
         break;
@@ -4962,6 +5121,11 @@ void free_trp_information_resp(f1ap_trp_information_resp_t *msg)
   for (int i = 0; i < trp_info_item_length; i++) {
     f1ap_trp_information_t *trp_information_item = &trp_information_list->trp_information_item[i];
     f1ap_trp_information_type_response_list_t *trp_info_type_resp_list = &trp_information_item->trp_information_type_response_list;
+    for (int j = 0; j < trp_info_type_resp_list->trp_information_type_response_item_length; j++) {
+      f1ap_trp_information_type_response_item_t *item = &trp_info_type_resp_list->trp_information_type_response_item[j];
+      if (item->present == F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION)
+        free_prs_configuration(&item->choice.prs_configuration);
+    }
     free(trp_info_type_resp_list->trp_information_type_response_item);
   }
   free(msg->trp_information_list.trp_information_item);
