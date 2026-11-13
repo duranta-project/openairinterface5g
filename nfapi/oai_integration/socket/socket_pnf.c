@@ -165,7 +165,7 @@ void *pnf_start_p5_thread(void *ptr)
     int connect_result = pnf_connect_socket(_this);
 
     if (connect_result > 0) {
-      pnf_nr_message_pump(_this);
+      pnf_nr_socket_message_pump(_this);
     } else if (connect_result < 0) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s() Error connecting to P5 socket\n", __FUNCTION__);
       return 0;
@@ -344,7 +344,7 @@ int pnf_connect_socket(pnf_t *pnf)
   return socketConnected;
 }
 
-static int pnf_nr_read_dispatch_message(pnf_t *pnf)
+static int pnf_nr_socket_read_dispatch_message(pnf_t *pnf)
 {
   int socket_connected = 1;
 
@@ -479,7 +479,7 @@ static int pnf_nr_read_dispatch_message(pnf_t *pnf)
   return socket_connected;
 }
 
-int pnf_nr_message_pump(pnf_t *pnf)
+int pnf_nr_socket_message_pump(pnf_t *pnf)
 {
   uint8_t socketConnected = 1;
 
@@ -511,7 +511,7 @@ int pnf_nr_message_pump(pnf_t *pnf)
     }
 
     if (FD_ISSET(pnf->p5_sock, &rfds)) {
-      socketConnected = pnf_nr_read_dispatch_message(pnf);
+      socketConnected = pnf_nr_socket_read_dispatch_message(pnf);
     } else {
       NFAPI_TRACE(NFAPI_TRACE_WARN, "Why are we here\n");
     }
@@ -634,7 +634,7 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
   pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7, &(pnf_p7->reassembly_queue), rx_hr_time, 10000);
 }
 
-static void pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now_hr_time)
+static void pnf_nr_socket_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now_hr_time)
 {
   int recvfrom_result = 0;
   struct sockaddr_in remote_addr;
@@ -695,7 +695,7 @@ static void pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now
   } while (recvfrom_result > 0);
 }
 
-int pnf_nr_p7_message_pump(pnf_p7_t *pnf_p7)
+static int pnf_nr_socket_p7_message_pump(pnf_p7_t *pnf_p7)
 {
   // initialize the mutex lock
   if (pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0) {
@@ -828,7 +828,7 @@ int pnf_nr_p7_message_pump(pnf_p7_t *pnf_p7)
     if (FD_ISSET(pnf_p7->p7_sock, &rfds))
 
     {
-      pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time);
+      pnf_nr_socket_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time);
     }
   }
   NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF_P7 Terminating..\n");
@@ -858,7 +858,7 @@ static int local_nfapi_nr_pnf_p7_start(nfapi_nr_pnf_p7_config_t *config)
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
 
-  pnf_nr_p7_message_pump(_this);
+  pnf_nr_socket_p7_message_pump(_this);
 
   return 0;
 }

@@ -4,10 +4,16 @@
  * Copyright 2017 Cisco Systems, Inc.
  */
 
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <netinet/sctp.h>
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
 #include "pnf.h"
@@ -442,4 +448,119 @@ void pnf_nr_handle_p5_message(pnf_t* pnf, void* pRecvMsg, int recvMsgLen)
       }
     } break;
   }
+}
+
+static int pnf_nr_read_dispatch_message(pnf_t *pnf)
+{
+  int socket_connected = 1;
+
+  uint32_t header_buffer_size = NFAPI_HEADER_LENGTH;
+  uint8_t header_buffer[header_buffer_size];
+
+  uint32_t stack_buffer_size = 32;
+  uint8_t stack_buffer[stack_buffer_size];
+
+  uint8_t *dynamic_buffer = 0;
+  uint8_t *read_buffer = &stack_buffer[0];
+  uint32_t message_size = 0;
+
+  struct sockaddr_in addr;
+  socklen_t addr_len = sizeof(addr);
+
+  struct sctp_sndrcvinfo sndrcvinfo;
+  (void)memset(&sndrcvinfo, 0, sizeof(struct sctp_sndrcvinfo));
+
+  {
+    int flags = MSG_PEEK;
+    message_size = sctp_recvmsg(pnf->p5_sock, header_buffer, header_buffer_size, 0, 0, &sndrcvinfo, &flags);
+
+    if (message_size == -1) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF Failed to peek sctp message size errno:%d\n", errno);
+      return 0;
+    }
+
+    nfapi_p4_p5_message_header_t header;
+    int unpack_result = nfapi_p5_message_header_unpack(header_buffer, header_buffer_size, &header, sizeof(header), 0);
+    if (unpack_result < 0) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF Failed to unpack p5 message header\n");
+      return 0;
+    }
+    message_size = header.message_length + header_buffer_size;
+  }
+
+  if (message_size > stack_buffer_size) {
+    dynamic_buffer = malloc_or_fail(message_size);
+    if (dynamic_buffer == NULL) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF Failed to allocate dynamic buffer for sctp_recvmsg size:%d\n", message_size);
+      return -1;
+    }
+    read_buffer = dynamic_buffer;
+  }
+
+  {
+    int flags = 0;
+    (void)memset(&sndrcvinfo, 0, sizeof(struct sctp_sndrcvinfo));
+
+    int recvmsg_result =
+        sctp_recvmsg(pnf->p5_sock, read_buffer, message_size, (struct sockaddr *)&addr, &addr_len, &sndrcvinfo, &flags);
+    if (recvmsg_result == -1) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "Failed to read sctp message size errno:%d\n", errno);
+    } else {
+      if (flags & MSG_NOTIFICATION) {
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "Notification received from %s:%u\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+      } else {
+        if ((flags & 0x80) == 0x80) {
+          pnf_nr_handle_p5_message(pnf, read_buffer, message_size);
+        } else {
+          NFAPI_TRACE(NFAPI_TRACE_WARN, "sctp_recvmsg: unhandled mode with flags 0x%x\n", flags);
+          socket_connected = 0;
+        }
+      }
+    }
+  }
+
+  if (dynamic_buffer)
+    free(dynamic_buffer);
+
+  return socket_connected;
+}
+
+int pnf_nr_message_pump(pnf_t *pnf)
+{
+  uint8_t socketConnected = 1;
+
+  while (socketConnected && pnf->terminate == 0) {
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(pnf->p5_sock, &rfds);
+
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+
+    int selectRetval = select(pnf->p5_sock + 1, &rfds, NULL, NULL, &timeout);
+
+    if (selectRetval == 0) {
+      continue;
+    } else if (selectRetval == -1 && (errno == EINTR)) {
+      NFAPI_TRACE(NFAPI_TRACE_WARN, "P5 Signal Interrupt %d\n", errno);
+      continue;
+    } else if (selectRetval == -1) {
+      NFAPI_TRACE(NFAPI_TRACE_WARN, "P5 select() failed\n");
+      sleep(1);
+      continue;
+    }
+
+    if (FD_ISSET(pnf->p5_sock, &rfds))
+      socketConnected = pnf_nr_read_dispatch_message(pnf);
+    else
+      NFAPI_TRACE(NFAPI_TRACE_WARN, "Why are we here\n");
+  }
+
+  pnf->_nr_public.state = NFAPI_PNF_IDLE;
+
+  if (close(pnf->p5_sock) < 0)
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "close(sctpSock) failed errno: %d\n", errno);
+
+  return 0;
 }

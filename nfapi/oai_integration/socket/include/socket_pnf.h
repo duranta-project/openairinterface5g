@@ -14,7 +14,7 @@
 #include "nr_nfapi_p7.h"
 
 int pnf_connect_socket(pnf_t *pnf);
-int pnf_nr_message_pump(pnf_t *pnf);
+int pnf_nr_socket_message_pump(pnf_t *pnf);
 bool pnf_nr_send_p5_message(pnf_t *pnf, nfapi_nr_p4_p5_message_header_t *msg, uint32_t msg_len);
 bool pnf_nr_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_header_t* header, uint32_t msg_len);
 void *pnf_start_p5_thread(void *ptr);

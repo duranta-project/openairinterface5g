@@ -4,10 +4,14 @@
  * Copyright 2017 Cisco Systems, Inc.
  */
 
+#include <sys/socket.h>
 #include <sys/time.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <errno.h>
 #include "pnf_p7.h"
 #include "nr_fapi_p7_utils.h"
 #include "common/ran_context.h"
@@ -542,4 +546,155 @@ void pnf_nr_handle_p7_vendor_extension(void* pRecvMsg, int recvMsgLen, pnf_p7_t*
 
   if (pnf_p7->_nr_public.deallocate_p7_vendor_ext)
     pnf_p7->_nr_public.deallocate_p7_vendor_ext(msg);
+}
+
+static void pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now_hr_time)
+{
+  int recvfrom_result = 0;
+  struct sockaddr_in remote_addr;
+  socklen_t remote_addr_size = sizeof(remote_addr);
+
+  do {
+    uint8_t header_buffer[NFAPI_P7_HEADER_LENGTH];
+    recvfrom_result = recvfrom(pnf_p7->p7_sock,
+                               header_buffer,
+                               NFAPI_P7_HEADER_LENGTH,
+                               MSG_DONTWAIT | MSG_PEEK,
+                               (struct sockaddr *)&remote_addr,
+                               &remote_addr_size);
+
+    if (recvfrom_result > 0) {
+      nfapi_p7_message_header_t header;
+      nfapi_p7_message_header_unpack(header_buffer, NFAPI_P7_HEADER_LENGTH, &header, 34, 0);
+
+      if (header.message_length > pnf_p7->rx_message_buffer_size) {
+        pnf_p7->rx_message_buffer = realloc(pnf_p7->rx_message_buffer, header.message_length);
+        pnf_p7->rx_message_buffer_size = header.message_length;
+      }
+
+      recvfrom_result = recvfrom(pnf_p7->p7_sock,
+                                 pnf_p7->rx_message_buffer,
+                                 pnf_p7->rx_message_buffer_size,
+                                 MSG_DONTWAIT | MSG_TRUNC,
+                                 (struct sockaddr *)&remote_addr,
+                                 &remote_addr_size);
+
+      now_hr_time = pnf_get_current_time_hr();
+
+      if (recvfrom_result > 0) {
+        if (recvfrom_result != header.message_length) {
+          NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                      "(%d) Received unexpected number of bytes. %d != %d",
+                      __LINE__,
+                      recvfrom_result,
+                      header.message_length);
+          break;
+        }
+        pnf_nr_handle_p7_message(pnf_p7->rx_message_buffer, recvfrom_result, pnf_p7, now_hr_time);
+      }
+    } else if (recvfrom_result == 0) {
+      recvfrom_result =
+          recvfrom(pnf_p7->p7_sock, header_buffer, 0, MSG_DONTWAIT, (struct sockaddr *)&remote_addr, &remote_addr_size);
+    }
+
+    if (recvfrom_result == -1) {
+      if (errno != EAGAIN && errno != EWOULDBLOCK)
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "%s recvfrom failed errno:%d\n", __FUNCTION__, errno);
+    }
+  } while (recvfrom_result > 0);
+}
+
+int pnf_nr_p7_message_pump(pnf_p7_t *pnf_p7)
+{
+  if (pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 mutex init: %d\n", errno);
+    return -1;
+  }
+
+  if (pthread_mutex_init(&(pnf_p7->pack_mutex), NULL) != 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 mutex init: %d\n", errno);
+    pthread_mutex_destroy(&(pnf_p7->mutex));
+    return -1;
+  }
+
+  if ((pnf_p7->p7_sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 socket errno: %d\n", errno);
+    return -1;
+  }
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF P7 socket created (%d)...\n", pnf_p7->p7_sock);
+
+  int reuseaddr_enable = 1;
+  if (setsockopt(pnf_p7->p7_sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_enable, sizeof(int)) < 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF P7 setsockopt (SOL_SOCKET, SO_REUSEADDR) failed errno: %d\n", errno);
+    return -1;
+  }
+
+  int iptos_value = 0;
+  if (setsockopt(pnf_p7->p7_sock, IPPROTO_IP, IP_TOS, &iptos_value, sizeof(iptos_value)) < 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF P7 setsockopt (IPPROTO_IP, IP_TOS) failed errno: %d\n", errno);
+    return -1;
+  }
+
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(pnf_p7->_nr_public.local_p7_port);
+
+  if (pnf_p7->_nr_public.local_p7_addr == 0) {
+    addr.sin_addr.s_addr = INADDR_ANY;
+  } else {
+    if (inet_aton(pnf_p7->_nr_public.local_p7_addr, &addr.sin_addr) == -1)
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "inet_aton failed\n");
+  }
+
+  NFAPI_TRACE(NFAPI_TRACE_INFO,
+              "PNF P7 binding %d to %s:%d\n",
+              pnf_p7->p7_sock,
+              inet_ntoa(addr.sin_addr),
+              ntohs(addr.sin_port));
+  if (bind(pnf_p7->p7_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF_P7 bind error fd:%d errno: %d\n", pnf_p7->p7_sock, errno);
+    return -1;
+  }
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF P7 bind succeeded...\n");
+
+  while (pnf_p7->terminate == 0) {
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(pnf_p7->p7_sock, &rfds);
+
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+
+    int selectRetval = select(pnf_p7->p7_sock + 1, &rfds, NULL, NULL, &timeout);
+
+    uint32_t now_hr_time = pnf_get_current_time_hr();
+
+    if (selectRetval == 0) {
+      continue;
+    } else if (selectRetval == -1 && (errno == EINTR)) {
+      NFAPI_TRACE(NFAPI_TRACE_WARN, "PNF P7 Signal Interrupt %d\n", errno);
+      continue;
+    } else if (selectRetval == -1) {
+      NFAPI_TRACE(NFAPI_TRACE_WARN, "PNF P7 select() failed\n");
+      sleep(1);
+      continue;
+    }
+
+    if (FD_ISSET(pnf_p7->p7_sock, &rfds))
+      pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time);
+  }
+  NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF_P7 Terminating..\n");
+
+  if (close(pnf_p7->p7_sock) < 0)
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "close failed errno: %d\n", errno);
+
+  if (pthread_mutex_destroy(&(pnf_p7->pack_mutex)) != 0)
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "mutex destroy failed errno: %d\n", errno);
+
+  if (pthread_mutex_destroy(&(pnf_p7->mutex)) != 0)
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "mutex destroy failed errno: %d\n", errno);
+
+  return 0;
 }
