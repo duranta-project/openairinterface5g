@@ -800,6 +800,43 @@ static uci_on_pusch_bit_type_t *nr_data_control_mapping(const nfapi_nr_ue_pusch_
   return template;
 }
 
+static const char *pusch_precoding_weights(int n_ports, int n_layers, int pmi, int port)
+{
+  switch (n_ports) {
+    case 1:
+      return nr_W_1l_2p[pmi][port];
+    case 2:
+      return n_layers == 1 ? nr_W_1l_2p[pmi][port] : nr_W_2l_2p[pmi][port];
+    case 4:
+      switch (n_layers) {
+        case 1:
+          return nr_W_1l_4p[pmi][port];
+        case 2:
+          return nr_W_2l_4p[pmi][port];
+        case 3:
+          return nr_W_3l_4p[pmi][port];
+        default:
+          return nr_W_4l_4p[pmi][port];
+      }
+    default:
+      LOG_D(PHY, "Precoding 1,2, or 4 antenna ports are currently supported\n");
+      return nr_W_1l_2p[pmi][port];
+  }
+}
+
+static int pusch_precoding_power(int n_ports, int n_layers, int pmi)
+{
+  if (pmi == 0)
+    return n_layers;
+  int power = 0;
+  for (int port = 0; port < n_ports; port++) {
+    const char *weights = pusch_precoding_weights(n_ports, n_layers, pmi, port);
+    for (int layer = 0; layer < n_layers; layer++)
+      power += weights[layer] != '0';
+  }
+  return power;
+}
+
 void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
                             const uint32_t frame,
                             const uint8_t slot,
@@ -1155,6 +1192,13 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
   c16_t tx_precoding[Nl][slot_sz];
   memset(tx_precoding, 0, sizeof(tx_precoding));
 
+  // PUSCH transmit power of the MAC (TS 38.213 7.1) over the data REs of all TX ports:
+  // - the modulation tables have a mean power of 1/2 at amplitude AMP, so a data RE of one layer has 1/2 of the power
+  //   nr_ue_ul_amplitude() assumes;
+  // - the integer precoding tables omit their normalization factor: count the nonzero (unit-magnitude) weights.
+  // DMRS and PTRS get the same gain, which keeps their power ratio to the data as without calibration.
+  const int precoding_power = pusch_precoding_power(frame_parms->nb_antennas_tx, Nl, pusch_pdu->Tpmi);
+  const int tx_amp = nr_ue_ul_amplitude(UE, pusch_pdu->tx_power, nb_rb * NR_NB_SC_PER_RB * precoding_power / 2);
   for (int nl = 0; nl < Nl; nl++) {
 #ifdef DEBUG_PUSCH_MAPPING
     printf("NR_ULSCH_UE: Value of CELL ID %d /t, u %d \n", frame_parms->Nid_cell, u);
@@ -1194,12 +1238,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
                                     .num_cdm_no_data = cdm_grps_no_data};
 
     map_symbols(params, slot, dmrs_seq, data, tx_precoding[nl]);
-    // PUSCH transmit power of the MAC (TS 38.213 7.1), split evenly over the layers: data, DMRS and PTRS together
-    nr_ue_ul_scale_symbols(tx_precoding[nl],
-                           frame_parms->ofdm_symbol_size,
-                           start_symbol,
-                           number_of_symbols,
-                           nr_ue_ul_amplitude(UE, pusch_pdu->tx_power - (int)lround(10 * log10(Nl)), nb_rb * NR_NB_SC_PER_RB));
+    nr_ue_ul_scale_symbols(tx_precoding[nl], frame_parms->ofdm_symbol_size, start_symbol, number_of_symbols, tx_amp);
 
   } // for (nl=0; nl < Nl; nl++)
 
@@ -1228,33 +1267,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
             memset(&txdataF[ap][re_offset], 0, NR_NB_SC_PER_RB * sizeof(c16_t));
           k += NR_NB_SC_PER_RB;
         } else {
-          // get the precoding matrix weights:
-          const char *W_prec;
-          switch (frame_parms->nb_antennas_tx) {
-            case 1: // 1 antenna port
-              W_prec = nr_W_1l_2p[pmi][ap];
-              break;
-            case 2: // 2 antenna ports
-              if (pusch_pdu->nrOfLayers == 1) // 1 layer
-                W_prec = nr_W_1l_2p[pmi][ap];
-              else // 2 layers
-                W_prec = nr_W_2l_2p[pmi][ap];
-              break;
-            case 4: // 4 antenna ports
-              if (pusch_pdu->nrOfLayers == 1) // 1 layer
-                W_prec = nr_W_1l_4p[pmi][ap];
-              else if (pusch_pdu->nrOfLayers == 2) // 2 layers
-                W_prec = nr_W_2l_4p[pmi][ap];
-              else if (pusch_pdu->nrOfLayers == 3) // 3 layers
-                W_prec = nr_W_3l_4p[pmi][ap];
-              else // 4 layers
-                W_prec = nr_W_4l_4p[pmi][ap];
-              break;
-            default:
-              LOG_D(PHY, "Precoding 1,2, or 4 antenna ports are currently supported\n");
-              W_prec = nr_W_1l_2p[pmi][ap];
-              break;
-          }
+          const char *W_prec = pusch_precoding_weights(frame_parms->nb_antennas_tx, Nl, pmi, ap);
 
           for (int i = 0; i < NR_NB_SC_PER_RB; i++) {
             int32_t re_offset = l * frame_parms->ofdm_symbol_size + k;

@@ -309,12 +309,9 @@ void ue_srs_procedures_nr(PHY_VARS_NR_UE *ue,
 
   nr_srs_info_t nr_srs_info = {0};
   configure_srs_info(srs_config_pdu, &nr_srs_info);
-  // SRS transmit power of the MAC (TS 38.213 7.3): over the comb REs of the SRS bandwidth, split over the ports
-  const int K_TC = 2 << nr_srs_info.comb_size;
-  const int srs_ports = max(1, min((int)nr_srs_info.n_srs_ports, (int)frame_parms->nb_antennas_tx));
-  const int srs_amp = nr_ue_ul_amplitude(ue,
-                                         srs_config_pdu->tx_power - (int)lround(10 * log10(srs_ports)),
-                                         get_m_srs(nr_srs_info.C_SRS, nr_srs_info.B_SRS) * NR_NB_SC_PER_RB / K_TC);
+  // SRS transmit power of the MAC (TS 38.213 7.3): generate_srs_nr() already raises the amplitude by the ratio of the FFT size
+  // to the SRS REs and splits it over the ports, so the power is given over the whole symbol
+  const int srs_amp = nr_ue_ul_amplitude(ue, srs_config_pdu->tx_power, frame_parms->ofdm_symbol_size);
   uint16_t symbol_offset = l0 * frame_parms->ofdm_symbol_size;
   bool generated = generate_srs_nr(frame_parms,
                                    txdataF,
@@ -1456,18 +1453,27 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   free_and_zero(phy_data->pdsch_rxdataF);
 }
 
+/* the time domain power of the preamble depends on its format, the PRACH subcarrier spacing and the sequence length
+ * (839 or 139), which a reconfiguration can change while the format stays the same */
+static int prach_energy_key(const PHY_VARS_NR_UE *ue, int format)
+{
+  const fapi_nr_prach_config_t *prach_config = &ue->nrUE_config.prach_config;
+  return format | prach_config->prach_sub_c_spacing << 8 | prach_config->prach_sequence_length << 16;
+}
+
 /* PRACH transmit power of the MAC (TS 38.213 7.4) when the radio knows its TX power: the preamble has a constant
- * amplitude, so its time domain power at AMP is measured once per format (generate_nr_prach() returns it), and the
- * amplitude is set so that this power, relative to a full-scale sample, matches the request */
+ * amplitude, so its time domain power at AMP is measured once per format, subcarrier spacing and sequence length
+ * (generate_nr_prach() returns it), and the amplitude is set so that this power, relative to a full-scale sample,
+ * matches the request */
 static int16_t prach_amplitude(PHY_VARS_NR_UE *ue, NR_UE_PRACH *prach_var, int power_dBm, int frame, int slot, c16_t **txData)
 {
   const openair0_config_t *cfg = &openair0_cfg_g[ue->rf_map.card];
   if (!cfg->tx_power_calibrated)
     return AMP;
-  const int format = prach_var->prach_pdu.prach_format;
-  if (prach_var->energy_at_amp <= 0 || prach_var->energy_format != format) {
+  const int key = prach_energy_key(ue, prach_var->prach_pdu.prach_format);
+  if (prach_var->energy_at_amp <= 0 || prach_var->energy_key != key) {
     prach_var->energy_at_amp = generate_nr_prach(ue, 0, frame, slot, AMP, txData); // overwritten by the real one
-    prach_var->energy_format = format;
+    prach_var->energy_key = key;
   }
   if (prach_var->energy_at_amp <= 0)
     return AMP;
