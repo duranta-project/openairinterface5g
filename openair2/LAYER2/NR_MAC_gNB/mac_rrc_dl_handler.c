@@ -1144,11 +1144,9 @@ static void process_reestablishment(gNB_MAC_INST *mac, uint32_t new_dl_rrc_id, u
   if (!oldUE) {
     /* No matching UE-associated logical F1-connection for the old gNB-DU UE F1AP ID.
      * Per TS 38.473, if there's no matching connection, there's nothing to release. */
-    // Cross-DU re-establishment: hold off reconfiguration on Msg3 C-RNTI
     LOG_W(NR_MAC,
           "DL RRC Message Transfer: old gNB-DU UE F1AP ID %04x has no matching UE-associated F1-connection, nothing to relese\n",
           old_dl_rrc_id);
-    UE->reestablish_rlc = true;
     /* Clean up any F1 UE data associated with the old gNB-DU UE F1AP ID */
     if (du_exists_f1_ue_data(old_dl_rrc_id))
       du_remove_f1_ue_data(old_dl_rrc_id);
@@ -1288,6 +1286,13 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
       NR_SCHED_UNLOCK(&mac->sched_lock);
     } else
       LOG_E(NR_MAC, "Current and old gNB DU UE ID are the same (%04x), cannot do reestablishment\n", dl_rrc->gNB_DU_ue_id);
+  } else if (dl_rrc->srb_id == 1) {
+    // RRCReestablishment from another DU (SRB1, no old gNB-DU UE ID, UE in RA): hold off reconfiguration on Msg3 C-RNTI
+    NR_SCHED_LOCK(&mac->sched_lock);
+    NR_UE_info_t *UE = find_ra_ue(&mac->UE_info, dl_rrc->gNB_DU_ue_id);
+    if (UE)
+      UE->reestablish_rlc = true;
+    NR_SCHED_UNLOCK(&mac->sched_lock);
   }
   /* the DU ue id is the RNTI */
   nr_rlc_srb_recv_sdu(dl_rrc->gNB_DU_ue_id, dl_rrc->srb_id, dl_rrc->rrc_container, dl_rrc->rrc_container_length);
