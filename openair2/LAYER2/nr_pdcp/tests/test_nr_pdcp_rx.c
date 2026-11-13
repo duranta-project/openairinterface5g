@@ -26,10 +26,6 @@ static void deliver_sdu(void *data, nr_pdcp_entity_t *e, char *buf, int size, co
   out[nout++] = count;
 }
 
-static void deliver_pdu(void *data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id)
-{
-}
-
 static nr_pdcp_entity_t *new_drb(int sn_size)
 {
   nr_pdcp_entity_security_keys_and_algos_t sec = {0};
@@ -41,8 +37,6 @@ static nr_pdcp_entity_t *new_drb(int sn_size)
                                            false,
                                            false,
                                            deliver_sdu,
-                                           NULL,
-                                           deliver_pdu,
                                            NULL,
                                            sn_size,
                                            T_REORDERING_MS,
