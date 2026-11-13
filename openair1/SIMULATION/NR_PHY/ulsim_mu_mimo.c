@@ -170,7 +170,7 @@ int main(int argc, char *argv[])
 
   double DS_TDL = .03;
   int threadCnt = 0;
-  int max_ldpc_iterations = 5;
+  int max_ldpc_iterations = 6;
   int num_antennas_per_thread = 1;
   uint32_t log_format = 0;
   int threequarter_fs = 0;
