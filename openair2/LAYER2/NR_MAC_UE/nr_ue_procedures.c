@@ -1493,22 +1493,19 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   AssertFatal(max_mimo_layers > 0, "Invalid number of max MIMO layers for PDSCH\n");
 
   dlsch_pdu->n_front_load_symb = 1; // default value
-  set_antenna_port_parameters(dlsch_pdu, cw0 + cw1, max_length, dmrs_type, dci->antenna_ports.val);
-  // reserved antenna_ports values give no DMRS CDM group: possibly a false DCI
-  if (dlsch_pdu->n_dmrs_cdm_groups < 1 || dlsch_pdu->n_dmrs_cdm_groups > 3) {
-    LOG_W(MAC,
-          "[%d.%d] antenna_ports value %d (%d codewords) is reserved. Possibly due to false DCI. Ignoring DCI!\n",
+  if (!set_antenna_port_parameters(dlsch_pdu, cw0 + cw1, max_length, dmrs_type, dci->antenna_ports.val)) {
+    LOG_W(NR_MAC,
+          "[%d.%d] reserved antenna_ports value %d. Possibly due to false DCI. Ignoring DCI!\n",
           frame,
           slot,
-          dci->antenna_ports.val,
-          cw0 + cw1);
+          dci->antenna_ports.val);
     return -1;
   }
   // one layer per DMRS port: the UE is not configured for more than maxMIMO-Layers (TS 38.331 PDSCH-ServingCellConfig), and
   // its PDSCH buffers are sized for that many layers
   const int n_layers = __builtin_popcount(dlsch_pdu->dmrs_ports);
   if (n_layers > max_mimo_layers) {
-    LOG_W(MAC,
+    LOG_W(NR_MAC,
           "[%d.%d] antenna_ports value %d gives %d layers, more than the %d configured. Possibly due to false DCI. Ignoring DCI!\n",
           frame,
           slot,
