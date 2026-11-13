@@ -840,7 +840,7 @@ set(PHY_SRC
   ${OPENAIR1_DIR}/PHY/LTE_TRANSPORT/dlsch_modulation.c
   ${OPENAIR1_DIR}/PHY/LTE_TRANSPORT/ulsch_demodulation.c
   ${OPENAIR1_DIR}/PHY/LTE_ESTIMATION/lte_ul_channel_estimation.c
-  ${OPENAIR1_DIR}/PHY/LTE_ESTIMATION/freq_equalization.c  
+  ${OPENAIR1_DIR}/PHY/LTE_ESTIMATION/freq_equalization.c
   ${OPENAIR1_DIR}/PHY/LTE_ESTIMATION/lte_adjust_sync_eNB.c
   ${OPENAIR1_DIR}/PHY/LTE_TRANSPORT/dci_tools.c
   ${OPENAIR1_DIR}/PHY/LTE_TRANSPORT/pbch.c
@@ -1808,6 +1808,7 @@ add_executable(nr-softmodem
   ${OPENAIR_DIR}/common/utils/lte/prach_utils.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   )
+target_link_libraries(nr-softmodem PRIVATE cpu_features)
 
 target_link_libraries(nr-softmodem PRIVATE
   -Wl,--start-group
@@ -1881,7 +1882,7 @@ add_executable(nr-uesoftmodem
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   ${NFAPI_USER_DIR}/nfapi.c
   )
-
+target_link_libraries(nr-uesoftmodem PRIVATE cpu_features)
 target_link_libraries(nr-uesoftmodem PRIVATE
   -Wl,--start-group
   nr_rrc SECURITY UTIL SCHED_NR_UE_LIB
