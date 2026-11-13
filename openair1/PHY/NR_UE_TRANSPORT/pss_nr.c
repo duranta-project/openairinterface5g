@@ -189,6 +189,7 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
   }
   int pss_count = 0;
   nr_pss_info_t pss_info = {0};
+  uint64_t sequence_peak[NUMBER_PSS_SEQUENCE] = {0};
   for (int nid2 = pss_start; nid2 < pss_end; nid2++) {
     int64_t peak_value = 0;
     int peak_position = 0;
@@ -217,6 +218,7 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
 
     int64_t avg = sum / (trials * p->nb_antennas_rx);
     peak_value /= p->nb_antennas_rx;
+    sequence_peak[nid2] = peak_value;
     bool pss_found =
         peak_position >= p->nb_prefix_samples // if peak position is in first samples, we can't make the iDFT for SSS detection
         && peak_value > PSS_THRESHOLD * avg;
@@ -227,6 +229,8 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
         .pos = peak_position,
         .avg = dB_fixed64(avg),
         .success = pss_found,
+        .peak_raw = peak_value,
+        .avg_raw = avg,
     };
 
     pss_info.pss_elem_info[pss_count].freq_offset = 0;
@@ -255,6 +259,14 @@ nr_pss_info_t pss_search_time_nr(const pss_search_t *p)
     }
 
     pss_count++;
+  }
+
+  for (int candidate = 0; candidate < pss_count; candidate++) {
+    const int candidate_nid2 = pss_info.pss_elem_info[candidate].nid2;
+    for (int nid2 = pss_start; nid2 < pss_end; nid2++) {
+      if (nid2 != candidate_nid2 && sequence_peak[nid2] > pss_info.pss_elem_info[candidate].second_sequence_peak_raw)
+        pss_info.pss_elem_info[candidate].second_sequence_peak_raw = sequence_peak[nid2];
+    }
   }
 
   // Sort array in descending order using pss_peak as sorting criterion.
