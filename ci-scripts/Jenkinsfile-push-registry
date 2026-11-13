@@ -12,10 +12,10 @@ if (params.LockResources != null && params.LockResources.trim().length() > 0)
   params.LockResources.trim().split(",").each{lockResources += [resource: it.trim()]}
 
 // Docker Hub account to push to
-def DH_Account = "oaisoftwarealliance"
+def DH_Account = params.DH_Account
 
-// internal registry to use
-def OAI_Registry = "gracehopper3-oai.sboai.cs.eurecom.fr"
+// Internal Registry to use
+def OAI_Registry = params.OAI_Registry
 
 pipeline {
   agent {
@@ -40,49 +40,47 @@ pipeline {
             echo "no LockResources given"
             allParametersPresent = false
           }
+          if (!DH_Account || !OAI_Registry) {
+            error "DH_Account and OAI_Registry parameters are required"
+          }
         }
       }
     }
     stage ("Push to DockerHub") {
       steps {
         script {
-          def WEEK_TAG = sh returnStdout: true, script: 'date +"%Y.w%V"'
-          WEEK_TAG = WEEK_TAG.trim()
-          if ((params.forceTag != null) && (params.tagToUse != null)) {
-            if (params.forceTag) {
-              WEEK_TAG = params.tagToUse
-              echo "Forced Tag is ${WEEK_TAG}"
-            }
+          def IMAGE_TAG = params.releaseTag?.trim() ?: params.weeklyTag?.trim()
+          def COMMIT_SHA
+          if (IMAGE_TAG) {
+            // A given tag publishes the CI images built from the tagged commit
+            sh "git fetch --force origin tag ${IMAGE_TAG} --no-tags"
+            COMMIT_SHA = sh(returnStdout: true, script: "git rev-parse --verify ${IMAGE_TAG}^{commit}").trim()
+          } else {
+            IMAGE_TAG = sh(returnStdout: true, script: 'date +"%Y.w%V"').trim()
+            COMMIT_SHA = sh(returnStdout: true, script: 'git log -n1 --pretty=format:"%H" origin/develop').trim()
           }
-          def WEEK_SHA = sh returnStdout: true, script: 'git log -n1 --pretty=format:"%H" origin/develop'
-          WEEK_SHA = WEEK_SHA.trim()
+          echo "Tag is ${IMAGE_TAG} (commit ${COMMIT_SHA})"
 
           withCredentials([
-            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password']
+            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password'],
+            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.REGISTRY_Credentials}", usernameVariable: 'REGISTRY_Username', passwordVariable: 'REGISTRY_Password']
           ]) {
             def listOfImages = ["oai-enb", "oai-gnb", "oai-lte-ue", "oai-nr-ue", "oai-nr-cuup", "oai-gnb-fhi72"]
-            // Logging in on both registries
-            sh "docker login -u ${DH_Username} -p ${DH_Password} > /dev/null 2>&1"
-            sh "docker login -u oaicicd -p oaicicd ${OAI_Registry} > /dev/null 2>&1"
-            listOfImages.eachWithIndex { item, iindex ->
-              if (["oai-gnb", "oai-nr-ue", "oai-nr-cuup"].contains(item)) {
-                // For images built on AMD64 and ARMv8 Jetson
-                echo "Pushing image '${item}' for both AMD64 and ARM64 architectures with tags: ${WEEK_TAG} and develop"
-                sh "docker rmi ${DH_Account}/${item}:${WEEK_TAG} ${DH_Account}/${item}:develop || true"
-                sh "docker buildx imagetools create --tag ${DH_Account}/${item}:${WEEK_TAG} ${OAI_Registry}/${item}:armv8_develop-${WEEK_SHA} ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
-                sh "docker buildx imagetools create --tag ${DH_Account}/${item}:develop ${OAI_Registry}/${item}:armv8_develop-${WEEK_SHA} ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
-              } else {
-                sh "docker pull --quiet ${OAI_Registry}/${item}:develop-${WEEK_SHA}"
-                sh "docker image tag ${OAI_Registry}/${item}:develop-${WEEK_SHA} ${DH_Account}/${item}:develop"
-                sh "docker image tag ${OAI_Registry}/${item}:develop-${WEEK_SHA} ${DH_Account}/${item}:${WEEK_TAG}"
-                sh "docker push --quiet ${DH_Account}/${item}:develop"
-                sh "docker push --quiet ${DH_Account}/${item}:${WEEK_TAG}"
+            sh 'echo "$DH_Password" | docker login -u "$DH_Username" --password-stdin > /dev/null 2>&1'
+            sh 'echo "$REGISTRY_Password" | docker login -u "$REGISTRY_Username" --password-stdin ' + OAI_Registry + ' > /dev/null 2>&1'
+            listOfImages.each { item ->
+              def tags = "--tag ${DH_Account}/${item}:${IMAGE_TAG}"
+              // Only the automatic run updates develop; a given tag may be older than the latest develop
+              if (!params.releaseTag?.trim() && !params.weeklyTag?.trim()) {
+                tags += " --tag ${DH_Account}/${item}:develop"
               }
-              sh "docker rmi ${DH_Account}/${item}:${WEEK_TAG} ${DH_Account}/${item}:develop ${OAI_Registry}/${item}:develop-${WEEK_SHA} || true"
+              if (["oai-gnb", "oai-nr-ue", "oai-nr-cuup"].contains(item)) {
+                echo "Pushing image '${item}' for both AMD64 and ARM64 architectures"
+                sh "docker buildx imagetools create ${tags} ${OAI_Registry}/${item}:armv8_develop-${COMMIT_SHA} ${OAI_Registry}/${item}:develop-${COMMIT_SHA}"
+              } else {
+                sh "docker buildx imagetools create ${tags} ${OAI_Registry}/${item}:develop-${COMMIT_SHA}"
+              }
             }
-            // Logging out on both registries
-            sh "docker logout ${OAI_Registry} > /dev/null 2>&1"
-            sh "docker logout > /dev/null 2>&1"
           }
         }
       }
@@ -93,7 +91,6 @@ pipeline {
       script {
         sh "docker logout ${OAI_Registry} > /dev/null 2>&1"
         sh "docker logout > /dev/null 2>&1"
-        echo "End of Registry Push"
       }
     }
   }
