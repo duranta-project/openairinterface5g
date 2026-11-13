@@ -469,10 +469,33 @@ static uint16_t prach_raw_delay_to_ta(const prach_item_t *in, uint32_t raw_delay
   return 0;
 }
 
-static int cmp_u64(const void *a, const void *b)
+// median of a[0..n-1] (n > 0) by quickselect: O(n), reorders a
+static uint64_t median_u64(uint64_t *a, int n)
 {
-  const uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
-  return x < y ? -1 : x > y;
+  const int k = n / 2;
+  int lo = 0, hi = n - 1;
+  while (lo < hi) {
+    const uint64_t pivot = a[lo + (hi - lo) / 2];
+    int i = lo, j = hi;
+    while (i <= j) {
+      while (a[i] < pivot)
+        i++;
+      while (a[j] > pivot)
+        j--;
+      if (i <= j) {
+        const uint64_t t = a[i];
+        a[i++] = a[j];
+        a[j--] = t;
+      }
+    }
+    if (k <= j)
+      hi = j;
+    else if (k >= i)
+      lo = i;
+    else
+      break;
+  }
+  return a[k];
 }
 
 rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
@@ -529,8 +552,12 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
      median, not their mean: in a RA burst, tens of preambles of one root fill a quarter of the bins with their peaks
      and the mean rose to a few dB below each peak, so that none was detected, the UEs ramped up to Pcmax and the
      burst never ended */
-  const int max_floor_bins = dft_sz * 64;
-  uint64_t *floor_bin = malloc_or_fail(max_floor_bins * sizeof(*floor_bin));
+  /* The floor is taken on NR_PRACH_FLOOR_BINS_PER_ROOT bins evenly spread over the correlation of each root, and its
+     median found by quickselect: sorting all the bins (up to 64 x 1024) took about 1 ms per occasion, enough to delay
+     the L1 RX thread by slots on a real time system (the RA indication came after the RA window, Msg3 were lost). */
+#define NR_PRACH_FLOOR_BINS_PER_ROOT 32
+  const int floor_stride = dft_sz / NR_PRACH_FLOOR_BINS_PER_ROOT;
+  uint64_t floor_bin[64 * NR_PRACH_FLOOR_BINS_PER_ROOT];
   int floor_bins = 0;
   // peak of each preamble in its search window
   struct pre_peak {
@@ -633,10 +660,9 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
           prach_ifft[i] += squaredMod(tmp);
         }
       }
-      if (floor_bins + dft_sz <= max_floor_bins) {
-        memcpy(floor_bin + floor_bins, prach_ifft, dft_sz * sizeof(*floor_bin));
-        floor_bins += dft_sz;
-      }
+      if (floor_bins + NR_PRACH_FLOOR_BINS_PER_ROOT <= sizeofArray(floor_bin))
+        for (int i = 0; i < dft_sz; i += floor_stride)
+          floor_bin[floor_bins++] = prach_ifft[i];
     }
 
     // Search window of this preamble: its cyclic shift converted to IFFT bins
@@ -685,10 +711,8 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
   // the energy of a noise bin is exponential: its mean is the median / ln(2)
   int floor_db = 0;
   if (floor_bins > 0) {
-    qsort(floor_bin, floor_bins, sizeof(*floor_bin), cmp_u64);
-    floor_db = dB_fixed_times10(max((uint64_t)(floor_bin[floor_bins / 2] / M_LN2), 1));
+    floor_db = dB_fixed_times10(max((uint64_t)(median_u64(floor_bin, floor_bins) / M_LN2), 1));
   }
-  free(floor_bin);
   if (max.energy > 0 && floor_bins > 0)
     out.peak_to_floor = dB_fixed_times10(max.energy) - floor_db;
   if (max.energy > 0) {
