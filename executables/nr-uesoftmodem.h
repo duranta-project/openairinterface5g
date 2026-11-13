@@ -33,6 +33,8 @@ extern uint16_t ue_id_g;
   "Comma-separated cores for DL then UL actors (and SYNC if one spare). Must have at least num-dl-actors + num-ul-actors " \
   "entries; omit for no affinity\n"
 #define  CONFIG_HLP_DISABLE_BLIND_SEARCH   "Disable blind search for UE searches by neighboring cells\n"
+#define CONFIG_HLP_UE_START_SPACING \
+  "Delay in ms between the first cell search of consecutive UE instances (--num-ues), to spread their random accesses\n"
 #define  CONFIG_HLP_RX2TX                  "Defines ue capability in slots to produce an UL feedback from its relative DL meassage (DCI->ULSCH or PDSCH->PUCCH)"
 
 /***************************************************************************************************************************************/
@@ -85,6 +87,7 @@ extern uint16_t ue_id_g;
   {"actor-affinity",               CONFIG_HLP_ACTOR_AFFINITY,  0,               .strptr=&nrUE_params.actor_affinity,         .defstrval=NULL,   TYPE_STRING,   0}, \
   {"disable-blind-search",         CONFIG_HLP_DISABLE_BLIND_SEARCH, PARAMFLAG_BOOL, .iptr=&nrUE_params.disable_blind_search, .defintval=0,      TYPE_INT,      0}, \
   {"ue-capability-rx2tx",          CONFIG_HLP_RX2TX,           0,               .iptr=&nrUE_params.ue_capability_rx2tx,      .defintval=3,      TYPE_INT,      0}, \
+  {"ue-start-spacing",             CONFIG_HLP_UE_START_SPACING, 0,              .iptr=&nrUE_params.ue_start_spacing_ms,      .defintval=0,      TYPE_INT,      0}, \
 }
 // clang-format on
 
@@ -129,6 +132,7 @@ typedef struct {
   char *actor_affinity;
   int disable_blind_search;
   int ue_capability_rx2tx;
+  int ue_start_spacing_ms;
 } nrUE_params_t;
 extern uint64_t get_nrUE_optmask(void);
 extern uint64_t set_nrUE_optmask(uint64_t bitmask);
