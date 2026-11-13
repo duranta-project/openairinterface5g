@@ -1224,10 +1224,10 @@ static void cuup_notify_reestablishment(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p)
  * This function implements the gNB side of the RRC Connection Re-establishment procedure
  * as specified in 3GPP TS 38.331 clause 5.3.7.4.
  * @param ue_context_pP UE context pointer
- * @param old_rnti Previous RNTI of the UE before re-establishment
+ * @param old_gNB_DU_ue_id gNB-DU UE ID of the UE before re-establishment
  * @param du DU container containing cell information for key derivation */
 static void rrc_gNB_generate_RRCReestablishment(rrc_gNB_ue_context_t *ue_context_pP,
-                                                const rnti_t old_rnti,
+                                                uint32_t *old_gNB_DU_ue_id,
                                                 const nr_rrc_cell_container_t *cell)
 {
   module_id_t module_id = 0;
@@ -1284,11 +1284,10 @@ static void rrc_gNB_generate_RRCReestablishment(rrc_gNB_ue_context_t *ue_context
   /* F1AP DL RRC Message Transfer */
   f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_p->rrc_ue_id);
   RETURN_IF_INVALID_ASSOC_ID(ue_data.du_assoc_id);
-  uint32_t old_gNB_DU_ue_id = old_rnti;
   f1ap_dl_rrc_message_t dl_rrc = {.gNB_CU_ue_id = ue_p->rrc_ue_id,
                                   .gNB_DU_ue_id = ue_data.secondary_ue,
                                   .srb_id = DL_SCH_LCID_DCCH,
-                                  .old_gNB_DU_ue_id = &old_gNB_DU_ue_id};
+                                  .old_gNB_DU_ue_id = old_gNB_DU_ue_id};
   deliver_dl_rrc_message_data_t data = {.rrc = rrc, .dl_rrc = &dl_rrc, .assoc_id = ue_data.du_assoc_id};
   nr_pdcp_data_req_srb(ue_p->rrc_ue_id, DL_SCH_LCID_DCCH, rrc_gNB_mui++, size, (unsigned char *const)buffer, rrc_deliver_dl_rrc_message, &data);
 
@@ -1641,6 +1640,7 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
   DevAssert(!source_ctx || source_ctx->cell != NULL);
   const nr_rrc_cell_container_t *source_cell = source_ctx ? source_ctx->cell : NULL;
   bool ho_reestab_on_source = source_cell && current_cell->info.cell_id == source_cell->info.cell_id;
+  bool reestab_different_du = false;
 
   if (ho_reestab_on_source) {
     /* the UE came back on the source DU while doing handover, release at
@@ -1659,14 +1659,16 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
     /* we need the original CellGroupConfig */
     store_cgc(UE, &source_ctx->old_cgc);
 
-    /* update to old DU assoc id -- RNTI + secondary DU UE ID further below */
+    /* update to old DU assoc id and DU UE ID (sent as old gNB-DU UE ID) -- RNTI + new DU UE ID further below */
     ue_data.du_assoc_id = source_cell->assoc_id;
+    ue_data.secondary_ue = source_ctx->du_ue_id;
     bool success = cu_update_f1_ue_data(UE->rrc_ue_id, &ue_data);
     DevAssert(success);
     nr_rrc_finalize_ho(UE);
   } else if (physCellId != current_cell->info.pci) {
     /* Check if this is a different DU scenario or "too fast movement" scenario */
-    if (assoc_id != ue_data.du_assoc_id) {
+    reestab_different_du = assoc_id != ue_data.du_assoc_id;
+    if (reestab_different_du) {
       /* Different DU scenario - physCellId differs because UE is re-establishing on a different DU.
        * Re-establishment is allowed, UE Context Setup will be triggered at RRCReestablishmentComplete. */
       // Store original du_assoc_id and du_ue_id for immediate release
@@ -1710,14 +1712,8 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
       bool success = cu_update_f1_ue_data(UE->rrc_ue_id, &ue_data);
       DevAssert(success);
     } else {
-      /* Same DU but different physCellId - "too fast movement" scenario:
-       * UE was moving from previous cell so quickly that RRCReestablishment for previous cell was received in this cell */
-      LOG_I(NR_RRC,
-            "RRC Reestablishment Request from different physCellId (%ld) than current physCellId (%d), fallback to RRC setup\n",
-            physCellId,
-            current_cell->info.pci);
-      ngap_cause = NGAP_CAUSE_RADIO_NETWORK_RELEASE_DUE_TO_NGRAN_GENERATED_REASON;
-      goto fallback_rrc_setup;
+      /* Same DU but different cell scenario */
+      LOG_I(NR_RRC, "Reestablishment on physCellId %d, UE was on physCellId %ld (same DU)\n", current_cell->info.pci, physCellId);
     }
   }
 
@@ -1727,7 +1723,6 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
   UE->rnti = msg->crnti;
 
   /* Update PCell in serving_cells array */
-  // use current_cell (where the request arrived), not the previous cell
   DevAssert(current_cell->info.cell_id == msg->nr_cellid);
   added = rrc_update_ue_pcell(UE, current_cell);
   if (added == NULL) {
@@ -1735,6 +1730,8 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
     return;
   }
 
+  // update to use new gNB-DU UE ID, retain old for DL RRC transfer
+  uint32_t old_gNB_DU_ue_id = ue_data.secondary_ue;
   ue_data.secondary_ue = msg->gNB_DU_ue_id;
   bool success = cu_update_f1_ue_data(UE->rrc_ue_id, &ue_data);
   DevAssert(success);
@@ -1745,7 +1742,7 @@ static void rrc_handle_RRCReestablishmentRequest(gNB_RRC_INST *rrc,
       UE->xids[xid] = RRC_ACTION_NONE;
     }
   }
-  rrc_gNB_generate_RRCReestablishment(ue_context_p, old_rnti, current_cell);
+  rrc_gNB_generate_RRCReestablishment(ue_context_p, reestab_different_du ? NULL : &old_gNB_DU_ue_id, current_cell);
   return;
 
 fallback_rrc_setup:
