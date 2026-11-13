@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+a program to interact with an USIM simcard via a pl2303-based
+USB simcard reader (tested with usb device 067b:2303 as sold by
+Laurent Thomas' Open Cells company)
+
+Once running, any program connects to it with TCP and sends command to
+retrieve the IMSI and do AUTHENTICATE challenges with the USIM simcard.
+
+todo: support CCID/ICCD readers (through PC/SC instead of pl2303)
