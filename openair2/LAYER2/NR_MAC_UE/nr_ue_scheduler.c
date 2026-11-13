@@ -896,36 +896,45 @@ nfapi_nr_ue_csi_payload_t nr_ue_aperiodic_csi_reporting(NR_UE_MAC_INST_t *mac, d
   int n_ts = csi_request.nbits;
   nfapi_nr_ue_csi_payload_t csi = {0};
   AssertFatal(n_states <= ((1 << n_ts) - 1), "Case of subselection indication of trigger states not supported yet\n");
-  int num_trig = 0;
-  for (int i = 0; i < n_ts; i++) {
-    // A non-zero codepoint of the CSI request field in the DCI is mapped to a CSI triggering state
-    // according to the order of the associated positions of the up to (2^n_ts -1) trigger states
-    // in CSI-AperiodicTriggerStateList with codepoint 1 mapped to the triggering state in the first position
-    if (csi_request.val & (1 << i)) {
-      AssertFatal(num_trig == 0, "Multiplexing more than 1 CSI report is not supported\n");
-      NR_CSI_AperiodicTriggerState_t *trigger_state = aperiodicTriggerStateList->list.array[i];
-      AssertFatal(trigger_state->associatedReportConfigInfoList.list.count == 1,
-                  "Cannot handle more than 1 report configuration per state\n");
-      NR_CSI_AssociatedReportConfigInfo_t *reportconfig = trigger_state->associatedReportConfigInfoList.list.array[0];
-      NR_CSI_ReportConfigId_t id = reportconfig->reportConfigId;
-      NR_CSI_MeasConfig_t *csi_measconfig = mac->sc_info.csi_MeasConfig;
-      int found = -1;
-      for (int c = 0; c < csi_measconfig->csi_ReportConfigToAddModList->list.count; c++) {
-        NR_CSI_ReportConfig_t *report_config = csi_measconfig->csi_ReportConfigToAddModList->list.array[c];
-        if (report_config->reportConfigId == id) {
-          struct NR_CSI_ReportConfig__reportConfigType__aperiodic__reportSlotOffsetList *offset_list = &report_config->reportConfigType.choice.aperiodic->reportSlotOffsetList;
-          AssertFatal(tda < offset_list->list.count, "TDA index from DCI %d exceeds slot offset list %d\n", tda, offset_list->list.count);
-          if (*k2 < *offset_list->list.array[tda])
-            *k2 = *offset_list->list.array[tda];
-          found = c;
-          break;
-        }
+  // A non-zero codepoint of the CSI request field in the DCI is mapped to a CSI triggering state
+  // according to the order of the associated positions of the up to (2^n_ts -1) trigger states
+  // in CSI-AperiodicTriggerStateList with codepoint 1 mapped to the triggering state in the first position
+  // (TS 38.214 5.2.1.5.1): the field is a codepoint, not a bitmap of states
+  if (csi_request.val == 0)
+    return csi;
+  const int state = csi_request.val - 1;
+  if (state >= n_states) {
+    // a false DCI: the gNB never sends a codepoint beyond the configured trigger states
+    LOG_W(NR_MAC, "Ignoring CSI request codepoint %d with %d trigger states (false DCI?)\n", csi_request.val, n_states);
+    return csi;
+  }
+  NR_CSI_AperiodicTriggerState_t *trigger_state = aperiodicTriggerStateList->list.array[state];
+  AssertFatal(trigger_state->associatedReportConfigInfoList.list.count == 1,
+              "Cannot handle more than 1 report configuration per state\n");
+  NR_CSI_AssociatedReportConfigInfo_t *reportconfig = trigger_state->associatedReportConfigInfoList.list.array[0];
+  NR_CSI_ReportConfigId_t id = reportconfig->reportConfigId;
+  NR_CSI_MeasConfig_t *csi_measconfig = mac->sc_info.csi_MeasConfig;
+  int found = -1;
+  for (int c = 0; c < csi_measconfig->csi_ReportConfigToAddModList->list.count; c++) {
+    NR_CSI_ReportConfig_t *report_config = csi_measconfig->csi_ReportConfigToAddModList->list.array[c];
+    if (report_config->reportConfigId == id) {
+      struct NR_CSI_ReportConfig__reportConfigType__aperiodic__reportSlotOffsetList *offset_list =
+          &report_config->reportConfigType.choice.aperiodic->reportSlotOffsetList;
+      if (tda >= offset_list->list.count) {
+        LOG_W(NR_MAC,
+              "Ignoring CSI request: TDA index %d beyond the %d report slot offsets (false DCI?)\n",
+              tda,
+              offset_list->list.count);
+        return csi;
       }
-      AssertFatal(found >= 0, "Couldn't find csi-ReportConfig with ID %ld\n", id);
-      num_trig++;
-      csi = nr_get_csi_payload(mac, found, ON_PUSCH, csi_measconfig);
+      if (*k2 < *offset_list->list.array[tda])
+        *k2 = *offset_list->list.array[tda];
+      found = c;
+      break;
     }
   }
+  AssertFatal(found >= 0, "Couldn't find csi-ReportConfig with ID %ld\n", id);
+  csi = nr_get_csi_payload(mac, found, ON_PUSCH, csi_measconfig);
   return csi;
 }
 

@@ -245,7 +245,7 @@ static void configure_ra_preamble(NR_UE_MAC_INST_t *mac)
     // TODO if the Random Access procedure was initiated for SpCell beam failure recovery
     // TODO if the Random Access procedure was initiated for SI request
 
-    if (ra->pdcch_order.active && ra->pdcch_order.preamble_index != 0xb000000) {
+    if (ra->pdcch_order.active && ra->pdcch_order.preamble_index != 0) {
       // set the PREAMBLE_INDEX to the signalled ra-PreambleIndex;
       ra->ra_PreambleIndex = ra->pdcch_order.preamble_index;
       // select the SSB signalled by PDCCH
@@ -807,7 +807,7 @@ bool init_RA(NR_UE_MAC_INST_t *mac)
 
   // if the Random Access procedure is initiated by PDCCH order
   // and if the ra-PreambleIndex explicitly provided by PDCCH is not 0b000000
-  bool pdcch_order = (ra->pdcch_order.active && ra->pdcch_order.preamble_index != 0xb000000) ? true : false;
+  bool pdcch_order = (ra->pdcch_order.active && ra->pdcch_order.preamble_index != 0) ? true : false;
   // or if the Random Access procedure was initiated for reconfiguration with sync and
   // if the contention-free Random Access Resources for 4-step RA type have been explicitly provided
   // in rach-ConfigDedicated for the BWP selected for Random Access procedure
