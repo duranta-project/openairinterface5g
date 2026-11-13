@@ -18,6 +18,7 @@
 \param p
 \param symbol symbol within slot
 \param pusch_vars lower-phy PUSCH info
+\param ul_ch_estimates where to write the channel estimates of this symbol, [layer * nb_rx + rx][re], ofdm_symbol_size REs
 \param bwp_start_subcarrier first allocated subcarrier
 \param pusch_pdu
 \param max_ch maximum value of estimated channel
@@ -31,6 +32,7 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
                                 uint8_t lp,
                                 unsigned char symbol,
                                 NR_gNB_PUSCH *pusch_vars,
+                                c16_t **ul_ch_estimates,
                                 uint16_t ant_port_start,
                                 unsigned short bwp_start_subcarrier,
                                 const nfapi_nr_pusch_pdu_t *pusch_pdu,
