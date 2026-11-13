@@ -334,8 +334,8 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   /* a timing advance change moves the writes of a UE later by a few samples (at most 31 TA steps): the samples between
      the end of its previous write and this one are never written, and each flush would wait wait_ms for them while all
      the writers are already past them. They are silence of this writer. A write out of order (several TX threads)
-     leaves a gap of a whole slot, more than a grain: still waited for */
-  if (prev_end > 0 && timestamp > prev_end && timestamp - prev_end <= ctx->grain) {
+     leaves a gap of a whole slot, at least a grain: still waited for */
+  if (prev_end > 0 && timestamp > prev_end && timestamp - prev_end < ctx->grain) {
     for (openair0_timestamp_t t = max(prev_end, ctx->nextTS); t < timestamp; t++)
       ctx->nb_writers[t % ctx->sz]++;
   }
