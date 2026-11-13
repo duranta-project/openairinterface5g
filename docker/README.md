@@ -161,6 +161,46 @@ Note that the image is much bigger.
 
 You can also use this docker build arguments to pass any available option(s) on the `build-oai` script.
 
+### 3.2.2. FHI 7.2 build options
+
+`Dockerfile.build.fhi72.ubuntu` builds on x86_64 and aarch64 (e.g. NVIDIA
+Grace Hopper). Build on the target architecture, there is no
+cross-compilation. On aarch64 it also builds the Arm RAN Acceleration Library
+(ArmRAL).
+
+Build arguments:
+
+* `BASE_IMAGE` (default `ran-base:latest`): image to build from
+* `DPDK_VERSION` (default `24.11.4`): DPDK release, built with the mlx5 PMD
+  (Mellanox/NVIDIA NICs)
+* `ENABLE_CUDA` (default `false`): `true` installs the CUDA toolkit and builds
+  the `ldpc_cuda` LDPC offload library
+* `CUDA_VERSION` (default `13.2`): CUDA toolkit version, used only with
+  `ENABLE_CUDA=true`
+
+The compiler comes from the base image. To build everything (UHD and the
+other `ran-base` dependencies, DPDK, xran, ArmRAL and OAI) with another gcc,
+set `GCC_VERSION` when building `ran-base`:
+
+```bash
+docker build --target ran-base --tag ran-base:latest \
+  --file docker/Dockerfile.base.ubuntu --build-arg GCC_VERSION=12 .
+```
+
+For example, a build image with the CUDA LDPC offload (no GPU is needed to
+build it):
+
+```bash
+docker build --target ran-build-fhi72 --tag ran-build-fhi72-cuda:latest \
+  --file docker/Dockerfile.build.fhi72.ubuntu \
+  --build-arg ENABLE_CUDA=true --build-arg CUDA_VERSION=13.2 .
+```
+
+Then pass it to the target image with `BUILD_IMAGE` (see below), and select
+the library at runtime with `--loader.ldpc.shlibversion _cuda`. The container
+needs a GPU, e.g. `docker run --gpus all` or `--gpus '"device=MIG-<uuid>"'`
+for one MIG slice.
+
 ## 3.3. Building any target image ##
 
 For example, the eNB:
@@ -172,7 +212,18 @@ docker build --target oai-enb --tag oai-enb:latest --file docker/Dockerfile.eNB.
 To build gNB/DU with 7.2 fronthaul support:
 
 ```bash
-docker build --target oai-gnb-fhi72 --tag oai-gnb-fhi72:latest --file docker/Dockerfile.gNB.fhi72.ubuntu  .
+docker build --target oai-gnb --tag oai-gnb-fhi72:latest \
+  --file docker/Dockerfile.gNB.fhi72.ubuntu .
+```
+
+`Dockerfile.gNB.fhi72.ubuntu` takes `BASE_IMAGE` (default `ran-base:latest`)
+and `BUILD_IMAGE` (default `ran-build-fhi72:latest`). For the CUDA build image
+of section 3.2.2:
+
+```bash
+docker build --target oai-gnb --tag oai-gnb-fhi72-cuda:latest \
+  --file docker/Dockerfile.gNB.fhi72.ubuntu \
+  --build-arg BUILD_IMAGE=ran-build-fhi72-cuda:latest .
 ```
 
 After a while:
