@@ -646,7 +646,7 @@ uint32_t polar_decoder_int16(const int16_t *input,
                              uint8_t ones_flag,
                              int8_t messageType,
                              uint16_t messageLength,
-                             uint8_t aggregation_level)
+                             int aggregation_level)
 {
   t_nrPolar_params *polarParams = nr_polar_params(messageType, messageLength, aggregation_level);
   const uint N = polarParams->N;
