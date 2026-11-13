@@ -40,18 +40,34 @@
 // an AVX512-FP16 host it runs on FP16 hardware). Fused multiply-adds are the contracted a + b * c (-ffp-contract=fast,
 // the GNU C default).
 #define NRH_GENERIC
+// lanes per vector: 16 (VLEN >= 256, the X100) or 64 (NRH_N_GENERIC=64: VLEN >= 1024, the A100, which issues a
+// 1024-bit operation every 2 cycles; at 16 lanes it would run a quarter-filled register at that rate)
+#ifdef NRH_N_GENERIC
+#define NRH_N NRH_N_GENERIC
+#else
 #define NRH_N 16
+#endif
 // the grid's "no candidate" metric: finite, as the RISC-V build assumes finite math (vfmax for the max-log)
 #define NRH_NEG (-65504.0f)
-typedef _Float16 hv __attribute__((vector_size(32)));
-typedef int16_t hi __attribute__((vector_size(32)));
-typedef int16_t hm __attribute__((vector_size(32))); // lanes all ones / zero
-typedef float hf __attribute__((vector_size(32)));
-typedef int32_t hw __attribute__((vector_size(32)));
-typedef _Float16 hv8 __attribute__((vector_size(16)));
-typedef int16_t hi8 __attribute__((vector_size(16)));
+typedef _Float16 hv __attribute__((vector_size(2 * NRH_N)));
+typedef int16_t hi __attribute__((vector_size(2 * NRH_N)));
+typedef int16_t hm __attribute__((vector_size(2 * NRH_N))); // lanes all ones / zero
+typedef float hf __attribute__((vector_size(2 * NRH_N))); // half the lanes in fp32
+typedef int32_t hw __attribute__((vector_size(2 * NRH_N)));
+typedef _Float16 hv8 __attribute__((vector_size(NRH_N)));
+typedef int16_t hi8 __attribute__((vector_size(NRH_N)));
+#if NRH_N == 16
 #define NRH_LO 0, 1, 2, 3, 4, 5, 6, 7
 #define NRH_HI 8, 9, 10, 11, 12, 13, 14, 15
+#define NRH_EVEN 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30
+#define NRH_ODD 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31
+#endif
+#if NRH_N == 64
+#define NRH_LO 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31
+#define NRH_HI 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63
+#define NRH_EVEN 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80, 82, 84, 86, 88, 90, 92, 94, 96, 98, 100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126
+#define NRH_ODD 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63, 65, 67, 69, 71, 73, 75, 77, 79, 81, 83, 85, 87, 89, 91, 93, 95, 97, 99, 101, 103, 105, 107, 109, 111, 113, 115, 117, 119, 121, 123, 125, 127
+#endif
 static inline hv hv_set1(float x) { return (hv){} + (_Float16)x; }
 static inline hv hv_add(hv a, hv b) { return a + b; }
 static inline hv hv_sub(hv a, hv b) { return a - b; }
@@ -101,10 +117,10 @@ static inline void hi_load_c16(const c16_t *p, hi *re, hi *im) // NRH_N complex,
   hi a, b;
   memcpy(&a, p, sizeof(a));
   memcpy(&b, p + NRH_N / 2, sizeof(b));
-  *re = __builtin_shufflevector(a, b, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30);
-  *im = __builtin_shufflevector(a, b, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31);
+  *re = __builtin_shufflevector(a, b, NRH_EVEN);
+  *im = __builtin_shufflevector(a, b, NRH_ODD);
 }
-// per-RE fp32 scales 2^k (lanes 0-7 / 8-15)
+// per-RE fp32 scales 2^k (lower / upper half of the lanes)
 typedef struct {
   hf lo, hi;
 } hs;
@@ -318,6 +334,41 @@ static inline hv hv_lam(float lam, const hs *up)
 #error "nr_lbest_f16.c needs ARMv8.2 FP16 vector arithmetic, AVX512-FP16 or RISC-V V + Zvfh"
 #endif
 
+// public entry points: the 64-lane RISC-V build exports them as <name>_v1024 (NRH_SUFFIX), and the 16-lane build
+// forwards to those on VLEN >= 1024 cores (NRH_FWD, set when both are built)
+#define NRH_CAT2(a, b) a##b
+#define NRH_CAT(a, b) NRH_CAT2(a, b)
+#ifdef NRH_SUFFIX
+#define NRH_PUB(f) NRH_CAT(f, NRH_SUFFIX)
+#else
+#define NRH_PUB(f) f
+#endif
+#ifdef NRH_FWD
+int nr_lbest_f16_lanes_v1024(void);
+void nr_qam256_llr_2layer_lbest_f16_v1024(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_qam64_llr_2layer_lbest_f16_v1024(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+void nr_inner_rx_2layer_f16_v1024(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, int, int, float, int, int16_t *, int16_t *, int16_t *, const int16_t *);
+void nr_inner_rx_1layer_f16_v1024(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, int, int, int16_t *, const int16_t *);
+static bool nrh_v1024(void)
+{
+  static int w = -1;
+  if (w < 0)
+    w = __riscv_vsetvlmax_e8m1() >= 128;
+  return w;
+}
+#define NRH_FORWARD(call) \
+  if (nrh_v1024()) {      \
+    call;                 \
+    return;               \
+  }
+#define NRH_FORWARD_RET(call) \
+  if (nrh_v1024())            \
+    return call;
+#else
+#define NRH_FORWARD(call)
+#define NRH_FORWARD_RET(call)
+#endif
+
 // ---------------------------------------------------------------------------------------------------------------------
 // detector core
 // ---------------------------------------------------------------------------------------------------------------------
@@ -345,8 +396,9 @@ static inline void nrh_store(int16_t *out, const hi res[8], int Qm)
 #endif
 }
 
-int nr_lbest_f16_lanes(void)
+int NRH_PUB(nr_lbest_f16_lanes)(void)
 {
+  NRH_FORWARD_RET(nr_lbest_f16_lanes_v1024())
   return NRH_N;
 }
 
@@ -411,13 +463,15 @@ static void nrh_lbest(c16_t *s0, c16_t *s1, c16_t *cm0, c16_t *cm1, int16_t *out
     (full ? nrh_lbest_4_1 : nrh_lbest_4_0)(s0, s1, cm0, cm1, out, rho, length, lambda);
 }
 
-void nr_qam256_llr_2layer_lbest_f16(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag, c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01, uint32_t length, int pattern, float lambda)
+void NRH_PUB(nr_qam256_llr_2layer_lbest_f16)(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag, c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01, uint32_t length, int pattern, float lambda)
 {
+  NRH_FORWARD(nr_qam256_llr_2layer_lbest_f16_v1024(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda))
   nrh_lbest(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda, 4);
 }
 
-void nr_qam64_llr_2layer_lbest_f16(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag, c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01, uint32_t length, int pattern, float lambda)
+void NRH_PUB(nr_qam64_llr_2layer_lbest_f16)(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag, c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01, uint32_t length, int pattern, float lambda)
 {
+  NRH_FORWARD(nr_qam64_llr_2layer_lbest_f16_v1024(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda))
   nrh_lbest(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda, 3);
 }
 
@@ -748,7 +802,7 @@ NRH_FUSED_SPEC(4, 0)
 NRH_FUSED_SPEC(4, 1)
 #undef NRH_FUSED_SPEC
 
-void nr_inner_rx_2layer_f16(uint32_t length,
+void NRH_PUB(nr_inner_rx_2layer_f16)(uint32_t length,
                             uint32_t buffer_length,
                             int nb_rx_ant,
                             const c16_t *rxFext,
@@ -763,6 +817,7 @@ void nr_inner_rx_2layer_f16(uint32_t length,
                             int16_t *llr_cw,
                             const int16_t *scramble)
 {
+  NRH_FORWARD(nr_inner_rx_2layer_f16_v1024(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, lambda, output_shift, llr0, llr1, llr_cw, scramble))
   const int full = lbest == 0;
   if (mod_order == 6)
     (full ? nrh_fused_3_1 : nrh_fused_3_0)(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, lambda, output_shift, llr0, llr1, llr_cw, scramble);
@@ -841,7 +896,7 @@ NRH_1LAYER_SPEC(3)
 NRH_1LAYER_SPEC(4)
 #undef NRH_1LAYER_SPEC
 
-void nr_inner_rx_1layer_f16(uint32_t length,
+void NRH_PUB(nr_inner_rx_1layer_f16)(uint32_t length,
                             uint32_t buffer_length,
                             int nb_rx_ant,
                             const c16_t *rxFext,
@@ -852,6 +907,7 @@ void nr_inner_rx_1layer_f16(uint32_t length,
                             int16_t *llr,
                             const int16_t *scramble)
 {
+  NRH_FORWARD(nr_inner_rx_1layer_f16_v1024(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, output_shift, llr, scramble))
   static void (*const f[5])(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, int, int16_t *, const int16_t *) =
       {NULL, nrh_1layer_1, nrh_1layer_2, nrh_1layer_3, nrh_1layer_4};
   f[mod_order / 2](length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, output_shift, llr, scramble);
