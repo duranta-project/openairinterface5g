@@ -8,6 +8,7 @@
 
 
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "gNB_scheduler_ulsch_MU_MIMO_policies.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
 #include "utils.h"
@@ -1457,8 +1458,7 @@ const char table_38211_6_3_1_5_5[22][4][2] = {
     {{'1', '1'}, {'o', 'o'}, {'j', 'o'}, {'1', 'n'}}  // tpmi 21
 };
 
-static void get_precoder_matrix_coef(char *w,
-                                     const uint8_t ul_ri,
+static char get_precoder_matrix_coef(const uint8_t ul_ri,
                                      const uint16_t num_ue_srs_ports,
                                      const long transform_precoding,
                                      const uint8_t tpmi,
@@ -1467,19 +1467,19 @@ static void get_precoder_matrix_coef(char *w,
 {
   if (ul_ri == 0) {
     if (num_ue_srs_ports == 2) {
-      *w = table_38211_6_3_1_5_1[tpmi][uI][layer_idx];
+      return table_38211_6_3_1_5_1[tpmi][uI][layer_idx];
     } else {
       if (transform_precoding == NR_PUSCH_Config__transformPrecoder_enabled) {
-        *w = table_38211_6_3_1_5_2[tpmi][uI][layer_idx];
+        return table_38211_6_3_1_5_2[tpmi][uI][layer_idx];
       } else {
-        *w = table_38211_6_3_1_5_3[tpmi][uI][layer_idx];
+        return table_38211_6_3_1_5_3[tpmi][uI][layer_idx];
       }
     }
   } else if (ul_ri == 1) {
     if (num_ue_srs_ports == 2) {
-      *w = table_38211_6_3_1_5_4[tpmi][uI][layer_idx];
+      return table_38211_6_3_1_5_4[tpmi][uI][layer_idx];
     } else {
-      *w = table_38211_6_3_1_5_5[tpmi][uI][layer_idx];
+      return table_38211_6_3_1_5_5[tpmi][uI][layer_idx];
     }
   } else {
     AssertFatal(1 == 0, "Function get_precoder_matrix_coef() does not support %i layers yet!\n", ul_ri + 1);
@@ -1501,12 +1501,11 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
 
   uint8_t tpmi_sel = 0;
   const uint8_t nrOfLayers = ul_ri + 1;
-  int16_t precoded_channel_matrix_re[num_prgs * num_gnb_antenna_elements];
-  int16_t precoded_channel_matrix_im[num_prgs * num_gnb_antenna_elements];
+  int16_t precoded_channel_matrix_re[num_prgs * num_gnb_antenna_elements * nrOfLayers];
+  int16_t precoded_channel_matrix_im[num_prgs * num_gnb_antenna_elements * nrOfLayers];
   c16_t *channel_matrix16 = (c16_t *)channel_matrix;
   uint32_t max_precoded_signal_power = 0;
   int additional_max_tpmi = -1;
-  char w;
 
   uint8_t max_tpmi = get_max_tpmi(pusch_Config, num_ue_srs_ports, &nrOfLayers, &additional_max_tpmi);
   uint8_t end_tpmi_loop = additional_max_tpmi > max_tpmi ? additional_max_tpmi : max_tpmi;
@@ -1524,36 +1523,44 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
 
     for (int pI = 0; pI < num_prgs; pI++) {
       for (int gI = 0; gI < num_gnb_antenna_elements; gI++) {
-        uint16_t index_gI_pI = gI * num_prgs + pI;
-        precoded_channel_matrix_re[index_gI_pI] = 0;
-        precoded_channel_matrix_im[index_gI_pI] = 0;
-
-        for (int uI = 0; uI < num_ue_srs_ports; uI++) {
-          for (int layer_idx = 0; layer_idx < nrOfLayers; layer_idx++) {
-            uint16_t index = uI * num_gnb_antenna_elements * num_prgs + index_gI_pI;
-            get_precoder_matrix_coef(&w, ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, layer_idx);
-            c16_t h_times_w = nr_h_times_w(channel_matrix16[index], w);
-
-            precoded_channel_matrix_re[index_gI_pI] += h_times_w.r;
-            precoded_channel_matrix_im[index_gI_pI] += h_times_w.i;
-
+        for (int l = 0; l < nrOfLayers; l++) {
+          uint32_t oidx = (l * num_gnb_antenna_elements + gI) * num_prgs + pI;
+          precoded_channel_matrix_re[oidx] = 0;
+          precoded_channel_matrix_im[oidx] = 0;
+          for (int uI = 0; uI < num_ue_srs_ports; uI++) {
+            uint16_t hidx = uI * num_gnb_antenna_elements * num_prgs + gI * num_prgs + pI;
+            char w = get_precoder_matrix_coef(ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, l);
+            c16_t h_times_w = nr_h_times_w(channel_matrix16[hidx], w);
+            precoded_channel_matrix_re[oidx] += h_times_w.r;
+            precoded_channel_matrix_im[oidx] += h_times_w.i;
 #ifdef SRS_IND_DEBUG
-            LOG_I(NR_MAC, "(pI %i, gI %i,  uI %i, layer_idx %i) w = %c, channel_matrix --> real %i, imag %i\n",
-                  pI, gI, uI, layer_idx, w, channel_matrix16[index].r, channel_matrix16[index].i);
+            LOG_I(NR_MAC,
+                  "(pI %i, gI %i,  uI %i, layer %i) w = %c, channel_matrix --> real %i, imag %i\n",
+                  pI,
+                  gI,
+                  uI,
+                  l,
+                  w,
+                  channel_matrix16[hidx].r,
+                  channel_matrix16[hidx].i);
 #endif
           }
-        }
-
 #ifdef SRS_IND_DEBUG
-        LOG_I(NR_MAC, "(pI %i, gI %i) precoded_channel_coef --> real %i, imag %i\n",
-              pI, gI, precoded_channel_matrix_re[index_gI_pI], precoded_channel_matrix_im[index_gI_pI]);
+          LOG_I(NR_MAC,
+                "(pI %i, gI %i, layer %i) precoded_channel_coef --> real %i, imag %i\n",
+                pI,
+                gI,
+                l,
+                precoded_channel_matrix_re[oidx],
+                precoded_channel_matrix_im[oidx]);
 #endif
+        }
       }
     }
 
     uint32_t precoded_signal_power = calc_power_complex(precoded_channel_matrix_re,
                                                         precoded_channel_matrix_im,
-                                                        num_prgs * num_gnb_antenna_elements);
+                                                        num_prgs * num_gnb_antenna_elements * nrOfLayers);
 
 #ifdef SRS_IND_DEBUG
     LOG_I(NR_MAC, "(tpmi %i) precoded_signal_power = %i\n", tpmi, precoded_signal_power);
@@ -1566,6 +1573,37 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
   }
 
   return tpmi_sel;
+}
+
+/* Effective channel h * w of each gNB antenna after the UE precoder of the selected TPMI, per
+ * PRG and layer, stored as eff[num_prgs][nrOfLayers][num_gnb_antenna_elements]. Only needed for
+ * the MU-MIMO pairing correlation. */
+static void nr_srs_eff_channel(const uint8_t *channel_matrix,
+                               const uint16_t num_gnb_antenna_elements,
+                               const uint16_t num_ue_srs_ports,
+                               const uint16_t num_prgs,
+                               const uint8_t ul_ri,
+                               const long transform_precoding,
+                               const uint8_t tpmi,
+                               c16_t eff[num_prgs][ul_ri + 1][num_gnb_antenna_elements])
+{
+  const int nrOfLayers = ul_ri + 1;
+  const c16_t *channel_matrix16 = (const c16_t *)channel_matrix;
+  for (int pI = 0; pI < num_prgs; pI++) {
+    for (int l = 0; l < nrOfLayers; l++) {
+      for (int gI = 0; gI < num_gnb_antenna_elements; gI++) {
+        int32_t acc_r = 0, acc_i = 0;
+        for (int uI = 0; uI < num_ue_srs_ports; uI++) {
+          uint16_t hidx = uI * num_gnb_antenna_elements * num_prgs + gI * num_prgs + pI;
+          char w = get_precoder_matrix_coef(ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, l);
+          c16_t h_times_w = nr_h_times_w(channel_matrix16[hidx], w);
+          acc_r += h_times_w.r;
+          acc_i += h_times_w.i;
+        }
+        eff[pI][l][gI] = (c16_t){.r = (int16_t)(acc_r / num_ue_srs_ports), .i = (int16_t)(acc_i / num_ue_srs_ports)};
+      }
+    }
+  }
 }
 
 void handle_nr_srs_measurements(const module_id_t module_id,
@@ -1708,6 +1746,47 @@ void handle_nr_srs_measurements(const module_id_t module_id,
 
       sprintf(stats->srs_stats, "UL-RI %d, TPMI %d", sched_ctrl->srs_feedback.ul_ri + 1, sched_ctrl->srs_feedback.tpmi);
 
+      if (!cell->radio_config.ul_mu_mimo)
+        break;
+
+      const uint8_t ul_ri = sched_ctrl->srs_feedback.ul_ri;
+      const int nrOfLayers = ul_ri + 1;
+      const uint16_t num_rx = nr_srs_channel_iq_matrix.num_gnb_antenna_elements;
+      const uint16_t num_prgs = nr_srs_channel_iq_matrix.num_prgs;
+      sched_ctrl->srs_eff_channel_info.valid = false;
+      if (nrOfLayers > 2 || nrOfLayers > MAX_NUM_NR_SRS_AP || num_rx > NB_ANTENNAS_RX || num_prgs > MAX_BWP_SIZE)
+        break;
+
+      /* Compute the effective channel without holding scheduler lock : used for MU MIMO */
+      const long transform_precoding = current_BWP->transform_precoding;
+      const uint8_t tpmi = sched_ctrl->srs_feedback.tpmi;
+      NR_SCHED_UNLOCK(&nrmac->sched_lock);
+      c16_t eff[num_prgs][nrOfLayers][num_rx];
+      nr_srs_eff_channel(nr_srs_channel_iq_matrix.channel_matrix,
+                         num_rx,
+                         nr_srs_channel_iq_matrix.num_ue_srs_ports,
+                         num_prgs,
+                         ul_ri,
+                         transform_precoding,
+                         tpmi,
+                         eff);
+      NR_SCHED_LOCK(&nrmac->sched_lock);
+
+      // Check if the UE is still connected
+      UE = find_connected_nr_ue(&nrmac->UE_info, srs_ind->rnti);
+      if (!UE)
+        break;
+      nr_srs_eff_channel_info_t *srs_eff = &UE->UE_sched_ctrl.srs_eff_channel_info;
+      srs_eff->time = (fsn_t){.f = frame, .s = slot, .mu = UE->current_UL_BWP.scs};
+      srs_eff->num_layers = nrOfLayers;
+      srs_eff->num_rx = num_rx;
+      srs_eff->num_prg = num_prgs;
+      for (int pI = 0; pI < num_prgs; pI++)
+        for (int l = 0; l < nrOfLayers; l++)
+          memcpy(srs_eff->h_srs_eff[pI][l], eff[pI][l], num_rx * sizeof(c16_t));
+      srs_eff->valid = true;
+
+      nr_mu_update_pair_cache(nrmac, cell, UE);
       break;
     }
 
@@ -2276,6 +2355,8 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
     params.n_rb_avail[b] = n_rb_sched[b];
   }
 
+  /* MU-MIMO is a per-cell option, the allocator in nrmac serves the other cells */
+  const nr_ul_rb_alloc_fn ul_rb_alloc = cell->radio_config.ul_mu_mimo ? nr_ul_pf_mu_mimo : nrmac->ul_rb_alloc;
   int i = 0;
   while (i < n_cand) {
     int beam = candidates[i].alloc_beam_idx;
@@ -2287,7 +2368,7 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
       continue;
     int count = i - start;
 
-    nrmac->ul_rb_alloc(&params, candidates + start, count);
+    ul_rb_alloc(&params, candidates + start, count);
   }
 
   /* Release beam reservations for candidates the policy rejected (failed

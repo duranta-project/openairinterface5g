@@ -48,7 +48,7 @@ void nr_channel_compensation(uint32_t buffer_length,
                              c16_t **rxComp,
                              c16_t (*rho)[nb_layers][pdsch_buf_size_max],
                              c16_t cpe,
-                             int mod_order,
+                             uint8_t *mod_orders,
                              uint32_t symbol,
                              uint32_t output_shift);
 
