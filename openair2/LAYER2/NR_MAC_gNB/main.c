@@ -341,6 +341,8 @@ void ind_delete_nr_ue_data(void *p)
 
 void mac_top_destroy_gNB(gNB_MAC_INST *mac)
 {
+  oai_exit = 1; // TODO separate variable!
+  pthread_join(mac->stats_thread, NULL);
   NR_UEs_t *UE_info = &mac->UE_info;
   hashtable_destroy(&UE_info->connected_ues, delete_nr_ue_data);
   seq_arr_free(&UE_info->connected_ues_list, NULL);
