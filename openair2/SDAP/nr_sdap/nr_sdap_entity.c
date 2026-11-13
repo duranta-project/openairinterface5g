@@ -142,7 +142,8 @@ static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
   const int drb_id = map->drb_id;
   const int drb_role = map->entity_role;
 
-  sdap_ul_tx = drb_role & SDAP_UL_TX;
+  const bool sdap_sl_tx = drb_role & SDAP_SL_TX;
+  sdap_ul_tx = drb_role & (SDAP_UL_TX | SDAP_SL_TX);
   sdap_dl_tx = drb_role & SDAP_DL_TX;
   LOG_D(SDAP, "TX - QFI: %u is mapped to DRB ID: %d\n", qfi, drb_id);
 
@@ -215,7 +216,8 @@ static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
     nr_sdap_ul_hdr_t sdap_hdr;
     sdap_hdr.QFI = hdr_qfi;
     sdap_hdr.R = 0;
-    sdap_hdr.DC = rqi;
+    // TS 37.324 section 6.2.2.4: SL uses the UL header layout with PQFI in place of QFI.
+    sdap_hdr.DC = sdap_sl_tx ? SDAP_HDR_UL_DATA_PDU : rqi;
     /* Add the SDAP UL Header to the buffer */
     memcpy(&sdap_buf[0], &sdap_hdr, SDAP_HDR_LENGTH);
     memcpy(&sdap_buf[SDAP_HDR_LENGTH], sdu_buffer, sdu_buffer_size);
@@ -327,7 +329,12 @@ nr_sdap_rx_entity(nr_sdap_entity_t *entity, int drb_id, int is_gnb, int pdusessi
      * if the DRB from which this SDAP data PDU is received is configured by RRC with the presence of SDAP header.
      */
     int offset = 0;
-    if (sdap_header_rx) { // DL Data/Control PDU with SDAP header
+    if (drb_role & SDAP_SL_RX) {
+      // TS 37.324 section 5.2.4: SL reception does not perform DL reflective mapping.
+      if (size <= SDAP_HDR_LENGTH || !((uint8_t)buf[0] & SDAP_BITMASK_DC))
+        return;
+      offset = SDAP_HDR_LENGTH;
+    } else if (sdap_header_rx) { // DL Data/Control PDU with SDAP header
       offset = SDAP_HDR_LENGTH;
       /*
        * TS 37.324 5.2 Data transfer
@@ -518,7 +525,7 @@ static void nr_sdap_ue_control_pdu_config(nr_sdap_entity_t *entity, const ue_id_
       entity->sdap_submit_ctrl_pdu(ue_id, sdap_ctrl_pdu_drb, sdap_ctrl_pdu);
     }
     /* the stored UL QFI to DRB mapping rule is different from the configured one and has UL SDAP header */
-    bool ul_sdap_header = (entity->qfi2drb_table[qfi].entity_role & SDAP_UL_TX) != 0;
+    bool ul_sdap_header = (entity->qfi2drb_table[qfi].entity_role & (SDAP_UL_TX | SDAP_SL_TX)) != 0;
     if (entity->qfi2drb_table[qfi].drb_id != sdap->drb_id && ul_sdap_header) {
       // construct an end-marker control PDU (6.2.3 TS 37.324)
       nr_sdap_ul_hdr_t sdap_ctrl_pdu = entity->sdap_construct_ctrl_pdu(qfi);
