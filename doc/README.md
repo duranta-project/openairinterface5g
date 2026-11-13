@@ -57,6 +57,7 @@ More general information is available in the
 - [Positioning reference signal (PRS)](./RUN_NR_PRS.md): Rel-16 PRS positioning with the gNB and NR-UE
 - [E2 agent](../openair2/E2AP/README.md): deploy the gNB with the E2 agent and the FlexRIC near-RT RIC
 - [E3 agent](../openair2/E3AP/README.md): build, configure and connect real-time dApps integrated in the gNB
+- [Sidelink](./nr-sidelink.md): Sidelink operation between UEs
 
 ### Functional splits
 
