@@ -20,6 +20,7 @@
 #include "nfapi_pnf.h"
 #include "common/ran_context.h"
 #include "openair2/PHY_INTERFACE/phy_stub_UE.h"
+#include "pnf/nfapi_common_pnf.h"
 
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -81,98 +82,6 @@ void *pnf_allocate(size_t size) {
 void pnf_deallocate(void *ptr) {
   free(ptr);
 }
-
-
-typedef struct {
-  //public:
-  uint8_t enabled;
-  uint32_t rx_port;
-  uint32_t tx_port;
-  //std::string tx_addr;
-  char tx_addr[80];
-} udp_data;
-
-typedef struct {
-  uint16_t index;
-  uint16_t id;
-  uint8_t rfs[2];
-  uint8_t excluded_rfs[2];
-
-  udp_data udp;
-
-  char local_addr[80];
-  int local_port;
-
-  char *remote_addr;
-  int remote_port;
-
-  uint8_t duplex_mode;
-  uint16_t dl_channel_bw_support;
-  uint16_t ul_channel_bw_support;
-  uint8_t num_dl_layers_supported;
-  uint8_t num_ul_layers_supported;
-  uint16_t release_supported;
-  uint8_t nmm_modes_supported;
-
-  uint8_t dl_ues_per_subframe;
-  uint8_t ul_ues_per_subframe;
-
-  uint8_t first_subframe_ind;
-
-  // timing information recevied from the vnf
-  uint8_t timing_window;
-  uint8_t timing_info_mode;
-  uint8_t timing_info_period;
-
-} phy_info;
-
-typedef struct {
-  //public:
-  uint16_t index;
-  uint16_t band;
-  int16_t max_transmit_power;
-  int16_t min_transmit_power;
-  uint8_t num_antennas_supported;
-  uint32_t min_downlink_frequency;
-  uint32_t max_downlink_frequency;
-  uint32_t max_uplink_frequency;
-  uint32_t min_uplink_frequency;
-} rf_info;
-
-
-typedef struct {
-
-  int release;
-  phy_info phys[2];
-  rf_info rfs[2];
-
-  uint8_t sync_mode;
-  uint8_t location_mode;
-  uint8_t location_coordinates[6];
-  uint32_t dl_config_timing;
-  uint32_t ul_config_timing;
-  uint32_t tx_timing;
-  uint32_t hi_dci0_timing;
-
-  uint16_t max_phys;
-  uint16_t max_total_bw;
-  uint16_t max_total_dl_layers;
-  uint16_t max_total_ul_layers;
-  uint8_t shared_bands;
-  uint8_t shared_pa;
-  int16_t max_total_power;
-  uint8_t oui;
-
-  uint8_t wireshark_test_mode;
-
-} pnf_info;
-
-typedef struct {
-  uint16_t phy_id;
-  nfapi_pnf_config_t *config;
-  phy_info *phy;
-  nfapi_pnf_p7_config_t *p7_config;
-} pnf_phy_user_data_t;
 
 static pnf_info pnf;
 static pthread_t pnf_p5_init_and_receive_pthread;
