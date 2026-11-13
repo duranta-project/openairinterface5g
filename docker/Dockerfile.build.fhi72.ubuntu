@@ -3,16 +3,26 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface RAN Build for FHI 7.2
-#               Valid for UBUNTU 24.04
+#               Valid for UBUNTU 24.04 (x86_64 and aarch64, optionally with CUDA)
 #
 #---------------------------------------------------------------------
 
-FROM ran-base:latest AS ran-base
-
-ARG DPDK_VERSION=22.11.11
+# Defaults are global; each stage re-declares what it uses (buildah does not pass ARGs on to child stages)
+ARG BASE_IMAGE=ran-base:latest
+ARG DPDK_VERSION=24.11.4
+# ENABLE_CUDA=true installs the CUDA toolkit and builds the ldpc_cuda LDPC offload library
+ARG ENABLE_CUDA=false
+ARG CUDA_VERSION=13.2
+# The compiler comes from BASE_IMAGE (GCC_VERSION in Dockerfile.base.ubuntu)
 ARG xran_VERSION=11.1.8
 ARG E2AP_VERSION=E2AP_V3
 ARG KPM_VERSION=KPM_V3_00
+
+FROM ${BASE_IMAGE} AS ran-base
+ARG DPDK_VERSION
+ARG ENABLE_CUDA
+ARG CUDA_VERSION
+ARG xran_VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe
 RUN apt-get update && \
@@ -28,7 +38,17 @@ RUN apt-get update && \
         libssh-dev \
         libxml2-dev \
         libpam0g \
-        libnuma-dev && \
+        # DPDK mlx5 PMD
+        libibverbs-dev && \
+    # the compiler set in the base image (an apt upgrade of gcc here would reset it to the distro one)
+    cc --version | head -1 && c++ --version | head -1 && \
+    if [ "$ENABLE_CUDA" = "true" ]; then \
+      wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/$(uname -m | sed s/aarch64/sbsa/)/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb && \
+      dpkg -i /tmp/cuda-keyring.deb && \
+      apt-get update && \
+      apt-get install --yes cuda-toolkit-$(echo $CUDA_VERSION | tr . -) && \
+      rm /tmp/cuda-keyring.deb; \
+    fi && \
     rm -rf /var/lib/apt/lists/*
 
 RUN rm -Rf /oai-ran
@@ -74,6 +94,17 @@ RUN wget --no-verbose http://fast.dpdk.org/rel/dpdk-$DPDK_VERSION.tar.xz && \
     ninja -C build && \
     ninja install -C build
 
+## Arm RAN Acceleration Library, used by OAI on aarch64
+RUN if [ "$(uname -m)" = "aarch64" ]; then \
+      git clone https://git.gitlab.arm.com/networking/ral.git /opt/ral && \
+      cd /opt/ral && \
+      git checkout armral-25.01 && \
+      mkdir build && cd build && \
+      cmake -GNinja -DBUILD_SHARED_LIBS=On /opt/ral/ && \
+      ninja && \
+      ninja install; \
+    fi
+
 ## Build Fronthaul library
 RUN git clone https://github.com/openairinterface/o-du-phy.git /opt/phy && \
     cd /opt/phy && \
@@ -84,16 +115,22 @@ RUN git clone https://github.com/openairinterface/o-du-phy.git /opt/phy && \
 COPY . .
 
 FROM ran-base AS ran-build-fhi72
+ARG ENABLE_CUDA
+ARG CUDA_VERSION
+ARG E2AP_VERSION
+ARG KPM_VERSION
 ## Build and install OAI
 #run build_oai to build the target image
 RUN /bin/sh oaienv && \ 
     cd cmake_targets && \
     mkdir -p log && \
+    LIBS="telnetsrv enbscope uescope nrscope" && \
+    if [ "$ENABLE_CUDA" = "true" ]; then LIBS="$LIBS ldpc_cuda"; export CUDACXX=/usr/local/cuda-$CUDA_VERSION/bin/nvcc; fi && \
     ./build_oai \
       --ninja --gNB --nrRU \
-      --build-lib "telnetsrv enbscope uescope nrscope" \
+      --build-lib "$LIBS" \
       -t oran_fhlib_5g_mplane --cmake-opt -Dxran_LOCATION=/opt/phy/fhi_lib/lib \
-      --build-e2 --cmake-opt -DKPM_VERSION=$KPM_VERSION --cmake-opt -DE2AP_VERSION=$E2AP_VERSION \
+      --build-e2 --cmake-opt -DXAPP_MULTILANGUAGE=OFF --cmake-opt -DKPM_VERSION=$KPM_VERSION --cmake-opt -DE2AP_VERSION=$E2AP_VERSION \
       --cmake-opt -DCMAKE_C_FLAGS=-Werror --cmake-opt -DCMAKE_CXX_FLAGS=-Werror && \
     # Mainly to see if the sanitize option was perfectly executed
     ldd ran_build/build/nr-softmodem && \
@@ -104,6 +141,7 @@ RUN /bin/sh oaienv && \
 RUN mkdir -p openair2/E2AP/flexric/build && \
     cd openair2/E2AP/flexric/build && \
     cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
+          -DXAPP_MULTILANGUAGE=OFF \
           -DKPM_VERSION=$KPM_VERSION \
           -DE2AP_VERSION=$E2AP_VERSION .. && \
     ninja && \
