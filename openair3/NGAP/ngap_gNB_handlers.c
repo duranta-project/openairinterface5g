@@ -814,12 +814,12 @@ static int ngap_gNB_handle_initial_context_request(sctp_assoc_t assoc_id, uint32
   if (ie)
     msg->nas_pdu = create_byte_array(ie->value.choice.NAS_PDU.size, ie->value.choice.NAS_PDU.buf);
 
-  itti_send_msg_to_task(TASK_RRC_GNB, ue_desc_p->gNB_instance->instance, message_p);
-
   NGAP_INFO("Initial Context Setup UE RAN ID %d UE AMF ID %ld: %d PDU session(s)\n",
             msg->gNB_ue_ngap_id,
             msg->amf_ue_ngap_id,
             msg->nb_of_pdusessions);
+
+  itti_send_msg_to_task(TASK_RRC_GNB, ue_desc_p->gNB_instance->instance, message_p);
 
   return 0;
 }
