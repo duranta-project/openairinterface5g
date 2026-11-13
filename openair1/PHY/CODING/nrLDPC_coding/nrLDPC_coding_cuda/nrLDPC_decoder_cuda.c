@@ -47,8 +47,18 @@ int8_t* p_out_dev;
 
 extern int pageable, integrated;
 
+nodeEdge_switch_t nodeEdge_switch;
+
 int cuda_support_init_decoder()
 {
+  // the two calibrated points: Jetson Orin (16 SMs) and a full GH200 (132 SMs). A MIG slice reports its own SMs
+  static const nodeEdge_switch_t small_gpu = {3, 1, 3, 1, 4, 2};
+  static const nodeEdge_switch_t large_gpu = {32, 10, 32, 12, 48, 24};
+  int sm_count = 0;
+  gpuDeviceGetAttribute(&sm_count, gpuDevAttrMultiProcessorCount, 0);
+  nodeEdge_switch = sm_count >= 64 ? large_gpu : small_gpu;
+  LOG_I(NR_PHY, "LDPC decoder: %d SMs, using %s-GPU node/edge kernel switch-over\n", sm_count, sm_count >= 64 ? "large" : "small");
+
   // use gpuMalloc for all inner buffers
   cnProcBuf_dev = gpuMalloc_or_fail(sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_SIZE_CN_PROC_BUF);
   bnProcBuf_dev = gpuMalloc_or_fail(sizeof(int8_t) * MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4 * NR_LDPC_SIZE_BN_PROC_BUF);
