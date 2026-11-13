@@ -4,7 +4,7 @@
 
 #ifndef OPENAIRINTERFACE_WLS_PNF_H
 #define OPENAIRINTERFACE_WLS_PNF_H
-#include "nfapi_pnf_interface.h"
+#include "nfapi_lte_pnf_interface.h"
 #include "pnf.h"
 #include "wls_common.h"
 

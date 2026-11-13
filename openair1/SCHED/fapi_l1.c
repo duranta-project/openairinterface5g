@@ -11,7 +11,7 @@
 #include "PHY/LTE_TRANSPORT/transport_vars.h"
 #include "SCHED/sched_eNB.h"
 #include "nfapi/oai_integration/vendor_ext.h"
-#include "nfapi_pnf_interface.h"
+#include "nfapi_lte_pnf_interface.h"
 #include "fapi_l1.h"
 
 #include "common/ran_context.h"

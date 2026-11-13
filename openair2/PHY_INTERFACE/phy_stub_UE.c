@@ -21,12 +21,7 @@
 #include "openair1/PHY/LTE_TRANSPORT/transport_common.h"
 #include "softmodem-common.h"
 
-extern int oai_nfapi_rach_ind(nfapi_rach_indication_t *rach_ind);
-void configure_nfapi_pnf(char *vnf_ip_addr,
-                         int vnf_p5_port,
-                         char *pnf_ip_addr,
-                         int pnf_p7_port,
-                         int vnf_p7_port);
+#include "nfapi/oai_integration/pnf/nfapi_lte_pnf.h"
 
 UL_IND_t *UL_INFO = NULL;
 

@@ -8,6 +8,8 @@
 #define _VENDOR_EXT_H_
 
 #include "nfapi_interface.h"
+#include "debug.h"
+#include "common/utils/LOG/log.h"
 
 typedef enum {
   P5_VENDOR_EXT_REQ = NFAPI_VENDOR_EXT_MSG_MIN,
@@ -70,4 +72,20 @@ void nfapi_logmode(void);
 nfapi_mode_t nfapi_getmode(void);
 void nfapi_setmode(nfapi_mode_t nfapi_mode);
 #define NFAPI_MODE (nfapi_getmode())
+
+static inline int nfapitooai_level(int nfapilevel)
+{
+  switch (nfapilevel) {
+    case NFAPI_TRACE_ERROR:
+      return OAILOG_ERR;
+    case NFAPI_TRACE_WARN:
+      return OAILOG_WARNING;
+    case NFAPI_TRACE_NOTE:
+      return OAILOG_INFO;
+    case NFAPI_TRACE_INFO:
+      return OAILOG_DEBUG;
+    default:
+      return OAILOG_ERR;
+  }
+}
 #endif // _VENDOR_EXT_

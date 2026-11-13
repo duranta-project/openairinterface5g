@@ -9,7 +9,7 @@
 #include "PHY/defs_gNB.h"
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "nfapi_nr_interface_scf.h"
-#include "nfapi_pnf.h"
+#include "nfapi/oai_integration/pnf/nfapi_nr_pnf.h"
 #include "common/utils/LOG/log.h"
 #include "assertions.h"
 #include <time.h>

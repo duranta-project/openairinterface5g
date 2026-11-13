@@ -8,10 +8,9 @@ else()
     add_subdirectory(socket)
 endif()
 
-# Shared: nFAPI mode management + PNF (Temporary until PNF separation)
+# Shared: nFAPI mode management
 add_library(nfapi_user_lib
-        nfapi.c
-        nfapi_pnf.c)
+        nfapi.c)
 if(OAI_WLS)
     target_compile_definitions(nfapi_user_lib PRIVATE ENABLE_WLS)
 elseif(OAI_AERIAL)
@@ -21,7 +20,7 @@ else()
 endif()
 target_link_libraries(nfapi_user_lib PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs UTIL)
 target_link_libraries(nfapi_user_lib PRIVATE nr_fapi_p7)
-target_link_libraries(nfapi_user_lib PRIVATE nfapi_pnf_lib)
+target_link_libraries(nfapi_user_lib PRIVATE nfapi_pnf_common_lib)
 if(OAI_WLS)
     target_link_libraries(nfapi_user_lib PRIVATE wls_integration_lib)
 elseif(OAI_AERIAL)
@@ -29,15 +28,17 @@ elseif(OAI_AERIAL)
 endif()
 target_include_directories(nfapi_user_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# LTE VNF OAI integration
+# LTE VNF+PNF OAI integration
 add_library(nfapi_lte_user_lib
-        vnf/nfapi_lte_vnf.c)
+        vnf/nfapi_lte_vnf.c
+        pnf/nfapi_lte_pnf.c)
 target_link_libraries(nfapi_lte_user_lib PRIVATE asn1_lte_rrc_hdrs UTIL)
-target_link_libraries(nfapi_lte_user_lib PUBLIC nfapi_user_lib nfapi_lte_vnf_lib)
+target_link_libraries(nfapi_lte_user_lib PUBLIC nfapi_user_lib nfapi_lte_vnf_lib nfapi_lte_pnf_lib)
 
-# NR VNF OAI integration
+# NR VNF+PNF OAI integration
 add_library(nfapi_nr_user_lib
         vnf/nfapi_nr_vnf.c
+        pnf/nfapi_nr_pnf.c
         gnb_ind_vars.c)
 if(OAI_WLS)
     target_compile_definitions(nfapi_nr_user_lib PRIVATE ENABLE_WLS)
@@ -47,7 +48,7 @@ else()
     target_compile_definitions(nfapi_nr_user_lib PRIVATE ENABLE_SOCKET)
 endif()
 target_link_libraries(nfapi_nr_user_lib PRIVATE asn1_nr_rrc_hdrs UTIL nr_fapi_p7)
-target_link_libraries(nfapi_nr_user_lib PUBLIC nfapi_user_lib nfapi_nr_vnf_lib)
+target_link_libraries(nfapi_nr_user_lib PUBLIC nfapi_user_lib nfapi_nr_vnf_lib nfapi_nr_pnf_lib)
 if(OAI_WLS)
     target_link_libraries(nfapi_nr_user_lib PRIVATE wls_integration_lib)
 endif()
