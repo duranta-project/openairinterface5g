@@ -346,7 +346,8 @@ static bool is_paging_occasion(const NR_PCCH_Config_t *pcch,
      * calculation needs to be adjusted. */
     int period = 0;
     int offset = 0;
-    get_monitoring_period_offset(ss, &period, &offset);
+    if (!get_monitoring_period_offset(ss, &period, &offset))
+      continue;
     const int n_slots_frame = cell->frame_structure.numb_slots_frame;
 
     uint8_t ssb_len = 0;

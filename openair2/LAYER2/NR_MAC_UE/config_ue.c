@@ -776,13 +776,40 @@ static void modlist_ss(NR_SearchSpace_t *source, NR_SearchSpace_t *target)
     UPDATE_IE(target->monitoringSlotPeriodicityAndOffset,
               source->monitoringSlotPeriodicityAndOffset,
               struct NR_SearchSpace__monitoringSlotPeriodicityAndOffset);
-  UPDATE_IE(target->duration, source->duration, long);
+  if (source->duration)
+    UPDATE_IE(target->duration, source->duration, long);
   if (source->monitoringSymbolsWithinSlot)
     UPDATE_IE(target->monitoringSymbolsWithinSlot, source->monitoringSymbolsWithinSlot, BIT_STRING_t);
   if (source->nrofCandidates)
     UPDATE_IE(target->nrofCandidates, source->nrofCandidates, struct NR_SearchSpace__nrofCandidates);
   if (source->searchSpaceType)
     UPDATE_IE(target->searchSpaceType, source->searchSpaceType, struct NR_SearchSpace__searchSpaceType);
+}
+
+static bool is_valid_search_space(const NR_SearchSpace_t *ss)
+{
+  if (!ss->controlResourceSetId) {
+    LOG_E(NR_MAC, "SearchSpace %ld: missing mandatory controlResourceSetId\n", ss->searchSpaceId);
+    return false;
+  }
+  if (!ss->monitoringSlotPeriodicityAndOffset
+      || ss->monitoringSlotPeriodicityAndOffset->present == NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_NOTHING) {
+    LOG_E(NR_MAC, "SearchSpace %ld: missing mandatory monitoringSlotPeriodicityAndOffset\n", ss->searchSpaceId);
+    return false;
+  }
+  if (!ss->monitoringSymbolsWithinSlot || !ss->monitoringSymbolsWithinSlot->buf) {
+    LOG_E(NR_MAC, "SearchSpace %ld: missing mandatory monitoringSymbolsWithinSlot\n", ss->searchSpaceId);
+    return false;
+  }
+  if (!ss->nrofCandidates) {
+    LOG_E(NR_MAC, "SearchSpace %ld: missing mandatory nrofCandidates\n", ss->searchSpaceId);
+    return false;
+  }
+  if (!ss->searchSpaceType || ss->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_NOTHING) {
+    LOG_E(NR_MAC, "SearchSpace %ld: missing mandatory searchSpaceType\n", ss->searchSpaceId);
+    return false;
+  }
+  return true;
 }
 
 NR_SearchSpace_t *get_common_search_space(const NR_UE_MAC_INST_t *mac, const NR_SearchSpaceId_t ss_id)
@@ -820,11 +847,18 @@ static void update_ss(void *ue_ss_in, void *nw_ss_in)
         break;
       }
     }
-    if (!target_ss) {
-      target_ss = calloc(1, sizeof(*target_ss));
-      ASN_SEQUENCE_ADD(ue_ss, target_ss);
+    if (target_ss) {
+      modlist_ss(source_ss, target_ss);
+    } else {
+      NR_SearchSpace_t *new_ss = calloc(1, sizeof(*new_ss));
+      modlist_ss(source_ss, new_ss);
+      if (!is_valid_search_space(new_ss)) {
+        LOG_E(NR_MAC, "Discarding incomplete SearchSpace %ld\n", source_ss->searchSpaceId);
+        free_search_space(new_ss);
+        continue;
+      }
+      ASN_SEQUENCE_ADD(ue_ss, new_ss);
     }
-    modlist_ss(source_ss, target_ss);
   }
 }
 

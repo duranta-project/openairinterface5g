@@ -35,6 +35,43 @@ int main(void)
   assert(period == 0);
   assert(offset == 0);
 
+  // Test get_monitoring_period_offset with NULL SearchSpace and pointers
+  assert(!get_monitoring_period_offset(NULL, &period, &offset));
+  assert(period == 0 && offset == 0);
+  assert(!get_monitoring_period_offset(NULL, NULL, &offset));
+  assert(!get_monitoring_period_offset(NULL, &period, NULL));
+
+  // Test get_monitoring_period_offset with NULL monitoringSlotPeriodicityAndOffset
+  NR_SearchSpace_t ss = {0};
+  period = -1;
+  offset = -1;
+  assert(!get_monitoring_period_offset(&ss, &period, &offset));
+  assert(period == 0 && offset == 0);
+
+  // Test get_monitoring_period_offset with invalid/nothing choice
+  struct NR_SearchSpace__monitoringSlotPeriodicityAndOffset period_choice = {0};
+  ss.monitoringSlotPeriodicityAndOffset = &period_choice;
+  period_choice.present = NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_NOTHING;
+  assert(!get_monitoring_period_offset(&ss, &period, &offset));
+  assert(period == 0 && offset == 0);
+
+  // Test get_monitoring_period_offset with valid sl1
+  period_choice.present = NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl1;
+  assert(get_monitoring_period_offset(&ss, &period, &offset));
+  assert(period == 1 && offset == 0);
+
+  // Test get_monitoring_period_offset with valid sl4
+  period_choice.present = NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl4;
+  period_choice.choice.sl4 = 3;
+  assert(get_monitoring_period_offset(&ss, &period, &offset));
+  assert(period == 4 && offset == 3);
+
+  // Test get_monitoring_period_offset with valid sl20
+  period_choice.present = NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl20;
+  period_choice.choice.sl20 = 15;
+  assert(get_monitoring_period_offset(&ss, &period, &offset));
+  assert(period == 20 && offset == 15);
+
   printf("All periodic occasion unit tests passed.\n");
   return 0;
 }

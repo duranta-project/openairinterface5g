@@ -303,7 +303,7 @@ int srs_binomial_sum(int count, int Lmax);
 int srs_codebook_nb_res(NR_SRS_Config_t *srs_config);
 int srs_non_codebook_nb_res(NR_SRS_Config_t *srs_config);
 int get_nr_srs_offset(NR_SRS_PeriodicityAndOffset_t periodicityAndOffset);
-void get_monitoring_period_offset(const NR_SearchSpace_t *ss, int *period, int *offset);
+bool get_monitoring_period_offset(const NR_SearchSpace_t *ss, int *period, int *offset);
 
 uint32_t nr_compute_tbslbrm(uint16_t table,
 			    uint16_t nb_rb,

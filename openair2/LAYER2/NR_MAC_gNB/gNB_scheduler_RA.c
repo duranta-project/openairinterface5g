@@ -1460,7 +1460,8 @@ static bool check_msg2_monitoring(const NR_SearchSpace_t *ss, int slots_per_fram
 {
   // check if the slot is not among the PDCCH monitored ones (38.213 10.1)
   int monitoring_slot_period, monitoring_offset;
-  get_monitoring_period_offset(ss, &monitoring_slot_period, &monitoring_offset);
+  if (!get_monitoring_period_offset(ss, &monitoring_slot_period, &monitoring_offset))
+    return false;
   if (!is_periodic_occasion(current_frame, current_slot, slots_per_frame, monitoring_slot_period, monitoring_offset))
     return false;
   return true;
