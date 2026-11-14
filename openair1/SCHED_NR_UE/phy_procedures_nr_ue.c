@@ -29,6 +29,7 @@
 #include "SCHED_NR_UE/pucch_uci_ue_nr.h"
 #include <openair1/PHY/TOOLS/phy_scope_interface.h>
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface.h"
+#include <limits.h>
 
 //#define DEBUG_PHY_PROC
 //#define NR_PDCCH_SCHED_DEBUG
@@ -212,8 +213,13 @@ bool nr_ue_ta_command_samples(PHY_VARS_NR_UE *ue, int slot_tx, int frame_tx, boo
     uint16_t bw_scaling = 16 * ofdm_symbol_size / 2048;
 
     const int command = is_rar ? ue->rar_ta_command.ta_command : ue->ta_command;
-    const int ta_units = is_rar ? command : command - 31;
-    const int ta_samples = ta_units * bw_scaling;
+    const int64_t units = is_rar ? command : (int64_t)command - 31;
+    const int64_t converted = units * bw_scaling;
+    if (bw_scaling == 0 || converted < INT_MIN || converted > INT_MAX) {
+      LOG_E(PHY, "[UE %d] Invalid internal TA sample conversion for command %d\n", ue->Mod_id, command);
+      return false;
+    }
+    const int ta_samples = converted;
 
     LOG_D(PHY,
           "[UE %d] %d.%d %s command %d: TA-units %d, samples-per-unit %u, command-samples %d\n",
@@ -222,7 +228,7 @@ bool nr_ue_ta_command_samples(PHY_VARS_NR_UE *ue, int slot_tx, int frame_tx, boo
           slot_tx,
           is_rar ? "RAR" : "relative MAC CE",
           command,
-          ta_units,
+          (int)units,
           bw_scaling,
           ta_samples);
 

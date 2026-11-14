@@ -573,6 +573,7 @@ typedef struct {
 typedef struct {
  int ta_frame;
  int ta_slot;
+ /// Internal TA delivery may use 31 plus a signed sum of due CE units; this is not the six-bit wire field.
  int ta_command;
  bool is_rar;
 } fapi_nr_ta_command_pdu;

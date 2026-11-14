@@ -454,6 +454,73 @@ typedef struct NR_UL_TIME_ALIGNMENT {
   int slot;
 } NR_UL_TIME_ALIGNMENT_t;
 
+// Bounded storage for pending targets; exhaustion requests connection recovery without overwriting a command.
+#define NR_UE_TA_PENDING_CAPACITY 32
+typedef enum {
+  NR_UE_TA_PENDING_OK,
+  NR_UE_TA_PENDING_FULL,
+  NR_UE_TA_PENDING_ARITHMETIC,
+  NR_UE_TA_PENDING_INVALID,
+} nr_ue_ta_pending_result_t;
+
+static inline const char *nr_ue_ta_pending_reason(nr_ue_ta_pending_result_t failure)
+{
+  switch (failure) {
+    case NR_UE_TA_PENDING_FULL:
+      return "FULL";
+    case NR_UE_TA_PENDING_ARITHMETIC:
+      return "ARITH";
+    case NR_UE_TA_PENDING_INVALID:
+      return "INVALID";
+    default:
+      return "OK";
+  }
+}
+
+typedef struct {
+  struct {
+    uint64_t target_slot;
+    int64_t units;
+    bool valid;
+  } entries[NR_UE_TA_PENDING_CAPACITY];
+  nr_ue_ta_pending_result_t failure;
+  bool failure_reported;
+} NR_UE_TA_PENDING_t;
+
+static inline void nr_ue_reset_ta_pending(NR_UE_TA_PENDING_t *pending)
+{
+  memset(pending, 0, sizeof(*pending));
+}
+
+static inline nr_ue_ta_pending_result_t nr_ue_store_ta_command(NR_UE_TA_PENDING_t *pending, uint64_t target, int units)
+{
+  if (pending->failure != NR_UE_TA_PENDING_OK)
+    return pending->failure;
+  int available = -1;
+  for (int i = 0; i < NR_UE_TA_PENDING_CAPACITY; i++) {
+    if (!pending->entries[i].valid) {
+      if (available < 0)
+        available = i;
+    } else if (pending->entries[i].target_slot == target) {
+      int64_t combined;
+      if (__builtin_add_overflow(pending->entries[i].units, (int64_t)units, &combined)) {
+        pending->failure = NR_UE_TA_PENDING_ARITHMETIC;
+        return pending->failure;
+      }
+      pending->entries[i].units = combined;
+      return NR_UE_TA_PENDING_OK;
+    }
+  }
+  if (available < 0) {
+    pending->failure = NR_UE_TA_PENDING_FULL;
+    return pending->failure;
+  }
+  pending->entries[available].target_slot = target;
+  pending->entries[available].units = units;
+  pending->entries[available].valid = true;
+  return NR_UE_TA_PENDING_OK;
+}
+
 // List of all the possible SSBs and their details
 typedef struct ssb_list_info {
   int nb_tx_ssb;
@@ -588,6 +655,7 @@ typedef struct NR_UE_MAC_INST_s {
   NR_feature_set_ids_t uecap_fs_ids;
 
   NR_UL_TIME_ALIGNMENT_t ul_time_alignment;
+  NR_UE_TA_PENDING_t ta_pending;
   NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon;
   frame_structure_t frame_structure;
 

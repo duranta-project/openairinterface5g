@@ -706,6 +706,9 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
           .hfn = proc->hfn_rx,
           .frame = proc->frame_rx,
           .slot = proc->nr_slot_rx,
+          .ta_capture_slot =
+              ((uint64_t)proc->hfn_tx * MAX_FRAME_NUMBER + proc->frame_tx) * fp->slots_per_frame + proc->nr_slot_tx + 2,
+          .ta_capture_valid = true,
           .phy_data = phy_data,
       };
       UE->if_inst->dl_indication(&dl_indication);
