@@ -26,6 +26,7 @@
 #include "fapi_nvIPC.h"
 #include "vnf/nfapi_nr_vnf.h"
 #include <nr_fapi_p5.h>
+#include <nr_fapi_p7.h>
 #include <nr_fapi_p7_utils.h>
 #include "nfapi_interface.h"
 #include "nfapi.h"
@@ -124,12 +125,11 @@ static int ipc_handle_rx_msg(nv_ipc_msg_t *msg)
         uint8_t *pReadData = msg->data_buf;
         int dataBufLen = msg->data_len;
         uint8_t *data_end = msg->data_buf + dataBufLen;
-        nfapi_nr_srs_indication_t ind;
-        ind.header.phy_id = phy_id;
-        aerial_unpack_nr_srs_indication(&pReadPackedMessage, end, &pReadData, data_end, &ind);
-        if (vnf_p7_config->_public.nr_srs_indication) {
+        nfapi_nr_srs_indication_t ind = {.header.phy_id = phy_id};
+        if (!aerial_unpack_nr_srs_indication(&pReadPackedMessage, end, &pReadData, data_end, &ind))
+          NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: SRS.indication unpack failed, dropped\n", __FUNCTION__);
+        else if (vnf_p7_config->_public.nr_srs_indication)
           (vnf_p7_config->_public.nr_srs_indication)(&ind);
-        }
         free_srs_indication(&ind);
         break;
       }

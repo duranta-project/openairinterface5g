@@ -71,19 +71,6 @@ uint8_t aerial_unpack_nr_rx_data_indication(uint8_t **ppReadPackedMsg,
   return 1;
 }
 
-uint8_t aerial_unpack_nr_srs_indication(uint8_t **ppReadPackedMsg, uint8_t *end, uint8_t **pDataMsg, uint8_t *data_end, void *msg)
-{
-  uint8_t retval = unpack_nr_srs_indication(ppReadPackedMsg, end, msg);
-  nfapi_nr_srs_indication_t *srs_ind = (nfapi_nr_srs_indication_t *)msg;
-  for (uint8_t pdu_idx = 0; pdu_idx < srs_ind->number_of_pdus; pdu_idx++) {
-    nfapi_nr_srs_indication_pdu_t *pdu = &srs_ind->pdu_list[pdu_idx];
-    if (!unpack_nr_srs_report_tlv_value(&pdu->report_tlv, pDataMsg, data_end)) {
-      return 0;
-    }
-  }
-  return retval;
-}
-
 static int32_t aerial_pack_tx_data_request(void *pMessageBuf,
                                            void *pPackedBuf,
                                            void *pDataBuf,

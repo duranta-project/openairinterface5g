@@ -2923,6 +2923,9 @@ uint8_t pack_nr_srs_toa_vendor_ext_indication(void *msg, uint8_t **ppWritePacked
 
 uint8_t unpack_nr_srs_report_tlv_value(nfapi_srs_report_tlv_t *report_tlv, uint8_t **ppReadPackedMsg, uint8_t *end)
 {
+  // Null report (report_type 0): nothing follows
+  if (report_tlv->length == 0)
+    return 1;
   if ((report_tlv->length + 3) / 4 > sizeof(report_tlv->value) / sizeof(report_tlv->value[0])) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR,
                 "%s: SRS report TLV too large to unpack (length %u bytes, max %zu), dropping report\n",
@@ -2951,6 +2954,11 @@ uint8_t unpack_nr_srs_report_tlv_value(nfapi_srs_report_tlv_t *report_tlv, uint8
   return 1;
 }
 
+#ifdef ENABLE_AERIAL
+// cuBB's own report TLV tags
+enum { AERIAL_SRS_REPORT_IN_DATA_BUF = 1, AERIAL_SRS_REPORT_INLINE = 2 };
+#endif
+
 static uint8_t unpack_nr_srs_report_tlv(nfapi_srs_report_tlv_t *report_tlv, uint8_t **ppReadPackedMsg, uint8_t *end) {
 
   if(!(pull16(ppReadPackedMsg, &report_tlv->tag, end) &&
@@ -2962,9 +2970,16 @@ static uint8_t unpack_nr_srs_report_tlv(nfapi_srs_report_tlv_t *report_tlv, uint
     return 0;
   }
 #else
-  // Aerial sends a data_buf offset instead of the report; If left unread, the next PDU starts 4 bytes early
-  uint32_t data_buf_offset;
-  if (!pull32(ppReadPackedMsg, &data_buf_offset, end)) {
+  // cuBB's value is the report's offset in the nvIPC data buffer, kept in value[0] for
+  // aerial_unpack_nr_srs_indication, or 0xFFFFFFFF followed by the unpadded report itself
+  if (!pull32(ppReadPackedMsg, &report_tlv->value[0], end))
+    return 0;
+  if (report_tlv->tag == AERIAL_SRS_REPORT_INLINE) {
+    report_tlv->value[0] = 0;
+    return unpack_nr_srs_report_tlv_value(report_tlv, ppReadPackedMsg, end);
+  }
+  if (report_tlv->tag != AERIAL_SRS_REPORT_IN_DATA_BUF && report_tlv->length > 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: SRS report tag %u not supported\n", __FUNCTION__, report_tlv->tag);
     return 0;
   }
 #endif
@@ -3005,6 +3020,33 @@ uint8_t unpack_nr_srs_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *
 
   return 1;
 }
+
+#ifdef ENABLE_AERIAL
+// cuBB SRS.indication: codebook/non-codebook reports sit in the nvIPC data buffer at the offset
+// carried in each PDU's report TLV, beam-management reports inline in the message
+uint8_t aerial_unpack_nr_srs_indication(uint8_t **ppReadPackedMsg, uint8_t *end, uint8_t **pDataMsg, uint8_t *data_end, void *msg)
+{
+  if (!unpack_nr_srs_indication(ppReadPackedMsg, end, msg))
+    return 0;
+  nfapi_nr_srs_indication_t *srs_ind = (nfapi_nr_srs_indication_t *)msg;
+  uint8_t *data_start = *pDataMsg;
+  for (int i = 0; i < srs_ind->number_of_pdus; i++) {
+    nfapi_srs_report_tlv_t *tlv = &srs_ind->pdu_list[i].report_tlv;
+    if (tlv->tag != AERIAL_SRS_REPORT_IN_DATA_BUF || tlv->length == 0)
+      continue;
+    const uint32_t offset = tlv->value[0];
+    if (offset > data_end - data_start) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: SRS report offset %u beyond the data buffer\n", __FUNCTION__, offset);
+      return 0;
+    }
+    uint8_t *report = data_start + offset;
+    tlv->value[0] = 0;
+    if (!unpack_nr_srs_report_tlv_value(tlv, &report, data_end))
+      return 0;
+  }
+  return 1;
+}
+#endif
 
 uint8_t unpack_nr_srs_toa_vendor_ext_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg)
 {
