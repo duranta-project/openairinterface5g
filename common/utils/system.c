@@ -232,6 +232,36 @@ bool has_cap_sys_nice(void)
 }
 #endif
 
+#if defined(__riscv)
+/* SpacemiT K3: a thread may run on the AI cores (A100) only after writing its tid to /proc/set_ai_thread, and an
+ * affinity to them fails with EINVAL before that, so a thread with an affinity pins itself once running: registered
+ * on EINVAL when the interface exists, the other cores and other RISC-V systems as usual. Once registered, a thread
+ * cannot move back to the other cores, so the main thread stays unregistered. */
+typedef struct {
+  void *(*func)(void *);
+  void *param;
+  int core;
+} riscv_pin_arg_t;
+
+static void *riscv_pin_trampoline(void *a)
+{
+  const riscv_pin_arg_t p = *(riscv_pin_arg_t *)a;
+  free(a);
+  cpu_set_t cs;
+  CPU_ZERO(&cs);
+  CPU_SET(p.core, &cs);
+  if (sched_setaffinity(0, sizeof(cs), &cs) != 0) {
+    const int err = errno;
+    FILE *f = err == EINVAL ? fopen("/proc/set_ai_thread", "w") : NULL;
+    AssertFatal(f, "cannot pin thread to core %d: errno %d\n", p.core, err);
+    fprintf(f, "%ld", (long)syscall(SYS_gettid));
+    fclose(f);
+    AssertFatal(sched_setaffinity(0, sizeof(cs), &cs) == 0, "cannot pin thread to AI core %d: errno %d\n", p.core, errno);
+  }
+  return p.func(p.param);
+}
+#endif
+
 void threadCreate(pthread_t* t, void * (*func)(void*), void * param, char* name, int affinity, int priority)
 {
   int ret;
@@ -263,6 +293,15 @@ void threadCreate(pthread_t* t, void * (*func)(void*), void * param, char* name,
     LOG_I(UTIL, "%s() for %s: creating thread (no affinity, default priority)\n", __func__, name);
   }
 
+#if defined(__riscv)
+  if (affinity != -1) {
+    riscv_pin_arg_t *a = malloc(sizeof(*a));
+    AssertFatal(a, "out of memory\n");
+    *a = (riscv_pin_arg_t){func, param, affinity};
+    func = riscv_pin_trampoline;
+    param = a;
+  }
+#else
   if (affinity != -1) {
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
@@ -271,6 +310,7 @@ void threadCreate(pthread_t* t, void * (*func)(void*), void * param, char* name,
     ret = pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
     AssertFatal(ret == 0, "Error in pthread_attr_setaffinity_np(): ret: %d, errno: %d\n", ret, errno);
   }
+#endif
 
   ret=pthread_create(t, &attr, func, param);
   AssertFatal(ret == 0, "Error in pthread_create(): ret: %d, errno: %d\n", ret, errno);
