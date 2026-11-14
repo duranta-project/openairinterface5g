@@ -165,11 +165,17 @@ static inline __attribute__((always_inline)) void nrh_axis_llr(hv est, hv g, int
   out[3] = hv_set1(0.0f);
 }
 
-// one layer of a vector of REs: z_t / z_o target / other MRC, P_t / P_o, rho = h_t^H h_o, lam: lambda, all in the
-// vector's units (= the int16 compensation units 2^k per RE); int16 LLRs (per-layer order) in the compensation units
-static inline __attribute__((always_inline)) void nrh_layer(hv ztr, hv zti, hv zor, hv zoi, hv Pt, hv Po, hv rr, hv ri, hv lam, int full, int nb, const hsc *inv, hi res[8])
+// seed and per-RE state of one layer: z_t / z_o target / other MRC, P_t / P_o, rho = h_t^H h_o, lam: lambda, all in
+// the vector's units (= the int16 compensation units 2^k per RE)
+typedef struct {
+  nrh_re_t e;
+  hv det, lame, P1s, estI, estQ;
+} nrh_seed_t;
+
+static inline __attribute__((always_inline)) void
+nrh_seed(hv ztr, hv zti, hv zor, hv zoi, hv Pt, hv Po, hv rr, hv ri, hv lam, int nb, nrh_seed_t *s)
 {
-  const int M = 1 << nb, Qm = 2 * nb;
+  const int M = 1 << nb;
   const float sqK = nb == 3 ? 6.48074069840786f : 13.038404810405298f;
   const hv SK = hv_set1(sqK), NA = hv_set1(1.0f / sqK), LMAX = hv_set1((float)(M - 1));
   const hv ZERO = hv_set1(0.0f), HALF = hv_set1(0.5f);
@@ -181,57 +187,93 @@ static inline __attribute__((always_inline)) void nrh_layer(hv ztr, hv zti, hv z
   const hv idet = hv_div(SK, det);
   const hv estI = hv_mul(hv_sub(hv_mul(P1s, ztr), hv_fms(hv_mul(rr, zor), ri, zoi)), idet);
   const hv estQ = hv_mul(hv_sub(hv_mul(P1s, zti), hv_fma(hv_mul(rr, zoi), ri, zor)), idet);
-  nrh_re_t e;
-  e.rr = rr;
-  e.ri = ri;
-  e.hP0 = hv_mul(HALF, Pt);
-  e.hP1 = hv_mul(HALF, Po);
-  e.sl = hv_sel(hv_eq(Po, ZERO), ZERO, hv_div(SK, Po));
-  e.cI = nrh_clamp(nrh_round_odd(estI), LMAX);
-  e.cQ = nrh_clamp(nrh_round_odd(estQ), LMAX);
-  const hv x1r = hv_mul(e.cI, NA), x1i = hv_mul(e.cQ, NA);
+  nrh_re_t *e = &s->e;
+  e->rr = rr;
+  e->ri = ri;
+  e->hP0 = hv_mul(HALF, Pt);
+  e->hP1 = hv_mul(HALF, Po);
+  e->sl = hv_sel(hv_eq(Po, ZERO), ZERO, hv_div(SK, Po));
+  e->cI = nrh_clamp(nrh_round_odd(estI), LMAX);
+  e->cQ = nrh_clamp(nrh_round_odd(estQ), LMAX);
+  const hv x1r = hv_mul(e->cI, NA), x1i = hv_mul(e->cQ, NA);
   const hv cr = hv_fma(hv_mul(rr, x1r), ri, x1i), ci = hv_fms(hv_mul(rr, x1i), ri, x1r);
-  e.c2I = nrh_clamp(nrh_round_odd(hv_mul(hv_sub(zor, cr), e.sl)), LMAX);
-  e.c2Q = nrh_clamp(nrh_round_odd(hv_mul(hv_sub(zoi, ci), e.sl)), LMAX);
-  const hv x2r = hv_mul(e.c2I, NA), x2i = hv_mul(e.c2Q, NA);
-  e.r1r = hv_sub(hv_fms(ztr, Pt, x1r), hv_fms(hv_mul(rr, x2r), ri, x2i));
-  e.r1i = hv_sub(hv_fms(zti, Pt, x1i), hv_fma(hv_mul(rr, x2i), ri, x2r));
-  e.r2r = hv_fms(hv_sub(zor, cr), Po, x2r);
-  e.r2i = hv_fms(hv_sub(zoi, ci), Po, x2i);
+  e->c2I = nrh_clamp(nrh_round_odd(hv_mul(hv_sub(zor, cr), e->sl)), LMAX);
+  e->c2Q = nrh_clamp(nrh_round_odd(hv_mul(hv_sub(zoi, ci), e->sl)), LMAX);
+  const hv x2r = hv_mul(e->c2I, NA), x2i = hv_mul(e->c2Q, NA);
+  e->r1r = hv_sub(hv_fms(ztr, Pt, x1r), hv_fms(hv_mul(rr, x2r), ri, x2i));
+  e->r1i = hv_sub(hv_fms(zti, Pt, x1i), hv_fma(hv_mul(rr, x2i), ri, x2r));
+  e->r2r = hv_fms(hv_sub(zor, cr), Po, x2r);
+  e->r2i = hv_fms(hv_sub(zoi, ci), Po, x2i);
+  s->det = det;
+  s->lame = lame;
+  s->P1s = P1s;
+  s->estI = estI;
+  s->estQ = estQ;
+}
 
+// adaptive window (nr_lbest_wide_re): the REs that take the full grid, the low post-MMSE SINR ones
+static inline hm nrh_wide(const nrh_seed_t *s, int nb)
+{
+  return hv_lt(s->det, hv_mul(hv_set1(nb == 4 ? NR_LBEST_WIDE_SINR256 : NR_LBEST_WIDE_SINR64), hv_mul(s->lame, s->P1s)));
+}
+
+// full grid (full ML): int16 LLRs (per-layer order) in the compensation units
+static inline __attribute__((always_inline)) void nrh_layer_full(const nrh_seed_t *s, int nb, const hsc *inv, hi res[8])
+{
   hv l[8];
   hm u[8];
-  nrh_grid(&e, full, nb, l, u);
-  hv axis[8];
-  if (!full) {
-    // adaptive window (nr_lbest_wide_re): the full grid on the low-SINR REs
-    const hm wide = hv_lt(det, hv_mul(hv_set1(nb == 4 ? NR_LBEST_WIDE_SINR256 : NR_LBEST_WIDE_SINR64), hv_mul(lame, P1s)));
-    if (hm_any(wide)) {
-      hv lf[8];
-      hm uf[8];
-      nrh_grid(&e, 1, nb, lf, uf);
-      NRH_UNROLL
-      for (int p = 0; p < Qm; p++) {
-        l[p] = hv_sel(wide, lf[p], l[p]);
-        u[p] = hm_andnot(u[p], wide);
-      }
-    }
-    // graded fallback, g = 0.5 Peff / K, Peff = det / P1s
-    const hv g = hv_mul(hv_set1(0.5f / (nb == 4 ? 170.0f : 42.0f)), hv_div(det, hv_max(P1s, FLOOR)));
-    hv aI[4], aQ[4];
-    nrh_axis_llr(estI, g, nb, aI);
-    nrh_axis_llr(estQ, g, nb, aQ);
+  nrh_grid(&s->e, 1, nb, l, u);
+  NRH_UNROLL
+  for (int p = 0; p < 2 * nb; p++)
+    res[p] = nrh_llr16(l[p], inv);
+}
+
+// 3x3 window with the graded fallback for the bits it does not span, and the full grid on the wide REs (nrh_wide);
+// with defer, the full grid is left to nrh_layer_full: the wide REs are returned, their res is the window's
+static inline __attribute__((always_inline)) hm nrh_layer_window(const nrh_seed_t *s, int nb, const hsc *inv, int defer, hi res[8])
+{
+  const int Qm = 2 * nb;
+  const hv FLOOR = hv_set1(1.0f / 256.0f);
+  hv l[8];
+  hm u[8];
+  nrh_grid(&s->e, 0, nb, l, u);
+  const hm wide = nrh_wide(s, nb);
+  if (!defer && hm_any(wide)) {
+    hv lf[8];
+    hm uf[8];
+    nrh_grid(&s->e, 1, nb, lf, uf);
     NRH_UNROLL
-    for (int b = 0; b < nb; b++) {
-      axis[2 * b] = aI[b];
-      axis[2 * b + 1] = aQ[b];
+    for (int p = 0; p < Qm; p++) {
+      l[p] = hv_sel(wide, lf[p], l[p]);
+      u[p] = hm_andnot(u[p], wide);
     }
+  }
+  // graded fallback, g = 0.5 Peff / K, Peff = det / P1s
+  const hv g = hv_mul(hv_set1(0.5f / (nb == 4 ? 170.0f : 42.0f)), hv_div(s->det, hv_max(s->P1s, FLOOR)));
+  hv aI[4], aQ[4], axis[8];
+  nrh_axis_llr(s->estI, g, nb, aI);
+  nrh_axis_llr(s->estQ, g, nb, aQ);
+  NRH_UNROLL
+  for (int b = 0; b < nb; b++) {
+    axis[2 * b] = aI[b];
+    axis[2 * b + 1] = aQ[b];
   }
   NRH_UNROLL
-  for (int p = 0; p < Qm; p++) {
-    const hi v = nrh_llr16(l[p], inv);
-    res[p] = full ? v : hi_sel(u[p], nrh_llr16(axis[p], inv), v);
-  }
+  for (int p = 0; p < Qm; p++)
+    res[p] = hi_sel(u[p], nrh_llr16(axis[p], inv), nrh_llr16(l[p], inv));
+  return wide;
+}
+
+// one layer of a vector of REs (arguments of nrh_seed): int16 LLRs (per-layer order) in the compensation units
+static inline __attribute__((always_inline)) void
+nrh_layer(hv ztr, hv zti, hv zor, hv zoi, hv Pt, hv Po, hv rr, hv ri, hv lam, int full, int nb, const hsc *inv, hi res[8])
+{
+  nrh_seed_t s;
+  nrh_seed(ztr, zti, zor, zoi, Pt, Po, rr, ri, lam, nb, &s);
+  if (full)
+    nrh_layer_full(&s, nb, inv, res);
+  else
+    nrh_layer_window(&s, nb, inv, 0, res);
 }
 
 // per-RE rescale exponent putting max(P0, P1) (>= 0) in [8, 16): 18 - E, E the FP16 exponent field of the max
