@@ -32,7 +32,8 @@
 // size, and bit-exact with the expanded encoders.
 //
 // They exist at 128 bit everywhere, and additionally at 256/512 bit on x86 for
-// the lifting sizes that divide evenly. The 128-bit set is the fallback.
+// the lifting sizes that divide evenly. The 128-bit set is the fallback. RISC-V V
+// builds use the RVV set instead (rvv128..rvv1024, see ldpc_rvv_width()).
 // Define NO_FACTORED to fall back to the stock encoders entirely.
 #ifndef NO_FACTORED
 #define USE_FACTORED
@@ -41,6 +42,9 @@
 #endif
 #ifdef __AVX512F__
 #define LDPC_HAVE_512
+#endif
+#if defined(__riscv) && defined(__riscv_vector)
+#define LDPC_HAVE_RVV
 #endif
 #endif
 #ifdef USE_FACTORED
@@ -105,6 +109,64 @@
 #include "ldpc_BG2_Zc256_factored_byte_512.c"
 #include "ldpc_BG2_Zc320_factored_byte_512.c"
 #include "ldpc_BG2_Zc384_factored_byte_512.c"
+#endif
+#ifdef LDPC_HAVE_RVV
+#include "ldpc176_factored_byte_rvv128.c"
+#include "ldpc192_factored_byte_rvv128.c"
+#include "ldpc208_factored_byte_rvv128.c"
+#include "ldpc224_factored_byte_rvv128.c"
+#include "ldpc240_factored_byte_rvv128.c"
+#include "ldpc256_factored_byte_rvv128.c"
+#include "ldpc288_factored_byte_rvv128.c"
+#include "ldpc320_factored_byte_rvv128.c"
+#include "ldpc352_factored_byte_rvv128.c"
+#include "ldpc384_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc80_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc96_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc112_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc128_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc144_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc160_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc176_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc192_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc208_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc224_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc240_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc256_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc288_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc320_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc352_factored_byte_rvv128.c"
+#include "ldpc_BG2_Zc384_factored_byte_rvv128.c"
+#include "ldpc192_factored_byte_rvv256.c"
+#include "ldpc224_factored_byte_rvv256.c"
+#include "ldpc256_factored_byte_rvv256.c"
+#include "ldpc288_factored_byte_rvv256.c"
+#include "ldpc320_factored_byte_rvv256.c"
+#include "ldpc352_factored_byte_rvv256.c"
+#include "ldpc384_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc96_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc128_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc160_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc192_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc224_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc256_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc288_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc320_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc352_factored_byte_rvv256.c"
+#include "ldpc_BG2_Zc384_factored_byte_rvv256.c"
+#include "ldpc192_factored_byte_rvv512.c"
+#include "ldpc256_factored_byte_rvv512.c"
+#include "ldpc320_factored_byte_rvv512.c"
+#include "ldpc384_factored_byte_rvv512.c"
+#include "ldpc_BG2_Zc128_factored_byte_rvv512.c"
+#include "ldpc_BG2_Zc192_factored_byte_rvv512.c"
+#include "ldpc_BG2_Zc256_factored_byte_rvv512.c"
+#include "ldpc_BG2_Zc320_factored_byte_rvv512.c"
+#include "ldpc_BG2_Zc384_factored_byte_rvv512.c"
+#include "ldpc256_factored_byte_rvv1024.c"
+#include "ldpc384_factored_byte_rvv1024.c"
+#include "ldpc_BG2_Zc256_factored_byte_rvv1024.c"
+#include "ldpc_BG2_Zc384_factored_byte_rvv1024.c"
 #endif
 #else
 // NO_FACTORED fallback: the stock encoders, as before the factored path existed.
@@ -357,9 +419,34 @@ __attribute__((constructor)) static void ldpc_simd_width_init(void)
 }
 #endif
 
+#ifdef LDPC_HAVE_RVV
+/* RVV: the widest chunk one LMUL=1 register holds, VLEN / 8 bytes (rvv1024 on the
+ * K3 A100, rvv256 on the X100). Read on every call -- one vsetvli -- because a
+ * process can run on cores of different VLEN (the K3 clusters): a width resolved
+ * once on a 1024-bit core would run at a truncated vl on a 256-bit one.
+ * OAI_LDPC_SIMD_WIDTH=128|256|512|1024 lowers it, never above what the core holds. */
+static inline int ldpc_rvv_width(void)
+{
+  static int cap = -1;
+  if (cap < 0) {
+    const char *e = getenv("OAI_LDPC_SIMD_WIDTH");
+    cap = e ? atoi(e) : 0;
+  }
+  int w = 8 * (int)__riscv_vsetvlmax_e8m1();
+  if (cap > 0 && cap < w)
+    w = cap;
+  return w;
+}
+#endif
+
 /* Pick the widest factored encoder the lifting size and the CPU both allow.
- * SEL3 is for Zc divisible by 64, SEL2 by 32, SEL1 by 16 only. */
-#if defined(LDPC_HAVE_512)
+ * SEL4 is for Zc divisible by 128, SEL3 by 64, SEL2 by 32, SEL1 by 16 only. */
+#if defined(LDPC_HAVE_RVV)
+#define LDPC_SEL4(b) ((w) >= 1024 ? b##_rvv1024 : (w) >= 512 ? b##_rvv512 : (w) >= 256 ? b##_rvv256 : b##_rvv128)
+#define LDPC_SEL3(b) ((w) >= 512 ? b##_rvv512 : (w) >= 256 ? b##_rvv256 : b##_rvv128)
+#define LDPC_SEL2(b) ((w) >= 256 ? b##_rvv256 : b##_rvv128)
+#define LDPC_SEL1(b) (b##_rvv128)
+#elif defined(LDPC_HAVE_512)
 #define LDPC_SEL3(b) ((w) >= 512 ? b##_512 : (w) >= 256 ? b##_256 : b##_128)
 #define LDPC_SEL2(b) ((w) >= 256 ? b##_256 : b##_128)
 #elif defined(LDPC_HAVE_256)
@@ -369,7 +456,10 @@ __attribute__((constructor)) static void ldpc_simd_width_init(void)
 #define LDPC_SEL3(b) (b##_128)
 #define LDPC_SEL2(b) (b##_128)
 #endif
+#ifndef LDPC_HAVE_RVV
 #define LDPC_SEL1(b) (b##_128)
+#define LDPC_SEL4(b) LDPC_SEL3(b)
+#endif
 
 static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols)
 {
@@ -399,7 +489,9 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
     }
   }
 #ifdef USE_FACTORED
-#if defined(LDPC_HAVE_256) || defined(LDPC_HAVE_512)
+#if defined(LDPC_HAVE_RVV)
+  const int w = ldpc_rvv_width();
+#elif defined(LDPC_HAVE_256) || defined(LDPC_HAVE_512)
   const int w = ldpc_simd_width();
 #endif
   if (BG == 1) {
@@ -409,11 +501,11 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
       case 208: LDPC_SEL1(ldpc208_byte)(c, d); break;
       case 224: LDPC_SEL2(ldpc224_byte)(c, d); break;
       case 240: LDPC_SEL1(ldpc240_byte)(c, d); break;
-      case 256: LDPC_SEL3(ldpc256_byte)(c, d); break;
+      case 256: LDPC_SEL4(ldpc256_byte)(c, d); break;
       case 288: LDPC_SEL2(ldpc288_byte)(c, d); break;
       case 320: LDPC_SEL3(ldpc320_byte)(c, d); break;
       case 352: LDPC_SEL2(ldpc352_byte)(c, d); break;
-      case 384: LDPC_SEL3(ldpc384_byte)(c, d); break;
+      case 384: LDPC_SEL4(ldpc384_byte)(c, d); break;
       default: AssertFatal(false, "BG %d Zc %d is not supported yet\n", BG, Zc);
     }
   } else if (BG == 2) {
@@ -434,11 +526,11 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
       case 208: LDPC_SEL1(ldpc_BG2_Zc208_byte)(c, d); break;
       case 224: LDPC_SEL2(ldpc_BG2_Zc224_byte)(c, d); break;
       case 240: LDPC_SEL1(ldpc_BG2_Zc240_byte)(c, d); break;
-      case 256: LDPC_SEL3(ldpc_BG2_Zc256_byte)(c, d); break;
+      case 256: LDPC_SEL4(ldpc_BG2_Zc256_byte)(c, d); break;
       case 288: LDPC_SEL2(ldpc_BG2_Zc288_byte)(c, d); break;
       case 320: LDPC_SEL3(ldpc_BG2_Zc320_byte)(c, d); break;
       case 352: LDPC_SEL2(ldpc_BG2_Zc352_byte)(c, d); break;
-      case 384: LDPC_SEL3(ldpc_BG2_Zc384_byte)(c, d); break;
+      case 384: LDPC_SEL4(ldpc_BG2_Zc384_byte)(c, d); break;
       default: AssertFatal(false, "BG %d Zc %d is not supported yet\n", BG, Zc);
     }
   } else

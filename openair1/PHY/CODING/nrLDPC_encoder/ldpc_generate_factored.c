@@ -290,6 +290,11 @@ static void lgf_residual(uint8_t *out, const uint8_t *Gi, const lgf_fac *f, int 
  * keeps the systematic operands in registers across the many rows that share
  * them, which the load form gives up. So: alignr at 128 bit, this at 256/512.
  *
+ * RVV (rvv128..rvv1024: W = 16..128 bytes) always takes this form: vle8 at any byte
+ * offset has no lane restriction, and one chunk is one LMUL=1 register at vl = W, so
+ * W is bounded by VLEN, not by the ISA. The RISC-V dispatch picks the widest W the
+ * core's VLEN holds.
+ *
  * Bounds. Systematic: W*(NCH-1) + (nc-1)*2*Zc + Zc-1 + W == nc*2*Zc exactly, so
  * the doubled input needs no padding. Kernel: the scratch holds each group twice
  * (4 * 2 * Zc), so W*j + s + W < 2*Zc always. Within stage 1 the second copy is
@@ -298,12 +303,17 @@ static void lgf_residual(uint8_t *out, const uint8_t *Gi, const lgf_fac *f, int 
 typedef struct {
   int W, shift;
   const char *type, *xorf, *loaduf, *storeuf, *lcast, *scast, *tag;
+  int rvv; // RISC-V V: the emitted file defines LGF_RVL/LGF_RVX/LGF_RVS at vl = W
 } lgf_isa;
 
 static const lgf_isa LGF_ISAS[] = {
     {16, 4, "simde__m128i", "simde_mm_xor_si128", "simde_mm_loadu_si128", "simde_mm_storeu_si128", "(const simde__m128i *)", "(simde__m128i *)", "128"},
     {32, 5, "simde__m256i", "simde_mm256_xor_si256", "simde_mm256_loadu_si256", "simde_mm256_storeu_si256", "(const simde__m256i *)", "(simde__m256i *)", "256"},
     {64, 6, "__m512i", "_mm512_xor_si512", "_mm512_loadu_si512", "_mm512_storeu_si512", "(const void *)", "(void *)", "512"},
+    {16, 4, "vuint8m1_t", "LGF_RVX", "LGF_RVL", "LGF_RVS", "(const uint8_t *)", "(uint8_t *)", "rvv128", 1},
+    {32, 5, "vuint8m1_t", "LGF_RVX", "LGF_RVL", "LGF_RVS", "(const uint8_t *)", "(uint8_t *)", "rvv256", 1},
+    {64, 6, "vuint8m1_t", "LGF_RVX", "LGF_RVL", "LGF_RVS", "(const uint8_t *)", "(uint8_t *)", "rvv512", 1},
+    {128, 7, "vuint8m1_t", "LGF_RVX", "LGF_RVL", "LGF_RVS", "(const uint8_t *)", "(uint8_t *)", "rvv1024", 1},
 };
 #define LGF_NISA (int)(sizeof(LGF_ISAS) / sizeof(LGF_ISAS[0]))
 
@@ -351,7 +361,15 @@ static int lgf_emit_wide(int BG, int Zc, int nrows, int ncols, const lgf_isa *I,
   lgf_expr e = {.n = 0};
 
   fprintf(fd, "/*\n * SPDX-License-Identifier: LicenseRef-CSSL-1.0\n */\n");
-  fprintf(fd, "#include <string.h>\n#include \"PHY/sse_intrin.h\"\n");
+  if (I->rvv) {
+    fprintf(fd, "#include <string.h>\n#include <riscv_vector.h>\n");
+    fprintf(fd, "// one chunk = one LMUL=1 register at vl = %d bytes: needs VLEN >= %d\n", W, 8 * W);
+    fprintf(fd, "#define LGF_RVL(p) __riscv_vle8_v_u8m1((p), %d)\n", W);
+    fprintf(fd, "#define LGF_RVX(a, b) __riscv_vxor_vv_u8m1((a), (b), %d)\n", W);
+    fprintf(fd, "#define LGF_RVS(p, v) __riscv_vse8_v_u8m1((p), (v), %d)\n", W);
+  } else {
+    fprintf(fd, "#include <string.h>\n#include \"PHY/sse_intrin.h\"\n");
+  }
   fprintf(fd, "// generated: BG%d Zc=%d, %s-bit, factored\n", BG, Zc, I->tag);
   fprintf(fd, "// %d terms vs %d expanded (%.2fx); %d chunks/group; pipeline lag %d\n", factored, direct, (double)direct / factored, NCH, LAG);
   fprintf(fd, "// every read is one unaligned load at a constant offset\n");
@@ -435,6 +453,8 @@ static int lgf_emit_wide(int BG, int Zc, int nrows, int ncols, const lgf_isa *I,
     fprintf(fd, " + %d sys]\n", fac[r].cost - fac[r].nref);
   }
   fprintf(fd, "  }\n}\n");
+  if (I->rvv)
+    fprintf(fd, "#undef LGF_RVL\n#undef LGF_RVX\n#undef LGF_RVS\n");
   fclose(fd);
   printf("    %s-bit -> %s (%d chunks, LAG %d)\n", I->tag, fname, NCH, LAG);
   return 0;
@@ -629,13 +649,13 @@ static int generate_factored_encoder(int BG, int Zc, const short *nos, const sho
   fprintf(fd, "  }\n}\n");
   fclose(fd);
 
-  /* Also emit 256- and 512-bit encoders where the lifting size divides evenly.
-   * Those widths cannot use alignr (it is lane-local), so they take the
-   * unaligned-load emission above. LAG is recomputed per width because it is
-   * measured in chunks, and a chunk is wider. */
+  /* Also emit 256- and 512-bit encoders, and the RVV ones at every width, where
+   * the lifting size divides evenly. Those cannot or need not use alignr (it is
+   * lane-local on x86), so they take the unaligned-load emission above. LAG is
+   * recomputed per width because it is measured in chunks, and a chunk is wider. */
   for (int w = 0; w < LGF_NISA; w++) {
     const lgf_isa *I = &LGF_ISAS[w];
-    if (I->W == 16 || Zc % I->W)
+    if ((I->W == 16 && !I->rvv) || Zc % I->W)
       continue;
     const int wNCH = Zc / I->W;
     int wLAG = 1;
