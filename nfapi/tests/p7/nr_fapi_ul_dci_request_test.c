@@ -13,7 +13,7 @@ static void fill_beamforming(nfapi_nr_tx_precoding_and_beamforming_t *precodingA
   for (int prg = 0; prg < precodingAndBeamforming->num_prgs; ++prg) {
     precodingAndBeamforming->prgs_list[prg].pm_idx = rand16();
     for (int dbf_if = 0; dbf_if < precodingAndBeamforming->dig_bf_interfaces; ++dbf_if) {
-      precodingAndBeamforming->prgs_list[prg].dig_bf_interface_list[dbf_if].beam_idx = rand16();
+      precodingAndBeamforming->prgs_list[prg].dig_bf_interface_list[dbf_if].beam_idx = rand16_range(0, 0x7fff);
     }
   }
 }

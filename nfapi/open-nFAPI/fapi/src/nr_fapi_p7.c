@@ -982,9 +982,11 @@ static uint8_t pack_ul_tti_request_prach_pdu(const nfapi_nr_prach_pdu_t *prach_p
   if (!pack_nr_rx_beamforming_pdu(&prach_pdu->beamforming, ppWritePackedMsg, end))
     return 0;
 
+#ifndef ENABLE_AERIAL
   const nfapi_nr_spatial_stream_index_t *p = &prach_pdu->param_v4;
   if (!pack_spatial_stream_indices(p, ppWritePackedMsg, end))
     return 0;
+#endif
 
   return 1;
 }

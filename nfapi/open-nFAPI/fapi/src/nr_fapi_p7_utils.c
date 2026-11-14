@@ -107,8 +107,10 @@ static bool eq_dl_tti_request_pdsch_pdu(const nfapi_nr_dl_tti_pdsch_pdu_rel15_t 
   EQ(a->isLastCbPresent, b->isLastCbPresent);
   EQ(a->isInlineTbCrc, b->isInlineTbCrc);
   EQ(a->dlTbCrc, b->dlTbCrc);
+#ifndef ENABLE_AERIAL
   EQ(a->maintenance_parms_v3.ldpcBaseGraph, b->maintenance_parms_v3.ldpcBaseGraph);
   EQ(a->maintenance_parms_v3.tbSizeLbrmBytes, b->maintenance_parms_v3.tbSizeLbrmBytes);
+#endif
   return true;
 }
 
