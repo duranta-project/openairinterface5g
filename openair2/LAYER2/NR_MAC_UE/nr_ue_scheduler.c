@@ -130,6 +130,7 @@ static void flush_harq_buffers(NR_UE_MAC_INST_t *mac)
 
 void handle_time_alignment_timer_expired(NR_UE_MAC_INST_t *mac)
 {
+  mac->ra.time_alignment_timer_started = false;
   // flush all HARQ buffers for all Serving Cells
   flush_harq_buffers(mac);
   // release PUCCH for all Serving Cells;

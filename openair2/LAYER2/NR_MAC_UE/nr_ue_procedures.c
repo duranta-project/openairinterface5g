@@ -3339,8 +3339,11 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
   const int ta = rar->TA2 + (rar->TA1 << 5);
   const bool ta_timer_active = nr_timer_is_active(&mac->time_alignment_timer);
   // if the timeAlignmentTimer associated with this TAG is not running
-  if (!ta_timer_active)
+  if (!ta_timer_active) {
     set_time_alignment(mac, ta, rar_ta, frame, slot);
+    if (!ra->cfra)
+      ra->time_alignment_timer_started = true;
+  }
   // else ignore the received Timing Advance Command
   LOG_D(NR_MAC,
         "[UE %d] RAR %d.%d RAPID %u absolute TA %d Msg3 %d.%d k2 %ld NTN K-offset %d "
