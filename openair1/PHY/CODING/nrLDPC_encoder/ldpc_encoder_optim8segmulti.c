@@ -18,6 +18,9 @@
 #ifdef __aarch64__
 #include <arm_neon.h>
 #endif
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
 
 #include "ldpc_encode_parity_check.c"
@@ -42,6 +45,35 @@ static inline uint8x16_t vorr8_u8(const uint8x16_t r[8])
 {
   return vorrq_u8(vorrq_u8(vorrq_u8(r[0], r[1]), vorrq_u8(r[2], r[3])),
                   vorrq_u8(vorrq_u8(r[4], r[5]), vorrq_u8(r[6], r[7])));
+}
+#endif
+
+#if defined(__riscv) && defined(__riscv_vector)
+/* RVV input interleave: cc[8 k + b] holds, in bit s, bit 7 - b of byte k of segment s (MSB first, as the scalar
+ * loop). One accumulator per output bit position b over the segments, then one 8-field segment store writes the 8
+ * accumulators interleaved: the X100 runs segment stores far faster than the per-field strided ones. VLEN-agnostic;
+ * covers the whole bytes of the block, the scalar loop after it the bits past them. */
+static unsigned int ldpc_rvv_interleave(uint8_t **input, uint8_t *cc, int first, int ns, int nbytes)
+{
+  for (int k = 0; k < nbytes;) {
+    const size_t vl = __riscv_vsetvl_e8m1(nbytes - k);
+    vuint8m1_t a0 = __riscv_vmv_v_x_u8m1(0, vl), a1 = a0, a2 = a0, a3 = a0, a4 = a0, a5 = a0, a6 = a0, a7 = a0;
+    for (int s = 0; s < ns; s++) {
+      const vuint8m1_t x = __riscv_vle8_v_u8m1(input[first + s] + k, vl);
+      // bit 7 - b of x to bit s: shift by 7 - b - s, then keep bit s
+#define NRL_ACC(b)                                                                                     \
+  {                                                                                                    \
+    const int sh = 7 - (b) - s;                                                                        \
+    const vuint8m1_t t = sh >= 0 ? __riscv_vsrl_vx_u8m1(x, sh, vl) : __riscv_vsll_vx_u8m1(x, -sh, vl); \
+    a##b = __riscv_vor_vv_u8m1(a##b, __riscv_vand_vx_u8m1(t, 1u << s, vl), vl);                        \
+  }
+      NRL_ACC(0) NRL_ACC(1) NRL_ACC(2) NRL_ACC(3) NRL_ACC(4) NRL_ACC(5) NRL_ACC(6) NRL_ACC(7)
+#undef NRL_ACC
+    }
+    __riscv_vsseg8e8_v_u8m1x8(cc + 8 * k, __riscv_vcreate_v_u8m1x8(a0, a1, a2, a3, a4, a5, a6, a7), vl);
+    k += (int)vl;
+  }
+  return 8 * nbytes;
 }
 #endif
 
@@ -146,7 +178,9 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   }
 #endif
 
-#ifndef __aarch64__
+#if defined(__riscv) && defined(__riscv_vector)
+  i_byte = ldpc_rvv_interleave(input, cc, macro_segment, macro_segment_end - macro_segment, block_length >> 3);
+#elif !defined(__aarch64__)
   simde__m256i shufmask = simde_mm256_set_epi64x(0x0303030303030303, 0x0202020202020202,0x0101010101010101, 0x0000000000000000);
   simde__m256i andmask  = simde_mm256_set1_epi64x(0x0102040810204080);  // every 8 bits -> 8 bytes, pattern repeats.
   simde__m256i zero256   = simde_mm256_setzero_si256();
