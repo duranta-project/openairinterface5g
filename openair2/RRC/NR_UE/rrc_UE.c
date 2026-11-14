@@ -961,22 +961,26 @@ static void nr_rrc_manage_rlc_bearers(NR_UE_RRC_INST_t *rrc, const NR_CellGroupC
         if (rlc_bearer->rlc_Config)
           nr_rlc_reconfigure_entity(rrc->ue_id, lcid, rlc_bearer->rlc_Config);
       } else {
-        rrc->active_RLC_entity[lcid] = true;
         AssertFatal(rlc_bearer->servedRadioBearer, "servedRadioBearer mandatory in case of setup\n");
         AssertFatal(rlc_bearer->servedRadioBearer->present != NR_RLC_BearerConfig__servedRadioBearer_PR_NOTHING,
                     "Invalid RB for RLC configuration\n");
         if (rlc_bearer->servedRadioBearer->present == NR_RLC_BearerConfig__servedRadioBearer_PR_srb_Identity) {
           NR_SRB_Identity_t srb_id = rlc_bearer->servedRadioBearer->choice.srb_Identity;
-          nr_rlc_add_srb(rrc->ue_id, srb_id, rlc_bearer);
-          nr_rlc_set_rlf_handler(rrc->ue_id, nr_rrc_signal_maxrtxindication);
+          if (nr_rlc_add_srb(rrc->ue_id, srb_id, rlc_bearer)) {
+            rrc->active_RLC_entity[lcid] = true;
+            nr_rlc_set_rlf_handler(rrc->ue_id, nr_rrc_signal_maxrtxindication);
+          } else {
+            RRCLOG_E("Failed to establish RLC entity for SRB %ld (lcid %ld)\n", srb_id, lcid);
+          }
         } else { // DRB
           NR_DRB_Identity_t drb_id = rlc_bearer->servedRadioBearer->choice.drb_Identity;
           if (!rlc_bearer->rlc_Config) {
             RRCLOG_E("RRC RLC-Config not present but is mandatory for setup\n");
-            rrc->active_RLC_entity[lcid] = false;
-          } else {
-            nr_rlc_add_drb(rrc->ue_id, drb_id, rlc_bearer);
+          } else if (nr_rlc_add_drb(rrc->ue_id, drb_id, rlc_bearer)) {
+            rrc->active_RLC_entity[lcid] = true;
             nr_rlc_set_rlf_handler(rrc->ue_id, nr_rrc_signal_maxrtxindication);
+          } else {
+            RRCLOG_E("Failed to establish RLC entity for DRB %ld (lcid %ld)\n", drb_id, lcid);
           }
         }
       }
