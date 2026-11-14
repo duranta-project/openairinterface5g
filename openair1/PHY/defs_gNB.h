@@ -520,6 +520,9 @@ typedef struct PHY_VARS_gNB_s {
   notifiedFIFO_t L1_tx_out;
   notifiedFIFO_t L1_rx_out;
   tpool_t threadPool;
+  /// optional pool for LDPC encoding/decoding (e.g. cores better at it on heterogeneous CPUs); NULL: threadPool
+  tpool_t *ldpcTpool;
+  tpool_t ldpcPool;
   int num_pusch_symbols_per_thread;
   int num_pdsch_symbols_per_thread;
   int dmrs_num_antennas_per_thread;
@@ -529,6 +532,11 @@ typedef struct PHY_VARS_gNB_s {
   int L1_tx_thread_core;
   void *scopeData;
 } PHY_VARS_gNB;
+
+static inline tpool_t *gNB_ldpc_tpool(PHY_VARS_gNB *gNB)
+{
+  return gNB->ldpcTpool ? gNB->ldpcTpool : &gNB->threadPool;
+}
 
 struct puschSymbolReqId {
   uint16_t ulsch_id;

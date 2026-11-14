@@ -17,6 +17,8 @@ extern "C"
 
 /* help strings definition for command line options, used in CMDLINE_XXX_DESC macros and printed when -h option is used */
 #define CONFIG_HLP_RFCFGF        "Configuration file for front-end (e.g. LMS7002M)\n"
+#define CONFIG_HLP_TPOOL_LDPC \
+  "Optional gNB thread pool for LDPC encoding/decoding, same format as thread-pool; default: use thread-pool\n"
 #define CONFIG_HLP_TPOOL \
   "Thread pool configuration: \n\
   list of cores, comma separated (negative value is no core affinity)\n\
@@ -83,6 +85,7 @@ extern "C"
 /*-----------------------------------------------------------------------------------------------------------------------------------------------------*/
 #define RF_CONFIG_FILE      softmodem_params.rf_config_file
 #define TP_CONFIG           softmodem_params.threadPoolConfig
+#define TP_LDPC_CONFIG      softmodem_params.threadPoolLdpcConfig
 #define CONTINUOUS_TX       softmodem_params.continuous_tx
 #define PHY_TEST            softmodem_params.phy_test
 #define DO_RA               softmodem_params.do_ra
@@ -108,6 +111,7 @@ extern int usrp_tx_thread;
 #define CMDLINE_PARAMS_DESC {  \
   {"rf-config-file",        CONFIG_HLP_RFCFGF,        0,              .strptr=&RF_CONFIG_FILE,                .defstrval=NULL,          TYPE_STRING, 0},  \
   {"thread-pool",           CONFIG_HLP_TPOOL,         0,              .strptr=&TP_CONFIG,                     .defstrval="-1,-1,-1,-1,-1,-1,-1,-1",  TYPE_STRING, 0},     \
+  {"thread-pool-ldpc",      CONFIG_HLP_TPOOL_LDPC,    0,              .strptr=&TP_LDPC_CONFIG,                .defstrval=NULL,          TYPE_STRING, 0},  \
   {"phy-test",              CONFIG_HLP_PHYTST,        PARAMFLAG_BOOL, .iptr=&PHY_TEST,                        .defintval=0,             TYPE_INT,    0},  \
   {"do-ra",                 CONFIG_HLP_DORA,          PARAMFLAG_BOOL, .iptr=&DO_RA,                           .defintval=0,             TYPE_INT,    0},  \
   {"sl-mode",               CONFIG_HLP_SL_MODE,       0,              .u8ptr=&SL_MODE,                        .defintval=0,             TYPE_UINT8,  0},  \
@@ -147,6 +151,7 @@ extern int usrp_tx_thread;
 
 // clang-format off
 #define CMDLINE_PARAMS_CHECK_DESC {         \
+    { .s5 = { NULL } },                     \
     { .s5 = { NULL } },                     \
     { .s5 = { NULL } },                     \
     { .s5 = { NULL } },                     \
@@ -270,6 +275,7 @@ typedef struct {
   //THREAD_STRUCT  thread_struct;
   char           *rf_config_file;
   char *threadPoolConfig;
+  char *threadPoolLdpcConfig;
   int            phy_test;
   int            do_ra;
   uint8_t        sl_mode;

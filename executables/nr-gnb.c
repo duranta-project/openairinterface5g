@@ -476,6 +476,10 @@ void init_gNB_Tpool(int inst)
   gNB_L1_proc_t *proc = &gNB->proc;
   // ULSCH decoding threadpool
   initTpool(get_softmodem_params()->threadPoolConfig, &gNB->threadPool, cpumeas(CPUMEAS_GETSTATE));
+  if (get_softmodem_params()->threadPoolLdpcConfig) {
+    initNamedTpool(get_softmodem_params()->threadPoolLdpcConfig, &gNB->ldpcPool, cpumeas(CPUMEAS_GETSTATE), "Tpool-ldpc");
+    gNB->ldpcTpool = &gNB->ldpcPool;
+  }
 
   // L1 RX result FIFO
   initNotifiedFIFO(&gNB->resp_L1);
@@ -511,6 +515,8 @@ void term_gNB_Tpool(int inst) {
   }
 
   abortTpool(&gNB->threadPool);
+  if (gNB->ldpcTpool)
+    abortTpool(gNB->ldpcTpool);
 }
 
 /// eNB kept in function name for nffapi calls, TO FIX

@@ -109,7 +109,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
   nrLDPC_slot_decoding_parameters_t slot_parameters = {.frame = frame,
                                                        .slot = nr_tti_rx,
                                                        .nb_TBs = nb_pusch,
-                                                       .threadPool = &phy_vars_gNB->threadPool,
+                                                       .threadPool = gNB_ldpc_tpool(phy_vars_gNB),
                                                        .TBs = TBs};
 
   int max_num_segments = 0;

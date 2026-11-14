@@ -197,6 +197,7 @@ int main(int argc, char *argv[])
   int c;
   bool setAffinity=false;
   char gNBthreads[128]="n";
+  char *ldpcThreads = NULL;
   int use_cuda = 0;
 
   void *h_tx_sig_pinned = NULL;
@@ -209,7 +210,7 @@ int main(int argc, char *argv[])
   void *d_channel_coeffs_gpu = NULL;
 #endif
 
-  while ((c = getopt(argc, argv, "--:O:a:b:c:d:D:ef:g:h:i:jk:l:m:n:o:p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:K:J"))
+  while ((c = getopt(argc, argv, "--:O:a:b:c:d:D:ef:g:h:i:jk:l:m:n:o:p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:Y:V:K:J"))
          != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
@@ -485,6 +486,10 @@ int main(int argc, char *argv[])
       setAffinity=true;
       break;
 
+    case 'V':
+      ldpcThreads = optarg;
+      break;
+
     case 'Z':
       transform_precoding = transformPrecoder_enabled;
       num_dmrs_cdm_grps_no_data = 2;
@@ -570,6 +575,7 @@ int main(int argc, char *argv[])
           "Type{1,2}, Number of CDM groups without data{1,2,3} e.g. -U 0,2,0,1 \n");
       printf("-v Set the max rounds\n");
       printf("-w Start PRB for PUSCH\n");
+      printf("-V gNB LDPC thread pool cores, same format as -Y (default: the -Y/-C pool)\n");
       printf("-W Num of layer for PUSCH\n");
       printf("-X Output filename (.csv format) for stats\n");
       printf("-y Number of TX antennas used at UE\n");
@@ -617,6 +623,10 @@ int main(int argc, char *argv[])
     initFloatingCoresTpool(threadCnt, &gNB->threadPool, false, "gNB-tpool");
   else
     initNamedTpool(gNBthreads, &gNB->threadPool, true, "gNB-tpool");
+  if (ldpcThreads) {
+    initNamedTpool(ldpcThreads, &gNB->ldpcPool, true, "gNB-ldpc");
+    gNB->ldpcTpool = &gNB->ldpcPool;
+  }
 
   NR_UL_IND_t UL_INFO = {0};
   UL_INFO.crc_ind.crc_list = UL_INFO.crc_pdu_list;
