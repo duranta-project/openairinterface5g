@@ -294,7 +294,7 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
       case FAPI_NR_UL_CONFIG_TYPE_PRACH: {
         phy->prach_vars[0]->prach_pdu = pdu->prach_config_pdu;
         phy->prach_vars[0]->active = true;
-        phy->timing_advance = 0;
+        phy->prach_vars[0]->tx_request_pending = true;
         pdu->pdu_type = FAPI_NR_UL_CONFIG_TYPE_DONE; // not handle it any more
       } break;
 

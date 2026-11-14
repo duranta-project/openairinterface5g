@@ -295,7 +295,7 @@ static int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
   return NR_MIXED_SLOT;
 }
 
-static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, bool tx_erasure, c16_t **txp)
+static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, bool prach_tx, bool tx_erasure, c16_t **txp)
 {
   int writeBlockSize = rxtxD->writeBlockSize;
   if (writeBlockSize == 0)
@@ -369,7 +369,7 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, bool tx_er
     for (int ant = 0; ant < fp->nb_antennas_tx; ant++)
       memset(txp[ant], 0, maxWriteBlockSize * sizeof(c16_t));
   }
-  while (writeBlockSize > maxWriteBlockSize) {
+  while ((!prach_tx || tx_erasure) && writeBlockSize > maxWriteBlockSize) {
     const int dummyBlockSize = min(writeBlockSize - maxWriteBlockSize, maxWriteBlockSize);
     int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, dummyBlockSize, fp->nb_antennas_tx, flags);
     AssertFatal(tmp == dummyBlockSize, "write samples to reorder function failed %d", tmp);
@@ -467,7 +467,7 @@ static bool update_tx_timing(nr_rxtx_thread_data_t *rxtxD)
     ue->timing_advance = next_requested_ta;
   }
   return timing_carry || rxtxD->writeBlockSize <= 0
-         || rxtxD->writeBlockSize > get_samples_per_slot(proc->nr_slot_tx, fp);
+         || rxtxD->writeBlockSize > (int64_t)NR_UE_TX_SLOT_BUFFER_FACTOR * get_samples_per_slot(proc->nr_slot_tx, fp);
 }
 
 void processSlotTX(void *arg)
@@ -478,6 +478,7 @@ void processSlotTX(void *arg)
   PHY_VARS_NR_UE *UE = rxtxD->UE;
   nr_phy_data_tx_t phy_data = {0};
   bool sl_tx_action = false;
+  bool prach_tx = false;
   bool tx_erasure = false;
 
   if (UE->if_inst)
@@ -486,9 +487,10 @@ void processSlotTX(void *arg)
   LOG_D(PHY, "SlotTx %d.%d => slot type %d\n", proc->frame_tx, proc->nr_slot_tx, proc->tx_slot_type);
 
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  const int tx_slot_buffer_factor = UE->sl_mode == 2 ? 1 : NR_UE_TX_SLOT_BUFFER_FACTOR;
   c16_t *txp[fp->nb_antennas_tx];
   for (int i = 0; i < fp->nb_antennas_tx; i++) {
-    txp[i] = UE->common_vars.txData[i] + get_samples_slot_timestamp(fp, proc->nr_slot_tx);
+    txp[i] = UE->common_vars.txData[i] + (size_t)tx_slot_buffer_factor * get_samples_slot_timestamp(fp, proc->nr_slot_tx);
   }
 
   if (proc->tx_slot_type == NR_UPLINK_SLOT || proc->tx_slot_type == NR_MIXED_SLOT) {
@@ -535,20 +537,37 @@ void processSlotTX(void *arg)
         UE->if_inst->ul_indication(&ul_indication);
         stop_meas(&UE->ue_ul_indication_stats);
       }
+      phy_data.prach_handled = true;
+      const NR_UE_PRACH *prach = UE->prach_vars[proc->gNB_id];
+      prach_tx = prach->active || prach->tx_request_pending || prach->tx_waveform_active;
+      // The previous TX prefix orders this timing snapshot before the next prefix or PRACH generation.
       const bool timing_unavailable = update_tx_timing(rxtxD);
-      const bool ul_channel = phy_data.ulsch.status == NR_ACTIVE || phy_data.pucch_vars.active[0] || phy_data.pucch_vars.active[1]
-                              || phy_data.srs_vars.active;
-      tx_erasure = timing_unavailable && ul_channel && !UE->prach_vars[proc->gNB_id]->active;
-      dynamic_barrier_join(rxtxD->next_barrier);
-
-      if (!tx_erasure)
-        phy_procedures_nrUE_TX(UE, proc, &phy_data, txp);
+      if (prach_tx) {
+        const int guard_samples =
+            fp->frame_type == TDD && proc->tx_slot_type == NR_MIXED_SLOT
+                ? get_samples_symbol_timestamp(fp, proc->nr_slot_tx, num_dl_symbols_slot(&UE->nrUE_config, proc->nr_slot_tx))
+                : 0;
+        tx_erasure = !nr_ue_prach_tx(UE, proc, txp, rxtxD->writeBlockSize, guard_samples);
+        dynamic_barrier_join(rxtxD->next_barrier);
+      } else {
+        const bool ul_channel = phy_data.ulsch.status == NR_ACTIVE || phy_data.pucch_vars.active[0] || phy_data.pucch_vars.active[1]
+                                || phy_data.srs_vars.active;
+        tx_erasure = timing_unavailable && ul_channel;
+        dynamic_barrier_join(rxtxD->next_barrier);
+        if (!tx_erasure)
+          phy_procedures_nrUE_TX(UE, proc, &phy_data, txp);
+      }
     }
   } else {
+    const NR_UE_PRACH *prach = UE->prach_vars[proc->gNB_id];
+    prach_tx = UE->sl_mode != 2 && (prach->active || prach->tx_request_pending || prach->tx_waveform_active);
     update_tx_timing(rxtxD);
+    if (prach_tx) {
+      tx_erasure = !nr_ue_prach_tx(UE, proc, txp, rxtxD->writeBlockSize, 0);
+    }
     dynamic_barrier_join(rxtxD->next_barrier);
   }
-  RU_write(rxtxD, sl_tx_action, tx_erasure, txp);
+  RU_write(rxtxD, sl_tx_action, prach_tx, tx_erasure, txp);
   TracyCZoneEnd(ctx);
 }
 
@@ -1177,6 +1196,12 @@ void *UE_thread(void *arg)
       UE->rar_ta_command.ta_frame = -1;
       UE->rar_ta_command.ta_slot = -1;
       UE->tx_timing_adjustment_pending = false;
+      for (int gNB_id = 0; gNB_id < UE->n_connected_gNB; gNB_id++) {
+        UE->prach_vars[gNB_id]->active = false;
+        UE->prach_vars[gNB_id]->tx_request_pending = false;
+        UE->prach_vars[gNB_id]->tx_waveform_active = false;
+        UE->prach_vars[gNB_id]->tx_waveform_length = 0;
+      }
       // We have resynchronized, maybe after RF loss so we need to purge any existing context
       memset(tx_wait_for_dlsch, 0, sizeof(tx_wait_for_dlsch));
       for (int i = 0; i < NUM_PROCESS_SLOT_TX_BARRIERS; i++) {
