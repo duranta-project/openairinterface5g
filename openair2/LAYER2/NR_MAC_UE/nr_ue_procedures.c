@@ -1179,12 +1179,10 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   uint16_t feedback_ti = 0;
 
   if (rnti_type == TYPE_RA_RNTI_) {
-    // RA-RNTI indicates RAR. Ensure we can decode RAR before the earliest UL scheduler call
-    // that can process the MSG3. Also assume that RAR is sent in the same slot as DCI (k0 == 0)
-    // This is not perfect as the MSG3 might end up being scheduled later, so we could be
-    // halting the UL scheduler for a longer time than necessary.
-    feedback_ti = max(1 + GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                      get_delta_for_k2(mac->current_UL_BWP->scs) + get_j_for_k2(mac->current_UL_BWP->scs));
+    // This synthetic dependency has no HARQ feedback. Decode RAR before the first TX prefix
+    // prepared from this RX slot, so even the earliest accepted Msg3 has its preceding
+    // sample boundary adjusted. As before, RAR is assumed to use k0 == 0.
+    feedback_ti = GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing);
   }
 
   if (rnti_type != TYPE_RA_RNTI_ && rnti_type != TYPE_SI_RNTI_) {

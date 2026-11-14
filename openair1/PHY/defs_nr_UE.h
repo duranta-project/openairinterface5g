@@ -385,13 +385,18 @@ typedef struct PHY_VARS_NR_UE_s {
   /// Timing Advance updates variables
   /// Timing advance update computed from the TA command signalled from gNB
   int timing_advance; /// corresponds to N_TA
+  /// Applied sample-stream correction, including residual NTN, N_TA_offset and drift adjustments.
+  int tx_stream_timing_adjustment;
+  /// A previous sample boundary still has an unapplied adjustment, excluding newly captured relative commands.
+  bool tx_timing_adjustment_pending;
   int timing_advance_ntn; /// corresponds to N_common_TA_adj + N_UE_TA_adj
   position_t position; /// configured UE position in ECEF coordinates, in metres
   int N_TA_offset; ///timing offset used in TDD
   int ta_frame;
   int ta_slot;
   int ta_command;
-  bool ta_command_is_rar; /// Pending TA command originated from a Random Access Response
+  /// RAR delivery belongs to the ordered TX task; ordinary commands are captured by RX.
+  fapi_nr_ta_command_pdu rar_ta_command;
 
   /// Flag to initialize averaging of PHY measurements
   int init_averaging;
@@ -468,6 +473,8 @@ typedef struct pdsch_scratch_s pdsch_scratch_t;
 
 typedef struct {
   openair0_timestamp_t timestamp_tx;
+  /// Applied sample-stream correction used to construct this job's immutable radio timestamp.
+  int tx_mac_stream_adjustment;
   int gNB_id;
   /// NR slot index within frame_tx [0 .. slots_per_frame - 1] to act upon for transmission
   int nr_slot_tx;
@@ -589,6 +596,7 @@ typedef struct nr_rxtx_thread_data_s {
   UE_nr_rxtx_proc_t proc;
   PHY_VARS_NR_UE *UE;
   int writeBlockSize;
+  int relative_ta_delta; /// Relative TA captured two TX slots before its effective sample boundary.
   nr_phy_data_t phy_data;
   dynamic_barrier_t* next_barrier;
   uint64_t absolute_deadline_us;

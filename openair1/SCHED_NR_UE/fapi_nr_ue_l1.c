@@ -65,10 +65,13 @@ static void configure_dlsch(NR_UE_DLSCH_t *dlsch,
 
 static void configure_ta_command(PHY_VARS_NR_UE *ue, fapi_nr_ta_command_pdu *ta_command_pdu)
 {
-  ue->ta_frame = ta_command_pdu->ta_frame;
-  ue->ta_slot = ta_command_pdu->ta_slot;
-  ue->ta_command = ta_command_pdu->ta_command;
-  ue->ta_command_is_rar = ta_command_pdu->is_rar;
+  if (ta_command_pdu->is_rar) {
+    ue->rar_ta_command = *ta_command_pdu;
+  } else {
+    ue->ta_slot = ta_command_pdu->ta_slot;
+    ue->ta_frame = ta_command_pdu->ta_frame;
+    ue->ta_command = ta_command_pdu->ta_command;
+  }
 }
 
 static void nr_ue_scheduled_response_dl(NR_UE_MAC_INST_t *mac,
