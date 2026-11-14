@@ -192,7 +192,8 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
     pusch->ulsch_llrs = gpuHostAlloc_or_fail((144 * 3 * 8448) * sizeof(int16_t), gpuHostAllocMapped);
     pusch->llr_dev = gpuHostGetDevicePointer_or_fail(pusch->ulsch_llrs);
 #else
-    pusch->ulsch_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t)); // 144 segments 3*8448 coded bits per segment
+    // 144 segments 3*8448 coded bits per segment; an inner-RX module may write its LLRs there in place (alloc_host)
+    pusch->ulsch_llrs = nr_irx_alloc_rx_buffer((144 * 3 * 8448) * sizeof(int16_t));
 #endif
     // TODO refine the size
     pusch->ack_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
@@ -251,7 +252,8 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
 #ifdef LDPC_CUDA
     gpuFreeHost(pusch_vars->ulsch_llrs); // the host pointer of the mapped allocation, not its device alias
 #else
-    free_and_zero(pusch_vars->ulsch_llrs);
+    nr_irx_free_rx_buffer(pusch_vars->ulsch_llrs);
+    pusch_vars->ulsch_llrs = NULL;
 #endif
     free_and_zero(pusch_vars->ack_llrs);
     free_and_zero(pusch_vars->csi1_llrs);

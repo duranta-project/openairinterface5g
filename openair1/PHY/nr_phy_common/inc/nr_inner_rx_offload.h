@@ -78,8 +78,9 @@ typedef int(nr_irx_run_t)(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, 
 /// makes [ptr, ptr + bytes) readable by the module (rxdataF), idempotent for a registered ptr: 0 when registered (rx_ant
 /// may point into it), 1 when the module reads extracted RX in the RX staging faster, < 0 on error
 typedef int(nr_irx_register_host_t)(const void *ptr, size_t bytes);
-/// zeroed host memory the module reads directly (register_host returns 0 for it), for rxdataF; NULL: the module has
-/// none better than malloc + register_host. Usable before init.
+/// zeroed host memory the module accesses in place: rxdataF (register_host returns 0 for it) and the codeword LLRs
+/// (ulsch_llrs, which run may then write directly); NULL: the module has none better than malloc (+ register_host).
+/// Usable before init.
 typedef void *(nr_irx_alloc_host_t)(size_t bytes);
 /// frees memory of alloc_host: 0, or -1 if ptr is not from alloc_host
 typedef int(nr_irx_free_host_t)(void *ptr);
@@ -101,7 +102,8 @@ typedef struct {
 /// loaded, -1 (itf zeroed) if none is configured or it fails to load.
 int load_nr_irx_interface(nr_irx_interface_t *itf, uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx);
 void free_nr_irx_interface(nr_irx_interface_t *itf);
-/// Allocation of the frequency-domain RX buffers (rxdataF): the module's alloc_host when it has one, else malloc16_clear
+/// Allocation of the buffers an inner-RX module may access in place (rxdataF, ulsch_llrs): the module's alloc_host when it
+/// has one, else malloc16_clear
 void *nr_irx_alloc_rx_buffer(size_t bytes);
 void nr_irx_free_rx_buffer(void *ptr);
 
