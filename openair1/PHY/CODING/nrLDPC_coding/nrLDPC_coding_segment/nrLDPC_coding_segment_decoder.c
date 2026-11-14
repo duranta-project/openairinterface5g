@@ -19,6 +19,9 @@
 #include <stdint.h>
 #include <syscall.h>
 #include <time.h>
+#if defined(__riscv_vector)
+#include <riscv_vector.h>
+#endif
 // #define gNB_DEBUG_TRACE
 
 #define OAI_LDPC_DECODER_MAX_NUM_LLR 27000 // 26112 // NR_LDPC_NCOL_BG1*NR_LDPC_ZMAX = 68*384
@@ -169,13 +172,21 @@ static void nr_process_decode_segment(void *arg)
   // skip filler bits
   memcpy(z + K, rdata->d + (K - 2 * rdata->Z), (Kc * rdata->Z - K) * sizeof(*z));
   // Saturate coded bits before decoding into 8 bits values
-  simde__m128i *pv = (simde__m128i *)&z;
   int8_t l[68 * 384 + 16] __attribute__((aligned(16)));
+#if defined(__riscv_vector)
+  // vnclip rounding down = arithmetic shift + signed saturation; SIMDe's packs_epi16 is element-serial on RVV
+  for (size_t i = 0, n = 16 * (((Kc * rdata->Z) >> 4) + 1), vl; i < n; i += vl) {
+    vl = __riscv_vsetvl_e16m4(n - i);
+    __riscv_vse8_v_i8m2(l + i, __riscv_vnclip_wx_i8m2(__riscv_vle16_v_i16m4(z + i, vl), rdata->llr_shift, __RISCV_VXRM_RDN, vl), vl);
+  }
+#else
+  simde__m128i *pv = (simde__m128i *)&z;
   simde__m128i *pl = (simde__m128i *)&l;
   const simde__m128i sh = simde_mm_cvtsi32_si128(rdata->llr_shift);
   for (int i = 0, j = 0; j < ((Kc * rdata->Z) >> 4) + 1; i += 2, j++) {
     pl[j] = simde_mm_packs_epi16(simde_mm_sra_epi16(pv[i], sh), simde_mm_sra_epi16(pv[i + 1], sh));
   }
+#endif
   // set Filler bits
   memset(l + Kprime, 127, rdata->F);
   //////////////////////////////////////////////////////////////////////////////////////////
