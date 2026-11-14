@@ -27,6 +27,21 @@ add_test(NAME test_llr_2layer
 add_executable(bench_rx2l bench_rx2l.cpp)
 target_link_libraries(bench_rx2l PRIVATE PHY_NR nr_phy_common minimal_lib)
 
+# OpenCL inner-RX module against the CPU FP16 receiver without contraction (bit-exact on GPUs running the exact FP16
+# operations, same decisions on those running mad); skipped without an OpenCL GPU
+if (ENABLE_PHY_OPENCL AND NR_LBEST_F16_FLAGS)
+  add_library(nr_lbest_f16_exact OBJECT ../src/nr_lbest_f16.c)
+  target_compile_options(nr_lbest_f16_exact PRIVATE ${NR_LBEST_F16_FLAGS} -ffp-contract=off)
+  target_link_libraries(nr_lbest_f16_exact PRIVATE UTIL PHY_COMMON)
+  target_include_directories(nr_lbest_f16_exact PRIVATE ../inc/)
+  add_executable(test_irx_cl test_irx_cl.c $<TARGET_OBJECTS:inner_rx_cl_obj> $<TARGET_OBJECTS:nr_lbest_f16_exact>)
+  target_include_directories(test_irx_cl PRIVATE ../inc/)
+  target_link_libraries(test_irx_cl PRIVATE OpenCL::OpenCL UTIL m pthread)
+  add_dependencies(tests test_irx_cl)
+  add_test(NAME test_irx_cl COMMAND ./test_irx_cl)
+  set_tests_properties(test_irx_cl PROPERTIES SKIP_RETURN_CODE 77 LABELS "opencl")
+endif()
+
 # GPU detectors: bit-exact against the CPU fp32 kernels (skipped without a device), and slot-level timing
 if (ENABLE_PHY_GPU)
   # the CPU fp32 kernels without FMA contraction (symbols *_w128_exact): the GPU kernels must match them bit for bit
