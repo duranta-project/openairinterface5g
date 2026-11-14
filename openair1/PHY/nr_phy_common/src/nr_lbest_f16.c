@@ -349,12 +349,11 @@ void nr_qam256_llr_2layer_lbest_f16_v1024(c16_t *, c16_t *, c16_t *, c16_t *, in
 void nr_qam64_llr_2layer_lbest_f16_v1024(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_inner_rx_2layer_f16_v1024(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, int, int, float, int, int16_t *, int16_t *, int16_t *, const int16_t *);
 void nr_inner_rx_1layer_f16_v1024(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, int, int, int16_t *, const int16_t *);
-static bool nrh_v1024(void)
+// read per call (one vsetvli): a process can run on cores of different VLEN (the K3 X100 / A100 clusters), and the
+// 64-lane code on a 256-bit core would run at a truncated vl
+static inline bool nrh_v1024(void)
 {
-  static int w = -1;
-  if (w < 0)
-    w = __riscv_vsetvlmax_e8m1() >= 128;
-  return w;
+  return __riscv_vsetvlmax_e8m1() >= 128;
 }
 #define NRH_FORWARD(call) \
   if (nrh_v1024()) {      \
