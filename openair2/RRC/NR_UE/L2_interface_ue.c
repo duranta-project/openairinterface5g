@@ -181,6 +181,23 @@ void nr_mac_rrc_msg3_ind(const module_id_t mod_id, const int rnti, bool prepare_
   itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(mod_id), message_p);
 }
 
+// Called by the RRC control thread; keep failure notification out of the slot-processing path.
+bool nr_mac_rrc_take_timing_failure(const module_id_t mod_id)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(mod_id);
+  if (!mac)
+    return false;
+
+  int ret = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(ret == 0, "mutex failed %d\n", ret);
+  const bool failed = mac->ta_pending.failure != NR_UE_TA_PENDING_OK && !mac->ta_pending.failure_reported;
+  if (failed)
+    mac->ta_pending.failure_reported = true;
+  ret = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(ret == 0, "mutex failed %d\n", ret);
+  return failed;
+}
+
 void nr_ue_rrc_timer_trigger(int instance, int hfn, int frame, int gnb_id)
 {
   MessageDef *message_p;

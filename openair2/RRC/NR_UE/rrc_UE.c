@@ -3297,6 +3297,14 @@ static void nr_ue_check_meas_report(NR_UE_RRC_INST_t *rrc, const uint8_t gnb_ind
   }
 }
 
+static bool nr_rrc_mac_failure_allowed(const NR_UE_RRC_INST_t *rrc)
+{
+  const NR_UE_Timers_Constants_t *timers = &rrc->timers_and_constants;
+  // An access or recovery procedure already in progress has its own failure timeout.
+  return !nr_timer_is_active(&timers->T300) && !nr_timer_is_active(&timers->T301) && !nr_timer_is_active(&timers->T304)
+         && !nr_timer_is_active(&timers->T311) && !nr_timer_is_active(&timers->T319);
+}
+
 static void nr_rrc_handle_ra_indication(NR_UE_RRC_INST_t *rrc, bool ra_succeeded, int gNB_index)
 {
   NR_UE_Timers_Constants_t *timers = &rrc->timers_and_constants;
@@ -3333,11 +3341,7 @@ static void nr_rrc_handle_ra_indication(NR_UE_RRC_INST_t *rrc, bool ra_succeeded
     // upon random access problem indication from MCG MAC
     // while neither T300, T301, T304, T311 nor T319 are running
     // consider radio link failure to be detected
-    if (!nr_timer_is_active(&timers->T300)
-        && !nr_timer_is_active(&timers->T301)
-        && !nr_timer_is_active(&timers->T304)
-        && !nr_timer_is_active(&timers->T311)
-        && !nr_timer_is_active(&timers->T319))
+    if (nr_rrc_mac_failure_allowed(rrc))
       handle_rlf_detection(rrc);
   }
 }
@@ -3432,6 +3436,10 @@ void *rrc_nrue(void *notUsed)
     RRCLOG_D("Got new frame information: %d\n", rrc->current_frame);
     // increase the timers every 10ms (every new frame)
     nr_rrc_handle_timers(rrc);
+    if (nr_rrc_mac_failure_allowed(rrc) && nr_mac_rrc_take_timing_failure(rrc->ue_id)) {
+      RRCLOG_W("MAC could not retain uplink timing commands; requesting connection recovery\n");
+      handle_rlf_detection(rrc);
+    }
     NR_UE_RRC_SI_INFO *SInfo = &rrc->perNB[NRRRC_FRAME_PROCESS(msg_p).gnb_id].SInfo;
     nr_rrc_SI_timers(SInfo);
     if (rrc->process_target_ntncfg) {

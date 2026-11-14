@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <pthread.h>
+#include <limits.h>
 
 /* exe */
 #include <common/utils/nr/nr_common.h>
@@ -130,6 +131,7 @@ static void flush_harq_buffers(NR_UE_MAC_INST_t *mac)
 
 void handle_time_alignment_timer_expired(NR_UE_MAC_INST_t *mac)
 {
+  mac->ra.time_alignment_timer_started = false;
   // flush all HARQ buffers for all Serving Cells
   flush_harq_buffers(mac);
   // release PUCCH for all Serving Cells;
@@ -1150,6 +1152,28 @@ static void schedule_ta_command(fapi_nr_dl_config_request_t *dl_config, NR_UE_MA
   ul_time_alignment->ta_apply = no_ta;
 }
 
+void nr_ue_forward_ta_command(NR_UE_MAC_INST_t *mac)
+{
+  if (mac->ta_pending.failure != NR_UE_TA_PENDING_OK)
+    return;
+  if (mac->ul_time_alignment.ta_apply != rar_ta || mac->state == UE_NOT_SYNC || mac->state == UE_NOT_SYNC_RECONF
+      || mac->state == UE_DETACHING)
+    return;
+
+  if (!mac->if_module || !mac->if_module->scheduled_response) {
+    LOG_E(NR_MAC, "Internal error, no scheduled_response function\n");
+    return;
+  }
+
+  fapi_nr_dl_config_request_t dl_config;
+  dl_config.sfn = mac->ul_time_alignment.frame;
+  dl_config.slot = mac->ul_time_alignment.slot;
+  dl_config.number_pdus = 0;
+  schedule_ta_command(&dl_config, mac);
+  nr_scheduled_response_t scheduled_response = {.dl_config = &dl_config, .module_id = mac->ue_id, .mac = mac};
+  mac->if_module->scheduled_response(&scheduled_response);
+}
+
 static NR_CSI_ResourceConfigId_t find_CSI_resourceconfig(NR_CSI_MeasConfig_t *csi_measconfig,
                                                          NR_BWP_Id_t dl_bwp_id,
                                                          NR_NZP_CSI_RS_ResourceId_t csi_id,
@@ -1345,6 +1369,48 @@ static void nr_schedule_csi_for_im(NR_UE_MAC_INST_t *mac, int frame, int slot)
 // Performs :
 // 1. TODO: Call RRC for link status return to PHY
 // 2. TODO: Perform SR/BSR procedures for scheduling feedback
+static void deliver_pending_ta_commands(NR_UE_MAC_INST_t *mac, const nr_downlink_indication_t *dl_info)
+{
+  NR_UE_TA_PENDING_t *pending = &mac->ta_pending;
+  if (!dl_info->ta_capture_valid || pending->failure != NR_UE_TA_PENDING_OK
+      || (mac->state != UE_CONNECTED && mac->state != UE_PERFORMING_RA))
+    return;
+  int64_t units = 0;
+  bool due = false;
+  for (int i = 0; i < NR_UE_TA_PENDING_CAPACITY; i++) {
+    if (pending->entries[i].valid && pending->entries[i].target_slot <= dl_info->ta_capture_slot) {
+      if (__builtin_add_overflow(units, pending->entries[i].units, &units))
+        goto arithmetic_failure;
+      due = true;
+    }
+  }
+  if (!due)
+    return;
+
+  // The internal command can aggregate multiple wire CEs. Bound conversion for every uint16_t OFDM size.
+  const int max_samples_per_unit = 16 * UINT16_MAX / 2048;
+  if (units < INT_MIN / max_samples_per_unit || units > INT_MAX / max_samples_per_unit)
+    goto arithmetic_failure;
+  const int slots_per_frame = mac->frame_structure.numb_slots_frame;
+  fapi_nr_dl_config_request_t dl_config = {.sfn = dl_info->frame, .slot = dl_info->slot, .number_pdus = 1};
+  dl_config.dl_config_list[0].pdu_type = FAPI_NR_CONFIG_TA_COMMAND;
+  dl_config.dl_config_list[0].ta_command_pdu =
+      (fapi_nr_ta_command_pdu){.ta_frame = dl_info->ta_capture_slot / slots_per_frame % MAX_FRAME_NUMBER,
+                               .ta_slot = dl_info->ta_capture_slot % slots_per_frame,
+                               .ta_command = 31 + units,
+                               .is_rar = false};
+  nr_scheduled_response_t response = {.dl_config = &dl_config, .module_id = mac->ue_id, .mac = mac};
+  mac->if_module->scheduled_response(&response);
+  for (int i = 0; i < NR_UE_TA_PENDING_CAPACITY; i++)
+    if (pending->entries[i].valid && pending->entries[i].target_slot <= dl_info->ta_capture_slot)
+      pending->entries[i].valid = false;
+  return;
+
+arithmetic_failure:
+  pending->failure = NR_UE_TA_PENDING_ARITHMETIC;
+  LOG_E(NR_MAC, "[UE %d] TA pending storage failed: ARITH\n", mac->ue_id);
+}
+
 void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info)
 {
   frame_t rx_frame = dl_info->frame;
@@ -1365,16 +1431,15 @@ void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info
 
   ue_dci_configuration(mac, dl_config, rx_frame, rx_slot);
 
-  if (mac->ul_time_alignment.ta_apply != no_ta)
-    schedule_ta_command(dl_config, mac);
-
   nr_scheduled_response_t scheduled_response = {.dl_config = dl_config,
                                                 .module_id = mac->ue_id,
                                                 .phy_data = dl_info->phy_data,
                                                 .mac = mac};
-  if (mac->if_module != NULL && mac->if_module->scheduled_response != NULL)
+  if (mac->if_module != NULL && mac->if_module->scheduled_response != NULL) {
     mac->if_module->scheduled_response(&scheduled_response);
-  else
+    // Keep ordinary TA separate from the DCI/CSI list and deliver only what this frozen RX capture can consume.
+    deliver_pending_ta_commands(mac, dl_info);
+  } else
     LOG_E(NR_MAC, "Internal error, no scheduled_response function\n");
 }
 
@@ -2625,6 +2690,8 @@ static bool nr_ue_get_sdu(NR_UE_MAC_INST_t *mac,
 
 void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
 {
+  if (mac->ta_pending.failure != NR_UE_TA_PENDING_OK)
+    return;
   int cc_id = ul_info->cc_id;
   frame_t frame_tx = ul_info->frame;
   slot_t slot_tx = ul_info->slot;

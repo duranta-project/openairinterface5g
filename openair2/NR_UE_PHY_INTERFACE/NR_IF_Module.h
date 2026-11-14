@@ -39,17 +39,21 @@ typedef struct {
   /// slot
   int slot;
 
-    /// NR UE FAPI-like P7 message, direction: L1 to L2
-    /// data reception indication structure
-    fapi_nr_rx_indication_t *rx_ind;
-    /// ssb_index, if ssb is not present in current TTI, value set to -1
-    int ssb_index;
-    /// dci reception indication structure
-    fapi_nr_dci_indication_t *dci_ind;
+  /// Frozen HFN-inclusive TX Q+2 boundary used by the main thread's ordinary TA capture.
+  uint64_t ta_capture_slot;
+  bool ta_capture_valid;
 
-    /// PHY specific data structure that can be passed on to L2 via nr_downlink_indication_t and
-    /// back to L1 via the nr_scheduled_response_t 
-    void *phy_data;
+  /// NR UE FAPI-like P7 message, direction: L1 to L2
+  /// data reception indication structure
+  fapi_nr_rx_indication_t *rx_ind;
+  /// ssb_index, if ssb is not present in current TTI, value set to -1
+  int ssb_index;
+  /// dci reception indication structure
+  fapi_nr_dci_indication_t *dci_ind;
+
+  /// PHY specific data structure that can be passed on to L2 via nr_downlink_indication_t and
+  /// back to L1 via the nr_scheduled_response_t
+  void *phy_data;
 } nr_downlink_indication_t;
 
 

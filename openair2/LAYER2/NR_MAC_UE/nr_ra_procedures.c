@@ -1009,6 +1009,7 @@ void nr_get_Msg3_MsgA_PUSCH_payload(NR_UE_MAC_INST_t *mac, uint8_t *buf, int TBS
 void nr_ra_succeeded(NR_UE_MAC_INST_t *mac, const frame_t frame, const int slot)
 {
   RA_config_t *ra = &mac->ra;
+  ra->time_alignment_timer_started = false;
 
   if (ra->cfra) {
     LOG_A(NR_MAC, "[UE %d][%d.%d][RAPROC] RA procedure succeeded. CFRA: RAR successfully received.\n", mac->ue_id, frame, slot);
@@ -1051,6 +1052,10 @@ void nr_ra_contention_resolution_failed(NR_UE_MAC_INST_t *mac)
 {
   LOG_W(MAC, "[UE %d] Contention resolution failed\n", mac->ue_id);
   RA_config_t *ra = &mac->ra;
+  if (ra->time_alignment_timer_started) {
+    nr_timer_stop(&mac->time_alignment_timer);
+    ra->time_alignment_timer_started = false;
+  }
   // discard the TEMPORARY_C-RNTI
   ra->t_crnti = 0;
   // flush MSG3 buffer
@@ -1140,6 +1145,8 @@ void prepare_msg4_msgb_feedback(NR_UE_MAC_INST_t *mac, int pid, int ack_nack)
 void reset_ra(NR_UE_MAC_INST_t *nr_mac, bool free_prach)
 {
   RA_config_t *ra = &nr_mac->ra;
+  if (ra->time_alignment_timer_started)
+    nr_timer_stop(&nr_mac->time_alignment_timer);
   if (ra->rach_ConfigDedicated)
     asn1cFreeStruc(asn_DEF_NR_RACH_ConfigDedicated, ra->rach_ConfigDedicated);
   memset(ra, 0, sizeof(RA_config_t));

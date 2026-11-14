@@ -66,6 +66,7 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
   }
 
   memset(&mac->ul_time_alignment, 0, sizeof(mac->ul_time_alignment));
+  nr_ue_reset_ta_pending(&mac->ta_pending);
   memset(&mac->ssb_list, 0, sizeof(mac->ssb_list));
 
   for (int i = 0; i < NR_MAX_SR_ID; i++)
@@ -153,6 +154,7 @@ NR_UE_MAC_INST_t *get_mac_inst(module_id_t module_id)
 
 void reset_mac_inst(NR_UE_MAC_INST_t *nr_mac)
 {
+  nr_ue_reset_ta_pending(&nr_mac->ta_pending);
   // MAC reset according to 38.321 Section 5.12
 
   // initialize Bj for each logical channel to zero
@@ -318,6 +320,7 @@ void release_mac_configuration(NR_UE_MAC_INST_t *mac, NR_UE_MAC_reset_cause_t ca
   memset(&mac->ssb_measurements, 0, sizeof(mac->ssb_measurements));
   memset(&mac->csirs_measurements, 0, sizeof(mac->csirs_measurements));
   memset(&mac->ul_time_alignment, 0, sizeof(mac->ul_time_alignment));
+  nr_ue_reset_ta_pending(&mac->ta_pending);
   for (int i = mac->TAG_list.count; i > 0 ; i--)
     asn_sequence_del(&mac->TAG_list, i - 1, 1);
 }

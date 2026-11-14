@@ -49,7 +49,7 @@ static const int8_t pdsch_N_1_capability_1[4][4] = {
 // mu == 2 is for FR1 only
 */
 static const float pdsch_N_1_capability_2[3][2] = {
-/* mu      A */   
+/* mu      A */
 {  0,      3   },
 {  1,      4.5 },
 {  2,      9   },

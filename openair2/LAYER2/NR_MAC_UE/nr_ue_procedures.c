@@ -19,6 +19,7 @@
 /* MAC */
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
+#include "LAYER2/NR_MAC_UE/phy_sch_processing_time.h"
 #include "common/utils/nr/nr_common.h"
 #include "openair2/NR_UE_PHY_INTERFACE/NR_Packet_Drop.h"
 
@@ -1178,12 +1179,10 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   uint16_t feedback_ti = 0;
 
   if (rnti_type == TYPE_RA_RNTI_) {
-    // RA-RNTI indicates RAR. Ensure we can decode RAR before the earliest UL scheduler call
-    // that can process the MSG3. Also assume that RAR is sent in the same slot as DCI (k0 == 0)
-    // This is not perfect as the MSG3 might end up being scheduled later, so we could be
-    // halting the UL scheduler for a longer time than necessary.
-    feedback_ti = max(1 + GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing),
-                      get_delta_for_k2(mac->current_UL_BWP->scs) + get_j_for_k2(mac->current_UL_BWP->scs));
+    // This synthetic dependency has no HARQ feedback. Decode RAR before the first TX prefix
+    // prepared from this RX slot, so even the earliest accepted Msg3 has its preceding
+    // sample boundary adjusted. As before, RAR is assumed to use k0 == 0.
+    feedback_ti = GET_DURATION_RX_TO_TX(mac, dlsch_pdu->SubcarrierSpacing);
   }
 
   if (rnti_type != TYPE_RA_RNTI_ && rnti_type != TYPE_SI_RNTI_) {
@@ -3255,17 +3254,64 @@ nfapi_nr_ue_csi_payload_t nr_get_csi_payload(NR_UE_MAC_INST_t *mac,
   return csi;
 }
 
-static void set_time_alignment(NR_UE_MAC_INST_t *mac, int ta, ta_type_t type, int frame, int slot)
+static bool set_time_alignment(NR_UE_MAC_INST_t *mac, int ta, ta_type_t type, int hfn, int frame, int slot)
 {
-  NR_UL_TIME_ALIGNMENT_t *ul_time_alignment = &mac->ul_time_alignment;
-  ul_time_alignment->ta_command = ta;
-  ul_time_alignment->ta_apply = type;
-  const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, mac->current_UL_BWP->scs);
-  const int n_slots_frame = mac->frame_structure.numb_slots_frame;
-  ul_time_alignment->frame = (frame + (slot + ntn_ue_koffset) / n_slots_frame) % MAX_FRAME_NUMBER;
-  ul_time_alignment->slot = (slot + ntn_ue_koffset) % n_slots_frame;
+  if ((mac->state != UE_CONNECTED && mac->state != UE_PERFORMING_RA) || mac->ta_pending.failure != NR_UE_TA_PENDING_OK)
+    return false;
+  const int slots_per_frame = mac->frame_structure.numb_slots_frame;
+  if (hfn < 0 || frame < 0 || frame >= MAX_FRAME_NUMBER || slots_per_frame <= 0 || slot < 0 || slot >= slots_per_frame
+      || (type == adjustment_ta && (ta < 0 || ta > 63))) {
+    mac->ta_pending.failure = NR_UE_TA_PENDING_INVALID;
+    goto failed;
+  }
+  int application_delay = 1 + GET_DURATION_RX_TO_TX(mac, mac->numerology);
+  if (type == adjustment_ta) {
+    // TS 38.213 clause 4.2: capability-1 processing and maximum TA durations, in milliseconds.
+    const int numerology = mac->numerology;
+    const double ms_per_symbol = 10.0 / (NR_SYMBOLS_PER_SLOT * slots_per_frame);
+    const int N_1 = numerology == 0 ? 14 : pdsch_N_1_capability_1[numerology][3];
+    const int N_2 = pusch_N_2_timing_capability_1[numerology][1];
+    const double N_TA_max = 3846 * 16.0 / (15 * 2048 * (1 << numerology));
+    const int slots_per_ms = slots_per_frame / 10;
+    application_delay = 1 + (int)ceil(slots_per_ms * ((N_1 + N_2) * ms_per_symbol + N_TA_max + 0.5))
+                        + GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, numerology);
+  }
+
+  uint64_t absolute_slot = (uint64_t)hfn * MAX_FRAME_NUMBER + frame;
+  if (application_delay < 0 || __builtin_mul_overflow(absolute_slot, (uint64_t)slots_per_frame, &absolute_slot)
+      || __builtin_add_overflow(absolute_slot, (uint64_t)slot + application_delay, &absolute_slot)) {
+    mac->ta_pending.failure = NR_UE_TA_PENDING_ARITHMETIC;
+    goto failed;
+  }
+  if (type == adjustment_ta) {
+    if (nr_ue_store_ta_command(&mac->ta_pending, absolute_slot, ta - 31) != NR_UE_TA_PENDING_OK)
+      goto failed;
+  } else {
+    NR_UL_TIME_ALIGNMENT_t *ul_time_alignment = &mac->ul_time_alignment;
+    ul_time_alignment->ta_command = ta;
+    ul_time_alignment->ta_apply = type;
+    ul_time_alignment->frame = absolute_slot / slots_per_frame % MAX_FRAME_NUMBER;
+    ul_time_alignment->slot = absolute_slot % slots_per_frame;
+  }
+
+  LOG_D(NR_MAC,
+        "[UE %d] TA command received in %d.%d: %s command %d, apply in %d.%d (application-delay %d slots)\n",
+        mac->ue_id,
+        frame,
+        slot,
+        type == rar_ta ? "RAR" : "relative MAC CE",
+        ta,
+        (int)(absolute_slot / slots_per_frame % MAX_FRAME_NUMBER),
+        (int)(absolute_slot % slots_per_frame),
+        application_delay);
+
   // start or restart the timeAlignmentTimer associated with the indicated TAG
   nr_timer_start(&mac->time_alignment_timer);
+  return true;
+
+failed:
+  LOG_E(NR_MAC, "[UE %d] TA pending storage failed: %s\n", mac->ue_id, nr_ue_ta_pending_reason(mac->ta_pending.failure));
+  return false;
 }
 
 static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t frame, int slot)
@@ -3315,8 +3361,10 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
   const int ta = rar->TA2 + (rar->TA1 << 5);
   const bool ta_timer_active = nr_timer_is_active(&mac->time_alignment_timer);
   // if the timeAlignmentTimer associated with this TAG is not running
-  if (!ta_timer_active)
-    set_time_alignment(mac, ta, rar_ta, frame_tx, slot_tx);
+  if (!ta_timer_active) {
+    if (set_time_alignment(mac, ta, rar_ta, 0, frame, slot) && !ra->cfra)
+      ra->time_alignment_timer_started = true;
+  }
   // else ignore the received Timing Advance Command
   LOG_D(NR_MAC,
         "[UE %d] RAR %d.%d RAPID %u absolute TA %d Msg3 %d.%d k2 %ld NTN K-offset %d "
@@ -4033,7 +4081,7 @@ static bool check_ra_contention_resolution(const uint8_t *pdu, const uint8_t *co
   return true;
 }
 
-static int nr_ue_validate_successrar(uint8_t *pduP, int32_t pdu_len, NR_UE_MAC_INST_t *mac, frame_t frameP, int slot)
+static int nr_ue_validate_successrar(uint8_t *pduP, int32_t pdu_len, NR_UE_MAC_INST_t *mac, int hfn, frame_t frameP, int slot)
 {
   // TS 38.321 - Figure 6.1.5a-1: BI MAC subheader
   // TS 38.321 - Figure 6.1.5a-3: SuccessRAR MAC subheader
@@ -4109,7 +4157,7 @@ static int nr_ue_validate_successrar(uint8_t *pduP, int32_t pdu_len, NR_UE_MAC_I
   }
   const int ta = ((NR_MAC_CE_TA *)pduP)[1].TA_COMMAND;
 
-  set_time_alignment(mac, ta, adjustment_ta, frameP, slot);
+  set_time_alignment(mac, ta, adjustment_ta, hfn, frameP, slot);
   return n;
 }
 
@@ -4174,7 +4222,7 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
         dl_info->rx_ind->number_pdus);
 
   if (ra->ra_type == RA_2_STEP && ra->ra_state == nrRA_WAIT_MSGB) {
-    int n = nr_ue_validate_successrar(pduP, pdu_len, mac, frameP, slot);
+    int n = nr_ue_validate_successrar(pduP, pdu_len, mac, dl_info->hfn, frameP, slot);
     pduP += n;
     pdu_len -= n;
   }
@@ -4288,7 +4336,7 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
           break;
         }
 
-        set_time_alignment(mac, ta, adjustment_ta, frameP, slot);
+        set_time_alignment(mac, ta, adjustment_ta, dl_info->hfn, frameP, slot);
 
         if (ta == 31)
           LOG_D(NR_MAC, "[%d.%d] Received TA_COMMAND %u TAGID %u CC_id %d \n", frameP, slot, ta, tag, CC_id);

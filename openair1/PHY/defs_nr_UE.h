@@ -50,6 +50,12 @@
 //       (0  + 0 * 20) % 512 = 0
 #define NUM_PROCESS_SLOT_TX_BARRIERS 512
 
+// Keep extended live PRACH writes disjoint from the following slot's retained samples.
+#define NR_UE_TX_SLOT_BUFFER_FACTOR 2
+
+// Largest supported CP/repetition span: long format 2 at 245.76 Ms/s.
+#define NR_UE_PRACH_MAX_TX_SAMPLES 824064
+
 // CSI for tracking can have up to 2 resources per slot
 #define MAX_CSI_RES_SLOT 2
 // Threshold to change radio frequency
@@ -165,7 +171,7 @@ typedef struct {
   /// \brief Holds the transmit data in time domain.
   /// For IFFT_FPGA this points to the same memory as PHY_vars->tx_vars[a].TX_DMA_BUFFER.
   /// - first index: tx antenna [0..nb_antennas_tx[
-  /// - second index: sample [0..FRAME_LENGTH_COMPLEX_SAMPLES[
+  /// - second index: sample [0..NR_UE_TX_SLOT_BUFFER_FACTOR * samples_per_frame[ (one frame for sidelink)
   c16_t **txData;
 
   /// \brief Holds the received data in time domain.
@@ -210,6 +216,13 @@ typedef struct {
   bool active;
   int num_prach_slots;
   fapi_nr_ul_config_prach_pdu prach_pdu;
+  // Immutable complete waveform; the radio reorder queue only retains permanent slot-buffer copies.
+  c16_t tx_waveform[NR_UE_PRACH_MAX_TX_SAMPLES];
+  uint32_t tx_waveform_length;
+  int waveform_start;
+  bool tx_request_pending;
+  bool tx_waveform_active;
+  openair0_timestamp_t tx_waveform_timestamp;
 } NR_UE_PRACH;
 
 typedef struct {
@@ -385,13 +398,18 @@ typedef struct PHY_VARS_NR_UE_s {
   /// Timing Advance updates variables
   /// Timing advance update computed from the TA command signalled from gNB
   int timing_advance; /// corresponds to N_TA
+  /// Applied sample-stream correction, including residual NTN, N_TA_offset and drift adjustments.
+  int tx_stream_timing_adjustment;
+  /// A previous sample boundary still has an unapplied adjustment, excluding newly captured relative commands.
+  bool tx_timing_adjustment_pending;
   int timing_advance_ntn; /// corresponds to N_common_TA_adj + N_UE_TA_adj
   position_t position; /// configured UE position in ECEF coordinates, in metres
   int N_TA_offset; ///timing offset used in TDD
   int ta_frame;
   int ta_slot;
   int ta_command;
-  bool ta_command_is_rar; /// Pending TA command originated from a Random Access Response
+  /// RAR delivery belongs to the ordered TX task; ordinary commands are captured by RX.
+  fapi_nr_ta_command_pdu rar_ta_command;
 
   /// Flag to initialize averaging of PHY measurements
   int init_averaging;
@@ -468,6 +486,8 @@ typedef struct pdsch_scratch_s pdsch_scratch_t;
 
 typedef struct {
   openair0_timestamp_t timestamp_tx;
+  /// Applied sample-stream correction used to construct this job's immutable radio timestamp.
+  int tx_mac_stream_adjustment;
   int gNB_id;
   /// NR slot index within frame_tx [0 .. slots_per_frame - 1] to act upon for transmission
   int nr_slot_tx;
@@ -560,6 +580,8 @@ typedef struct {
 } nr_ssb_search_params_t;
 
 typedef struct nr_phy_data_tx_s {
+  /// Runtime stream jobs prepare PRACH before releasing the following TX prefix.
+  bool prach_handled;
   NR_UE_ULSCH_t ulsch;
   NR_UE_PUCCH pucch_vars;
   NR_UE_SRS srs_vars;
@@ -589,6 +611,7 @@ typedef struct nr_rxtx_thread_data_s {
   UE_nr_rxtx_proc_t proc;
   PHY_VARS_NR_UE *UE;
   int writeBlockSize;
+  int relative_ta_delta; /// Relative TA captured two TX slots before its effective sample boundary.
   nr_phy_data_t phy_data;
   dynamic_barrier_t* next_barrier;
   uint64_t absolute_deadline_us;

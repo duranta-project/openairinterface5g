@@ -15,7 +15,6 @@
 #include "PHY/defs_nr_UE.h"
 #include "PHY/impl_defs_nr.h"
 #include "utils.h"
-#include "SCHED_NR_UE/phy_sch_processing_time.h"
 
 const char *const dl_pdu_type[] = {"DCI", "DLSCH", "RA_DLSCH", "SI_DLSCH", "P_DLSCH", "CSI_RS", "CSI_IM", "TA"};
 const char *const ul_pdu_type[] = {"PRACH", "PUCCH", "PUSCH", "SRS"};
@@ -66,70 +65,13 @@ static void configure_dlsch(NR_UE_DLSCH_t *dlsch,
 
 static void configure_ta_command(PHY_VARS_NR_UE *ue, fapi_nr_ta_command_pdu *ta_command_pdu)
 {
-  /* Time Alignment procedure
-  // - UE processing capability 1
-  // - Setting the TA update to be applied after the reception of the TA command
-  // - Timing adjustment computed according to TS 38.213 section 4.2
-  // - Durations of N1 and N2 symbols corresponding to PDSCH and PUSCH are
-  //   computed according to sections 5.3 and 6.4 of TS 38.214 */
-  const int numerology = ue->frame_parms.numerology_index;
-  const int ofdm_symbol_size = ue->frame_parms.ofdm_symbol_size;
-  const int nb_prefix_samples = ue->frame_parms.nb_prefix_samples;
-  const int samples_per_subframe = ue->frame_parms.samples_per_subframe;
-  const int slots_per_frame = ue->frame_parms.slots_per_frame;
-  const int slots_per_subframe = ue->frame_parms.slots_per_subframe;
-
-  const double tc_factor = 1.0 / samples_per_subframe;
-  // convert time factor "16 * 64 * T_c / (2^mu)" in N_TA calculation in TS38.213 section 4.2 to samples by multiplying with samples per second
-  //   16 * 64 * T_c            / (2^mu) * samples_per_second
-  // = 16 * T_s                 / (2^mu) * samples_per_second
-  // = 16 * 1 / (15 kHz * 2048) / (2^mu) * (15 kHz * 2^mu * ofdm_symbol_size)
-  // = 16 * 1 /           2048           *                  ofdm_symbol_size
-  // = 16 * ofdm_symbol_size / 2048
-  uint16_t bw_scaling = 16 * ofdm_symbol_size / 2048;
-
-  const int Ta_max = 3846; // Max value of 12 bits TA Command
-  const double N_TA_max = Ta_max * bw_scaling * tc_factor;
-
-  // symbols corresponding to a PDSCH processing time for UE processing capability 1
-  // when additional PDSCH DM-RS is configured
-  int N_1 = pdsch_N_1_capability_1[numerology][3];
-
-  /* PUSCH preapration time N_2 for processing capability 1 */
-  const int N_2 = pusch_N_2_timing_capability_1[numerology][1];
-
-  /* N_t_1 time duration in msec of N_1 symbols corresponding to a PDSCH reception time
-  // N_t_2 time duration in msec of N_2 symbols corresponding to a PUSCH preparation time */
-  double N_t_1 = N_1 * (ofdm_symbol_size + nb_prefix_samples) * tc_factor;
-  double N_t_2 = N_2 * (ofdm_symbol_size + nb_prefix_samples) * tc_factor;
-
-  /* Time alignment procedure */
-  // N_t_1 + N_t_2 + N_TA_max must be in msec
-  const double t_subframe = 1.0; // subframe duration of 1 msec
-  const int ul_tx_timing_adjustment = 1 + (int)ceil(slots_per_subframe * (N_t_1 + N_t_2 + N_TA_max + 0.5) / t_subframe);
-
   if (ta_command_pdu->is_rar) {
+    ue->rar_ta_command = *ta_command_pdu;
+  } else {
     ue->ta_slot = ta_command_pdu->ta_slot;
     ue->ta_frame = ta_command_pdu->ta_frame;
     ue->ta_command = ta_command_pdu->ta_command;
-  } else {
-    const int target_slot = ta_command_pdu->ta_slot + ul_tx_timing_adjustment;
-    ue->ta_slot = target_slot % slots_per_frame;
-    ue->ta_frame = (ta_command_pdu->ta_frame + target_slot / slots_per_frame) % 1024;
-    ue->ta_command = ta_command_pdu->ta_command;
   }
-  ue->ta_command_is_rar = ta_command_pdu->is_rar;
-
-  LOG_D(PHY,
-        "[UE %d] TA command received in %d.%d: %s command %d, apply in %d.%d (application-delay %d slots)\n",
-        ue->Mod_id,
-        ta_command_pdu->ta_frame,
-        ta_command_pdu->ta_slot,
-        ta_command_pdu->is_rar ? "RAR" : "relative MAC CE",
-        ue->ta_command,
-        ue->ta_frame,
-        ue->ta_slot,
-        ta_command_pdu->is_rar ? 0 : ul_tx_timing_adjustment);
 }
 
 static void nr_ue_scheduled_response_dl(NR_UE_MAC_INST_t *mac,
@@ -352,7 +294,7 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
       case FAPI_NR_UL_CONFIG_TYPE_PRACH: {
         phy->prach_vars[0]->prach_pdu = pdu->prach_config_pdu;
         phy->prach_vars[0]->active = true;
-        phy->timing_advance = 0;
+        phy->prach_vars[0]->tx_request_pending = true;
         pdu->pdu_type = FAPI_NR_UL_CONFIG_TYPE_DONE; // not handle it any more
       } break;
 
