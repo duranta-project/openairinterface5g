@@ -50,9 +50,10 @@ static inline uint8x16_t vorr8_u8(const uint8x16_t r[8])
 
 #if defined(__riscv) && defined(__riscv_vector)
 /* RVV input interleave: cc[8 k + b] holds, in bit s, bit 7 - b of byte k of segment s (MSB first, as the scalar
- * loop). One accumulator per output bit position b over the segments, then one 8-field segment store writes the 8
- * accumulators interleaved: the X100 runs segment stores far faster than the per-field strided ones. VLEN-agnostic;
- * covers the whole bytes of the block, the scalar loop after it the bits past them. */
+ * loop). One accumulator per output bit position b over the segments, packed into 64-bit lanes (a_b in byte b) by a
+ * widening tree and written with one unit-stride store: an 8-field byte segment store would write the same 8 x vl
+ * bytes one element at a time (264 vs 25 cycles per 256 bytes on the X100). VLEN-agnostic; covers the whole bytes of
+ * the block, the scalar loop after it the bits past them. */
 static unsigned int ldpc_rvv_interleave(uint8_t **input, uint8_t *cc, int first, int ns, int nbytes)
 {
   for (int k = 0; k < nbytes;) {
@@ -70,7 +71,15 @@ static unsigned int ldpc_rvv_interleave(uint8_t **input, uint8_t *cc, int first,
       NRL_ACC(0) NRL_ACC(1) NRL_ACC(2) NRL_ACC(3) NRL_ACC(4) NRL_ACC(5) NRL_ACC(6) NRL_ACC(7)
 #undef NRL_ACC
     }
-    __riscv_vsseg8e8_v_u8m1x8(cc + 8 * k, __riscv_vcreate_v_u8m1x8(a0, a1, a2, a3, a4, a5, a6, a7), vl);
+    // (hi << w) + lo, widened: the halves do not overlap, so the add is an or
+    const vuint16m2_t p01 = __riscv_vwaddu_wv_u16m2(__riscv_vsll_vx_u16m2(__riscv_vzext_vf2_u16m2(a1, vl), 8, vl), a0, vl);
+    const vuint16m2_t p23 = __riscv_vwaddu_wv_u16m2(__riscv_vsll_vx_u16m2(__riscv_vzext_vf2_u16m2(a3, vl), 8, vl), a2, vl);
+    const vuint16m2_t p45 = __riscv_vwaddu_wv_u16m2(__riscv_vsll_vx_u16m2(__riscv_vzext_vf2_u16m2(a5, vl), 8, vl), a4, vl);
+    const vuint16m2_t p67 = __riscv_vwaddu_wv_u16m2(__riscv_vsll_vx_u16m2(__riscv_vzext_vf2_u16m2(a7, vl), 8, vl), a6, vl);
+    const vuint32m4_t q03 = __riscv_vwaddu_wv_u32m4(__riscv_vsll_vx_u32m4(__riscv_vzext_vf2_u32m4(p23, vl), 16, vl), p01, vl);
+    const vuint32m4_t q47 = __riscv_vwaddu_wv_u32m4(__riscv_vsll_vx_u32m4(__riscv_vzext_vf2_u32m4(p67, vl), 16, vl), p45, vl);
+    const vuint64m8_t r = __riscv_vwaddu_wv_u64m8(__riscv_vsll_vx_u64m8(__riscv_vzext_vf2_u64m8(q47, vl), 32, vl), q03, vl);
+    __riscv_vse64_v_u64m8((uint64_t *)(cc + 8 * k), r, vl);
     k += (int)vl;
   }
   return 8 * nbytes;
