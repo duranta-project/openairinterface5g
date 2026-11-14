@@ -19,6 +19,7 @@
 /* MAC */
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
+#include "LAYER2/NR_MAC_UE/phy_sch_processing_time.h"
 #include "common/utils/nr/nr_common.h"
 #include "openair2/NR_UE_PHY_INTERFACE/NR_Packet_Drop.h"
 
@@ -3257,13 +3258,38 @@ nfapi_nr_ue_csi_payload_t nr_get_csi_payload(NR_UE_MAC_INST_t *mac,
 
 static void set_time_alignment(NR_UE_MAC_INST_t *mac, int ta, ta_type_t type, int frame, int slot)
 {
+  const int slots_per_frame = mac->frame_structure.numb_slots_frame;
+  int application_delay = 1 + GET_DURATION_RX_TO_TX(mac, mac->numerology);
+  if (type == adjustment_ta) {
+    // TS 38.213 clause 4.2: capability-1 processing and maximum TA durations, in milliseconds.
+    const int numerology = mac->numerology;
+    const double ms_per_symbol = 10.0 / (NR_SYMBOLS_PER_SLOT * slots_per_frame);
+    const int N_1 = pdsch_N_1_capability_1[numerology][3];
+    const int N_2 = pusch_N_2_timing_capability_1[numerology][1];
+    const double N_TA_max = 3846 * 16.0 / (15 * 2048 * (1 << numerology));
+    const int slots_per_ms = slots_per_frame / 10;
+    application_delay = 1 + (int)ceil(slots_per_ms * ((N_1 + N_2) * ms_per_symbol + N_TA_max + 0.5))
+                        + GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, numerology);
+  }
+
   NR_UL_TIME_ALIGNMENT_t *ul_time_alignment = &mac->ul_time_alignment;
   ul_time_alignment->ta_command = ta;
   ul_time_alignment->ta_apply = type;
-  const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, mac->current_UL_BWP->scs);
-  const int n_slots_frame = mac->frame_structure.numb_slots_frame;
-  ul_time_alignment->frame = (frame + (slot + ntn_ue_koffset) / n_slots_frame) % MAX_FRAME_NUMBER;
-  ul_time_alignment->slot = (slot + ntn_ue_koffset) % n_slots_frame;
+  // Both commands use the receive slot; the RAR delay already includes the NTN K-offset.
+  ul_time_alignment->frame = (frame + (slot + application_delay) / slots_per_frame) % MAX_FRAME_NUMBER;
+  ul_time_alignment->slot = (slot + application_delay) % slots_per_frame;
+
+  LOG_D(NR_MAC,
+        "[UE %d] TA command received in %d.%d: %s command %d, apply in %d.%d (application-delay %d slots)\n",
+        mac->ue_id,
+        frame,
+        slot,
+        type == rar_ta ? "RAR" : "relative MAC CE",
+        ta,
+        ul_time_alignment->frame,
+        ul_time_alignment->slot,
+        application_delay);
+
   // start or restart the timeAlignmentTimer associated with the indicated TAG
   nr_timer_start(&mac->time_alignment_timer);
 }
@@ -3316,7 +3342,7 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
   const bool ta_timer_active = nr_timer_is_active(&mac->time_alignment_timer);
   // if the timeAlignmentTimer associated with this TAG is not running
   if (!ta_timer_active)
-    set_time_alignment(mac, ta, rar_ta, frame_tx, slot_tx);
+    set_time_alignment(mac, ta, rar_ta, frame, slot);
   // else ignore the received Timing Advance Command
   LOG_D(NR_MAC,
         "[UE %d] RAR %d.%d RAPID %u absolute TA %d Msg3 %d.%d k2 %ld NTN K-offset %d "

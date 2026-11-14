@@ -1704,6 +1704,7 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/main_ue_nr.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/nr_ue_scheduler.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/nr_ue_dci_configuration.c \
+@CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/phy_sch_processing_time.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/PDCP_v10.1.0/pdcp.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/PDCP_v10.1.0/pdcp_primitives.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/PDCP_v10.1.0/pdcp.c \
@@ -2244,7 +2245,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/harq_nr.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/phy_procedures_nr_ue.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/pucch_uci_ue_nr.h \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/phy_sch_processing_time.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/fapi_nr_ue_l1.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/defs.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED/fapi_l1.h \
