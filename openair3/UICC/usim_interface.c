@@ -2,10 +2,12 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
 */
 #include <ctype.h>
+#include <strings.h>
 
 #include "common/platform_constants.h"
 #include <openair3/UICC/usim_interface.h>
 #include <openair3/NAS/COMMON/milenage.h>
+#include <openair3/NAS/TOOLS/sim_http/sim_http_auth.h>
 extern uint16_t NB_UE_INST;
 
 #define IMEISV_STR_MAX_LENGTH 16
@@ -31,6 +33,8 @@ extern uint16_t NB_UE_INST;
       {"protection_scheme", "SUCI Profile Scheme\n",                 0, .iptr = &uicc->protection_scheme,          .defintval=0,                                  TYPE_INT,    0}, \
       {"home_network_public_key_id", "Home Network Public Key ID\n", 0, .iptr=&uicc->home_network_public_key_id,   .defintval=1,                                  TYPE_INT,    0}, \
       {"home_network_public_key",    "Home Network Public Key\n",    0, .strptr=&uicc->home_network_public_keyStr, .defstrval=DEFAULT_HOME_NETWORK_PUBLIC_KEY,    TYPE_STRING, 0}, \
+      {"uicc_auth_mode",   "UICC AKA source: local (ue.conf Ki/OPc) or http (remote USIM)\n", 0, .strptr=&uicc->uiccAuthModeStr, .defstrval="local", TYPE_STRING, 0}, \
+      {"uicc_auth_url",    "HTTP USIM auth URL (when uicc_auth_mode=http)\n",  0, .strptr=&uicc->uiccAuthUrlStr, .defstrval="http://127.0.0.1:9090/authentication/5g_aka", TYPE_STRING, 0}, \
   };
 
 static uicc_t** uiccArray=NULL;
@@ -50,6 +54,21 @@ static inline void to_hex(char *in, uint8_t *out, int size) {
   }
 }
 
+uicc_auth_mode_t uicc_auth_mode_from_string(const char *mode_str)
+{
+  if (!mode_str || mode_str[0] == '\0') {
+    return UICC_AUTH_MODE_LOCAL;
+  }
+  if (strcasecmp(mode_str, "local") == 0) {
+    return UICC_AUTH_MODE_LOCAL;
+  }
+  if (strcasecmp(mode_str, "http") == 0) {
+    return UICC_AUTH_MODE_HTTP;
+  }
+  LOG_W(SIM, "Unknown uicc_auth_mode \"%s\", using local Milenage\n", mode_str);
+  return UICC_AUTH_MODE_LOCAL;
+}
+
 uicc_t *init_uicc(char *sectionName) {
   uicc_t *uicc=(uicc_t *)calloc(sizeof(uicc_t),1);
   paramdef_t uicc_params[] = UICC_PARAMS_DESC;
@@ -65,6 +84,14 @@ uicc_t *init_uicc(char *sectionName) {
   to_hex(uicc->sqnStr,uicc->sqn, sizeof(uicc->sqn) );
   to_hex(uicc->amfStr,uicc->amf, sizeof(uicc->amf) );
   to_hex(uicc->home_network_public_keyStr, uicc->home_network_public_key, sizeof(uicc->home_network_public_key));
+  uicc->auth_mode = uicc_auth_mode_from_string(uicc->uiccAuthModeStr);
+  LOG_I(SIM, "UICC uicc_auth_mode=%s\n", uicc->uiccAuthModeStr);
+  if (uicc_auth_uses_http(uicc)) {
+    if (sim_http_fetch_imsi(uicc) != 0) {
+      LOG_W(SIM, "GET IMSI failure, using imsi from ue.conf\n");
+    }
+  }
+
   return uicc;
 }
 

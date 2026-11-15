@@ -24,6 +24,12 @@ HXRES	Hash eXpected RESponse
 So, RES can be either milenage res, or received response, so hash of milenage res
 */
 
+/** Where AKA vectors (RES/CK/IK) come from; extensible for future backends. */
+typedef enum {
+  UICC_AUTH_MODE_LOCAL = 0,
+  UICC_AUTH_MODE_HTTP,
+} uicc_auth_mode_t;
+
 typedef struct {
   char *imsiStr;
   char *imeisvStr;
@@ -31,6 +37,9 @@ typedef struct {
   char *opcStr;
   char *amfStr;
   char *sqnStr;
+  char *uiccAuthModeStr;
+  char *uiccAuthUrlStr;
+  uicc_auth_mode_t auth_mode;
   pdu_session_config_t pdu_sessions[256];
   int n_pdu_sessions;
   char *routing_indicatorStr;
@@ -59,4 +68,13 @@ uicc_t *checkUicc(int Mod_id);
 uicc_t *init_uicc(char *sectionName);
 void uicc_milenage_generate(uint8_t * autn, uicc_t *uicc);
 uint8_t getImeisvDigit(const uicc_t *uicc, uint8_t i);
+
+/** Parsed from ue.conf uicc_auth_mode (e.g. "local", "http"). */
+uicc_auth_mode_t uicc_auth_mode_from_string(const char *mode_str);
+
+static inline int uicc_auth_uses_http(const uicc_t *uicc)
+{
+  return uicc != NULL && uicc->auth_mode == UICC_AUTH_MODE_HTTP;
+}
+
 #endif
