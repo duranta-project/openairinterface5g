@@ -2244,7 +2244,7 @@ bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t
       }
     } else {
       LOG_I(NR_MAC, "%4d.%2d UE %04x: RA Procedure failed at %s!\n", frame, slot, UE->rnti, ra_type_str);
-      nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
+      nr_mac_trigger_link_failure(sched_ctrl, UE->current_DL_BWP.scs);
     }
 
     if (sched_ctrl->retrans_dl_harq.head >= 0) {
