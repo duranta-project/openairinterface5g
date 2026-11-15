@@ -617,8 +617,14 @@ static void test_bearer_context_modification_request(void)
   pdusession_setup_item_2.UP_TL_information.tlAddress = 167772162;
   pdusession_setup_item_2.DRBnGRanList[0] = drb_to_setup_2;
 
-  pdu_session_to_remove_t pdu_session_to_remove = pdu_session_rem_template(5);
-  pdu_session_to_remove_t pdu_session_to_remove_2 = pdu_session_rem_template(6);
+  pdu_session_to_remove_t pdu_session_to_remove = {
+      .sessionId = 5,
+      .cause = {.type = E1AP_CAUSE_RADIO_NETWORK, .value = E1AP_RADIO_CAUSE_NORMAL_RELEASE},
+  };
+  pdu_session_to_remove_t pdu_session_to_remove_2 = {
+      .sessionId = 6,
+      .cause = {.type = E1AP_CAUSE_TRANSPORT, .value = E1AP_TRANSPORT_CAUSE_RESOURCE_UNAVAILABLE},
+  };
 
   // Initialize the Bearer Context Modification Request
   e1ap_bearer_mod_req_t orig = {

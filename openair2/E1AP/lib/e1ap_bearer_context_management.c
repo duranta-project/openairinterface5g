@@ -1432,6 +1432,45 @@ void free_e1_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *m
  *   E1AP Bearer Context Modification Request
  * ============================================ */
 
+/** @brief Encode PDU Session Resource To Remove Item */
+static void e1_encode_pdu_session_to_remove_item(E1AP_PDU_Session_Resource_To_Remove_Item_t *out, const pdu_session_to_remove_t *in)
+{
+  // PDU Session ID (M)
+  out->pDU_Session_ID = in->sessionId;
+  // Cause (O) - PDU-Session-Resource-To-Remove-Item-ExtIEs id-Cause
+  if (in->cause.type != E1AP_CAUSE_NOTHING) {
+    E1AP_ProtocolExtensionContainer_4961P104_t *ext = calloc_or_fail(1, sizeof(*ext));
+    out->iE_Extensions = (struct E1AP_ProtocolExtensionContainer *)ext;
+    asn1cSequenceAdd(ext->list, E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs_t, ie);
+    ie->id = E1AP_ProtocolIE_ID_id_Cause;
+    ie->criticality = E1AP_Criticality_ignore;
+    ie->extensionValue.present = E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs__extensionValue_PR_Cause;
+    ie->extensionValue.choice.Cause = e1_encode_cause_ie(&in->cause);
+  }
+}
+
+/** @brief Decode PDU Session Resource To Remove Item */
+static bool e1_decode_pdu_session_to_remove_item(pdu_session_to_remove_t *out, const E1AP_PDU_Session_Resource_To_Remove_Item_t *in)
+{
+  *out = (pdu_session_to_remove_t){0};
+  // PDU Session ID (M)
+  out->sessionId = in->pDU_Session_ID;
+  // Cause (O)
+  if (in->iE_Extensions != NULL) {
+    const E1AP_ProtocolExtensionContainer_4961P104_t *ext = (const E1AP_ProtocolExtensionContainer_4961P104_t *)in->iE_Extensions;
+    for (int i = 0; i < ext->list.count; i++) {
+      const E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs_t *ie = ext->list.array[i];
+      AssertFatal(ie != NULL, "ext->list.array[i] shall not be null");
+      if (ie->id != E1AP_ProtocolIE_ID_id_Cause)
+        continue;
+      _EQ_CHECK_INT(ie->extensionValue.present, E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs__extensionValue_PR_Cause);
+      out->cause = e1_decode_cause_ie(&ie->extensionValue.choice.Cause);
+      break;
+    }
+  }
+  return true;
+}
+
 /** @brief Encode PDU Session Item to modify */
 static E1AP_PDU_Session_Resource_To_Modify_Item_t e1_encode_pdu_session_to_mod_item(const pdu_session_to_mod_t *in)
 {
@@ -1694,7 +1733,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_mod_request(const e1ap_bearer_mod_req_
     E1AP_PDU_Session_Resource_To_Remove_List_t *pdu2Remove = &msgNGRAN->value.choice.PDU_Session_Resource_To_Remove_List;
     for (const pdu_session_to_remove_t *i = in->pduSessionRem; i < in->pduSessionRem + in->numPDUSessionsRem; i++) {
       asn1cSequenceAdd(pdu2Remove->list, E1AP_PDU_Session_Resource_To_Remove_Item_t, ieC4_1);
-      ieC4_1->pDU_Session_ID = i->sessionId;
+      e1_encode_pdu_session_to_remove_item(ieC4_1, i);
     }
   }
   return pdu;
@@ -1945,11 +1984,8 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
                   // Allocate array for PDU sessions to remove
                   DevAssert(out->numPDUSessionsRem > 0 && out->numPDUSessionsRem <= NR_MAX_NB_PDU_SESSIONS);
                   out->pduSessionRem = calloc_or_fail(out->numPDUSessionsRem, sizeof(*out->pduSessionRem));
-                  // Loop through all PDU sessions to remove
                   for (int i = 0; i < remList->list.count; i++) {
-                    E1AP_PDU_Session_Resource_To_Remove_Item_t *remItem = remList->list.array[i];
-                    pdu_session_to_remove_t *pduRem = &out->pduSessionRem[i];
-                    pduRem->sessionId = remItem->pDU_Session_ID;
+                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_remove_item(&out->pduSessionRem[i], remList->list.array[i]));
                   }
                   break;
                 default:
@@ -2788,45 +2824,6 @@ void free_E1_bearer_context_mod_failure(const e1ap_bearer_context_mod_failure_t 
 /* ============================================
  *   E1AP Bearer Context Modification Required
  * ============================================ */
-
-/** @brief Encode PDU Session Resource To Remove Item */
-static void e1_encode_pdu_session_to_remove_item(E1AP_PDU_Session_Resource_To_Remove_Item_t *out, const pdu_session_to_remove_t *in)
-{
-  // PDU Session ID (M)
-  out->pDU_Session_ID = in->sessionId;
-  // Cause (O) - PDU-Session-Resource-To-Remove-Item-ExtIEs id-Cause
-  if (in->cause.type != E1AP_CAUSE_NOTHING) {
-    E1AP_ProtocolExtensionContainer_4961P104_t *ext = calloc_or_fail(1, sizeof(*ext));
-    out->iE_Extensions = (struct E1AP_ProtocolExtensionContainer *)ext;
-    asn1cSequenceAdd(ext->list, E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs_t, ie);
-    ie->id = E1AP_ProtocolIE_ID_id_Cause;
-    ie->criticality = E1AP_Criticality_ignore;
-    ie->extensionValue.present = E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs__extensionValue_PR_Cause;
-    ie->extensionValue.choice.Cause = e1_encode_cause_ie(&in->cause);
-  }
-}
-
-/** @brief Decode PDU Session Resource To Remove Item */
-static bool e1_decode_pdu_session_to_remove_item(pdu_session_to_remove_t *out, const E1AP_PDU_Session_Resource_To_Remove_Item_t *in)
-{
-  *out = (pdu_session_to_remove_t){0};
-  // PDU Session ID (M)
-  out->sessionId = in->pDU_Session_ID;
-  // Cause (O)
-  if (in->iE_Extensions != NULL) {
-    const E1AP_ProtocolExtensionContainer_4961P104_t *ext = (const E1AP_ProtocolExtensionContainer_4961P104_t *)in->iE_Extensions;
-    for (int i = 0; i < ext->list.count; i++) {
-      const E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs_t *ie = ext->list.array[i];
-      AssertFatal(ie != NULL, "ext->list.array[i] shall not be null");
-      if (ie->id != E1AP_ProtocolIE_ID_id_Cause)
-        continue;
-      _EQ_CHECK_INT(ie->extensionValue.present, E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs__extensionValue_PR_Cause);
-      out->cause = e1_decode_cause_ie(&ie->extensionValue.choice.Cause);
-      break;
-    }
-  }
-  return true;
-}
 
 /** @brief Encode DRB Required To Modify Item (NG-RAN) */
 static void e1_encode_drb_required_to_mod_item(E1AP_DRB_Required_To_Modify_Item_NG_RAN_t *out,
