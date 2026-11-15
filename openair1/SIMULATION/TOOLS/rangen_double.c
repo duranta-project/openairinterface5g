@@ -6,11 +6,17 @@
 #include <stdlib.h>
 #include <math.h>
 
+#include <stdatomic.h>
+#include <string.h>
+#include <simde/x86/avx2.h>
+#include <simde/x86/fma.h>
+
 #include  "sim.h"
 
 static inline void tableNor(unsigned long seed);
 static unsigned int urseed, iy, ir[98]; /// uniformrandom
 static bool tableNordDone = false; /// gaussZiggurat
+static uint64_t gauss_noise_seed = 0x9E3779B97F4A7C15ull; /// gauss_noise_int16
 
 /*!\brief Generate a random number form `/dev/urandom`. */
 void fill_random(void *buf, size_t sz)
@@ -64,6 +70,9 @@ void randominit()
 
   // initialize gaussZiggurat RNG
   tableNor(seed);
+
+  // gauss_noise_int16: the threads that already drew noise keep their sequence
+  gauss_noise_seed = seed;
 }
 
 /*
@@ -194,6 +203,122 @@ double __attribute__ ((no_sanitize("address", "undefined"))) gaussZiggurat(doubl
   hz = SHR3;
   iz = hz & 127;
   return hz != INT32_MIN && abs(hz) < kn[iz] ? hz * wn[iz] : nfix();
+}
+
+/*
+@defgroup _gauss_noise_int16
+@ingroup numerical Gaussian noise for a whole buffer of int16 samples, by a vector Box-Muller transform: no table and no
+rejection, so, unlike the ziggurat, it keeps 16 values per 256-bit register.
+*/
+// one state per thread: 4 xorshift64 generators (period 2^64 - 1), seeded from the seed of randominit() and from the
+// rank of the thread among those that draw noise
+static _Thread_local uint64_t gauss_noise_state[4];
+static _Thread_local bool gauss_noise_state_done = false;
+static atomic_uint gauss_noise_threads;
+
+static uint64_t splitmix64(uint64_t *x)
+{
+  uint64_t z = (*x += 0x9E3779B97F4A7C15ull);
+  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+  z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+  return z ^ (z >> 31);
+}
+
+static void gauss_noise_state_init(void)
+{
+  uint64_t x = gauss_noise_seed + ((uint64_t)atomic_fetch_add(&gauss_noise_threads, 1) << 32);
+  for (int i = 0; i < 4; i++) {
+    do
+      gauss_noise_state[i] = splitmix64(&x);
+    while (gauss_noise_state[i] == 0); // 0 is the fixed point of a xorshift
+  }
+  gauss_noise_state_done = true;
+}
+
+static inline simde__m256i xorshift64x4(simde__m256i *state)
+{
+  simde__m256i s = *state;
+  s = simde_mm256_xor_si256(s, simde_mm256_slli_epi64(s, 13));
+  s = simde_mm256_xor_si256(s, simde_mm256_srli_epi64(s, 7));
+  s = simde_mm256_xor_si256(s, simde_mm256_slli_epi64(s, 17));
+  return *state = s;
+}
+
+/* natural logarithm of x in [2^-31, 1]: the single precision polynomial of the Cephes library (relative error 1e-7) */
+static inline simde__m256 gauss_noise_log(simde__m256 x)
+{
+  const simde__m256i xi = simde_mm256_castps_si256(x);
+  simde__m256 e = simde_mm256_cvtepi32_ps(simde_mm256_sub_epi32(simde_mm256_srli_epi32(xi, 23), simde_mm256_set1_epi32(126)));
+  // mantissa in [0.5, 1), then in [sqrt(0.5) - 1, sqrt(2) - 1)
+  simde__m256 m = simde_mm256_castsi256_ps(
+      simde_mm256_or_si256(simde_mm256_and_si256(xi, simde_mm256_set1_epi32(0x007fffff)), simde_mm256_set1_epi32(0x3f000000)));
+  const simde__m256 lt = simde_mm256_cmp_ps(m, simde_mm256_set1_ps(0.707106781186547524f), SIMDE_CMP_LT_OQ);
+  e = simde_mm256_sub_ps(e, simde_mm256_and_ps(lt, simde_mm256_set1_ps(1)));
+  m = simde_mm256_sub_ps(simde_mm256_add_ps(m, simde_mm256_and_ps(lt, m)), simde_mm256_set1_ps(1));
+  const simde__m256 z = simde_mm256_mul_ps(m, m);
+  simde__m256 y = simde_mm256_set1_ps(7.0376836292E-2f);
+  y = simde_mm256_fmadd_ps(y, m, simde_mm256_set1_ps(-1.1514610310E-1f));
+  y = simde_mm256_fmadd_ps(y, m, simde_mm256_set1_ps(1.1676998740E-1f));
+  y = simde_mm256_fmadd_ps(y, m, simde_mm256_set1_ps(-1.2420140846E-1f));
+  y = simde_mm256_fmadd_ps(y, m, simde_mm256_set1_ps(1.4249322787E-1f));
+  y = simde_mm256_fmadd_ps(y, m, simde_mm256_set1_ps(-1.6668057665E-1f));
+  y = simde_mm256_fmadd_ps(y, m, simde_mm256_set1_ps(2.0000714765E-1f));
+  y = simde_mm256_fmadd_ps(y, m, simde_mm256_set1_ps(-2.4999993993E-1f));
+  y = simde_mm256_fmadd_ps(y, m, simde_mm256_set1_ps(3.3333331174E-1f));
+  y = simde_mm256_mul_ps(simde_mm256_mul_ps(y, m), z);
+  y = simde_mm256_fnmadd_ps(z, simde_mm256_set1_ps(0.5f), y);
+  return simde_mm256_fmadd_ps(e, simde_mm256_set1_ps(0.693147180559945f), simde_mm256_add_ps(m, y));
+}
+
+/* 16 values: 8 pairs r * (cos, sin) with r = sigma * sqrt(-2 ln u1), u1 uniform in (0, 1] and a uniform angle */
+static inline simde__m256i gauss_noise_16(simde__m256i *state, simde__m256 sigma)
+{
+  const simde__m256i a = xorshift64x4(state), b = xorshift64x4(state);
+  // u1 from 31 bits: a float keeps the small values exactly, and they make the tail (up to 6.5 sigma)
+  const simde__m256i a31 = simde_mm256_add_epi32(simde_mm256_srli_epi32(a, 1), simde_mm256_set1_epi32(1));
+  const simde__m256 u1 = simde_mm256_mul_ps(simde_mm256_cvtepi32_ps(a31), simde_mm256_set1_ps(0x1p-31f));
+  const simde__m256 r2 = simde_mm256_mul_ps(gauss_noise_log(u1), simde_mm256_set1_ps(-2));
+  const simde__m256 r = simde_mm256_mul_ps(simde_mm256_sqrt_ps(r2), sigma);
+  // angle t in [-pi/4, pi/4) from 29 bits, sin and cos by polynomial (Cephes); the 3 other bits choose the octant
+  const simde__m256 t =
+      simde_mm256_mul_ps(simde_mm256_cvtepi32_ps(simde_mm256_srai_epi32(b, 3)), simde_mm256_set1_ps(0x1p-28f * 0.785398163397448f));
+  const simde__m256 t2 = simde_mm256_mul_ps(t, t);
+  simde__m256 sn = simde_mm256_fmadd_ps(t2, simde_mm256_set1_ps(-1.9515295891E-4f), simde_mm256_set1_ps(8.3321608736E-3f));
+  sn = simde_mm256_fmadd_ps(sn, t2, simde_mm256_set1_ps(-1.6666654611E-1f));
+  sn = simde_mm256_fmadd_ps(simde_mm256_mul_ps(sn, t2), t, t);
+  simde__m256 cs =
+      simde_mm256_fmadd_ps(t2, simde_mm256_set1_ps(2.443315711809948E-5f), simde_mm256_set1_ps(-1.388731625493765E-3f));
+  cs = simde_mm256_fmadd_ps(cs, t2, simde_mm256_set1_ps(4.166664568298827E-2f));
+  const simde__m256 c1 = simde_mm256_fnmadd_ps(t2, simde_mm256_set1_ps(0.5f), simde_mm256_set1_ps(1));
+  cs = simde_mm256_fmadd_ps(simde_mm256_mul_ps(cs, t2), t2, c1);
+  // octant: bit 0 swaps sin and cos, bits 1 and 2 are the signs (blendv and the sign mask use the top bit)
+  const simde__m256 swap = simde_mm256_castsi256_ps(simde_mm256_slli_epi32(b, 31));
+  const simde__m256 sign = simde_mm256_set1_ps(-0.0f);
+  simde__m256 x = simde_mm256_blendv_ps(cs, sn, swap), y = simde_mm256_blendv_ps(sn, cs, swap);
+  x = simde_mm256_xor_ps(x, simde_mm256_and_ps(simde_mm256_castsi256_ps(simde_mm256_slli_epi32(b, 30)), sign));
+  y = simde_mm256_xor_ps(y, simde_mm256_and_ps(simde_mm256_castsi256_ps(simde_mm256_slli_epi32(b, 29)), sign));
+  // cvtps rounds to the nearest and packs saturates. packs works per 128-bit lane: the order of independent values
+  // does not matter
+  const simde__m256i xi = simde_mm256_cvtps_epi32(simde_mm256_mul_ps(x, r)), yi = simde_mm256_cvtps_epi32(simde_mm256_mul_ps(y, r));
+  return simde_mm256_packs_epi32(xi, yi);
+}
+
+void gauss_noise_int16(int16_t *out, int n, float sigma)
+{
+  if (!gauss_noise_state_done)
+    gauss_noise_state_init();
+  // beyond the int16 range all the values would saturate, and cvtps_epi32 needs products that fit in 32 bits
+  const simde__m256 vs = simde_mm256_set1_ps(sigma < 1e6f ? sigma : 1e6f);
+  simde__m256i state = simde_mm256_loadu_si256((const simde__m256i *)gauss_noise_state);
+  int i = 0;
+  for (; i + 16 <= n; i += 16)
+    simde_mm256_storeu_si256((simde__m256i *)(out + i), gauss_noise_16(&state, vs));
+  if (i < n) {
+    int16_t last[16];
+    simde_mm256_storeu_si256((simde__m256i *)last, gauss_noise_16(&state, vs));
+    memcpy(out + i, last, (n - i) * sizeof(*out));
+  }
+  simde_mm256_storeu_si256((simde__m256i *)gauss_noise_state, state);
 }
 
 #ifdef MAIN
