@@ -122,10 +122,11 @@ fronthaul.
 A DBT is only meaningful for `predefined`. Configuring one together with
 `straight-wire` or `das` is rejected at startup.
 
-It is also only supported with Aerial for the time being. The table does reach a
-native L1, but `nr_feptx_prec()` copies the samples through instead of precoding
-them, so the weights would have no effect; configuring a table without Aerial is
-rejected rather than silently ignored.
+For the gNB-to-L1 path, it is only supported with Aerial for the time being.
+The table does reach a native gNB L1, but `nr_feptx_prec()` copies the samples
+through instead of precoding them, so the weights would have no effect;
+configuring a gNB-side table without Aerial is rejected rather than silently
+ignored. The native O-RU has a separate beamforming path, described below.
 
 A single CSI port is required as well, that is `pdsch_AntennaPorts_N1 *
 pdsch_AntennaPorts_N2 * pdsch_AntennaPorts_XP` must be 1. The scheduler signals
@@ -245,6 +246,32 @@ Loaded DBT: num_beams=<n> num_weights_per_beam=<m>
 ```
 
 with the individual weights available at debug log level.
+
+## Native O-RU digital beamforming
+
+The native O-RU can load the same CSV format through `dbt_file` in the
+`ORUs.[0]` section; the path is relative to the O-RU process working directory.
+It applies the weights to DL fronthaul streams and uses the
+conjugated weights for UL receive combining. Beam IDs in the file must be
+unique, and may be non-contiguous; the O-RU resolves each received beam ID to
+its table row. Configure the path in `ORUs.[0]`, for example:
+
+```
+nb_fh_streams = 1;
+dbt_file = "beam_table.csv";
+```
+
+For the O-RU, each row contains exactly `nb_tx` complex weights, one per TX
+antenna, matching the gNB table shape. The O-RU applies that antenna vector to
+each fronthaul stream, so the stream count is independent of the DBT width and
+must be set with `nb_fh_streams`. `codebook_nb_beams` may optionally assert the
+file's beam count. The beam count, antenna count, and configured stream count
+must fit the O-RU codebook limits.
+
+The legacy `codebook_weights` Q15 integer-array option remains supported for
+existing O-RU configurations, but is deprecated in favor of `dbt_file`. Do not
+configure both options. CSV weights use normalized real/imaginary values in
+[-1, 1] and are converted to Q15 when loaded.
 
 ## Implementation in OAI scheduler
 

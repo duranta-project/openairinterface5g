@@ -18,3 +18,8 @@ add_test(NAME test_utils COMMAND ./test_utils)
 add_executable(test_bits test_bits.c)
 add_dependencies(tests test_bits)
 add_test(NAME test_bits COMMAND ./test_bits)
+
+add_executable(test_dbt_parser test_dbt_parser.c)
+target_link_libraries(test_dbt_parser PRIVATE UTIL minimal_lib)
+add_dependencies(tests test_dbt_parser)
+add_test(NAME test_dbt_parser COMMAND ./test_dbt_parser)

@@ -181,6 +181,43 @@ TEST(oru_beamforming, codebook_sub_band_beam_switch)
   EXPECT_NE(memcmp(ant0, ant0 + NR_NB_SC_PER_RB, NR_NB_SC_PER_RB * sizeof(c16_t)), 0);
 }
 
+TEST(oru_beamforming, codebook_noncontiguous_beam_ids)
+{
+  oru_codebook_t cb = {0};
+  cb.nb_fh_streams = 1;
+  cb.nb_beams = 2;
+  cb.has_beam_ids = true;
+  cb.beam_ids[0] = 7;
+  cb.beam_ids[1] = 42;
+  cb.w[0][0][0] = (c16_t){.r = 32767, .i = 0};
+  cb.w[1][0][0] = (c16_t){.r = 0, .i = 32767};
+  const c16_t identity = {.r = 32767, .i = 0};
+
+  uint32_t iq_buf[NR_NB_SC_PER_RB];
+  fill_iq(iq_buf, NR_NB_SC_PER_RB, 120);
+  dl_iq_stream_t stream = {.ant_id = 0, .beam_id = 42, .start_prb = 0, .num_prb = 1, .iq = iq_buf};
+  uint32_t tx_buf[N_SC];
+  c16_t *txDataF[1] = {(c16_t *)tx_buf};
+  combine_dl_streams(txDataF, 1, N_SC, &stream, 1, &cb, identity);
+
+  c16_t *tx = (c16_t *)tx_buf;
+  for (int i = 0; i < NR_NB_SC_PER_RB; i++) {
+    c16_t expected = c16mulShift(((c16_t *)iq_buf)[i], cb.w[1][0][0], 15);
+    EXPECT_EQ(tx[i].r, expected.r);
+    EXPECT_EQ(tx[i].i, expected.i);
+  }
+
+  const c16_t *fft[1] = {(c16_t *)iq_buf};
+  c16_t rx[N_SC];
+  combine_ul_beam_fd(fft, 1, 0, NR_NB_SC_PER_RB, &cb, 42, 0, rx);
+  const c16_t weight_conj = {.r = cb.w[1][0][0].r, .i = (int16_t)-cb.w[1][0][0].i};
+  for (int i = 0; i < NR_NB_SC_PER_RB; i++) {
+    c16_t expected = c16mulShift(((c16_t *)iq_buf)[i], weight_conj, 15);
+    EXPECT_EQ(rx[i].r, expected.r);
+    EXPECT_EQ(rx[i].i, expected.i);
+  }
+}
+
 // Two logical streams contributing to the SAME PRB range of the same physical antenna: their
 // weighted contributions must accumulate (spatial combination), not overwrite each other.
 TEST(oru_beamforming, codebook_stream_accumulation)
