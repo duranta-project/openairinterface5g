@@ -1481,6 +1481,10 @@ static E1AP_PDU_Session_Resource_To_Modify_Item_t e1_encode_pdu_session_to_mod_i
   }
   // DRB To Remove List (O)
   if (in->n_drb_to_remove > 0) {
+    AssertFatal(in->n_drb_to_remove <= E1AP_MAX_NUM_DRBS,
+                "n_drb_to_remove %d exceeds E1AP_MAX_NUM_DRBS %d\n",
+                in->n_drb_to_remove,
+                E1AP_MAX_NUM_DRBS);
     asn1cCalloc(out.dRB_To_Remove_List_NG_RAN, drb2Remove_List);
     for (int r = 0; r < in->n_drb_to_remove; r++) {
       asn1cSequenceAdd(drb2Remove_List->list, E1AP_DRB_To_Remove_Item_NG_RAN_t, drb2Rem);
