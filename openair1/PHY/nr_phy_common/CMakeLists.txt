@@ -93,7 +93,8 @@ if (ENABLE_PHY_GPU)
 endif()
 
 # OpenCL inner-RX offload module (nr_inner_rx_offload.h, --loader.inner_rx.shlibversion _cl): the FP16 2-layer
-# receiver of nr_lbest_f16.c on integrated GPUs (Mali, Adreno), its program source embedded
+# receiver of nr_lbest_f16.c and the integer single-layer one on integrated GPUs (Mali, Adreno), the program sources
+# embedded
 add_boolean_option(ENABLE_PHY_OPENCL OFF "Build the OpenCL NR inner-RX offload module" OFF)
 if (ENABLE_PHY_OPENCL)
   find_package(OpenCL REQUIRED)
@@ -106,8 +107,15 @@ if (ENABLE_PHY_OPENCL)
                              -DIN=${NR_IRX_CL_SRC_ARG} -P ${CMAKE_CURRENT_SOURCE_DIR}/gpu/opencl/embed_cl.cmake
                      DEPENDS ${NR_IRX_CL_SRC} gpu/opencl/embed_cl.cmake
                      VERBATIM)
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/nr_irx_cl_src_1l.c
+                     COMMAND ${CMAKE_COMMAND} -DOUT=${CMAKE_CURRENT_BINARY_DIR}/nr_irx_cl_src_1l.c -DNAME=nr_irx_cl_src_1l
+                             -DIN=${CMAKE_CURRENT_SOURCE_DIR}/gpu/opencl/nr_irx_1layer.cl
+                             -P ${CMAKE_CURRENT_SOURCE_DIR}/gpu/opencl/embed_cl.cmake
+                     DEPENDS gpu/opencl/nr_irx_1layer.cl gpu/opencl/embed_cl.cmake
+                     VERBATIM)
   # objects of the module and of its test (tests/test_irx_cl.c)
-  add_library(inner_rx_cl_obj OBJECT gpu/opencl/nr_irx_cl.c ${CMAKE_CURRENT_BINARY_DIR}/nr_irx_cl_src.c)
+  add_library(inner_rx_cl_obj OBJECT gpu/opencl/nr_irx_cl.c ${CMAKE_CURRENT_BINARY_DIR}/nr_irx_cl_src.c
+                                     ${CMAKE_CURRENT_BINARY_DIR}/nr_irx_cl_src_1l.c)
   target_include_directories(inner_rx_cl_obj PRIVATE inc/ ${OPENAIR_DIR}/common)
   target_link_libraries(inner_rx_cl_obj PRIVATE OpenCL::OpenCL)
   set_target_properties(inner_rx_cl_obj PROPERTIES POSITION_INDEPENDENT_CODE ON)

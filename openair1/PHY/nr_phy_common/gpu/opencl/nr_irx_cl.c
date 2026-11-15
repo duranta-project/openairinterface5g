@@ -3,12 +3,12 @@
  */
 
 // Inner-RX offload module for OpenCL GPUs (libinner_rx_cl.so, nr_inner_rx_offload.h): the FP16 2-layer receiver of
-// nr_lbest_f16.c (fused MRC + Gram + L-best / full ML, layer demap, descrambling) for 64 and 256QAM; the rest stays on
-// the CPU. Written for the integrated GPUs of ARM SoCs (Mali, Adreno). L-best runs in two passes: the 3x3 window of
-// every RE and layer, then the full grid on the wide ones only (nrh_wide), so that a few wide REs do not hold up whole
-// waves. Build options per GPU and kernel (NR_IRX_CL_OPTS overrides them): Mali runs the exact FP16 operations (the
-// LLRs of the ARMv8.2 CPU receiver built without contraction); Adreno has no correctly rounded fma and no FP16
-// subnormals and runs mad() (close LLRs, same decisions).
+// nr_lbest_f16.c (fused MRC + Gram + L-best / full ML, layer demap, descrambling) for 64 and 256QAM, and the integer
+// single-layer receiver (MRC and nr_compute_llr, bit-exact with the CPU) for QPSK to 256QAM; the rest stays on the CPU. Written for
+// the integrated GPUs of ARM SoCs (Mali, Adreno). L-best runs in two passes: the 3x3 window of every RE and layer, then the full
+// grid on the wide ones only (nrh_wide), so that a few wide REs do not hold up whole waves. Build options per GPU and kernel
+// (NR_IRX_CL_OPTS overrides them): Mali runs the exact FP16 operations (the LLRs of the ARMv8.2 CPU receiver built without
+// contraction); Adreno has no correctly rounded fma and no FP16 subnormals and runs mad() (close LLRs, same decisions).
 //
 // Memory: the staging is host-allocated buffer memory the GPU reads in place, mapped for the host between runs. On a
 // GPU coherent with the CPU caches (Adreno: a buffer mapped once stays consistent both ways; Mali: it does not, its
@@ -24,9 +24,10 @@
 #include <string.h>
 #include "nr_inner_rx_offload.h"
 
-// layer + detector core + kernels (nr_lbest_f16_layer.cl, nr_lbest_f16_core.h, nr_lbest_f16_kernels.cl), embedded at
-// build time
+// program sources embedded at build time: the 2-layer receiver (nr_lbest_f16_layer.cl, nr_lbest_f16_core.h,
+// nr_lbest_f16_kernels.cl) and the single-layer one (nr_irx_1layer.cl)
 extern const char nr_irx_cl_src[];
+extern const char nr_irx_cl_src_1l[];
 
 // struct nrh_sym_t of nr_lbest_f16_kernels.cl
 typedef struct {
@@ -46,6 +47,7 @@ static const char *kname[K_N] = {"nr_inner_rx_2layer_f16", "nr_inner_rx_2layer_f
 struct nr_irx_ctx {
   cl_command_queue q;
   cl_kernel k[2][K_N];
+  cl_kernel k1[4]; // single layer, QPSK to 256QAM
   cl_mem rx, ch, map, scr, out, sym, wide, nwide;
   // host mappings of the staging while the context is acquired
   c16_t *rx_h, *ch_h;
@@ -71,6 +73,7 @@ static struct {
   } region[NRC_MAX_REGIONS]; // alloc_host memory: rxdataF, ulsch_llrs
   int nb_region;
   cl_program prog[2][K_N];
+  cl_program prog1[4];
   int split[2][K_N]; // work-items per RE and layer (NRH_CL_LAYER_SPLIT)
   nr_irx_ctx_t *ctx;
   int n;
@@ -164,6 +167,9 @@ int nr_irx_shutdown(void)
       for (int k = 0; k < K_N; k++)
         if (x->k[nb][k])
           clReleaseKernel(x->k[nb][k]);
+    for (int m = 0; m < 4; m++)
+      if (x->k1[m])
+        clReleaseKernel(x->k1[m]);
     cl_mem m[8] = {x->rx, x->ch, x->map, x->scr, x->out, x->sym, x->wide, x->nwide};
     for (int i = 0; i < 8; i++)
       if (m[i])
@@ -180,6 +186,11 @@ int nr_irx_shutdown(void)
         clReleaseProgram(g.prog[nb][k]);
         g.prog[nb][k] = NULL;
       }
+  for (int m = 0; m < 4; m++)
+    if (g.prog1[m]) {
+      clReleaseProgram(g.prog1[m]);
+      g.prog1[m] = NULL;
+    }
   // the context stays for the allocations of alloc_host, valid until free_host
   return 0;
 }
@@ -288,6 +299,24 @@ static void unmap_staging(nr_irx_ctx_t *x)
   x->scr_h = NULL;
 }
 
+// a program of src built with opt, its log printed on failure
+static cl_program build(const char *src, const char *opt, const char *what)
+{
+  cl_int e;
+  cl_program pr = clCreateProgramWithSource(g.c, 1, &src, NULL, &e);
+  if (e == CL_SUCCESS && clBuildProgram(pr, 1, &g.d, opt, NULL, NULL) == CL_SUCCESS)
+    return pr;
+  static char log[1 << 14];
+  log[0] = 0;
+  if (pr) {
+    clGetProgramBuildInfo(pr, g.d, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
+    clReleaseProgram(pr);
+  }
+  fprintf(stderr, "[inner_rx_cl] %s: build of %s (%s) failed:\n%s\n", g.name, what, opt, log);
+  return NULL;
+}
+
+/// 0, -1 without an OpenCL GPU, -2 if a program does not build
 int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
 {
   if (g.ctx || nb_ctx < 1 || max_nb_rx < 1 || max_nb_rx > NR_IRX_MAX_RX || max_re_per_symbol == 0 || max_re_per_symbol >= 65536)
@@ -304,20 +333,21 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
     for (int k = 0; k < K_N; k++) {
       char opt[256];
       cl_options(nb + 3, k, opt, sizeof(opt), &g.split[nb][k]);
-      const char *src = nr_irx_cl_src;
-      g.prog[nb][k] = clCreateProgramWithSource(g.c, 1, &src, NULL, &e);
-      if (e != CL_SUCCESS || clBuildProgram(g.prog[nb][k], 1, &g.d, opt, NULL, NULL) != CL_SUCCESS) {
-        static char log[1 << 14];
-        log[0] = 0;
-        if (g.prog[nb][k])
-          clGetProgramBuildInfo(g.prog[nb][k], g.d, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
-        fprintf(stderr, "[inner_rx_cl] %s: build of %s (%s) failed:\n%s\n", g.name, kname[k], opt, log);
+      if (!(g.prog[nb][k] = build(nr_irx_cl_src, opt, kname[k]))) {
         nr_irx_shutdown();
-        return -1;
+        return -2;
       }
     }
+  for (int m = 0; m < 4; m++) { // single layer: integer, the same options everywhere
+    char opt[64];
+    snprintf(opt, sizeof(opt), "-cl-std=CL3.0 -DNRH_NB=%d", m + 1);
+    if (!(g.prog1[m] = build(nr_irx_cl_src_1l, opt, "nr_inner_rx_1layer"))) {
+      nr_irx_shutdown();
+      return -2;
+    }
+  }
   fprintf(stderr,
-          "[inner_rx_cl] %s (%s): 2-layer 64/256QAM L-best and ML, %s\n",
+          "[inner_rx_cl] %s (%s): single layer, 2-layer 64/256QAM L-best and ML, %s\n",
           g.name,
           g.vendor,
           g.coherent ? "RX and LLRs in place in alloc_host memory" : "RX and LLRs through the staging");
@@ -350,6 +380,10 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
         x->k[nb][k] = clCreateKernel(g.prog[nb][k], kname[k], &e);
         ok = e == CL_SUCCESS;
       }
+    for (int m = 0; m < 4 && ok; m++) {
+      x->k1[m] = clCreateKernel(g.prog1[m], "nr_inner_rx_1layer", &e);
+      ok = e == CL_SUCCESS;
+    }
     if (!ok || (g.coherent && map_staging(x) != 0)) {
       nr_irx_shutdown();
       return -1;
@@ -360,8 +394,11 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
 
 bool nr_irx_supported(int nb_layers, int nb_rx, int mod_order, int detector)
 {
-  return nb_layers == 2 && nb_rx >= 1 && nb_rx <= g.max_nb_rx && (mod_order == 6 || mod_order == 8)
-         && (detector == NR_IRX_DET_LBEST || detector == NR_IRX_DET_ML);
+  if (nb_rx < 1 || nb_rx > g.max_nb_rx)
+    return false;
+  if (nb_layers == 1) // the detector is not used
+    return mod_order == 2 || mod_order == 4 || mod_order == 6 || mod_order == 8;
+  return nb_layers == 2 && (mod_order == 6 || mod_order == 8) && (detector == NR_IRX_DET_LBEST || detector == NR_IRX_DET_ML);
 }
 
 void nr_irx_release(nr_irx_ctx_t *ctx);
@@ -419,7 +456,7 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
 {
   if (nsym < 1 || nsym > NR_IRX_MAX_SYM || !nr_irx_supported(p->nb_layers, p->nb_rx, p->mod_order, p->detector) || !ctx->rx_h)
     return -1;
-  const int qm = p->mod_order, nb = qm / 2 - 3, nb_rx = p->nb_rx;
+  const int qm = p->mod_order, nl = p->nb_layers, nb = qm / 2 - 3, nb_rx = p->nb_rx;
   const bool direct = sym[0].rx_ant[0] != NULL;
   cl_mem rxb = ctx->rx; // the RX staging, or the region of the antennas' rxdataF
   int out_r = -1; // the region of all the codeword slices when the kernels write them in place
@@ -432,7 +469,7 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
         s->re_map ? staging_off(s->re_map, ctx->map_h, NR_IRX_MAX_SYM * g.stride * sizeof(uint16_t), sizeof(uint16_t)) : 0;
     if ((s->rx_ant[0] != NULL) != direct || ch < 0 || map < 0 || s->ch_stride > g.stride || s->length > s->stride
         || s->stride > g.stride
-        || (s->scramble && (s->scramble != ctx->scr_h || s->scramble_offset + s->length * 2 * qm > g.scr_sz * 32)))
+        || (s->scramble && (s->scramble != ctx->scr_h || s->scramble_offset + s->length * nl * qm > g.scr_sz * 32)))
       return -1;
     d[k] = (nr_irx_cl_sym_t){.ch = ch,
                              .map = s->re_map ? (cl_uint)map : NRH_NO_MAP,
@@ -458,7 +495,7 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
         d[k].rx[a] = rx + a * s->stride;
     }
     // the codeword slice in place when every slice is in the same region of a coherent GPU
-    const int r = g.coherent ? region_of(s->llr_cw, (size_t)s->length * 2 * qm * sizeof(int16_t)) : -1;
+    const int r = g.coherent ? region_of(s->llr_cw, (size_t)s->length * nl * qm * sizeof(int16_t)) : -1;
     out_r = k == 0 ? r : out_r == r ? r : -1;
     maxlen = s->length > maxlen ? s->length : maxlen;
     total += s->length;
@@ -469,8 +506,18 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
   unmap_staging(ctx);
   cl_command_queue q = ctx->q;
   int ret = clEnqueueWriteBuffer(q, ctx->sym, CL_FALSE, 0, nsym * sizeof(*d), d, 0, NULL, NULL) == CL_SUCCESS ? 0 : -1;
-  const int two_pass = p->detector == NR_IRX_DET_LBEST;
-  for (int pass = 0; pass < 1 + two_pass; pass++) {
+  if (nl == 1) {
+    cl_kernel k = ctx->k1[qm / 2 - 1];
+    const cl_mem a[6] = {ctx->sym, rxb, ctx->ch, ctx->map, ctx->scr, out};
+    for (int i = 0; i < 6; i++)
+      ret |= clSetKernelArg(k, i, sizeof(cl_mem), &a[i]);
+    ret |= clSetKernelArg(k, 6, sizeof(int), &nb_rx);
+    ret |= clSetKernelArg(k, 7, sizeof(int), &p->output_shift);
+    const size_t lws[2] = {64, 1}, gws[2] = {(maxlen + 63) / 64 * 64, (size_t)nsym};
+    ret |= clEnqueueNDRangeKernel(q, k, 2, NULL, gws, lws, 0, NULL, NULL);
+  }
+  const int two_pass = nl == 2 && p->detector == NR_IRX_DET_LBEST;
+  for (int pass = 0; pass < (nl == 2) + two_pass; pass++) {
     const int kind = pass ? K_P2 : two_pass ? K_P1 : K_ML;
     cl_kernel k = ctx->k[nb][kind];
     ret |= clSetKernelArg(k, A_SYM, sizeof(cl_mem), &ctx->sym);
@@ -509,7 +556,7 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
       return -1;
     }
     for (int s = 0; s < nsym && ret == 0; s++)
-      memcpy(sym[s].llr_cw, o + s * g.llr_sz, (size_t)sym[s].length * 2 * qm * sizeof(int16_t));
+      memcpy(sym[s].llr_cw, o + s * g.llr_sz, (size_t)sym[s].length * nl * qm * sizeof(int16_t));
     clEnqueueUnmapMemObject(q, ctx->out, (void *)o, 0, NULL, NULL);
   }
   // the staging mapped again: the caller may run another batch before release
