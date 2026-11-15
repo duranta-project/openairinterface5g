@@ -22,6 +22,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 #include "nr_inner_rx_offload.h"
 
 // program sources embedded at build time: the 2-layer receiver (nr_lbest_f16_layer.cl, nr_lbest_f16_core.h,
@@ -65,6 +68,8 @@ static struct {
   char name[128], vendor[128];
   bool coherent; // host mappings stay consistent with the GPU (alloc_host regions)
   bool exact; // the exact FP16 operations of the CPU receiver (no mad)
+  char cache[512]; // program binary cache directory, "" if none
+  int nb_cached, nb_built; // programs of the last init loaded from the cache / built from source
   struct {
     cl_mem b;
     char *h;
@@ -299,13 +304,120 @@ static void unmap_staging(nr_irx_ctx_t *x)
   x->scr_h = NULL;
 }
 
-// a program of src built with opt, its log printed on failure
+// Program binary cache: the unrolled kernels take the Adreno compiler ~20 s of CPU at every start. Binaries are kept in
+// NR_IRX_CL_CACHE (default $XDG_CACHE_HOME/oai-irx-cl or ~/.cache/oai-irx-cl, "off": none), named by a hash of the
+// device, driver and platform versions, build options and program source: a new driver or source builds again.
+static void cache_dir(void)
+{
+  const char *d = getenv("NR_IRX_CL_CACHE"), *x = getenv("XDG_CACHE_HOME"), *h = getenv("HOME");
+  g.cache[0] = 0;
+  if (d && !strcmp(d, "off"))
+    return;
+  if (d && *d)
+    snprintf(g.cache, sizeof(g.cache), "%s", d);
+  else if (x && *x)
+    snprintf(g.cache, sizeof(g.cache), "%s/oai-irx-cl", x);
+  else if (h && *h)
+    snprintf(g.cache, sizeof(g.cache), "%s/.cache/oai-irx-cl", h);
+  else
+    return;
+  // the parent of the default directory may not exist yet
+  char p[sizeof(g.cache)];
+  snprintf(p, sizeof(p), "%s", g.cache);
+  for (char *c = p + 1; *c; c++)
+    if (*c == '/') {
+      *c = 0;
+      mkdir(p, 0755);
+      *c = '/';
+    }
+  mkdir(g.cache, 0755);
+}
+
+static uint64_t fnv1a(uint64_t h, const char *s)
+{
+  for (; *s; s++)
+    h = (h ^ (uint8_t)*s) * 1099511628211ull;
+  return (h ^ 0xff) * 1099511628211ull; // separator
+}
+
+static void cache_path(const char *src, const char *opt, char *path, size_t sz)
+{
+  char drv[128] = "", plat[256] = "";
+  cl_platform_id p;
+  clGetDeviceInfo(g.d, CL_DRIVER_VERSION, sizeof(drv), drv, NULL);
+  if (clGetDeviceInfo(g.d, CL_DEVICE_PLATFORM, sizeof(p), &p, NULL) == CL_SUCCESS)
+    clGetPlatformInfo(p, CL_PLATFORM_VERSION, sizeof(plat), plat, NULL);
+  uint64_t h = 1469598103934665603ull;
+  h = fnv1a(fnv1a(fnv1a(fnv1a(fnv1a(h, g.name), drv), plat), opt), src);
+  snprintf(path, sz, "%s/%016llx.bin", g.cache, (unsigned long long)h);
+}
+
+static cl_program cache_load(const char *path, const char *opt)
+{
+  FILE *f = fopen(path, "rb");
+  if (!f)
+    return NULL;
+  cl_program pr = NULL;
+  fseek(f, 0, SEEK_END);
+  const long n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  unsigned char *b = n > 0 ? malloc(n) : NULL;
+  if (b && fread(b, 1, n, f) == (size_t)n) {
+    const size_t len = n;
+    const unsigned char *bins[1] = {b};
+    cl_int st, e;
+    pr = clCreateProgramWithBinary(g.c, 1, &g.d, &len, bins, &st, &e);
+    if (pr && (e != CL_SUCCESS || st != CL_SUCCESS || clBuildProgram(pr, 1, &g.d, opt, NULL, NULL) != CL_SUCCESS)) {
+      clReleaseProgram(pr);
+      pr = NULL;
+    }
+  }
+  free(b);
+  fclose(f);
+  return pr;
+}
+
+// written to a temporary file and renamed: a concurrent process never reads a partial binary
+static void cache_store(const char *path, cl_program pr)
+{
+  size_t n = 0;
+  if (clGetProgramInfo(pr, CL_PROGRAM_BINARY_SIZES, sizeof(n), &n, NULL) != CL_SUCCESS || n == 0)
+    return;
+  unsigned char *b = malloc(n);
+  unsigned char *bins[1] = {b};
+  char tmp[600];
+  snprintf(tmp, sizeof(tmp), "%s.%d.tmp", path, (int)getpid());
+  FILE *f = b && clGetProgramInfo(pr, CL_PROGRAM_BINARIES, sizeof(bins), bins, NULL) == CL_SUCCESS ? fopen(tmp, "wb") : NULL;
+  if (f) {
+    const bool ok = fwrite(b, 1, n, f) == n;
+    if (fclose(f) == 0 && ok)
+      rename(tmp, path);
+    else
+      unlink(tmp);
+  }
+  free(b);
+}
+
+// a program of src built with opt (from the binary cache when it has it), its log printed on failure
 static cl_program build(const char *src, const char *opt, const char *what)
 {
+  char path[600] = "";
+  if (g.cache[0]) {
+    cache_path(src, opt, path, sizeof(path));
+    cl_program pr = cache_load(path, opt);
+    if (pr) {
+      g.nb_cached++;
+      return pr;
+    }
+  }
   cl_int e;
   cl_program pr = clCreateProgramWithSource(g.c, 1, &src, NULL, &e);
-  if (e == CL_SUCCESS && clBuildProgram(pr, 1, &g.d, opt, NULL, NULL) == CL_SUCCESS)
+  if (e == CL_SUCCESS && clBuildProgram(pr, 1, &g.d, opt, NULL, NULL) == CL_SUCCESS) {
+    g.nb_built++;
+    if (path[0])
+      cache_store(path, pr);
     return pr;
+  }
   static char log[1 << 14];
   log[0] = 0;
   if (pr) {
@@ -327,8 +439,12 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
   if (s != 0)
     return -1;
   cl_int e;
-  // all programs now: the unrolled ones take seconds to build (Adreno)
+  // all programs now: the unrolled ones take seconds to build (Adreno), unless in the binary cache
   g.exact = true;
+  cache_dir();
+  g.nb_cached = g.nb_built = 0;
+  struct timespec t0, t1;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
   for (int nb = 0; nb < 2; nb++)
     for (int k = 0; k < K_N; k++) {
       char opt[256];
@@ -346,11 +462,17 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
       return -2;
     }
   }
-  fprintf(stderr,
-          "[inner_rx_cl] %s (%s): single layer, 2-layer 64/256QAM L-best and ML, %s\n",
-          g.name,
-          g.vendor,
-          g.coherent ? "RX and LLRs in place in alloc_host memory" : "RX and LLRs through the staging");
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  fprintf(
+      stderr,
+      "[inner_rx_cl] %s (%s): single layer, 2-layer 64/256QAM L-best and ML, %s; programs ready in %.1f s (%d from %s, %d built)\n",
+      g.name,
+      g.vendor,
+      g.coherent ? "RX and LLRs in place in alloc_host memory" : "RX and LLRs through the staging",
+      t1.tv_sec - t0.tv_sec + 1e-9 * (t1.tv_nsec - t0.tv_nsec),
+      g.nb_cached,
+      g.cache[0] ? g.cache : "no cache",
+      g.nb_built);
   g.max_nb_rx = max_nb_rx;
   g.stride = (max_re_per_symbol + 15) & ~15u;
   g.rx_sz = (size_t)max_nb_rx * g.stride;
