@@ -11,7 +11,9 @@
  * FP16 operations (Mali), or the decisions within 2% + 5 of the CPU's when the module runs mad() (Adreno).
  * Single layer, QPSK to 256QAM, 1 / 2 / 4 Rx, normal and saturating channel amplitudes, lengths with the scalar tail of
  * nr_compute_llr, one PTRS phase error per symbol: bit-exact with the production nr_inner_rx (nr_channel_compensation
- * and nr_compute_llr) on every GPU. Exit status 77 (skipped) without an OpenCL GPU.
+ * and nr_compute_llr) on every GPU. 2 layers QPSK / 16QAM: bit-exact with the production chain (nr_channel_compensation,
+ * nr_qpsk_llr_2layer / nr_qam16_llr_2layer, output shift, layer demap, descrambling) on every GPU. Exit status 77
+ * (skipped) without an OpenCL GPU.
  */
 
 #include <math.h>
@@ -24,6 +26,7 @@
 #include "nr_inner_rx_offload.h"
 #include "openair1/PHY/nr_phy_common/src/nr_lbest_f16.h"
 #include "nr_channel_compensation.h"
+#include "nr_compute_llr.h"
 
 int nr_irx_init(uint32_t, int, int);
 int nr_irx_shutdown(void);
@@ -201,6 +204,147 @@ static int test_1layer(const uint32_t *bits, c16_t *const rxd[4], int16_t *cw, i
   free(ref);
   free(scr16);
   free(scratch);
+  return fails;
+}
+
+// 2 layers QPSK / 16QAM: the batches of test_1layer with 2 / 4 Rx; the number of failed cases
+static int test_2layer_int(const uint32_t *bits, c16_t *const rxd[4], int16_t *cw, int16_t *cwd, int nmode)
+{
+  const uint32_t stride = (NRE + 15) & ~15u, pad = stride + 64, lens[4] = {NRE, NRE, 1001, 3};
+  const c16_t cpes[4] = {{32767, 0}, {32610, 3200}, {32767, 0}, {31000, -10600}};
+  const size_t llr_max = (size_t)NRE * 2 * 8;
+  // the CPU chain's rows: pad = stride + 64 REs, as its kernels read whole vectors past the length
+  c16_t *chx = calloc(2 * 4 * pad, sizeof(c16_t)), *rxc = calloc(4 * pad, sizeof(c16_t)),
+        *comp[2] = {calloc(pad + 64, sizeof(c16_t)), calloc(pad + 64, sizeof(c16_t))};
+  c16_t *ma = calloc(2 * pad + 64, sizeof(c16_t)), *mb = calloc(2 * pad + 64, sizeof(c16_t)),
+        *mc = calloc(2 * pad + 64, sizeof(c16_t)), *rho = calloc(4 * pad + 64, sizeof(c16_t));
+  int16_t *lay[2] = {calloc(pad * 4, 2), calloc(pad * 4, 2)}, *ref = malloc(4 * llr_max * 2);
+  int fails = 0;
+  for (int mode = 0; mode < nmode; mode++)
+    for (int qm = 2; qm <= 4; qm += 2)
+      for (int nb_rx = 2; nb_rx <= 4; nb_rx *= 2)
+        for (double amp = 1500; amp <= 12000; amp += 10500) {
+          const int shift = nb_rx == 2 ? 7 : 8, M = 1 << (qm / 2), osh = qm == 2 ? 4 : 0;
+          rs = 0xF05u + qm * 31 + nb_rx * 7 + (int)amp;
+          nr_irx_ctx_t *x = nr_irx_acquire();
+          if (!x)
+            return 1;
+          c16_t *ch = nr_irx_staging(x, 0, NR_IRX_STAGING_CH); // one estimate [2][nb_rx][stride]
+          for (int r = 0; r < 2 * nb_rx; r++)
+            for (int i = 0; i < NRE; i++)
+              ch[(size_t)r * stride + i] = (c16_t){(int16_t)lrint(fmax(-32768, fmin(32767, gauss() * amp))),
+                                                   (int16_t)lrint(fmax(-32768, fmin(32767, gauss() * amp)))};
+          nr_irx_sym_t sym[4];
+          const c16_t *rx_ref[4];
+          uint32_t bit = 0;
+          for (int k = 0; k < 4; k++) {
+            uint16_t *map = nr_irx_staging(x, k, NR_IRX_STAGING_REMAP);
+            uint32_t len = 0;
+            for (uint32_t i = 0; i < lens[k] && len < lens[k]; i++)
+              if (k != 1 || i % 25 != 3)
+                map[len++] = i;
+            c16_t *rx = nr_irx_staging(x, k, NR_IRX_STAGING_RX);
+            rx_ref[k] = rx;
+            for (uint32_t i = 0; i < len; i++) {
+              double xs[2][2];
+              for (int l = 0; l < 2; l++) {
+                xs[l][0] = (2 * (int)(urand() * M) - M + 1) * 0.5;
+                xs[l][1] = (2 * (int)(urand() * M) - M + 1) * 0.5;
+              }
+              for (int a = 0; a < nb_rx; a++) {
+                double yr = gauss() * amp * 0.05, yi = gauss() * amp * 0.05;
+                for (int l = 0; l < 2; l++) {
+                  const c16_t h = ch[(size_t)(l * nb_rx + a) * stride + map[i]];
+                  yr += (h.r * xs[l][0] - h.i * xs[l][1]) / M;
+                  yi += (h.r * xs[l][1] + h.i * xs[l][0]) / M;
+                }
+                rx[(size_t)a * stride + i] =
+                    (c16_t){(int16_t)lrint(fmax(-32768, fmin(32767, yr))), (int16_t)lrint(fmax(-32768, fmin(32767, yi)))};
+                if (mode)
+                  rxd[a][k * FFT + map[i]] = rx[(size_t)a * stride + i];
+              }
+            }
+            sym[k] = (nr_irx_sym_t){.rxF = mode ? NULL : rx,
+                                    .chF = ch,
+                                    .re_map = map,
+                                    .scramble = nr_irx_staging(x, 0, NR_IRX_STAGING_SCRAMBLE),
+                                    .scramble_offset = bit,
+                                    .llr_cw = (mode ? cwd : cw) + k * llr_max,
+                                    .length = len,
+                                    .stride = stride,
+                                    .ch_stride = stride,
+                                    .cpe = cpes[k]};
+            if (mode)
+              for (int a = 0; a < nb_rx; a++)
+                sym[k].rx_ant[a] = rxd[a] + k * FFT;
+            bit += len * 2 * qm;
+          }
+          memcpy(nr_irx_staging(x, 0, NR_IRX_STAGING_SCRAMBLE), bits, (bit + 31) / 32 * 4);
+          for (int k = 0; k < 4; k++) { // the production CPU chain
+            const nr_irx_sym_t *s = &sym[k];
+            const uint32_t n = s->length;
+            for (int r = 0; r < 2 * nb_rx; r++)
+              for (uint32_t i = 0; i < n; i++)
+                chx[(size_t)r * pad + i] = ch[(size_t)r * stride + s->re_map[i]];
+            for (int a = 0; a < nb_rx; a++)
+              for (uint32_t i = 0; i < n; i++)
+                rxc[(size_t)a * pad + i] = rx_ref[k][(size_t)a * stride + i];
+            c16_t *rxComp[2] = {comp[0], comp[1]};
+            nr_channel_compensation(pad, pad, nb_rx, 2, rxc, chx, ma, mb, mc, rxComp, rho, s->cpe, qm, 0, shift);
+            for (int t = 0; t < 2; t++) { // rho [4][pad]: rho01 at 1, rho10 at 2
+              if (qm == 2)
+                nr_qpsk_llr_2layer(comp[t], comp[1 - t], lay[t], rho + (1 + t) * pad, n);
+              else
+                nr_qam16_llr_2layer(comp[t], comp[1 - t], ma + t * pad, ma + (1 - t) * pad, lay[t], rho + (1 + t) * pad, n);
+            }
+            int16_t *cwr = ref + k * llr_max;
+            for (uint32_t i = 0; i < n; i++)
+              for (int t = 0; t < 2; t++)
+                for (int p = 0; p < qm; p++) {
+                  const uint32_t o = (i * 2 + t) * qm + p, b = s->scramble_offset + o;
+                  cwr[o] = (int16_t)((int16_t)(lay[t][i * qm + p] >> osh) * ((bits[b >> 5] >> (b & 31)) & 1 ? -1 : 1));
+                }
+          }
+          const nr_irx_params_t p = {.nb_layers = 2,
+                                     .nb_rx = nb_rx,
+                                     .mod_order = qm,
+                                     .detector = NR_IRX_DET_LBEST,
+                                     .output_shift = shift};
+          const double t0 = now(), c0 = cpu_now();
+          const int r = nr_irx_run(x, sym, 4, &p);
+          const double tg = now() - t0, cg = cpu_now() - c0;
+          nr_irx_release(x);
+          long diff = 0;
+          size_t nl = 0;
+          for (int k = 0; k < 4 && r == 0; k++) {
+            const int16_t *g = sym[k].llr_cw, *rf = ref + k * llr_max;
+            for (uint32_t i = 0; i < sym[k].length * 2 * qm; i++)
+              diff += g[i] != rf[i];
+            nl += sym[k].length * 2 * qm;
+          }
+          printf("%s 2 layers Qm %d %d rx amp %5.0f: %s%ld/%zu LLRs differ | run %.0f us (CPU %.0f us)\n",
+                 mode ? "in place" : "staging ",
+                 qm,
+                 nb_rx,
+                 amp,
+                 r ? "RUN FAILED " : "",
+                 diff,
+                 nl,
+                 tg * 1e6,
+                 cg * 1e6);
+          fails += r != 0 || diff != 0;
+        }
+  free(chx);
+  free(rxc);
+  free(comp[0]);
+  free(comp[1]);
+  free(ma);
+  free(mb);
+  free(mc);
+  free(rho);
+  free(lay[0]);
+  free(lay[1]);
+  free(ref);
   return fails;
 }
 
@@ -403,6 +547,7 @@ int main(void)
             fails += exact ? diff != 0 : err_gpu > err_cpu + err_cpu / 50 + 5;
           }
   const int fails1 = test_1layer(bits, rxd, cw, cwd, nmode);
+  const int fails2i = test_2layer_int(bits, rxd, cw, cwd, nmode);
   nr_irx_shutdown();
   for (int a = 0; a < 4; a++)
     if (rxd[a])
@@ -411,5 +556,6 @@ int main(void)
     nr_irx_free_host(cwd);
   printf("2 layers: %s\n", fails ? "FAILED" : exact ? "PASSED: bit-exact" : "PASSED: decisions of the CPU receiver");
   printf("1 layer: %s\n", fails1 ? "FAILED" : "PASSED: bit-exact");
-  return fails + fails1 != 0;
+  printf("2 layers QPSK / 16QAM: %s\n", fails2i ? "FAILED" : "PASSED: bit-exact");
+  return fails + fails1 + fails2i != 0;
 }

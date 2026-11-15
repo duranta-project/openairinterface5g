@@ -3,8 +3,9 @@
  */
 
 // Inner-RX offload module for OpenCL GPUs (libinner_rx_cl.so, nr_inner_rx_offload.h): the FP16 2-layer receiver of
-// nr_lbest_f16.c (fused MRC + Gram + L-best / full ML, layer demap, descrambling) for 64 and 256QAM, and the integer
-// single-layer receiver (MRC and nr_compute_llr, bit-exact with the CPU) for QPSK to 256QAM; the rest stays on the CPU. Written for
+// nr_lbest_f16.c (fused MRC + Gram + L-best / full ML, layer demap, descrambling) for 64 and 256QAM, and integer
+// receivers bit-exact with the CPU: single layer QPSK to 256QAM (MRC and nr_compute_llr), 2-layer QPSK / 16QAM
+// (compensation and exact ML). MMSE and the rest stay on the CPU. Written for
 // the integrated GPUs of ARM SoCs (Mali, Adreno). L-best runs in two passes: the 3x3 window of every RE and layer, then the full
 // grid on the wide ones only (nrh_wide), so that a few wide REs do not hold up whole waves. Build options per GPU and kernel
 // (NR_IRX_CL_OPTS overrides them): Mali runs the exact FP16 operations (the LLRs of the ARMv8.2 CPU receiver built without
@@ -28,9 +29,9 @@
 #include "nr_inner_rx_offload.h"
 
 // program sources embedded at build time: the 2-layer receiver (nr_lbest_f16_layer.cl, nr_lbest_f16_core.h,
-// nr_lbest_f16_kernels.cl) and the single-layer one (nr_irx_1layer.cl)
+// nr_lbest_f16_kernels.cl) and the integer ones (nr_irx_int.cl: single layer, 2-layer QPSK / 16QAM)
 extern const char nr_irx_cl_src[];
-extern const char nr_irx_cl_src_1l[];
+extern const char nr_irx_cl_src_int[];
 
 // struct nrh_sym_t of nr_lbest_f16_kernels.cl
 typedef struct {
@@ -51,6 +52,7 @@ struct nr_irx_ctx {
   cl_command_queue q;
   cl_kernel k[2][K_N];
   cl_kernel k1[4]; // single layer, QPSK to 256QAM
+  cl_kernel k2i[2]; // 2 layers, QPSK / 16QAM
   cl_mem rx, ch, map, scr, out, sym, wide, nwide;
   // host mappings of the staging while the context is acquired
   c16_t *rx_h, *ch_h;
@@ -175,6 +177,9 @@ int nr_irx_shutdown(void)
     for (int m = 0; m < 4; m++)
       if (x->k1[m])
         clReleaseKernel(x->k1[m]);
+    for (int m = 0; m < 2; m++)
+      if (x->k2i[m])
+        clReleaseKernel(x->k2i[m]);
     cl_mem m[8] = {x->rx, x->ch, x->map, x->scr, x->out, x->sym, x->wide, x->nwide};
     for (int i = 0; i < 8; i++)
       if (m[i])
@@ -454,25 +459,24 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
         return -2;
       }
     }
-  for (int m = 0; m < 4; m++) { // single layer: integer, the same options everywhere
+  for (int m = 0; m < 4; m++) { // integer receivers (single layer, 2-layer QPSK / 16QAM): the same options everywhere
     char opt[64];
     snprintf(opt, sizeof(opt), "-cl-std=CL3.0 -DNRH_NB=%d", m + 1);
-    if (!(g.prog1[m] = build(nr_irx_cl_src_1l, opt, "nr_inner_rx_1layer"))) {
+    if (!(g.prog1[m] = build(nr_irx_cl_src_int, opt, "nr_irx_int"))) {
       nr_irx_shutdown();
       return -2;
     }
   }
   clock_gettime(CLOCK_MONOTONIC, &t1);
-  fprintf(
-      stderr,
-      "[inner_rx_cl] %s (%s): single layer, 2-layer 64/256QAM L-best and ML, %s; programs ready in %.1f s (%d from %s, %d built)\n",
-      g.name,
-      g.vendor,
-      g.coherent ? "RX and LLRs in place in alloc_host memory" : "RX and LLRs through the staging",
-      t1.tv_sec - t0.tv_sec + 1e-9 * (t1.tv_nsec - t0.tv_nsec),
-      g.nb_cached,
-      g.cache[0] ? g.cache : "no cache",
-      g.nb_built);
+  fprintf(stderr,
+          "[inner_rx_cl] %s (%s): single layer, 2-layer L-best and ML, %s; programs ready in %.1f s (%d from %s, %d built)\n",
+          g.name,
+          g.vendor,
+          g.coherent ? "RX and LLRs in place in alloc_host memory" : "RX and LLRs through the staging",
+          t1.tv_sec - t0.tv_sec + 1e-9 * (t1.tv_nsec - t0.tv_nsec),
+          g.nb_cached,
+          g.cache[0] ? g.cache : "no cache",
+          g.nb_built);
   g.max_nb_rx = max_nb_rx;
   g.stride = (max_re_per_symbol + 15) & ~15u;
   g.rx_sz = (size_t)max_nb_rx * g.stride;
@@ -506,6 +510,10 @@ int nr_irx_init(uint32_t max_re_per_symbol, int max_nb_rx, int nb_ctx)
       x->k1[m] = clCreateKernel(g.prog1[m], "nr_inner_rx_1layer", &e);
       ok = e == CL_SUCCESS;
     }
+    for (int m = 0; m < 2 && ok; m++) {
+      x->k2i[m] = clCreateKernel(g.prog1[m], "nr_inner_rx_2layer_int", &e);
+      ok = e == CL_SUCCESS;
+    }
     if (!ok || (g.coherent && map_staging(x) != 0)) {
       nr_irx_shutdown();
       return -1;
@@ -520,7 +528,9 @@ bool nr_irx_supported(int nb_layers, int nb_rx, int mod_order, int detector)
     return false;
   if (nb_layers == 1) // the detector is not used
     return mod_order == 2 || mod_order == 4 || mod_order == 6 || mod_order == 8;
-  return nb_layers == 2 && (mod_order == 6 || mod_order == 8) && (detector == NR_IRX_DET_LBEST || detector == NR_IRX_DET_ML);
+  // 2 layers: QPSK / 16QAM exact ML (also for L-best, as nr_compute_ML_llr), 64 / 256QAM L-best or ML; MMSE on the CPU
+  return nb_layers == 2 && (mod_order == 2 || mod_order == 4 || mod_order == 6 || mod_order == 8)
+         && (detector == NR_IRX_DET_LBEST || detector == NR_IRX_DET_ML);
 }
 
 void nr_irx_release(nr_irx_ctx_t *ctx);
@@ -628,8 +638,9 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
   unmap_staging(ctx);
   cl_command_queue q = ctx->q;
   int ret = clEnqueueWriteBuffer(q, ctx->sym, CL_FALSE, 0, nsym * sizeof(*d), d, 0, NULL, NULL) == CL_SUCCESS ? 0 : -1;
-  if (nl == 1) {
-    cl_kernel k = ctx->k1[qm / 2 - 1];
+  const bool integer = nl == 1 || qm <= 4; // the integer receivers of nr_irx_int.cl
+  if (integer) {
+    cl_kernel k = nl == 1 ? ctx->k1[qm / 2 - 1] : ctx->k2i[qm / 2 - 1];
     const cl_mem a[6] = {ctx->sym, rxb, ctx->ch, ctx->map, ctx->scr, out};
     for (int i = 0; i < 6; i++)
       ret |= clSetKernelArg(k, i, sizeof(cl_mem), &a[i]);
@@ -638,8 +649,8 @@ int nr_irx_run(nr_irx_ctx_t *ctx, const nr_irx_sym_t *sym, int nsym, const nr_ir
     const size_t lws[2] = {64, 1}, gws[2] = {(maxlen + 63) / 64 * 64, (size_t)nsym};
     ret |= clEnqueueNDRangeKernel(q, k, 2, NULL, gws, lws, 0, NULL, NULL);
   }
-  const int two_pass = nl == 2 && p->detector == NR_IRX_DET_LBEST;
-  for (int pass = 0; pass < (nl == 2) + two_pass; pass++) {
+  const int two_pass = !integer && p->detector == NR_IRX_DET_LBEST;
+  for (int pass = 0; pass < !integer + two_pass; pass++) {
     const int kind = pass ? K_P2 : two_pass ? K_P1 : K_ML;
     cl_kernel k = ctx->k[nb][kind];
     ret |= clSetKernelArg(k, A_SYM, sizeof(cl_mem), &ctx->sym);
