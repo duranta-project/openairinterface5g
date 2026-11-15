@@ -1469,10 +1469,7 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
     // the noise goes straight to int16: no float buffer to clear and to convert
     c16_t noise[nsamps];
     for (int a = 0; a < nbAnt; a++) {
-      for (int i = 0; i < nsamps; i++) {
-        noise[i].r = f_to_i16_sat(noise_power * (float)gaussZiggurat(0.0, 1.0));
-        noise[i].i = f_to_i16_sat(noise_power * (float)gaussZiggurat(0.0, 1.0));
-      }
+      gauss_noise_int16(&noise[0].r, 2 * nsamps, noise_power);
       c16_adds(noise, samples[a], nsamps);
     }
   }

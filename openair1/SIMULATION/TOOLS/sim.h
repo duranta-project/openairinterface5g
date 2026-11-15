@@ -540,6 +540,10 @@ double gaussdouble(double,double);
 void randominit(); // fix seed number by env variable OAI_RNGSEED
 double uniformrandom(void);
 double gaussZiggurat(double mean, double variance);
+/// fills out with n independent Gaussian values of mean 0 and standard deviation sigma, rounded to the nearest and
+/// saturated to int16. For whole buffers of samples (a c16_t buffer of N samples is 2N values): about 4 times faster
+/// than a loop on gaussZiggurat(). Any thread may call it, each has its own sequence
+void gauss_noise_int16(int16_t *out, int n, float sigma);
 int freq_channel(channel_desc_t *desc,uint16_t nb_rb, int16_t n_samples,int scs);
 int init_freq_channel(channel_desc_t *desc,uint16_t nb_rb,int16_t n_samples,int scs);
 void term_freq_channel(void);
