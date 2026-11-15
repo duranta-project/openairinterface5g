@@ -33,8 +33,9 @@ static E1AP_CriticalityDiagnostics_t encode_criticality_diagnostics(const critic
     out.procedureCriticality = calloc_or_fail(1, sizeof(*out.procedureCriticality));
     *out.procedureCriticality = *msg->procedure_criticality;
   }
-  for (int i = 0; i < msg->num_errors; i++) {
+  if (msg->num_errors > 0)
     out.iEsCriticalityDiagnostics = calloc_or_fail(1, sizeof(*out.iEsCriticalityDiagnostics));
+  for (int i = 0; i < msg->num_errors; i++) {
     asn1cSequenceAdd(out.iEsCriticalityDiagnostics->list, struct E1AP_CriticalityDiagnostics_IE_List__Member, ieC0);
     ieC0->iE_ID = msg->errors[i].ie_id;
     ieC0->typeOfError = msg->errors[i].error_type;

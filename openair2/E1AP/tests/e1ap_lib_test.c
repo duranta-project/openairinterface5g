@@ -503,10 +503,13 @@ static void test_e1_cuup_setup_failure(void)
   *orig.crit_diag->triggering_msg = TRIGGERING_MSG_SUCCESSFUL_OUTCOME;
   orig.crit_diag->procedure_criticality = malloc_or_fail(sizeof(*orig.crit_diag->procedure_criticality));
   *orig.crit_diag->procedure_criticality = CRITICALITY_IGNORE;
-  orig.crit_diag->num_errors = 1;
+  orig.crit_diag->num_errors = 2;
   orig.crit_diag->errors[0].ie_id = 66;
   orig.crit_diag->errors[0].error_type = ERROR_TYPE_MISSING;
   orig.crit_diag->errors[0].criticality = CRITICALITY_IGNORE;
+  orig.crit_diag->errors[1].ie_id = 67;
+  orig.crit_diag->errors[1].error_type = ERROR_TYPE_NOT_UNDERSTOOD;
+  orig.crit_diag->errors[1].criticality = CRITICALITY_REJECT;
 
   E1AP_E1AP_PDU_t *encoded = encode_e1ap_cuup_setup_failure(&orig);
   E1AP_E1AP_PDU_t *decoded_msg = e1ap_encode_decode(encoded);
