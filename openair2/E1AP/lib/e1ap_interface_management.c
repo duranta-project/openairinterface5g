@@ -100,14 +100,16 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_request(const e1ap_setup_req_t *msg)
   ieC2->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_ID;
   ieC2->criticality = E1AP_Criticality_reject;
   ieC2->value.present = E1AP_GNB_CU_UP_E1SetupRequestIEs__value_PR_GNB_CU_UP_ID;
-  asn_int642INTEGER(&ieC2->value.choice.GNB_CU_UP_ID, msg->gNB_cu_up_id);
+  int ret = asn_int642INTEGER(&ieC2->value.choice.GNB_CU_UP_ID, msg->gNB_cu_up_id);
+  AssertFatal(ret == 0, "asn_int642INTEGER() failed for gNB-CU-UP ID %" PRIu64 "\n", msg->gNB_cu_up_id);
   // gNB-CU-UP Name (O)
   if (msg->gNB_cu_up_name) {
     asn1cSequenceAdd(e1SetupUP->protocolIEs.list, E1AP_GNB_CU_UP_E1SetupRequestIEs_t, ieC3);
     ieC3->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_Name;
     ieC3->criticality = E1AP_Criticality_ignore;
     ieC3->value.present = E1AP_GNB_CU_UP_E1SetupRequestIEs__value_PR_GNB_CU_UP_Name;
-    OCTET_STRING_fromBuf(&ieC3->value.choice.GNB_CU_UP_Name, msg->gNB_cu_up_name, strlen(msg->gNB_cu_up_name));
+    ret = OCTET_STRING_fromBuf(&ieC3->value.choice.GNB_CU_UP_Name, msg->gNB_cu_up_name, strlen(msg->gNB_cu_up_name));
+    AssertFatal(ret == 0, "OCTET_STRING_fromBuf() failed for gNB-CU-UP Name\n");
   }
   // CN Support (M)
   asn1cSequenceAdd(e1SetupUP->protocolIEs.list, E1AP_GNB_CU_UP_E1SetupRequestIEs_t, ieC4);
@@ -306,7 +308,8 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_response(const e1ap_setup_resp_t *msg)
     ieC2->id = E1AP_ProtocolIE_ID_id_gNB_CU_CP_Name;
     ieC2->criticality = E1AP_Criticality_ignore;
     ieC2->value.present = E1AP_GNB_CU_UP_E1SetupResponseIEs__value_PR_GNB_CU_CP_Name;
-    OCTET_STRING_fromBuf(&ieC2->value.choice.GNB_CU_CP_Name, msg->gNB_cu_cp_name, strlen(msg->gNB_cu_cp_name));
+    int ret = OCTET_STRING_fromBuf(&ieC2->value.choice.GNB_CU_CP_Name, msg->gNB_cu_cp_name, strlen(msg->gNB_cu_cp_name));
+    AssertFatal(ret == 0, "OCTET_STRING_fromBuf() failed for gNB-CU-CP Name\n");
   }
   // Encode TNLA Info (O)
   if (msg->tnla_info) {

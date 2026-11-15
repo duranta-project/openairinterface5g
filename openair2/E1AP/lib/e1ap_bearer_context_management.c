@@ -57,10 +57,12 @@ static E1AP_SecurityInformation_t e1_encode_security_info(const security_informa
   E1AP_SecurityAlgorithm_t *securityAlgorithm = &ie.securityAlgorithm;
   E1AP_UPSecuritykey_t *uPSecuritykey = &ie.uPSecuritykey;
   securityAlgorithm->cipheringAlgorithm = secInfo->cipheringAlgorithm;
-  OCTET_STRING_fromBuf(&uPSecuritykey->encryptionKey, secInfo->encryptionKey, E1AP_SECURITY_KEY_SIZE);
+  int ret = OCTET_STRING_fromBuf(&uPSecuritykey->encryptionKey, secInfo->encryptionKey, E1AP_SECURITY_KEY_SIZE);
+  AssertFatal(ret == 0, "OCTET_STRING_fromBuf() failed for encryption key\n");
   asn1cCallocOne(securityAlgorithm->integrityProtectionAlgorithm, secInfo->integrityProtectionAlgorithm);
   asn1cCalloc(uPSecuritykey->integrityProtectionKey, protKey);
-  OCTET_STRING_fromBuf(protKey, secInfo->integrityProtectionKey, E1AP_SECURITY_KEY_SIZE);
+  ret = OCTET_STRING_fromBuf(protKey, secInfo->integrityProtectionKey, E1AP_SECURITY_KEY_SIZE);
+  AssertFatal(ret == 0, "OCTET_STRING_fromBuf() failed for integrity protection key\n");
   return ie;
 }
 
@@ -588,7 +590,8 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_setup_request(const e1ap_bearer_setup_
   ieC3->id = E1AP_ProtocolIE_ID_id_UEDLAggregateMaximumBitRate;
   ieC3->criticality = E1AP_Criticality_reject;
   ieC3->value.present = E1AP_BearerContextSetupRequestIEs__value_PR_BitRate;
-  asn_long2INTEGER(&ieC3->value.choice.BitRate, msg->ueDlAggMaxBitRate);
+  int ret = asn_long2INTEGER(&ieC3->value.choice.BitRate, msg->ueDlAggMaxBitRate);
+  AssertFatal(ret == 0, "asn_long2INTEGER() failed for UE DL Aggregate Maximum Bit Rate %ld\n", msg->ueDlAggMaxBitRate);
   /* mandatory */
   /* c4. Serving PLMN */
   asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextSetupRequestIEs_t, ieC4);
