@@ -311,7 +311,7 @@ static void test_bearer_context_setup_failure(void)
 
   // Decode the encoded message
   e1ap_bearer_context_setup_failure_t decoded = {0};
-  bool ret = decode_E1_bearer_context_setup_failure(&decoded, dec);
+  bool ret = decode_E1_bearer_context_setup_failure(dec, &decoded);
   AssertFatal(ret, "decode_E1_bearer_context_setup_failure failed");
 
   // Free the E1AP decoded message
@@ -353,7 +353,7 @@ static void test_bearer_context_release_command(void)
 
   // Decode the encoded message
   e1ap_bearer_release_cmd_t decoded = {0};
-  AssertFatal(decode_e1_bearer_context_release_command(&decoded, dec), "decode_e1_bearer_context_release_command failed");
+  AssertFatal(decode_e1_bearer_context_release_command(dec, &decoded), "decode_e1_bearer_context_release_command failed");
 
   // Free the E1AP decoded message
   e1ap_msg_free(dec);
@@ -392,7 +392,7 @@ static void test_bearer_context_release_complete(void)
 
   // Decode the encoded message
   e1ap_bearer_release_cplt_t decoded = {0};
-  AssertFatal(decode_e1_bearer_context_release_complete(&decoded, dec), "decode_e1_bearer_context_release_complete failed");
+  AssertFatal(decode_e1_bearer_context_release_complete(dec, &decoded), "decode_e1_bearer_context_release_complete failed");
 
   // Free the E1AP decoded message
   e1ap_msg_free(dec);
@@ -802,7 +802,7 @@ static void test_bearer_context_modification_response(void)
 
   // Decode the message into a new struct
   e1ap_bearer_modif_resp_t decoded = {0};
-  bool ret = decode_E1_bearer_context_mod_response(&decoded, dec);
+  bool ret = decode_E1_bearer_context_mod_response(dec, &decoded);
   AssertFatal(ret, "decode_E1_bearer_context_mod_response(): could not decode message\n");
 
   // Free the decoded E1AP message
@@ -878,7 +878,7 @@ static void test_bearer_context_modification_response_fail(void)
 
   // Decode into a new struct
   e1ap_bearer_modif_resp_t decoded = {0};
-  bool ret = decode_E1_bearer_context_mod_response(&decoded, dec);
+  bool ret = decode_E1_bearer_context_mod_response(dec, &decoded);
   AssertFatal(ret, "decode_E1_bearer_context_mod_response(): could not decode failed DRB setup+mod case\n");
 
   // Free the decoded E1AP message
@@ -915,7 +915,7 @@ static void test_bearer_context_modification_failure(void)
 
   // Decode into a new struct
   e1ap_bearer_context_mod_failure_t decoded = {0};
-  AssertFatal(decode_E1_bearer_context_mod_failure(&decoded, dec),
+  AssertFatal(decode_E1_bearer_context_mod_failure(dec, &decoded),
               "decode_E1_bearer_context_mod_failure(): could not decode message\n");
 
   // Free the decoded PDU
@@ -994,7 +994,7 @@ static void test_bearer_context_modification_confirm(void)
   e1ap_msg_free(enc);
 
   e1ap_bearer_mod_confirm_t decoded = {0};
-  AssertFatal(decode_E1_bearer_context_mod_confirm(&decoded, dec),
+  AssertFatal(decode_E1_bearer_context_mod_confirm(dec, &decoded),
               "decode_E1_bearer_context_mod_confirm(): could not decode message\n");
   e1ap_msg_free(dec);
 

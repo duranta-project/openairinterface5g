@@ -338,7 +338,7 @@ int e1apCUCP_handle_BEARER_CONTEXT_SETUP_FAILURE(sctp_assoc_t assoc_id, e1ap_upc
 {
   UNUSED(inst);
   e1ap_bearer_context_setup_failure_t fail = {0};
-  if (!decode_E1_bearer_context_setup_failure(&fail, pdu)) {
+  if (!decode_E1_bearer_context_setup_failure(pdu, &fail)) {
     LOG_E(E1AP, "Failed to decode Bearer Context Setup Failure\n");
     free_e1_bearer_context_setup_failure(&fail);
     return -1;
@@ -401,7 +401,7 @@ int e1apCUCP_handle_BEARER_CONTEXT_MODIFICATION_RESPONSE(sctp_assoc_t assoc_id,
   UNUSED(e1_inst);
   MessageDef *msg = itti_alloc_new_message(TASK_CUUP_E1, 0, E1AP_BEARER_CONTEXT_MODIFICATION_RESP);
   e1ap_bearer_modif_resp_t *modif = &E1AP_BEARER_CONTEXT_MODIFICATION_RESP(msg);
-  if(!decode_E1_bearer_context_mod_response(modif, pdu)) {
+  if(!decode_E1_bearer_context_mod_response(pdu, modif)) {
     free_e1ap_context_mod_response(modif);
     return -1;
   }
@@ -414,7 +414,7 @@ int e1apCUCP_handle_BEARER_CONTEXT_MODIFICATION_FAILURE(sctp_assoc_t assoc_id, e
   UNUSED(assoc_id);
   UNUSED(inst);
   e1ap_bearer_context_mod_failure_t failure = {0};
-  if (!decode_E1_bearer_context_mod_failure(&failure, pdu)) {
+  if (!decode_E1_bearer_context_mod_failure(pdu, &failure)) {
     free_E1_bearer_context_mod_failure(&failure);
     return -1;
   }
@@ -461,7 +461,7 @@ int e1apCUUP_handle_BEARER_CONTEXT_MODIFICATION_CONFIRM(sctp_assoc_t assoc_id, e
   UNUSED(assoc_id);
   UNUSED(inst);
   e1ap_bearer_mod_confirm_t conf = {0};
-  if (!decode_E1_bearer_context_mod_confirm(&conf, pdu)) {
+  if (!decode_E1_bearer_context_mod_confirm(pdu, &conf)) {
     free_e1ap_context_mod_confirm(&conf);
     return -1;
   }
@@ -491,7 +491,7 @@ int e1apCUUP_handle_BEARER_CONTEXT_RELEASE_COMMAND(sctp_assoc_t assoc_id, e1ap_u
   UNUSED(assoc_id);
   UNUSED(inst);
   e1ap_bearer_release_cmd_t release = {0};
-  if(!decode_e1_bearer_context_release_command(&release, pdu)) {
+  if(!decode_e1_bearer_context_release_command(pdu, &release)) {
     free_e1_bearer_context_release_command(&release);
     return -1;
   }
@@ -504,7 +504,7 @@ int e1apCUCP_handle_BEARER_CONTEXT_RELEASE_COMPLETE(sctp_assoc_t assoc_id, e1ap_
   UNUSED(assoc_id);
   UNUSED(e1_inst);
   e1ap_bearer_release_cplt_t bearerCxt = {0};
-  if(!decode_e1_bearer_context_release_complete(&bearerCxt, pdu)) {
+  if(!decode_e1_bearer_context_release_complete(pdu, &bearerCxt)) {
     free_e1_bearer_context_release_complete(&bearerCxt);
     return -1;
   }

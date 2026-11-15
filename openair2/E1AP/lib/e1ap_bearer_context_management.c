@@ -32,7 +32,7 @@ static E1AP_SecurityIndication_t e1_encode_security_indication(const security_in
 }
 
 /** @brief Decode E1AP_SecurityIndication_t (3GPP TS 38.463 9.3.1.23) */
-static bool e1_decode_security_indication(security_indication_t *out, const E1AP_SecurityIndication_t *in)
+static bool e1_decode_security_indication(const E1AP_SecurityIndication_t *in, security_indication_t *out)
 {
   // Confidentiality Protection Indication (M)
   out->confidentialityProtectionIndication = in->confidentialityProtectionIndication;
@@ -67,7 +67,7 @@ static E1AP_SecurityInformation_t e1_encode_security_info(const security_informa
 }
 
 /** @brief Decode Security Information IE (3GPP TS 38.463, 9.3.1.10) */
-static bool e1_decode_security_info(security_information_t *out, const E1AP_SecurityInformation_t *in)
+static bool e1_decode_security_info(const E1AP_SecurityInformation_t *in, security_information_t *out)
 {
   // Security Algorithm (M) (9.3.1.31)
   // Ciphering Algorithm (M)
@@ -108,7 +108,7 @@ static E1AP_UP_TNL_Information_t e1_encode_up_tnl_info(const UP_TL_information_t
 /**
  * @brief Decode E1AP_UP_TNL_Information_t
  */
-static bool e1_decode_up_tnl_info(UP_TL_information_t *out, const E1AP_UP_TNL_Information_t *in)
+static bool e1_decode_up_tnl_info(const E1AP_UP_TNL_Information_t *in, UP_TL_information_t *out)
 {
   /* NG UL UP Transport Layer Information (M) (9.3.2.1 of 3GPP TS 38.463) */
   // GTP Tunnel
@@ -139,7 +139,7 @@ static E1AP_PDCP_Configuration_t e1_encode_pdcp_config(const bearer_context_pdcp
 }
 
 /** @brief Decode PDCP Configuration IE */
-static bool e1_decode_pdcp_config(bearer_context_pdcp_config_t *out, const E1AP_PDCP_Configuration_t *in)
+static bool e1_decode_pdcp_config(const E1AP_PDCP_Configuration_t *in, bearer_context_pdcp_config_t *out)
 {
   out->pDCP_SN_Size_UL = in->pDCP_SN_Size_UL;
   out->pDCP_SN_Size_DL = in->pDCP_SN_Size_DL;
@@ -180,7 +180,7 @@ static E1AP_SDAP_Configuration_t e1_encode_sdap_config(const bearer_context_sdap
 }
 
 /** @brief Decode SDAP Configuration IE */
-static bool e1_decode_sdap_config(bearer_context_sdap_config_t *out, const E1AP_SDAP_Configuration_t *in)
+static bool e1_decode_sdap_config(const E1AP_SDAP_Configuration_t *in, bearer_context_sdap_config_t *out)
 {
   out->defaultDRB = in->defaultDRB == E1AP_DefaultDRB_true;
   out->sDAP_Header_UL = in->sDAP_Header_UL == E1AP_SDAP_Header_UL_present;
@@ -226,7 +226,7 @@ static E1AP_QoS_Flow_QoS_Parameter_Item_t e1_encode_qos_flow_to_setup(const qos_
   return out;
 }
 
-bool e1_decode_qos_flow_to_setup(qos_flow_to_setup_t *out, const E1AP_QoS_Flow_QoS_Parameter_Item_t *in)
+static bool e1_decode_qos_flow_to_setup(const E1AP_QoS_Flow_QoS_Parameter_Item_t *in, qos_flow_to_setup_t *out)
 {
   // QoS Flow Identifier (M)
   out->qfi = in->qoS_Flow_Identifier;
@@ -305,7 +305,7 @@ static E1AP_SNSSAI_t e1_encode_snssai(const nssai_t *in)
 }
 
 /** @brief S-NSSAI Decoding (3GPP TS 38.463 9.3.1.9) */
-static bool e1_decode_snssai(e1ap_nssai_t *out, const E1AP_SNSSAI_t *in)
+static bool e1_decode_snssai(const E1AP_SNSSAI_t *in, e1ap_nssai_t *out)
 {
   // SST (M)
   OCTET_STRING_TO_INT8(&in->sST, out->sst);
@@ -325,7 +325,7 @@ static int decode_dl_up_parameters(up_params_t *dl_up_param, const E1AP_UP_Param
     dl_up_param = dl_up_param + k;
     E1AP_UP_Parameters_Item_t *dl_up_param_in = dl_up_paramList->list.array[k];
     // GTP tunnel
-    if (!e1_decode_up_tnl_info(&dl_up_param->tl_info, &dl_up_param_in->uP_TNL_Information)) {
+    if (!e1_decode_up_tnl_info(&dl_up_param_in->uP_TNL_Information, &dl_up_param->tl_info)) {
       PRINT_ERROR("GTP tunnel decoding failed\n");
       return -1;
     }
@@ -360,16 +360,15 @@ static E1AP_PDCP_SN_Status_Information_t encode_pdcp_status_info(const e1_pdcp_s
 }
 
 /** @brief PDCP SN Status Information (9.3.1.58 3GPP TS 38.463) */
-static e1_pdcp_status_info_t decode_pdcp_status_info(const E1AP_PDCP_SN_Status_Information_t* in)
+static bool decode_pdcp_status_info(const E1AP_PDCP_SN_Status_Information_t *in, e1_pdcp_status_info_t *out)
 {
-  e1_pdcp_status_info_t out = {0};
   const E1AP_PDCP_Count_t *dl = &in->pdcpStatusTransfer_DL;
   const E1AP_PDCP_Count_t *ul = &in->pdcpStatusTransfer_UL.countValue;
-  out.dl_count.hfn = dl->hFN;
-  out.dl_count.sn = dl->pDCP_SN;
-  out.ul_count.hfn = ul->hFN;
-  out.ul_count.sn = ul->pDCP_SN;
-  return out;
+  out->dl_count.hfn = dl->hFN;
+  out->dl_count.sn = dl->pDCP_SN;
+  out->ul_count.hfn = ul->hFN;
+  out->ul_count.sn = ul->pDCP_SN;
+  return true;
 }
 
 static bool eq_pdcp_info(const e1_pdcp_status_info_t *a, const e1_pdcp_status_info_t *b)
@@ -446,16 +445,16 @@ static E1AP_PDU_Session_Resource_To_Setup_Item_t e1_encode_pdu_session_to_setup_
 }
 
 /** @brief Decode PDU Session Resource To Setup List Item (3GPP TS 38.463 9.3.3.2) */
-static bool e1_decode_pdu_session_to_setup_item(pdu_session_to_setup_t *out, E1AP_PDU_Session_Resource_To_Setup_Item_t *item)
+static bool e1_decode_pdu_session_to_setup_item(const E1AP_PDU_Session_Resource_To_Setup_Item_t *item, pdu_session_to_setup_t *out)
 {
   // PDU Session ID (M)
   out->sessionId = item->pDU_Session_ID;
   // PDU Session Type (M)
   out->sessionType = item->pDU_Session_Type;
   // S-NSSAI (M)
-  CHECK_E1AP_DEC(e1_decode_snssai(&out->nssai, &item->sNSSAI));
+  CHECK_E1AP_DEC(e1_decode_snssai(&item->sNSSAI, &out->nssai));
   // Security Indication (M)
-  CHECK_E1AP_DEC(e1_decode_security_indication(&out->securityIndication, &item->securityIndication));
+  CHECK_E1AP_DEC(e1_decode_security_indication(&item->securityIndication, &out->securityIndication));
   /* NG UL UP Transport Layer Information (M) (9.3.2.1 of 3GPP TS 38.463) */
   // GTP Tunnel
   struct E1AP_GTPTunnel *gTPTunnel = item->nG_UL_UP_TNL_Information.choice.gTPTunnel;
@@ -464,9 +463,9 @@ static bool e1_decode_pdu_session_to_setup_item(pdu_session_to_setup_t *out, E1A
     return false;
   }
   _EQ_CHECK_INT(item->nG_UL_UP_TNL_Information.present, E1AP_UP_TNL_Information_PR_gTPTunnel);
-  CHECK_E1AP_DEC(e1_decode_up_tnl_info(&out->UP_TL_information, &item->nG_UL_UP_TNL_Information));
+  CHECK_E1AP_DEC(e1_decode_up_tnl_info(&item->nG_UL_UP_TNL_Information, &out->UP_TL_information));
   /* DRB To Setup List ( > 1 item ) */
-  E1AP_DRB_To_Setup_List_NG_RAN_t *drb2SetupList = &item->dRB_To_Setup_List_NG_RAN;
+  const E1AP_DRB_To_Setup_List_NG_RAN_t *drb2SetupList = &item->dRB_To_Setup_List_NG_RAN;
   EQ_CHECK_GENERIC(drb2SetupList->list.count > 0, "%d", drb2SetupList->list.count, 0);
   out->numDRB2Setup = drb2SetupList->list.count;
   for (int j = 0; j < drb2SetupList->list.count; j++) {
@@ -475,9 +474,9 @@ static bool e1_decode_pdu_session_to_setup_item(pdu_session_to_setup_t *out, E1A
     // DRB ID (M)
     drb->id = drb2Setup->dRB_ID;
     // SDAP Configuration (M)
-    CHECK_E1AP_DEC(e1_decode_sdap_config(&drb->sdap_config, &drb2Setup->sDAP_Configuration));
+    CHECK_E1AP_DEC(e1_decode_sdap_config(&drb2Setup->sDAP_Configuration, &drb->sdap_config));
     // PDCP Configuration (M)
-    CHECK_E1AP_DEC(e1_decode_pdcp_config(&drb->pdcp_config, &drb2Setup->pDCP_Configuration));
+    CHECK_E1AP_DEC(e1_decode_pdcp_config(&drb2Setup->pDCP_Configuration, &drb->pdcp_config));
     // Cell Group Information (M)
     E1AP_Cell_Group_Information_t *cellGroupList = &drb2Setup->cell_Group_Information;
     EQ_CHECK_GENERIC(cellGroupList->list.count > 0, "%d", cellGroupList->list.count, 0);
@@ -491,7 +490,7 @@ static bool e1_decode_pdu_session_to_setup_item(pdu_session_to_setup_t *out, E1A
     E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = &drb2Setup->qos_flow_Information_To_Be_Setup;
     drb->numQosFlow2Setup = qos2SetupList->list.count;
     for (int k = 0; k < qos2SetupList->list.count; k++) {
-      CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
+      CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(qos2SetupList->list.array[k], drb->qosFlows + k));
     }
   }
   return true;
@@ -677,7 +676,7 @@ bool decode_E1_bearer_context_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_bea
 
       case E1AP_ProtocolIE_ID_id_SecurityInformation:
         _EQ_CHECK_INT(ie->value.present, E1AP_BearerContextSetupRequestIEs__value_PR_SecurityInformation);
-        CHECK_E1AP_DEC(e1_decode_security_info(&out->secInfo, &ie->value.choice.SecurityInformation));
+        CHECK_E1AP_DEC(e1_decode_security_info(&ie->value.choice.SecurityInformation, &out->secInfo));
         break;
 
       case E1AP_ProtocolIE_ID_id_UEDLAggregateMaximumBitRate:
@@ -728,7 +727,7 @@ bool decode_E1_bearer_context_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_bea
             for (int i = 0; i < pdu2SetupList->list.count; i++) {
               pdu_session_to_setup_t *pdu_session = out->pduSession + i;
               E1AP_PDU_Session_Resource_To_Setup_Item_t *pdu2Setup = pdu2SetupList->list.array[i];
-              CHECK_E1AP_DEC(e1_decode_pdu_session_to_setup_item(pdu_session, pdu2Setup));
+              CHECK_E1AP_DEC(e1_decode_pdu_session_to_setup_item(pdu2Setup, pdu_session));
             }
             break;
           }
@@ -822,14 +821,24 @@ bool eq_bearer_context_setup_request(const e1ap_bearer_setup_req_t *a, const e1a
   return true;
 }
 
-/** Decode DRB Failed Item. Applies to both E1AP_DRB_Failed_To_Modify_Item_NG_RAN_t
- * and E1AP_DRB_Failed_Item_NG_RAN_t */
-static void decode_drb_failed_item(DRB_nGRAN_failed_t *out, const E1AP_DRB_Failed_Item_NG_RAN_t *in)
+/** Decode DRB Failed Item */
+static bool decode_drb_failed_item(const E1AP_DRB_Failed_Item_NG_RAN_t *in, DRB_nGRAN_failed_t *out)
 {
   // DRB ID (M)
   out->id = in->dRB_ID;
   // Cause (M)
   out->cause = e1_decode_cause_ie(&in->cause);
+  return true;
+}
+
+/** Decode DRB Failed To Modify Item */
+static bool decode_drb_failed_to_mod_item(const E1AP_DRB_Failed_To_Modify_Item_NG_RAN_t *in, DRB_nGRAN_failed_t *out)
+{
+  // DRB ID (M)
+  out->id = in->dRB_ID;
+  // Cause (M)
+  out->cause = e1_decode_cause_ie(&in->cause);
+  return true;
 }
 
 /** Encode DRB Failed Item */
@@ -863,13 +872,13 @@ static E1AP_DRB_Failed_To_Modify_Item_NG_RAN_t encode_drb_failed_to_mod_item(con
 /**
  * @brief Decode an item of the E1 PDU Session Resource Setup List (9.3.3.5 of 3GPP TS 38.463)
  */
-static bool e1_decode_pdu_session_setup_item(pdu_session_setup_t *pduSetup, E1AP_PDU_Session_Resource_Setup_Item_t *in)
+static bool e1_decode_pdu_session_setup_item(const E1AP_PDU_Session_Resource_Setup_Item_t *in, pdu_session_setup_t *pduSetup)
 {
   // PDU Session ID
   pduSetup->id = in->pDU_Session_ID;
   pduSetup->numDRBSetup = in->dRB_Setup_List_NG_RAN.list.count;
   // NG DL UP Transport Layer Information (M)
-  CHECK_E1AP_DEC(e1_decode_up_tnl_info(&pduSetup->tl_info, &in->nG_DL_UP_TNL_Information));
+  CHECK_E1AP_DEC(e1_decode_up_tnl_info(&in->nG_DL_UP_TNL_Information, &pduSetup->tl_info));
   // DRB Setup List (1..<maxnoofDRBs>)
   for (int j = 0; j < in->dRB_Setup_List_NG_RAN.list.count; j++) {
     DRB_nGRAN_setup_t *drbSetup = pduSetup->DRBnGRanList + j;
@@ -893,7 +902,7 @@ static bool e1_decode_pdu_session_setup_item(pdu_session_setup_t *pduSetup, E1AP
   if (in->dRB_Failed_List_NG_RAN) {
     pduSetup->numDRBFailed = in->dRB_Failed_List_NG_RAN->list.count;
     for (int j = 0; j < in->dRB_Failed_List_NG_RAN->list.count; j++) {
-      decode_drb_failed_item(&pduSetup->DRBnGRanFailedList[j], in->dRB_Failed_List_NG_RAN->list.array[j]);
+      CHECK_E1AP_DEC(decode_drb_failed_item(in->dRB_Failed_List_NG_RAN->list.array[j], &pduSetup->DRBnGRanFailedList[j]));
     }
   }
   return true;
@@ -1048,7 +1057,7 @@ bool decode_E1_bearer_context_setup_response(const E1AP_E1AP_PDU_t *pdu, e1ap_be
             for (int i = 0; i < pduSetupList->list.count; i++) {
               pdu_session_setup_t *pduSetup = out->pduSession + i;
               E1AP_PDU_Session_Resource_Setup_Item_t *pdu_session = pduSetupList->list.array[i];
-              CHECK_E1AP_DEC(e1_decode_pdu_session_setup_item(pduSetup, pdu_session));
+              CHECK_E1AP_DEC(e1_decode_pdu_session_setup_item(pdu_session, pduSetup));
             }
           } break;
 
@@ -1187,7 +1196,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_setup_failure(const e1ap_bearer_contex
  * @brief Bearer Context Setup Failure decoding (9.2.2.3, 3GPP TS 38.463)
  *        gNB-CU-UP → gNB-CU-CP
  */
-bool decode_E1_bearer_context_setup_failure(e1ap_bearer_context_setup_failure_t *out, const E1AP_E1AP_PDU_t *pdu)
+bool decode_E1_bearer_context_setup_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_bearer_context_setup_failure_t *out)
 {
   DevAssert(pdu != NULL);
   _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_unsuccessfulOutcome);
@@ -1295,7 +1304,7 @@ E1AP_E1AP_PDU_t *encode_e1_bearer_context_release_command(const e1ap_bearer_rele
 
 /** @brief Bearer Context Release Command decoding (9.2.2.9, 3GPP TS 38.463)
  *         gNB-CU-CP → gNB-CU-UP */
-bool decode_e1_bearer_context_release_command(e1ap_bearer_release_cmd_t *out, const E1AP_E1AP_PDU_t *pdu)
+bool decode_e1_bearer_context_release_command(const E1AP_E1AP_PDU_t *pdu, e1ap_bearer_release_cmd_t *out)
 {
   DevAssert(pdu != NULL);
   _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_initiatingMessage);
@@ -1391,7 +1400,7 @@ E1AP_E1AP_PDU_t *encode_e1_bearer_context_release_complete(const e1ap_bearer_rel
  * @brief Bearer Context Release Complete decoding (9.2.2.10, 3GPP TS 38.463)
  *        gNB-CU-UP → gNB-CU-CP
  */
-bool decode_e1_bearer_context_release_complete(e1ap_bearer_release_cplt_t *out, const E1AP_E1AP_PDU_t *pdu)
+bool decode_e1_bearer_context_release_complete(const E1AP_E1AP_PDU_t *pdu, e1ap_bearer_release_cplt_t *out)
 {
   DevAssert(pdu != NULL);
   _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_successfulOutcome);
@@ -1469,7 +1478,7 @@ static E1AP_PDU_Session_Resource_To_Remove_Item_t e1_encode_pdu_session_to_remov
 }
 
 /** @brief Decode PDU Session Resource To Remove Item */
-static bool e1_decode_pdu_session_to_remove_item(pdu_session_to_remove_t *out, const E1AP_PDU_Session_Resource_To_Remove_Item_t *in)
+static bool e1_decode_pdu_session_to_remove_item(const E1AP_PDU_Session_Resource_To_Remove_Item_t *in, pdu_session_to_remove_t *out)
 {
   *out = (pdu_session_to_remove_t){0};
   // PDU Session ID (M)
@@ -1614,7 +1623,7 @@ static E1AP_BitRate_t e1_encode_bit_rate(uint64_t in)
 }
 
 /** @brief Decode Bit Rate IE (3GPP TS 38.463, 9.3.1.20) */
-static bool e1_decode_bit_rate(uint64_t *out, const E1AP_BitRate_t *in)
+static bool e1_decode_bit_rate(const E1AP_BitRate_t *in, uint64_t *out)
 {
   int64_t value;
   if (asn_INTEGER2int64(in, &value) != 0 || value < 0 || value > NR_MAX_BIT_RATE) {
@@ -1755,20 +1764,20 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_mod_request(const e1ap_bearer_mod_req_
 }
 
 /** @brief Decode PDU Session Item to Setup (Bearer Context Modification Request) */
-static bool e1_decode_pdu_session_to_setup_mod_item(pdu_session_to_setup_t *out,
-                                                    const E1AP_PDU_Session_Resource_To_Setup_Mod_Item_t *item)
+static bool e1_decode_pdu_session_to_setup_mod_item(const E1AP_PDU_Session_Resource_To_Setup_Mod_Item_t *item,
+                                                    pdu_session_to_setup_t *out)
 {
   // PDU Session ID (M)
   out->sessionId = item->pDU_Session_ID;
   // PDU Session Type (M)
   out->sessionType = item->pDU_Session_Type;
   // S-NSSAI (M)
-  CHECK_E1AP_DEC(e1_decode_snssai(&out->nssai, &item->sNSSAI));
+  CHECK_E1AP_DEC(e1_decode_snssai(&item->sNSSAI, &out->nssai));
   // Security Indication (M)
-  CHECK_E1AP_DEC(e1_decode_security_indication(&out->securityIndication, &item->securityIndication));
+  CHECK_E1AP_DEC(e1_decode_security_indication(&item->securityIndication, &out->securityIndication));
   /* NG UL UP Transport Layer Information (M) */
   _EQ_CHECK_INT(item->nG_UL_UP_TNL_Information.present, E1AP_UP_TNL_Information_PR_gTPTunnel);
-  CHECK_E1AP_DEC(e1_decode_up_tnl_info(&out->UP_TL_information, &item->nG_UL_UP_TNL_Information));
+  CHECK_E1AP_DEC(e1_decode_up_tnl_info(&item->nG_UL_UP_TNL_Information, &out->UP_TL_information));
   /* DRB To Setup List ( > 1 item ) */
   const E1AP_DRB_To_Setup_Mod_List_NG_RAN_t *drb2SetupList = &item->dRB_To_Setup_Mod_List_NG_RAN;
   EQ_CHECK_GENERIC(drb2SetupList->list.count > 0, "%d", drb2SetupList->list.count, 0);
@@ -1779,9 +1788,9 @@ static bool e1_decode_pdu_session_to_setup_mod_item(pdu_session_to_setup_t *out,
     // DRB ID (M)
     drb->id = drb2Setup->dRB_ID;
     // SDAP Configuration (M)
-    CHECK_E1AP_DEC(e1_decode_sdap_config(&drb->sdap_config, &drb2Setup->sDAP_Configuration));
+    CHECK_E1AP_DEC(e1_decode_sdap_config(&drb2Setup->sDAP_Configuration, &drb->sdap_config));
     // PDCP Configuration (M)
-    CHECK_E1AP_DEC(e1_decode_pdcp_config(&drb->pdcp_config, &drb2Setup->pDCP_Configuration));
+    CHECK_E1AP_DEC(e1_decode_pdcp_config(&drb2Setup->pDCP_Configuration, &drb->pdcp_config));
     // Cell Group Information (M)
     const E1AP_Cell_Group_Information_t *cellGroupList = &drb2Setup->cell_Group_Information;
     EQ_CHECK_GENERIC(cellGroupList->list.count > 0, "%d", cellGroupList->list.count, 0);
@@ -1795,7 +1804,7 @@ static bool e1_decode_pdu_session_to_setup_mod_item(pdu_session_to_setup_t *out,
     const E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = &drb2Setup->flow_Mapping_Information;
     drb->numQosFlow2Setup = qos2SetupList->list.count;
     for (int k = 0; k < qos2SetupList->list.count; k++) {
-      CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
+      CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(qos2SetupList->list.array[k], drb->qosFlows + k));
     }
   }
   return true;
@@ -1803,7 +1812,7 @@ static bool e1_decode_pdu_session_to_setup_mod_item(pdu_session_to_setup_t *out,
 
 
 /** @brief Decode PDU Session Item to modify (Bearer Context Modification Request) */
-static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E1AP_PDU_Session_Resource_To_Modify_Item_t *in)
+static bool e1_decode_pdu_session_to_mod_item(const E1AP_PDU_Session_Resource_To_Modify_Item_t *in, pdu_session_to_mod_t *out)
 {
   // PDU Session ID
   out->sessionId = in->pDU_Session_ID;
@@ -1818,12 +1827,12 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
     // PDCP Config (O)
     if (drb2Mod->pDCP_Configuration) {
       drb->pdcp_config = calloc_or_fail(1, sizeof(*drb->pdcp_config));
-      CHECK_E1AP_DEC(e1_decode_pdcp_config(drb->pdcp_config, drb2Mod->pDCP_Configuration));
+      CHECK_E1AP_DEC(e1_decode_pdcp_config(drb2Mod->pDCP_Configuration, drb->pdcp_config));
     }
     // SDAP Config (O)
     if (drb2Mod->sDAP_Configuration) {
       drb->sdap_config = malloc_or_fail(sizeof(*drb->sdap_config));
-      CHECK_E1AP_DEC(e1_decode_sdap_config(drb->sdap_config, drb2Mod->sDAP_Configuration));
+      CHECK_E1AP_DEC(e1_decode_sdap_config(drb2Mod->sDAP_Configuration, drb->sdap_config));
     }
     // PDCP SN Status Request (O)
     if (drb2Mod->pDCP_SN_Status_Request && *drb2Mod->pDCP_SN_Status_Request == E1AP_PDCP_SN_Status_Request_requested) {
@@ -1832,7 +1841,7 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
     // PDCP SN Status Information (O)
     if (drb2Mod->pdcp_SN_Status_Information) {
       drb->pdcp_status = malloc_or_fail(sizeof(*drb->pdcp_status));
-      *drb->pdcp_status = decode_pdcp_status_info(drb2Mod->pdcp_SN_Status_Information);
+      CHECK_E1AP_DEC(decode_pdcp_status_info(drb2Mod->pdcp_SN_Status_Information, drb->pdcp_status));
     }
     // DL UP TNL parameters (O)
     if (drb2Mod->dL_UP_Parameters) {
@@ -1847,7 +1856,7 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
       E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = drb2Mod->flow_Mapping_Information;
       drb->numQosFlowsMod = qos2SetupList->list.count;
       for (int k = 0; k < qos2SetupList->list.count; k++) {
-        CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
+        CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(qos2SetupList->list.array[k], drb->qosFlows + k));
       }
     }
   }
@@ -1902,19 +1911,19 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
 
       case E1AP_ProtocolIE_ID_id_SecurityInformation:
         out->secInfo = malloc_or_fail(sizeof(*out->secInfo));
-        CHECK_E1AP_DEC(e1_decode_security_info(out->secInfo, &ie->value.choice.SecurityInformation));
+        CHECK_E1AP_DEC(e1_decode_security_info(&ie->value.choice.SecurityInformation, out->secInfo));
         break;
 
       case E1AP_ProtocolIE_ID_id_UEDLAggregateMaximumBitRate:
         _EQ_CHECK_INT(ie->value.present, E1AP_BearerContextModificationRequestIEs__value_PR_BitRate);
         out->ueDlAggMaxBitRate = malloc_or_fail(sizeof(*out->ueDlAggMaxBitRate));
-        CHECK_E1AP_DEC(e1_decode_bit_rate(out->ueDlAggMaxBitRate, &ie->value.choice.BitRate));
+        CHECK_E1AP_DEC(e1_decode_bit_rate(&ie->value.choice.BitRate, out->ueDlAggMaxBitRate));
         break;
 
       case E1AP_ProtocolIE_ID_id_UEDLMaximumIntegrityProtectedDataRate:
         _EQ_CHECK_INT(ie->value.present, E1AP_BearerContextModificationRequestIEs__value_PR_BitRate_1);
         out->ueDlMaxIPBitRate = malloc_or_fail(sizeof(*out->ueDlMaxIPBitRate));
-        CHECK_E1AP_DEC(e1_decode_bit_rate(out->ueDlMaxIPBitRate, &ie->value.choice.BitRate_1));
+        CHECK_E1AP_DEC(e1_decode_bit_rate(&ie->value.choice.BitRate_1, out->ueDlMaxIPBitRate));
         break;
 
       case E1AP_ProtocolIE_ID_id_BearerContextStatusChange:
@@ -1974,7 +1983,7 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
                   for (int i = 0; i < setupList->list.count; i++) {
                     pdu_session_to_setup_t *pdu_session = out->pduSession + i;
                     E1AP_PDU_Session_Resource_To_Setup_Mod_Item_t *pdu2Setup = setupList->list.array[i];
-                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_setup_mod_item(pdu_session, pdu2Setup));
+                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_setup_mod_item(pdu2Setup, pdu_session));
                   }
                   break;
                 case E1AP_ProtocolIE_ID_id_PDU_Session_Resource_To_Modify_List:
@@ -1987,7 +1996,7 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
                   out->pduSessionMod = calloc_or_fail(out->numPDUSessionsMod, sizeof(*out->pduSessionMod));
                   // Loop through all PDU sessions
                   for (int i = 0; i < modList->list.count; i++) {
-                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_mod_item(out->pduSessionMod + i, modList->list.array[i]));
+                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_mod_item(modList->list.array[i], out->pduSessionMod + i));
                   }
                   break;
                 case E1AP_ProtocolIE_ID_id_PDU_Session_Resource_To_Remove_List:
@@ -2000,7 +2009,7 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
                   DevAssert(out->numPDUSessionsRem > 0 && out->numPDUSessionsRem <= NR_MAX_NB_PDU_SESSIONS);
                   out->pduSessionRem = calloc_or_fail(out->numPDUSessionsRem, sizeof(*out->pduSessionRem));
                   for (int i = 0; i < remList->list.count; i++) {
-                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_remove_item(&out->pduSessionRem[i], remList->list.array[i]));
+                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_remove_item(remList->list.array[i], &out->pduSessionRem[i]));
                   }
                   break;
                 default:
@@ -2451,21 +2460,20 @@ struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_response(const e1ap_bearer_mo
 }
 
 /** Decode QoS Flow Item (9.3.1.12 3GPP TS 38.463) */
-static qos_flow_failed_t decode_qos_flow_failed_item(const E1AP_QoS_Flow_Failed_Item_t *in)
+static bool decode_qos_flow_failed_item(const E1AP_QoS_Flow_Failed_Item_t *in, qos_flow_failed_t *out)
 {
-  qos_flow_failed_t out = {0};
   // QFI (M)
-  out.qfi = in->qoS_Flow_Identifier;
+  out->qfi = in->qoS_Flow_Identifier;
   // Cause (M)
-  out.cause = e1_decode_cause_ie(&in->cause);
-  return out;
+  out->cause = e1_decode_cause_ie(&in->cause);
+  return true;
 }
 
 /**
  * @brief Bearer Context Modification Response decoding (9.2.2.5 3GPP TS 38.463)
  *        gNB-CU-UP → gNB-CU-CP
  */
-bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const E1AP_E1AP_PDU_t *pdu)
+bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bearer_modif_resp_t *out)
 {
   DevAssert(pdu != NULL);
   _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_successfulOutcome);
@@ -2522,7 +2530,7 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
           // NG DL UP Transport Layer Information (O)
           if (pduIE->nG_DL_UP_TNL_Information) {
             pduModified->ng_DL_UP_TL_info = malloc_or_fail(sizeof(*pduModified->ng_DL_UP_TL_info));
-            e1_decode_up_tnl_info(pduModified->ng_DL_UP_TL_info, pduIE->nG_DL_UP_TNL_Information);
+            CHECK_E1AP_DEC(e1_decode_up_tnl_info(pduIE->nG_DL_UP_TNL_Information, pduModified->ng_DL_UP_TL_info));
           }
           // Security Result (O)
           if (pduIE->securityResult) {
@@ -2547,7 +2555,7 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
               if (drbIE->flow_Failed_List) {
                 drbMod->numQosFlowFailed = drbIE->flow_Failed_List->list.count;
                 for (int i = 0; i < drbMod->numQosFlowSetup; i++) {
-                  drbMod->qosFlowsFailed[i] = decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[i]);
+                  CHECK_E1AP_DEC(decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[i], &drbMod->qosFlowsFailed[i]));
                 }
               }
               // Flow Setup List (M)
@@ -2562,7 +2570,8 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
           if (pduIE->dRB_Failed_List_NG_RAN) {
             pduModified->numDRBFailed = pduIE->dRB_Failed_List_NG_RAN->list.count;
             for (int j = 0; j < pduIE->dRB_Failed_List_NG_RAN->list.count; j++) {
-              decode_drb_failed_item(&pduModified->DRBnGRanFailedList[j], pduIE->dRB_Failed_List_NG_RAN->list.array[j]);
+              CHECK_E1AP_DEC(
+                  decode_drb_failed_item(pduIE->dRB_Failed_List_NG_RAN->list.array[j], &pduModified->DRBnGRanFailedList[j]));
             }
           }
           // DRB Modified list (0..1)
@@ -2588,13 +2597,13 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
               if (drbIE->flow_Failed_List) {
                 drbMod->numQosFlowFailed = drbIE->flow_Failed_List->list.count;
                 for (int i = 0; i < drbMod->numQosFlowFailed; i++) {
-                  drbMod->qosFlowsFailed[i] = decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[i]);
+                  CHECK_E1AP_DEC(decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[i], &drbMod->qosFlowsFailed[i]));
                 }
               }
               // PDCP Status Info (O)
               if (drbIE->pDCP_SN_Status_Information) {
                 drbMod->pdcp_status = malloc_or_fail(sizeof(*drbMod->pdcp_status));
-                *drbMod->pdcp_status = decode_pdcp_status_info(drbIE->pDCP_SN_Status_Information);
+                CHECK_E1AP_DEC(decode_pdcp_status_info(drbIE->pDCP_SN_Status_Information, drbMod->pdcp_status));
               }
             }
           }
@@ -2602,8 +2611,8 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
           if (pduIE->dRB_Failed_To_Modify_List_NG_RAN) {
             pduModified->numDRBFailedToMod = pduIE->dRB_Failed_To_Modify_List_NG_RAN->list.count;
             for (int j = 0; j < pduIE->dRB_Failed_To_Modify_List_NG_RAN->list.count; j++) {
-              decode_drb_failed_item(&pduModified->DRBnGRanFailedModList[j],
-                                     (E1AP_DRB_Failed_Item_NG_RAN_t *)pduIE->dRB_Failed_To_Modify_List_NG_RAN->list.array[j]);
+              CHECK_E1AP_DEC(decode_drb_failed_to_mod_item(pduIE->dRB_Failed_To_Modify_List_NG_RAN->list.array[j],
+                                                           &pduModified->DRBnGRanFailedModList[j]));
             }
           }
         }
@@ -2777,7 +2786,7 @@ struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_failure(const e1ap_bearer_con
 
 /** @brief Bearer Context Modification Failure decoding (9.2.2.6 38.463)
  *         gNB-CU-UP → gNB-CU-CP */
-bool decode_E1_bearer_context_mod_failure(e1ap_bearer_context_mod_failure_t *out, const E1AP_E1AP_PDU_t *pdu)
+bool decode_E1_bearer_context_mod_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_bearer_context_mod_failure_t *out)
 {
   DevAssert(pdu != NULL);
   _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_unsuccessfulOutcome);
@@ -2855,8 +2864,8 @@ static E1AP_DRB_Required_To_Modify_Item_NG_RAN_t e1_encode_drb_required_to_mod_i
 }
 
 /** @brief Decode DRB Required To Modify Item (NG-RAN) */
-static bool e1_decode_drb_required_to_mod_item(DRB_nGRAN_required_to_mod_t *out,
-                                               const E1AP_DRB_Required_To_Modify_Item_NG_RAN_t *in)
+static bool e1_decode_drb_required_to_mod_item(const E1AP_DRB_Required_To_Modify_Item_NG_RAN_t *in,
+                                               DRB_nGRAN_required_to_mod_t *out)
 {
   *out = (DRB_nGRAN_required_to_mod_t){0};
   // DRB ID (M)
@@ -2886,8 +2895,8 @@ static E1AP_PDU_Session_Resource_Required_To_Modify_Item_t e1_encode_pdu_session
 }
 
 /** @brief Decode PDU Session Resource Required To Modify Item */
-static bool e1_decode_pdu_session_required_to_mod_item(pdu_session_required_to_mod_t *out,
-                                                       const E1AP_PDU_Session_Resource_Required_To_Modify_Item_t *in)
+static bool e1_decode_pdu_session_required_to_mod_item(const E1AP_PDU_Session_Resource_Required_To_Modify_Item_t *in,
+                                                       pdu_session_required_to_mod_t *out)
 {
   *out = (pdu_session_required_to_mod_t){0};
   // PDU Session ID (M)
@@ -2901,7 +2910,7 @@ static bool e1_decode_pdu_session_required_to_mod_item(pdu_session_required_to_m
       return false;
     }
     for (int i = 0; i < drbList->list.count; i++)
-      CHECK_E1AP_DEC(e1_decode_drb_required_to_mod_item(&out->DRBnGRanModList[i], drbList->list.array[i]));
+      CHECK_E1AP_DEC(e1_decode_drb_required_to_mod_item(drbList->list.array[i], &out->DRBnGRanModList[i]));
   }
   return true;
 }
@@ -3034,7 +3043,7 @@ bool decode_E1_bearer_context_mod_required(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
                   }
                   out->pduSessionMod = calloc_or_fail(out->numPDUSessionsMod, sizeof(*out->pduSessionMod));
                   for (int k = 0; k < modList->list.count; k++)
-                    CHECK_E1AP_DEC(e1_decode_pdu_session_required_to_mod_item(&out->pduSessionMod[k], modList->list.array[k]));
+                    CHECK_E1AP_DEC(e1_decode_pdu_session_required_to_mod_item(modList->list.array[k], &out->pduSessionMod[k]));
                   break;
                 }
                 case E1AP_ProtocolIE_ID_id_PDU_Session_Resource_To_Remove_List: {
@@ -3051,7 +3060,7 @@ bool decode_E1_bearer_context_mod_required(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
                   }
                   out->pduSessionRem = calloc_or_fail(out->numPDUSessionsRem, sizeof(*out->pduSessionRem));
                   for (int k = 0; k < remList->list.count; k++)
-                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_remove_item(&out->pduSessionRem[k], remList->list.array[k]));
+                    CHECK_E1AP_DEC(e1_decode_pdu_session_to_remove_item(remList->list.array[k], &out->pduSessionRem[k]));
                   break;
                 }
                 default:
@@ -3165,7 +3174,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_mod_confirm(const e1ap_bearer_mod_conf
 
 /** @brief Bearer Context Modification Confirm decoding (9.2.2.8, 3GPP TS 38.463)
  *         gNB-CU-CP -> gNB-CU-UP */
-bool decode_E1_bearer_context_mod_confirm(e1ap_bearer_mod_confirm_t *out, const E1AP_E1AP_PDU_t *pdu)
+bool decode_E1_bearer_context_mod_confirm(const E1AP_E1AP_PDU_t *pdu, e1ap_bearer_mod_confirm_t *out)
 {
   DevAssert(pdu != NULL);
   _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_successfulOutcome);

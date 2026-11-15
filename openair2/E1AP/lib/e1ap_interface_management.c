@@ -15,7 +15,7 @@
 #include "e1ap_messages_types.h"
 #include "e1ap_interface_management.h"
 
-E1AP_CriticalityDiagnostics_t encode_criticality_diagnostics(const criticality_diagnostics_t *msg)
+static E1AP_CriticalityDiagnostics_t encode_criticality_diagnostics(const criticality_diagnostics_t *msg)
 {
   E1AP_CriticalityDiagnostics_t out = {0};
   // Procedure Code (O)
@@ -43,7 +43,7 @@ E1AP_CriticalityDiagnostics_t encode_criticality_diagnostics(const criticality_d
   return out;
 }
 
-bool decode_criticality_diagnostics(const E1AP_CriticalityDiagnostics_t *in, criticality_diagnostics_t *out)
+static bool decode_criticality_diagnostics(const E1AP_CriticalityDiagnostics_t *in, criticality_diagnostics_t *out)
 {
   // Procedure Code (O)
   if (in->procedureCode) {
