@@ -15,30 +15,32 @@
 #include "e1ap_messages_types.h"
 #include "e1ap_interface_management.h"
 
-void encode_criticality_diagnostics(const criticality_diagnostics_t *msg, E1AP_CriticalityDiagnostics_t *out)
+E1AP_CriticalityDiagnostics_t encode_criticality_diagnostics(const criticality_diagnostics_t *msg)
 {
+  E1AP_CriticalityDiagnostics_t out = {0};
   // Procedure Code (O)
   if (msg->procedure_code) {
-    out->procedureCode = calloc_or_fail(1, sizeof(*out->procedureCode));
-    *out->procedureCode = *msg->procedure_code;
+    out.procedureCode = calloc_or_fail(1, sizeof(*out.procedureCode));
+    *out.procedureCode = *msg->procedure_code;
   }
   // Triggering Message (O)
   if (msg->triggering_msg) {
-    out->triggeringMessage = calloc_or_fail(1, sizeof(*out->triggeringMessage));
-    *out->triggeringMessage = *msg->triggering_msg;
+    out.triggeringMessage = calloc_or_fail(1, sizeof(*out.triggeringMessage));
+    *out.triggeringMessage = *msg->triggering_msg;
   }
   // Procedure Criticality (O)
   if (msg->procedure_criticality) {
-    out->procedureCriticality = calloc_or_fail(1, sizeof(*out->procedureCriticality));
-    *out->procedureCriticality = *msg->procedure_criticality;
+    out.procedureCriticality = calloc_or_fail(1, sizeof(*out.procedureCriticality));
+    *out.procedureCriticality = *msg->procedure_criticality;
   }
   for (int i = 0; i < msg->num_errors; i++) {
-    out->iEsCriticalityDiagnostics = calloc_or_fail(1, sizeof(*out->iEsCriticalityDiagnostics));
-    asn1cSequenceAdd(out->iEsCriticalityDiagnostics->list, struct E1AP_CriticalityDiagnostics_IE_List__Member, ieC0);
+    out.iEsCriticalityDiagnostics = calloc_or_fail(1, sizeof(*out.iEsCriticalityDiagnostics));
+    asn1cSequenceAdd(out.iEsCriticalityDiagnostics->list, struct E1AP_CriticalityDiagnostics_IE_List__Member, ieC0);
     ieC0->iE_ID = msg->errors[i].ie_id;
     ieC0->typeOfError = msg->errors[i].error_type;
     ieC0->iECriticality = msg->errors[i].criticality;
   }
+  return out;
 }
 
 bool decode_criticality_diagnostics(const E1AP_CriticalityDiagnostics_t *in, criticality_diagnostics_t *out)
@@ -534,7 +536,7 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_failure(const e1ap_setup_fail_t *msg)
     ie4->id = E1AP_ProtocolIE_ID_id_CriticalityDiagnostics;
     ie4->criticality = E1AP_Criticality_ignore;
     ie4->value.present = E1AP_GNB_CU_UP_E1SetupFailureIEs__value_PR_CriticalityDiagnostics;
-    encode_criticality_diagnostics(msg->crit_diag, &ie4->value.choice.CriticalityDiagnostics);
+    ie4->value.choice.CriticalityDiagnostics = encode_criticality_diagnostics(msg->crit_diag);
   }
   return pdu;
 }
