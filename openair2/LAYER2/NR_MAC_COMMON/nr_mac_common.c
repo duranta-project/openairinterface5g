@@ -4969,6 +4969,15 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
     reportQuantity_type = csi_reportconfig->reportQuantity.present;
     csi_report->reportQuantity_type = reportQuantity_type;
     csi_report->reportConfigId = csi_reportconfig->reportConfigId;
+    // period and offset of a periodic report, for the per-slot loops (0: no periodic occasion)
+    csi_report->periodicity = 0;
+    csi_report->offset = 0;
+    if (csi_reportconfig->reportConfigType.present == NR_CSI_ReportConfig__reportConfigType_PR_periodic) {
+      int period, offset;
+      csi_period_offset(csi_reportconfig, NULL, &period, &offset);
+      csi_report->periodicity = period;
+      csi_report->offset = offset;
+    }
     csi_report->reportQuantity_type_r16 = NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_NOTHING;
     if (csi_reportconfig->ext2 != NULL && csi_reportconfig->ext2->reportQuantity_r16)
       csi_report->reportQuantity_type_r16 = csi_reportconfig->ext2->reportQuantity_r16->present;
