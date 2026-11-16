@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: MIT
+
+services:
+    oai-gnb:
+        image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb}:${TAG:-develop}
+        network_mode: "host"
+        container_name: oai-gnb
+        cap_drop:
+            - ALL
+        cap_add:
+            - SYS_NICE
+            - IPC_LOCK
+        ulimits:
+          core: -1 # for core dumps
+        devices:
+            - /dev/bus/usb/:/dev/bus/usb/
+        environment:
+            TZ: Europe/Paris
+            USE_B2XX: 'yes'
+            USE_ADDITIONAL_OPTIONS: --log_config.global_log_options level,nocolor,time
+        volumes:
+            - ../../conf_files/gnb.sa.band254.u0.25prb.b200.ntn-geo.conf:/opt/oai-gnb/etc/gnb.conf
+        healthcheck:
+            test: /bin/bash -c "ps aux | grep -v grep | grep -c softmodem"
+            interval: 10s
+            timeout: 5s
+            retries: 5
+    oai-nr-ue:
+        image: ${REGISTRY-oaisoftwarealliance/}${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        network_mode: host
+        container_name: oai-nr-ue
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+            - SYS_NICE   # for performance
+            - IPC_LOCK   # for memory locking
+        devices:
+             - /dev/net/tun:/dev/net/tun
+             - /dev/bus/usb/:/dev/bus/usb/
+        ulimits:
+          core: -1 # for core dumps
+        environment:
+            TZ: Europe/Paris
+            USE_B2XX: 'yes'
+            USE_ADDITIONAL_OPTIONS: -C 2488400000 --CO -873500000 -r 25 --numerology 0 --ssb 60  --band 254 --clock-source 1  --usrp-args serial=30C5230 --uicc0.imsi 001030000000001
+        volumes:
+            - ../../conf_files/nrue.uicc.ntn-geo.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+            - ../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/uecap_ports1.xml:/opt/oai-nr-ue/etc/uecap.xml
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
