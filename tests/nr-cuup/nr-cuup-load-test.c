@@ -26,6 +26,7 @@ configmodule_interface_t *uniqCfg;
 int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t channel_idP) { abort(); return 0; } /* in GTP */
 softmodem_params_t *get_softmodem_params(void) { static softmodem_params_t p = {0}; return &p; }; /* in ITTI */
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); } /* CU-UP */
+void e1_bc_bearer_context_setup(const e1ap_bc_bearer_setup_req_t *req) { abort(); } /* CU-UP */
 void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req) { abort(); } /* CU-UP */
 void e1_bearer_context_mod_confirm(const e1ap_bearer_mod_confirm_t *conf) { abort(); } /* CU-UP */
 void e1_bearer_release_cmd(const e1ap_bearer_release_cmd_t *cmd) { abort(); } /* CU-UP */

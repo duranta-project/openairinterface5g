@@ -217,6 +217,11 @@ listening, so nothing is retransmitted and what is lost stays lost.
 Multicast is where ACK/NACK and retransmission belong; see
 [MBS.md](./MBS.md).
 
+To check the first batch automatically, run `python3 ci-scripts/tests/mbs-broadcast.py`
+from the repository root instead of the counter and send loops above. Use a fresh
+session, wait for all three UEs to announce it, and send no warm-up traffic: the
+check exercises the first reuse of the broadcast HARQ processes.
+
 The gNB counts what it sent in its periodic statistics, and does so with no
 UE in the cell as well:
 

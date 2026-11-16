@@ -74,8 +74,8 @@ void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19_r1
 void nr_rrc_mac_config_mbs_broadcast(module_id_t module_id,
                                      NR_ControlResourceSet_t *coreset,
                                      int num_sessions,
-                                     const uint16_t g_rnti[num_sessions],
-                                     const int lcid[num_sessions]);
+                                     const uint16_t g_rnti[],
+                                     const int lcid[]);
 void nr_ue_mbs_release_g_rnti(NR_UE_MAC_INST_t *mac, bool broadcast);
 void nr_rrc_mac_resume_rb(module_id_t module_id, bool is_srb, int rb_id);
 void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t cause);

@@ -1733,6 +1733,8 @@ static int nr_ue_process_dci_dl_41(NR_UE_MAC_INST_t *mac,
                    ndi,
                    0))
     return -1;
+  /* Keep the received NDI for subsequent G-RNTI assignments, even when the RNTI change forced new data. */
+  current_harq->last_ndi = dci->ndi;
   current_harq->last_rnti = dci_ind->rnti;
   dlsch_pdu->n_codewords = 1;
   // TS 38.212 §5.4.2.1: one layer without maxMIMO-Layers in pdsch-ConfigMulticast, LBRM over the CFR

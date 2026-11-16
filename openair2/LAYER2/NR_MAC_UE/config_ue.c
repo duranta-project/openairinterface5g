@@ -2229,8 +2229,8 @@ void nr_ue_mbs_release_g_rnti(NR_UE_MAC_INST_t *mac, bool broadcast)
 void nr_rrc_mac_config_mbs_broadcast(module_id_t module_id,
                                      NR_ControlResourceSet_t *coreset,
                                      int num_sessions,
-                                     const uint16_t g_rnti[num_sessions],
-                                     const int lcid[num_sessions])
+                                     const uint16_t g_rnti[],
+                                     const int lcid[])
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);

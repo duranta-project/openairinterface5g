@@ -77,6 +77,7 @@ void signal_ue_id(void) { abort(); }
 
 /* E1AP stubs (pulled in by cucp_cuup_direct.c in libe1_if) */
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); }
+void e1_bc_bearer_context_setup(const e1ap_bc_bearer_setup_req_t *req) { abort(); }
 void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req) { abort(); }
 struct e1ap_bearer_mod_confirm_s;
 void e1_bearer_context_mod_confirm(const struct e1ap_bearer_mod_confirm_s *conf) { abort(); }
