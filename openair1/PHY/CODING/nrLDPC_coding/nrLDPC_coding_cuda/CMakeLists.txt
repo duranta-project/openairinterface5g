@@ -131,6 +131,10 @@ if(ENABLE_PHYSIM_TESTS)
   add_physim_test(nr_ulsim.ldpc_cuda.50seg_r89 "nr_ulsim: 50 segments, rate 8/9" nr_ulsim -n100 -s40 -m27 -R273 -r273 -W2 -I9 -y2 -z2 -P --loader.ldpc.shlibversion _cuda)
   # 4 TBs per decoder call (concurrent decoder contexts), through the BLER waterfall: same results as one TB per call
   add_physim_test(nr_ulschsim.ldpc_cuda.4tb "nr_ulschsim: 273 PRBs, 4 TBs per decoder call, 4 threads" nr_ulschsim -R 273 -m19 -s0 -S1.5 -n50 -T4 -C4 --loader.ldpc.shlibversion _cuda)
+  # limited buffer rate matching, TBs of 6 (MCS 4, E > Ncb) and 34 code blocks (MCS 22, rate 1/3 decoder graph, Ncb < N)
+  # alternating: the 34-block TB must not decode the LLRs the 6-block one left beyond its Ncb. One decoder context: they are
+  # taken in turn, so with an even number of them each would only ever see one of the two TBs
+  add_physim_test(nr_ulschsim.ldpc_cuda.alternating_c "nr_ulschsim: 273 PRBs, 2 layers, LBRM, 6 and 34 code blocks alternating, 1 context" nr_ulschsim -R 273 -r 273 -W2 -y2 -z2 -L -m4 -A22 -s6 -S6.1 -n20 --loader.ldpc.shlibversion _cuda --nrLDPC_coding_cuda.num_contexts 1)
 
   # non-default library parameters: 1 context, CRC check every 3 of 10 iterations (last chunk shorter), blocking wait
   add_physim_test(nr_dlsim.ldpc_cuda.18seg_r23_options "nr_dlsim: 18 segments, rate 2/3, 1 context, CRC check every 3 iterations, blocking wait" nr_dlsim -n100 -s20 -e22 -R273 -b273 -x1 -y1 -z1 -I9 -P --loader.ldpc.shlibversion _cuda --nrLDPC_coding_cuda.num_contexts 1 --nrLDPC_coding_cuda.crc_check_interval 3 --nrLDPC_coding_cuda.wait_mode block)
