@@ -84,7 +84,6 @@ static nr_pdcp_statistics_t get_pdcp_stats_per_drb(const uint32_t rrc_ue_id, con
 static meas_record_lst_t fill_DRB_PdcpSduVolumeDL(__attribute__((unused)) const label_info_lst_t label,
                                                   __attribute__((unused)) uint32_t gran_period_ms,
                                                   cudu_ue_info_pair_t ue_info,
-                                                  __attribute__((unused)) const size_t ue_idx,
                                                   __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -108,7 +107,6 @@ static meas_record_lst_t fill_DRB_PdcpSduVolumeDL(__attribute__((unused)) const 
 static meas_record_lst_t fill_DRB_PdcpSduVolumeUL(__attribute__((unused)) const label_info_lst_t label,
                                                   __attribute__((unused)) uint32_t gran_period_ms,
                                                   cudu_ue_info_pair_t ue_info,
-                                                  __attribute__((unused)) const size_t ue_idx,
                                                   __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -132,7 +130,6 @@ static meas_record_lst_t fill_DRB_PdcpSduVolumeUL(__attribute__((unused)) const 
 static meas_record_lst_t fill_L1M_SS_RSRP(const label_info_lst_t label,
                                           __attribute__((unused)) uint32_t gran_period_ms,
                                           __attribute__((unused)) cudu_ue_info_pair_t ue_info,
-                                          __attribute__((unused)) const size_t ue_idx,
                                           __attribute__((unused)) e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -178,7 +175,6 @@ static meas_record_lst_t fill_L1M_SS_RSRP(const label_info_lst_t label,
 static meas_record_lst_t fill_MR_NRScSSSINR(const label_info_lst_t label,
                                             __attribute__((unused)) uint32_t gran_period_ms,
                                             __attribute__((unused)) cudu_ue_info_pair_t ue_info,
-                                            __attribute__((unused)) const size_t ue_idx,
                                             __attribute__((unused)) e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -206,7 +202,6 @@ static meas_record_lst_t fill_MR_NRScSSSINR(const label_info_lst_t label,
 static meas_record_lst_t fill_RRC_ConnMean(__attribute__((unused)) const label_info_lst_t label,
                                            __attribute__((unused)) uint32_t gran_period_ms,
                                            __attribute__((unused)) cudu_ue_info_pair_t ue_info,
-                                           __attribute__((unused)) const size_t ue_idx,
                                            e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {.value = INTEGER_MEAS_VALUE};
@@ -252,7 +247,6 @@ static nr_rlc_statistics_t get_rlc_stats_per_drb(const rnti_t rnti, const int rb
 static meas_record_lst_t fill_DRB_RlcSduDelayDl(__attribute__((unused)) const label_info_lst_t label,
                                                 __attribute__((unused)) uint32_t gran_period_ms,
                                                 cudu_ue_info_pair_t ue_info,
-                                                __attribute__((unused))const size_t ue_idx,
                                                 __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -275,7 +269,6 @@ static meas_record_lst_t fill_DRB_RlcSduDelayDl(__attribute__((unused)) const la
 static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_info_lst_t label,
                                           uint32_t gran_period_ms,
                                           cudu_ue_info_pair_t ue_info,
-                                          __attribute__((unused)) const size_t ue_idx,
                                           __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -298,7 +291,6 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
 static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_info_lst_t label,
                                           uint32_t gran_period_ms,
                                           cudu_ue_info_pair_t ue_info,
-                                          __attribute__((unused)) const size_t ue_idx,
                                           __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -322,7 +314,6 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
 static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_info_lst_t label,
                                            __attribute__((unused)) uint32_t gran_period_ms,
                                            cudu_ue_info_pair_t ue_info,
-                                           __attribute__((unused)) const size_t ue_idx,
                                            e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -346,7 +337,6 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
 static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_info_lst_t label,
                                            __attribute__((unused)) uint32_t gran_period_ms,
                                            cudu_ue_info_pair_t ue_info,
-                                           __attribute__((unused)) const size_t ue_idx,
                                            e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -369,7 +359,6 @@ static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_i
 static meas_record_lst_t fill_CARR_PDSCHMCSDist(const label_info_lst_t label,
                                                 __attribute__((unused)) uint32_t gran_period_ms,
                                                 __attribute__((unused)) cudu_ue_info_pair_t ue_info,
-                                                __attribute__((unused)) const size_t ue_idx,
                                                 __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -402,7 +391,6 @@ static meas_record_lst_t fill_CARR_PDSCHMCSDist(const label_info_lst_t label,
 static meas_record_lst_t fill_CARR_PUSCHMCSDist(const label_info_lst_t label,
                                                 __attribute__((unused)) uint32_t gran_period_ms,
                                                 __attribute__((unused)) cudu_ue_info_pair_t ue_info,
-                                                __attribute__((unused)) const size_t ue_idx,
                                                 __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -463,7 +451,7 @@ void init_kpm_subs_data(void)
   }
 }
 
-meas_record_lst_t get_kpm_meas_value(char* kpm_meas_name, const label_info_lst_t label, uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, const size_t ue_idx, e2_node_level_stats_t* node_stats)
+meas_record_lst_t get_kpm_meas_value(char* kpm_meas_name, const label_info_lst_t label, uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, e2_node_level_stats_t* node_stats)
 {
   assert(kpm_meas_name != NULL);
 
@@ -472,7 +460,7 @@ meas_record_lst_t get_kpm_meas_value(char* kpm_meas_name, const label_info_lst_t
   assert(found_entry != NULL && "Unsupported KPM measurement name");
 
   kv_measure_t *kv_found = (kv_measure_t *)found_entry->data;
-  meas_record_lst_t meas_record = kv_found->value(label, gran_period_ms, ue_info, ue_idx, node_stats);
+  meas_record_lst_t meas_record = kv_found->value(label, gran_period_ms, ue_info, node_stats);
 
   return meas_record;
 }
