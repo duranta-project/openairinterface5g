@@ -5,6 +5,21 @@
 #ifndef __PRS_NR_PARAMDEF__H__
 #define __PRS_NR_PARAMDEF__H__
 
+#include <stdint.h>
+#include <stdio.h>
+#include "common/config/config_paramdesc.h"
+#include "common/config/config_userapi.h"
+
+/// PRS bandwidth is signalled in steps of 4 PRBs
+static inline int prs_check_num_rb(configmodule_interface_t *cfg, paramdef_t *param)
+{
+  const uint32_t n = *param->uptr;
+  if (n >= 24 && n <= 272 && n % 4 == 0)
+    return 0;
+  fprintf(stderr, "[CONFIG] %s: %u invalid value, it has to be a multiple of 4 between 24 and 272\n", param->optname, n);
+  return -1;
+}
+
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
 /* PRS configuration section names */
@@ -58,7 +73,7 @@
 #define HELP_STRING_PRS_RE_OFFSET_LIST                      "Starting RE offset in the first OFDM symbol of each PRS resource in a PRS resource set\n"
 #define HELP_STRING_PRS_RESOURCE_OFFSET_LIST                "Slot offset of each PRS resource defined relative to the slot offset of the PRS resource set (0...511)\n"
 #define HELP_STRING_PRS_RESOURCE_REPETITION                 "Repetition factor for all PRS resources in resource set (1 /*default*/, 2, 4, 6, 8, 16, 32)\n"
-#define HELP_STRING_PRS_RESOURCE_TIME_GAP                   "Slot offset between two consecutive repetition indices of all PRS resources in a PRS resource set (1 /*default*/, 2, 4, 6, 8, 16, 32)\n"
+#define HELP_STRING_PRS_RESOURCE_TIME_GAP                   "Slot offset between two consecutive repetition indices of all PRS resources  (1 /*default*/, 2, 4, 8, 16, 32)\n"
 #define HELP_STRING_PRS_ID_LIST                             "Sequence identity of each PRS resource in a PRS resource set, specified in the range [0, 4095]\n"
 #define HELP_STRING_PRS_MUTING_PATTERN1_LIST                "Muting bit pattern option-1, specified as [] or a binary-valued vector of length 2, 4, 6, 8, 16, or 32\n"
 #define HELP_STRING_PRS_MUTING_PATTERN2_LIST                "Muting bit pattern option-2, specified as [] or a binary-valued vector of length 2, 4, 6, 8, 16, or 32\n"
@@ -76,13 +91,13 @@
   {CONFIG_STRING_PRS_RESOURCE_SET_PERIOD_LIST,  HELP_STRING_PRS_RESOURCE_SET_PERIOD_LIST, 0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
   {CONFIG_STRING_PRS_SYMBOL_START_LIST,         HELP_STRING_PRS_SYMBOL_START_LIST,        0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
   {CONFIG_STRING_PRS_NUM_SYMBOLS_LIST,          HELP_STRING_PRS_NUM_SYMBOLS_LIST,         0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
-  {CONFIG_STRING_PRS_NUM_RB,                    HELP_STRING_PRS_NUM_RB,                   0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0},  \
+  {CONFIG_STRING_PRS_NUM_RB,                    HELP_STRING_PRS_NUM_RB,                   0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0, .chkPptr = &(checkedparam_t){.s4 = {prs_check_num_rb}}},  \
   {CONFIG_STRING_PRS_RB_OFFSET,                 HELP_STRING_PRS_RB_OFFSET,                0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0},  \
-  {CONFIG_STRING_PRS_COMB_SIZE,                 HELP_STRING_PRS_COMB_SIZE,                0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0},  \
+  {CONFIG_STRING_PRS_COMB_SIZE,                 HELP_STRING_PRS_COMB_SIZE,                0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0, .chkPptr = &(checkedparam_t){.s1 = {config_check_intval, {2, 4, 6, 12}, 4}}},  \
   {CONFIG_STRING_PRS_RE_OFFSET_LIST,            HELP_STRING_PRS_RE_OFFSET_LIST,           0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
   {CONFIG_STRING_PRS_RESOURCE_OFFSET_LIST,      HELP_STRING_PRS_RESOURCE_OFFSET_LIST,     0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
-  {CONFIG_STRING_PRS_RESOURCE_REPETITION,       HELP_STRING_PRS_RESOURCE_REPETITION,      0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0},  \
-  {CONFIG_STRING_PRS_RESOURCE_TIME_GAP,         HELP_STRING_PRS_RESOURCE_TIME_GAP,        0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0},  \
+  {CONFIG_STRING_PRS_RESOURCE_REPETITION,       HELP_STRING_PRS_RESOURCE_REPETITION,      0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0, .chkPptr = &(checkedparam_t){.s1 = {config_check_intval, {1, 2, 4, 6, 8, 16, 32}, 7}}},  \
+  {CONFIG_STRING_PRS_RESOURCE_TIME_GAP,         HELP_STRING_PRS_RESOURCE_TIME_GAP,        0,  .uptr=NULL,         .defuintval=0,              TYPE_UINT,       0, .chkPptr = &(checkedparam_t){.s1 = {config_check_intval, {1, 2, 4, 8, 16, 32}, 6}}},  \
   {CONFIG_STRING_PRS_ID_LIST,                   HELP_STRING_PRS_ID_LIST,                  0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
   {CONFIG_STRING_PRS_MUTING_PATTERN1_LIST,      HELP_STRING_PRS_MUTING_PATTERN1_LIST,     0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
   {CONFIG_STRING_PRS_MUTING_PATTERN2_LIST,      HELP_STRING_PRS_MUTING_PATTERN2_LIST,     0,  .uptr=NULL,         .defintarrayval=0,          TYPE_UINTARRAY,  0},  \
