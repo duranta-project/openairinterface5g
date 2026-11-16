@@ -1915,8 +1915,8 @@ void handle_nr_srs_toa_vendor_ext_measurements(gNB_MAC_INST *mac,
       break;
   }
 
-  positioning_config_t *positioning_config = mac->positioning_config;
-  if (positioning_config == NULL) {
+  trp_info_config_t *trp_info_config = mac->trp_info_config;
+  if (trp_info_config == NULL) {
     LOG_E(NR_MAC, "No TRPs configured for positioning in the configuration file\n");
     f1ap_positioning_measurement_failure_t fail = {.transaction_id = req->transaction_id,
                                                    .lmf_measurement_id = req->lmf_measurement_id,
@@ -1936,8 +1936,8 @@ void handle_nr_srs_toa_vendor_ext_measurements(gNB_MAC_INST *mac,
 
   // Count the number of relavent TRPs
   for (int i = 0; i < req_list_len; i++) {
-    for (int j = 0; j < positioning_config->num_trp; j++) {
-      if (req_item[i].tRPID == positioning_config->trps[j].id) {
+    for (int j = 0; j < trp_info_config->num_trp; j++) {
+      if (req_item[i].tRPID == trp_info_config->trps[j].id) {
         if (num_trps < MAX_NUM_MEASURE_TRPS) {
           trp_ids_list[num_trps] = req_item[i].tRPID;
           num_trps++;

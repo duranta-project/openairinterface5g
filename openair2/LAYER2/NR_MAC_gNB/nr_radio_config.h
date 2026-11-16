@@ -137,7 +137,7 @@ long ue_supported_ul_layers(const NR_UE_NR_Capability_t *uecap, int ul_id);
 long ue_supported_dl_layers(const NR_ServingCellConfigCommon_t *scc, const NR_UE_NR_Capability_t *uecap, int dl_id);
 void create_trp_info_item(const f1ap_trp_information_req_t *req,
                           f1ap_trp_information_t *trp_info_item,
-                          positioning_config_t *positioning_config,
+                          trp_info_config_t *trp_info_config,
                           int trp_idx);
 f1ap_srs_configuration_t cp_rrc_to_f1ap_srs_configuration(NR_UE_UL_BWP_t *current_UL_BWP, NR_ServingCellConfigCommon_t *scc);
 #endif
