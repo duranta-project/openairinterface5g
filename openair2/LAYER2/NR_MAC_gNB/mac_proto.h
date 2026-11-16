@@ -191,6 +191,7 @@ int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_r
 void nr_schedule_periodic_srs(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, int slot);
 bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int sched_frame, int sched_slot, int k2, int sched_srs);
 void nr_csirs_scheduling(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req);
+void nr_schedule_prs(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req);
 
 void nr_csi_meas_reporting(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
 

@@ -481,9 +481,6 @@ int main( int argc, char **argv ) {
     init_gNB();
     // Initialize L1
     RCconfig_NR_L1();
-    // Initialize Positioning Reference Signal configuration
-    if(NFAPI_MODE != NFAPI_MODE_PNF && NFAPI_MODE != NFAPI_MODE_AERIAL)
-      RCconfig_nr_prs();
   }
 
   // don't create if node doesn't connect to RRC/S1/GTP

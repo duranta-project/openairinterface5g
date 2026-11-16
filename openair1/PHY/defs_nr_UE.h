@@ -182,13 +182,11 @@ typedef struct {
 
 #define NR_PRS_IDFT_OVERSAMP_FACTOR 1  // IDFT oversampling factor for NR PRS channel estimates in time domain, ALLOWED value 16x, and 1x is default(ie. IDFT size is frame_params->ofdm_symbol_size)
 typedef struct {
-  prs_config_t prs_cfg;
   int32_t reserved;
   prs_meas_t **prs_meas;
 } NR_PRS_RESOURCE_t;
 
 typedef struct {
-  uint8_t NumPRSResources;
   NR_PRS_RESOURCE_t prs_resource[NR_MAX_PRS_RESOURCES_PER_SET];
 } NR_UE_PRS;
 
@@ -352,7 +350,6 @@ typedef struct PHY_VARS_NR_UE_s {
 
   NR_UE_PRACH *prach_vars[NUMBER_OF_CONNECTED_gNB_MAX];
   NR_UE_PRS *prs_vars[NR_MAX_PRS_COMB_SIZE];
-  uint8_t prs_active_gNBs;
   NR_DL_UE_HARQ_t dl_harq_processes[2][NR_MAX_HARQ_PROCESSES];
   NR_UL_UE_HARQ_t ul_harq_processes[NR_MAX_HARQ_PROCESSES];
   NR_UL_UE_HARQ_t sl_harq_processes[NR_MAX_HARQ_PROCESSES];
@@ -620,6 +617,8 @@ typedef struct nr_phy_data_s {
   int num_csirs;
   NR_UE_CSI_RS csirs_vars[MAX_CSI_RES_SLOT];
   NR_UE_CSI_IM csiim_vars;
+  int num_prs;
+  fapi_nr_dl_config_prs_pdu prs[FAPI_NR_DL_CONFIG_LIST_NUM];
 } nr_phy_data_t;
 
 enum stream_status_e { STREAM_STATUS_UNSYNC, STREAM_STATUS_SYNCING, STREAM_STATUS_SYNCED};

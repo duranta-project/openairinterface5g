@@ -10,6 +10,8 @@
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "RRC/NR_UE/rrc_proto.h"
 #include <pthread.h>
+#include "common/config/config_userapi.h"
+#include "COMMON/prs_nr_paramdef.h"
 static NR_UE_MAC_INST_t *nr_ue_mac_inst[MAX_NUM_NR_UE_INST] = {0};
 
 void send_srb0_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data)
@@ -152,6 +154,81 @@ NR_UE_L2_STATE_t nr_ue_get_sync_state(module_id_t mod_id)
   return mac->state;
 }
 
+/// Read the PRS resource sets to receive, one per active gNB
+/// TODO: Should get it from LPP message
+static void nr_ue_get_prs_config(NR_UE_MAC_INST_t *mac)
+{
+  paramlist_def_t gParamList = {CONFIG_STRING_PRS_LIST, NULL, 0};
+  paramdef_t gParams[] = PRS_GLOBAL_PARAMS_DESC;
+  config_getlist(config_get_if(), &gParamList, gParams, sizeofArray(gParams), NULL);
+  if (gParamList.numelt == 0) {
+    LOG_I(NR_MAC, "No " CONFIG_STRING_PRS_LIST " configuration: PRS reception not configured\n");
+    return;
+  }
+  const int num_gnbs = *gParamList.paramarray[0][PRS_ACTIVE_GNBS_IDX].uptr;
+  AssertFatal(num_gnbs <= NR_UE_MAX_PRS_GNBS, "Too many active PRS gNBs (%d)\n", num_gnbs);
+
+  mac->prs_config = calloc_or_fail(num_gnbs, sizeof(*mac->prs_config));
+  mac->prs_num_gnbs = num_gnbs;
+
+  for (int g = 0; g < num_gnbs; g++) {
+    paramlist_def_t list = {{0}, NULL, 0};
+    paramdef_t params[] = PRS_PARAMS_DESC;
+    char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
+    snprintf(list.listname, sizeof(list.listname), "%s%i", CONFIG_STRING_PRS_CONFIG, g);
+    snprintf(aprefix, sizeof(aprefix), "%s.[%i]", CONFIG_STRING_PRS_LIST, 0);
+    config_getlist(config_get_if(), &list, params, sizeofArray(params), aprefix);
+    if (list.numelt == 0) {
+      LOG_I(NR_MAC, "No %s configuration found\n", list.listname);
+      continue;
+    }
+    paramdef_t *p = list.paramarray[0];
+    const uint32_t num = *p[NUM_PRS_RESOURCES].uptr;
+    AssertFatal(num <= NR_UE_MAX_PRS_RESOURCES, "Too many PRS resources (%d)\n", num);
+    AssertFatal(p[PRS_RESOURCE_SET_PERIOD_LIST].numelt == 2, "PRSResourceSetPeriod needs [period, offset]\n");
+    const int per_resource[] = {PRS_SYMBOL_START_LIST,
+                                PRS_NUM_SYMBOLS_LIST,
+                                PRS_RE_OFFSET_LIST,
+                                PRS_RESOURCE_OFFSET_LIST,
+                                PRS_ID_LIST};
+    for (int i = 0; i < sizeofArray(per_resource); i++)
+      AssertFatal(p[per_resource[i]].numelt >= num,
+                  "PRS list %s has fewer than NumPRSResources (%d) entries\n",
+                  p[per_resource[i]].optname,
+                  num);
+
+    nr_ue_prs_config_t *c = calloc_or_fail(1, sizeof(*c) + num * sizeof(c->resource[0]));
+    mac->prs_config[g] = c;
+    c->period = p[PRS_RESOURCE_SET_PERIOD_LIST].uptr[0];
+    c->offset = p[PRS_RESOURCE_SET_PERIOD_LIST].uptr[1];
+    c->repetition = *p[PRS_RESOURCE_REPETITION].uptr;
+    c->time_gap = *p[PRS_RESOURCE_TIME_GAP].uptr;
+    c->num_resources = num;
+    for (int k = 0; k < num; k++) {
+      nr_ue_prs_resource_t *r = &c->resource[k];
+      r->slot_offset = p[PRS_RESOURCE_OFFSET_LIST].uptr[k];
+      r->pdu = (fapi_nr_dl_config_prs_pdu_rel16_t){.nid_prs = p[PRS_ID_LIST].uptr[k],
+                                                   .comb_size = *p[PRS_COMB_SIZE].uptr,
+                                                   .comb_offset = p[PRS_RE_OFFSET_LIST].uptr[k],
+                                                   .num_symbols = p[PRS_NUM_SYMBOLS_LIST].uptr[k],
+                                                   .first_symbol = p[PRS_SYMBOL_START_LIST].uptr[k],
+                                                   .num_rbs = *p[PRS_NUM_RB].uptr,
+                                                   .start_rb = *p[PRS_RB_OFFSET].uptr};
+    }
+    LOG_I(NR_MAC,
+          "PRS gNB %d: %d resources, period %d slots, offset %d, comb size %d, %d RBs from RB %d, repetition %d, time gap %d\n",
+          g,
+          num,
+          c->period,
+          c->offset,
+          c->resource[0].pdu.comb_size,
+          c->resource[0].pdu.num_rbs,
+          c->resource[0].pdu.start_rb,
+          c->repetition,
+          c->time_gap);
+  }
+}
+
 NR_UE_MAC_INST_t *nr_l2_init_ue(int instance_id, int numerology, int rx2tx_capability)
 {
   AssertFatal(instance_id < MAX_NUM_NR_UE_INST, "instance_id %d is out of range\n", instance_id);
@@ -164,6 +241,7 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int instance_id, int numerology, int rx2tx_capab
   mac->rx2tx_capability = rx2tx_capability;
   initNotifiedFIFO(&mac->input_nf);
   nr_ue_init_mac(mac);
+  nr_ue_get_prs_config(mac);
   int ret = pthread_mutex_init(&mac->if_mutex, NULL);
   AssertFatal(ret == 0, "Mutex init failed\n");
   nr_ue_mac_default_configs(mac);
@@ -180,6 +258,13 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int instance_id, int numerology, int rx2tx_capab
   nr_rlc_activate_srb0(instance_id, NULL, send_srb0_rrc);
 
   return nr_ue_mac_inst[instance_id];
+}
+
+void nr_ue_free_prs_config(NR_UE_MAC_INST_t *mac)
+{
+  for (int g = 0; g < mac->prs_num_gnbs; g++)
+    free(mac->prs_config[g]);
+  free(mac->prs_config);
 }
 
 NR_UE_MAC_INST_t *get_mac_inst(module_id_t module_id)

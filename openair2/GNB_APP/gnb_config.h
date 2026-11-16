@@ -14,7 +14,6 @@
 #include "openair2/LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 
 void RCconfig_verify(configmodule_interface_t *cfg, ngran_node_t node_type);
-void RCconfig_nr_prs(void);
 void RCconfig_NR_L1(void);
 void RCconfig_nr_macrlc(configmodule_interface_t *cfg);
 void NRRCConfig(void);

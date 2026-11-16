@@ -108,6 +108,7 @@ NR_UE_MAC_INST_t * nr_l2_init_ue(int nb_inst, int numerology, int rx2tx_capabili
 /**\brief fetch MAC instance by module_id
    \param module_id index of MAC instance(s)*/
 NR_UE_MAC_INST_t *get_mac_inst(module_id_t module_id);
+void nr_ue_free_prs_config(NR_UE_MAC_INST_t *mac);
 
 void reset_mac_inst(NR_UE_MAC_INST_t *nr_mac);
 void reset_ra(NR_UE_MAC_INST_t *nr_mac, bool free_prach);

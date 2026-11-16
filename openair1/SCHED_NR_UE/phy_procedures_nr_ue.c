@@ -1185,35 +1185,6 @@ int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_da
     }
   }
 
-  // Check for PRS slot - section 7.4.1.7.4 in 3GPP rel16 38.211
-  for(int gNB_id = 0; gNB_id < ue->prs_active_gNBs; gNB_id++)
-  {
-    __attribute__((aligned(32))) c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.samples_per_slot_wCP];
-    for(int rsc_id = 0; rsc_id < ue->prs_vars[gNB_id]->NumPRSResources; rsc_id++)
-    {
-      prs_config_t *prs_config = &ue->prs_vars[gNB_id]->prs_resource[rsc_id].prs_cfg;
-      for (int i = 0; i < prs_config->PRSResourceRepetition; i++)
-      {
-        if( (((frame_rx*fp->slots_per_frame + nr_slot_rx) - (prs_config->PRSResourceSetPeriod[1] + prs_config->PRSResourceOffset) + prs_config->PRSResourceSetPeriod[0])%prs_config->PRSResourceSetPeriod[0]) == i*prs_config->PRSResourceTimeGap)
-        {
-          for(int j = prs_config->SymbolStart; j < (prs_config->SymbolStart+prs_config->NumPRSSymbols); j++)
-          {
-            nr_slot_fep(ue, fp, proc->frame_rx, proc->nr_slot_rx, (j % fp->symbols_per_slot), rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
-          }
-          const int slot_prs = (nr_slot_rx - i * prs_config->PRSResourceTimeGap + fp->slots_per_frame) % fp->slots_per_frame;
-          const fapi_nr_dl_config_prs_pdu_rel16_t prs_pdu = {.comb_size = prs_config->CombSize,
-                                                             .comb_offset = prs_config->REOffset,
-                                                             .nid_prs = prs_config->NPRSID,
-                                                             .num_symbols = prs_config->NumPRSSymbols,
-                                                             .first_symbol = prs_config->SymbolStart,
-                                                             .num_rbs = prs_config->NumRB,
-                                                             .start_rb = prs_config->RBOffset};
-          nr_prs_channel_estimation(gNB_id, rsc_id, slot_prs, &prs_pdu, ue, proc, rxdataF);
-        }
-      } // for i
-    } // for rsc_id
-  } // for gNB_id
-
   PHY_NR_MEASUREMENTS *measurements = &ue->measurements;
 
   // Measurements on known neighboring cells, at most once per measurement period: TS 38.133 9.2.5.1, the intra-frequency
@@ -1304,6 +1275,20 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
                                 (res == 1) ? phy_data->csirs_vars[0].csirs_config_pdu.symb_l0 : -1);
       }
     }
+  }
+
+  // do procedures for PRS
+  for (int i = 0; i < phy_data->num_prs; i++) {
+    const fapi_nr_dl_config_prs_pdu *prs = &phy_data->prs[i];
+    const fapi_nr_dl_config_prs_pdu_rel16_t *prs_pdu = &prs->prs_config_rel16;
+    for (int j = prs_pdu->first_symbol; j < prs_pdu->first_symbol + prs_pdu->num_symbols; j++) {
+      const int symb = j % ue->frame_parms.symbols_per_slot;
+      if (!slot_fep_map[symb]) {
+        nr_slot_fep(ue, &ue->frame_parms, proc->frame_rx, proc->nr_slot_rx, symb, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
+        slot_fep_map[symb] = true;
+      }
+    }
+    nr_prs_channel_estimation(prs->gnb_id, prs->rsc_id, nr_slot_rx, prs_pdu, ue, proc, rxdataF);
   }
 
   const int actor_idx_llr = proc->nr_slot_rx % ue->pdsch_num_actors;

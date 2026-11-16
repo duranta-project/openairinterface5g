@@ -17,7 +17,7 @@
 #include "utils.h"
 #include "SCHED_NR_UE/phy_sch_processing_time.h"
 
-const char *const dl_pdu_type[] = {"DCI", "DLSCH", "RA_DLSCH", "SI_DLSCH", "P_DLSCH", "CSI_RS", "CSI_IM", "TA"};
+const char *const dl_pdu_type[] = {"DCI", "DLSCH", "RA_DLSCH", "SI_DLSCH", "P_DLSCH", "CSI_RS", "CSI_IM", "TA", "PRS"};
 const char *const ul_pdu_type[] = {"PRACH", "PUCCH", "PUSCH", "SRS"};
 
 static void configure_dlsch(NR_UE_DLSCH_t *dlsch,
@@ -157,6 +157,10 @@ static void nr_ue_scheduled_response_dl(NR_UE_MAC_INST_t *mac,
       case FAPI_NR_DL_CONFIG_TYPE_CSI_IM:
         phy_data->csiim_vars.csiim_config_pdu = pdu->csiim_config_pdu.csiim_config_rel15;
         phy_data->csiim_vars.active = true;
+        break;
+      case FAPI_NR_DL_CONFIG_TYPE_PRS:
+        AssertFatal(phy_data->num_prs < FAPI_NR_DL_CONFIG_LIST_NUM, "PRS resources per slot exceeded limit\n");
+        phy_data->prs[phy_data->num_prs++] = pdu->prs_config_pdu;
         break;
       case FAPI_NR_DL_CONFIG_TYPE_CSI_RS:
         AssertFatal(phy_data->num_csirs < MAX_CSI_RES_SLOT, "CSI resources per slot exceeded limit\n");

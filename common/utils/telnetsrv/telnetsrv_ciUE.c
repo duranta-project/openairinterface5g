@@ -178,13 +178,16 @@ extern float get_prs_max_dl_toa(prs_meas_t *prs_meas);
 static int get_dl_toa(char *buf, int debug, telnet_printfunc_t prnt)
 {
   UNUSED(debug);
-  UNUSED(buf);
-  // TODO multiple antennas, resources, gNBs?
+  // optional arguments: gNB_id[,rsc_id]
   int gNB_id = 0;
   int rsc_id = 0;
-  int ant = 0;
+  int ant = 0; // TODO multiple antennas
+  if (buf && sscanf(buf, "%d,%d", &gNB_id, &rsc_id) < 1)
+    ERROR_MSG_RET("Invalid format: expected [gNB_id[,rsc_id]]\n");
 
   PHY_VARS_NR_UE *UE = nrPHY_vars_UE_g[0][0];
+  if (gNB_id < 0 || gNB_id >= NR_MAX_PRS_COMB_SIZE || rsc_id < 0 || rsc_id >= NR_MAX_PRS_RESOURCES_PER_SET)
+    ERROR_MSG_RET("gNB_id or rsc_id out of range\n");
   if (!UE || !UE->prs_vars[gNB_id])
     ERROR_MSG_RET("no UE/prs_vars found!\n");
   NR_PRS_RESOURCE_t *prs_res = &UE->prs_vars[gNB_id]->prs_resource[rsc_id];
@@ -247,7 +250,7 @@ static telnetshell_cmddef_t cicmds[] = {
   {"force_rlf", "[UE_ID(int,opt)]", force_rlf},
   {"force_crnti_ra", "", force_crnti_ra},
   {"deregistration", "", force_deregistration},
-  {"get_max_dl_toa", "[ant]", get_dl_toa},
+  {"get_max_dl_toa", "[gNB_id[,rsc_id]]", get_dl_toa},
   {"add_pdu_session", "[PDUSessionID(int)],[UE_ID(int,opt)]", add_pdu_session},
   {"", "", NULL},
 };
