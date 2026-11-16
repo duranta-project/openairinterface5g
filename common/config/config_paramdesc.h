@@ -55,8 +55,8 @@ typedef union checkedparam {
 
   } s2;
   struct {
-    int (*f2a)(const configmodule_interface_t *cfg,
-               const paramdef_t *param); /* check a double against an authorized range, defined by its min and max value */
+    int (*f2a)(configmodule_interface_t *cfg,
+               paramdef_t *param); /* check a double against an authorized range, defined by its min and max value */
     double okdblrange[CONFIG_MAX_NUMCHECKVAL];  /* double array, store min and max values  */
   } s2a;
   struct {
