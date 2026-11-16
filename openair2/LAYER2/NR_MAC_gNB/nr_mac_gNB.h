@@ -1456,7 +1456,7 @@ typedef struct gNB_MAC_INST_s {
 
   seq_arr_t pos_act_ue_arr;
   positioning_measurement_info_t pos_meas_info;
-  positioning_config_t *positioning_config;
+  trp_info_config_t *trp_info_config;
   nr_mac_prs_config_t *prs_config;
 } gNB_MAC_INST;
 

@@ -4571,7 +4571,7 @@ static void fill_prs_configuration(f1ap_prs_configuration_t *out,
 
 void create_trp_info_item(const f1ap_trp_information_req_t *req,
                           f1ap_trp_information_t *trp_info_item,
-                          positioning_config_t *positioning_config,
+                          trp_info_config_t *trp_info_config,
                           int trp_idx)
 {
   gNB_MAC_INST *mac = RC.nrmac[0];
@@ -4642,10 +4642,10 @@ void create_trp_info_item(const f1ap_trp_information_req_t *req,
         f1ap_relative_cartesian_location_t *trp_pos_cart = &referencePointType->choice.trp_position_relative_cartesian;
 
         // 0 = millimeter
-        trp_pos_cart->xyz_unit = positioning_config->trps[trp_idx].unit;
-        trp_pos_cart->xvalue = positioning_config->trps[trp_idx].x_axis;
-        trp_pos_cart->yvalue = positioning_config->trps[trp_idx].y_axis;
-        trp_pos_cart->zvalue = positioning_config->trps[trp_idx].z_axis;
+        trp_pos_cart->xyz_unit = trp_info_config->trps[trp_idx].unit;
+        trp_pos_cart->xvalue = trp_info_config->trps[trp_idx].x_axis;
+        trp_pos_cart->yvalue = trp_info_config->trps[trp_idx].y_axis;
+        trp_pos_cart->zvalue = trp_info_config->trps[trp_idx].z_axis;
 
         // random values for uncertainity and confidence
         trp_pos_cart->location_uncertainty.horizontal_uncertainty = 1;

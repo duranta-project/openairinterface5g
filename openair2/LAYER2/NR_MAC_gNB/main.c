@@ -350,7 +350,7 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
   if (mac->f1_config.setup_resp)
     free_f1ap_setup_response(mac->f1_config.setup_resp);
   free(mac->f1_config.setup_resp);
-  free(mac->positioning_config);
+  free(mac->trp_info_config);
   free(mac->prs_config);
 
   seq_arr_free(&mac->cells, seq_arr_cell_free);

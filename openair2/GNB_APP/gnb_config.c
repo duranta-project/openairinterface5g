@@ -58,7 +58,7 @@
 #include "utils.h"
 #include "x2ap_messages_types.h"
 #include "gnb_config_common.h"
-#include "positioning_nr_paramdef.h"
+#include "trp_info_nr_paramdef.h"
 #include "f1ap_cu_task.h"
 #include "openair3/NRPPA/nrppa_gNB_config.h"
 
@@ -2022,7 +2022,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     }
 
   }
-  nrmac->positioning_config = RCconfig_nr_positioning();
+  nrmac->trp_info_config = RCconfig_nr_trp_info();
   nrmac->prs_config = get_l1_prs_config();
 
   // Transport related parameters we only read from the first MACRLC instance
