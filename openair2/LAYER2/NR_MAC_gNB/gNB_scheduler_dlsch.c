@@ -576,9 +576,10 @@ static int collect_dl_candidates(nr_cell_sched_t *cell,
           .alloc_beam_idx = 0,
           .alloc_new_beam = false,
       };
+      // the logical channels that are not configured have no data: the initializer above already set them to 0
       nr_dl_candidate_t *c = &candidates[n - 1];
-      for (int lcid = 0; lcid < NR_MAX_NUM_LCID; lcid++)
-        c->pending_bytes_per_lcid[lcid] = sched_ctrl->rlc_status[lcid].bytes_in_buffer;
+      FOR_EACH_SEQ_ARR(const nr_lc_config_t *, lc, &sched_ctrl->lc_config)
+        c->pending_bytes_per_lcid[lc->lcid] = sched_ctrl->rlc_status[lc->lcid].bytes_in_buffer;
     }
   }
 
@@ -587,12 +588,26 @@ static int collect_dl_candidates(nr_cell_sched_t *cell,
 
 /* ---- PF weight utility (used by default beam_select and rb_alloc policies) ---- */
 
-float dl_pf_weight(int mcs, int mcs_table, int nrOfLayers, float avg_throughput)
+/* TBS of the reference allocation of the PF weight (1 RB, 10 symbols). The weight is computed in the comparison
+   function of the sorts, thousands of times per slot with many UEs: the TBS, which depends only on the MCS, its table
+   and the number of layers, is kept once computed (0: not yet) */
+static uint32_t dl_pf_ref_tbs(int mcs, int mcs_table, int nrOfLayers)
 {
+  static uint32_t ref[4][32][NR_MAX_NB_LAYERS + 1];
+  const bool known = mcs >= 0 && mcs < 32 && mcs_table >= 0 && mcs_table < 4 && nrOfLayers >= 0 && nrOfLayers <= NR_MAX_NB_LAYERS;
+  if (known && ref[mcs_table][mcs][nrOfLayers] != 0)
+    return ref[mcs_table][mcs][nrOfLayers];
   uint8_t Qm = nr_get_Qm_dl(mcs, mcs_table);
   uint16_t R = nr_get_code_rate_dl(mcs, mcs_table);
   uint32_t tbs = nr_compute_tbs(Qm, R, 1, 10, 0, 0, 0, nrOfLayers) >> 3;
-  return (float)tbs / fmaxf(avg_throughput, 1e-9f);
+  if (known)
+    ref[mcs_table][mcs][nrOfLayers] = tbs;
+  return tbs;
+}
+
+float dl_pf_weight(int mcs, int mcs_table, int nrOfLayers, float avg_throughput)
+{
+  return (float)dl_pf_ref_tbs(mcs, mcs_table, nrOfLayers) / fmaxf(avg_throughput, 1e-9f);
 }
 
 static int compare_beam_idx(const void *a, const void *b)

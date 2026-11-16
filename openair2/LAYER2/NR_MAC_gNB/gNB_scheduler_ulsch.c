@@ -2202,12 +2202,25 @@ static int apply_ul_new_transmission(gNB_MAC_INST *nrmac,
 
 /* ---- PF weight utility (used by default beam_select and rb_alloc policies) ---- */
 
-float ul_pf_weight(int mcs, int mcs_table, int nrOfLayers, float avg_throughput)
+/* TBS of the reference allocation of the PF weight (1 RB, 10 symbols), kept once computed (0: not yet): see
+   dl_pf_ref_tbs() */
+static uint32_t ul_pf_ref_tbs(int mcs, int mcs_table, int nrOfLayers)
 {
+  static uint32_t ref[5][32][NR_MAX_NB_LAYERS + 1];
+  const bool known = mcs >= 0 && mcs < 32 && mcs_table >= 0 && mcs_table < 5 && nrOfLayers >= 0 && nrOfLayers <= NR_MAX_NB_LAYERS;
+  if (known && ref[mcs_table][mcs][nrOfLayers] != 0)
+    return ref[mcs_table][mcs][nrOfLayers];
   uint8_t Qm = nr_get_Qm_ul(mcs, mcs_table);
   uint16_t R = nr_get_code_rate_ul(mcs, mcs_table);
   uint32_t tbs = nr_compute_tbs(Qm, R, 1, 10, 0, 0, 0, nrOfLayers) >> 3;
-  return (float)tbs / fmaxf(avg_throughput, 1e-9f);
+  if (known)
+    ref[mcs_table][mcs][nrOfLayers] = tbs;
+  return tbs;
+}
+
+float ul_pf_weight(int mcs, int mcs_table, int nrOfLayers, float avg_throughput)
+{
+  return (float)ul_pf_ref_tbs(mcs, mcs_table, nrOfLayers) / fmaxf(avg_throughput, 1e-9f);
 }
 
 static int compare_ul_beam_idx(const void *a, const void *b)
