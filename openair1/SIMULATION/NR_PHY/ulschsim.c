@@ -85,6 +85,8 @@ int main(int argc, char **argv)
   uint8_t mcs_table = 0;
   int nb_tb = 1; // transport blocks decoded together in one decoder call
   int n_threads = 0; // thread pool threads, 0: decoding in the calling thread
+  int alt_mcs = -1, alt_nb_rb = 0; // -A: second PUSCH, in every other trial
+  bool lbrm = false; // -L: limited buffer rate matching
 
   double DS_TDL = .03;
 
@@ -96,7 +98,7 @@ int main(int argc, char **argv)
   randominit();
 
   int c;
-  while ((c = getopt(argc, argv, "--:O:hg:n:s:S:py:z:M:N:R:F:m:l:q:r:W:I:T:C:")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:hg:n:s:S:py:z:M:N:R:F:m:l:q:r:W:I:T:C:A:L")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -239,6 +241,14 @@ int main(int argc, char **argv)
         n_threads = atoi(optarg);
         break;
 
+      case 'A':
+        AssertFatal(sscanf(optarg, "%d,%d", &alt_mcs, &alt_nb_rb) >= 1 && alt_mcs >= 0, "-A %s: <MCS>[,<RBs>]\n", optarg);
+        break;
+
+      case 'L':
+        lbrm = true;
+        break;
+
       case 'q':
         mcs_table = atoi(optarg);
         break;
@@ -255,6 +265,7 @@ int main(int argc, char **argv)
             "%s -h(elp) -g channel_model -n n_frames -s snr0 -S snr1 -p(extended_prefix) -y TXant -z RXant -M -N cell_id -R -F "
             "input_filename -m -l -r\n",
             argv[0]);
+        printf("-A <MCS>[,<RBs>] Second PUSCH (RBs default: -r), in every other trial; the BLER of each is printed\n");
         printf("-C Number of threads of the thread pool (default 0: decoding in the calling thread)\n");
         printf("-F Input filename (.txt format) for RX conformance testing\n");
         printf(
@@ -263,6 +274,7 @@ int main(int argc, char **argv)
         printf("-h This message\n");
         printf("-I Maximum LDPC decoder iterations\n");
         printf("-l number of symbol\n");
+        printf("-L Limited buffer rate matching, TBS_LBRM from -R, -W and -q (TS 38.212 5.4.2.1)\n");
         printf("-m MCS\n");
         printf("-M Multiple SSB positions in burst\n");
         printf("-n Number of frames to simulate\n");
@@ -368,59 +380,89 @@ int main(int argc, char **argv)
   nr_phy_data_tx_t phy_data = {0};
   NR_UE_ULSCH_t *ulsch_ue = &phy_data.ulsch;
 
-  mod_order = nr_get_Qm_ul(Imcs, mcs_table);
-  code_rate = nr_get_code_rate_ul(Imcs, mcs_table);
-  available_bits = nr_get_G(nb_rb, nb_symb_sch, nb_re_dmrs, length_dmrs, 0, mod_order, Nl);
-  TBS = nr_compute_tbs(mod_order, code_rate, nb_rb, nb_symb_sch, nb_re_dmrs * length_dmrs, 0, 0, Nl);
-  printf("\nAvailable bits %u TBS %u mod_order %d\n", available_bits, TBS, mod_order);
-
-  /////////// setting rel15_ul parameters ///////////
-  rel15_ul->rb_size             = nb_rb;
-  rel15_ul->nr_of_symbols       = nb_symb_sch;
-  rel15_ul->qam_mod_order       = mod_order;
-  rel15_ul->mcs_index           = Imcs;
-  rel15_ul->pusch_data.rv_index = rvidx;
-  rel15_ul->ul_dmrs_symb_pos    = nb_re_dmrs;
-  rel15_ul->dmrs_config_type = pusch_dmrs_type1;
-  rel15_ul->num_dmrs_cdm_grps_no_data = 1;
-  rel15_ul->nrOfLayers          = Nl;
-  rel15_ul->target_code_rate    = code_rate;
-  rel15_ul->pusch_data.tb_size  = TBS>>3;
-  rel15_ul->maintenance_parms_v3.ldpcBaseGraph = get_BG(TBS, code_rate);
-  int bits = count_bits64_with_mask(rel15_ul->ul_dmrs_symb_pos, rel15_ul->start_symbol_index, rel15_ul->nr_of_symbols);
-  AssertFatal(length_dmrs == bits, "length_dmrs %d bits %d\n", length_dmrs, bits);
-  rel15_ul->pdu_bit_map = PUSCH_PDU_BITMAP_PUSCH_DATA;
-  ///////////////////////////////////////////////////
-
+  // PUSCH 0 from -m and -r; with -A a second one, used in every other trial. Each is encoded once, in its own UE HARQ
+  // process, so the decoder sees transport blocks with different numbers of code blocks C one after the other. With
+  // limited buffer rate matching (-L) their circular buffers differ too: Ncb = min(N, 3 TBS_LBRM / (2 C)) (TS 38.212
+  // §5.4.2.1).
+  typedef struct {
+    int mcs, nb_rb;
+    unsigned int G, TBS;
+    nfapi_nr_pusch_pdu_t pdu; // gNB side
+    NR_UL_UE_HARQ_t *ue_harq; // encoder output f
+    int n_tb, n_errors; // per SNR
+  } ulschsim_pusch_t;
+  const int nb_pusch = alt_mcs >= 0 ? 2 : 1;
+  ulschsim_pusch_t pusch[2] = {{.mcs = Imcs, .nb_rb = nb_rb}, {.mcs = alt_mcs, .nb_rb = alt_nb_rb > 0 ? alt_nb_rb : nb_rb}};
+  AssertFatal(nb_pusch == 1 || input_fd == NULL, "-A and -F cannot be combined\n");
+  const uint32_t tbslbrm = lbrm ? nr_compute_tbslbrm(mcs_table, N_RB_UL, Nl) : 0;
   unsigned int errors_bit_uncoded = 0;
+  unsigned int max_TBS = 0;
 
-  /////////////////////////[adk] preparing UL harq_process parameters/////////////////////////
-  ///////////
-  NR_UL_UE_HARQ_t *harq_process_ul_ue = &UE->ul_harq_processes[harq_pid];
-  DevAssert(harq_process_ul_ue);
+  for (int p = 0; p < nb_pusch; p++) {
+    Imcs = pusch[p].mcs;
+    nb_rb = pusch[p].nb_rb;
+    harq_pid = p;
+    mod_order = nr_get_Qm_ul(Imcs, mcs_table);
+    code_rate = nr_get_code_rate_ul(Imcs, mcs_table);
+    available_bits = nr_get_G(nb_rb, nb_symb_sch, nb_re_dmrs, length_dmrs, 0, mod_order, Nl);
+    TBS = nr_compute_tbs(mod_order, code_rate, nb_rb, nb_symb_sch, nb_re_dmrs * length_dmrs, 0, 0, Nl);
+    printf("\nPUSCH %d: MCS %d, %d RBs, available bits %u TBS %u mod_order %d, TBS_LBRM %u\n",
+           p,
+           Imcs,
+           nb_rb,
+           available_bits,
+           TBS,
+           mod_order,
+           tbslbrm);
 
-  N_PRB_oh   = 0; // higher layer (RRC) parameter xOverhead in PUSCH-ServingCellConfig
-  N_RE_prime = NR_NB_SC_PER_RB*nb_symb_sch - nb_re_dmrs - N_PRB_oh;
+    /////////// setting rel15_ul parameters ///////////
+    rel15_ul->rb_size = nb_rb;
+    rel15_ul->nr_of_symbols = nb_symb_sch;
+    rel15_ul->qam_mod_order = mod_order;
+    rel15_ul->mcs_index = Imcs;
+    rel15_ul->pusch_data.rv_index = rvidx;
+    rel15_ul->ul_dmrs_symb_pos = nb_re_dmrs;
+    rel15_ul->dmrs_config_type = pusch_dmrs_type1;
+    rel15_ul->num_dmrs_cdm_grps_no_data = 1;
+    rel15_ul->nrOfLayers = Nl;
+    rel15_ul->target_code_rate = code_rate;
+    rel15_ul->pusch_data.tb_size = TBS >> 3;
+    rel15_ul->maintenance_parms_v3.ldpcBaseGraph = get_BG(TBS, code_rate);
+    rel15_ul->maintenance_parms_v3.tbSizeLbrmBytes = tbslbrm;
+    int bits = count_bits64_with_mask(rel15_ul->ul_dmrs_symb_pos, rel15_ul->start_symbol_index, rel15_ul->nr_of_symbols);
+    AssertFatal(length_dmrs == bits, "length_dmrs %d bits %d\n", length_dmrs, bits);
+    rel15_ul->pdu_bit_map = PUSCH_PDU_BITMAP_PUSCH_DATA;
+    ///////////////////////////////////////////////////
 
-  ulsch_ue->pusch_pdu.rnti = n_rnti;
-  ulsch_ue->pusch_pdu.mcs_table = mcs_table;
-  ulsch_ue->pusch_pdu.mcs_index = Imcs;
-  ulsch_ue->pusch_pdu.nrOfLayers = Nl;
-  ulsch_ue->pusch_pdu.rb_size = nb_rb;
-  ulsch_ue->pusch_pdu.nr_of_symbols = nb_symb_sch;
-  harq_process_ul_ue->num_of_mod_symbols = N_RE_prime*nb_rb*nb_codewords;
-  ulsch_ue->pusch_pdu.pusch_data.rv_index = rvidx;
-  ulsch_ue->pusch_pdu.pusch_data.tb_size  = TBS>>3;
-  ulsch_ue->pusch_pdu.target_code_rate = code_rate;
-  ulsch_ue->pusch_pdu.qam_mod_order = mod_order;
-  ulsch_ue->pusch_pdu.ldpcBaseGraph = get_BG(TBS, code_rate);
-  unsigned char *test_input = harq_process_ul_ue->payload_AB;
+    /////////////////////////[adk] preparing UL harq_process parameters/////////////////////////
+    ///////////
+    NR_UL_UE_HARQ_t *harq_process_ul_ue = &UE->ul_harq_processes[harq_pid];
+    DevAssert(harq_process_ul_ue);
 
-  ///////////
-  ////////////////////////////////////////////////////////////////////////////////////////////
+    N_PRB_oh = 0; // higher layer (RRC) parameter xOverhead in PUSCH-ServingCellConfig
+    N_RE_prime = NR_NB_SC_PER_RB * nb_symb_sch - nb_re_dmrs - N_PRB_oh;
 
-  for (i = 0; i < TBS / 8; i++)
-    test_input[i] = (unsigned char) rand();
+    ulsch_ue->pusch_pdu.rnti = n_rnti;
+    ulsch_ue->pusch_pdu.mcs_table = mcs_table;
+    ulsch_ue->pusch_pdu.mcs_index = Imcs;
+    ulsch_ue->pusch_pdu.nrOfLayers = Nl;
+    ulsch_ue->pusch_pdu.rb_size = nb_rb;
+    ulsch_ue->pusch_pdu.nr_of_symbols = nb_symb_sch;
+    harq_process_ul_ue->num_of_mod_symbols = N_RE_prime * nb_rb * nb_codewords;
+    ulsch_ue->pusch_pdu.pusch_data.rv_index = rvidx;
+    ulsch_ue->pusch_pdu.pusch_data.tb_size = TBS >> 3;
+    ulsch_ue->pusch_pdu.target_code_rate = code_rate;
+    ulsch_ue->pusch_pdu.qam_mod_order = mod_order;
+    ulsch_ue->pusch_pdu.ldpcBaseGraph = get_BG(TBS, code_rate);
+    ulsch_ue->pusch_pdu.tbslbrm = tbslbrm;
+    ulsch_ue->pusch_pdu.pusch_data.harq_process_id = harq_pid;
+    unsigned char *test_input = harq_process_ul_ue->payload_AB;
+
+    ///////////
+    ////////////////////////////////////////////////////////////////////////////////////////////
+
+    for (i = 0; i < TBS / 8; i++)
+      test_input[i] = (unsigned char)rand();
 
 #ifdef DEBUG_NR_ULSCHSIM
   for (i = 0; i < TBS / 8; i++) printf("test_input[i]=%hhu \n",test_input[i]);
@@ -436,7 +478,13 @@ int main(int argc, char **argv)
     nr_ulsch_pre_encoding(harq_process_ul_ue, p->pusch_data.tb_size, p->nrOfLayers, p->ldpcBaseGraph);
     nr_ulsch_encoding(UE, ulsch_ue, 0, 0, &G, 1, ULSCH_ids);
   }
-  
+  pusch[p].G = available_bits;
+  pusch[p].TBS = TBS;
+  pusch[p].pdu = *rel15_ul;
+  pusch[p].ue_harq = harq_process_ul_ue;
+  max_TBS = max(max_TBS, TBS);
+  }
+
   printf("\n");
 
   ///////////
@@ -451,11 +499,9 @@ int main(int argc, char **argv)
   for (int k = 0; k < nb_tb; k++) {
     ulsch_ids[k] = k;
     gNB->ulsch[k].harq_pid = 0;
-    gNB->ulsch[k].harq_process->ulsch_pdu = *rel15_ul;
-    gNB->pusch_vars[k].uci_info.G_ulsch = available_bits;
   }
-  const int tb_bytes = TBS >> 3;
-  uint8_t *b_together = calloc_or_fail(nb_tb, tb_bytes);
+  const int max_tb_bytes = max_TBS >> 3;
+  uint8_t *b_together = calloc_or_fail(nb_tb, max_tb_bytes);
   bool ok_together[nb_tb];
   int n_mismatch = 0, n_mismatch_total = 0;
   time_stats_t ts_together = {0}, ts_alone = {0};
@@ -464,25 +510,33 @@ int main(int argc, char **argv)
 
   for (SNR = snr0; SNR < snr1 && !stop; SNR += snr_step) {
     errors_bit_uncoded = 0;
+    uint64_t n_bits = 0;
     n_errors = 0;
     n_false_positive = 0;
     n_mismatch = 0;
+    for (int p = 0; p < nb_pusch; p++)
+      pusch[p].n_tb = pusch[p].n_errors = 0;
     reset_meas(&ts_together);
     reset_meas(&ts_alone);
     SNR_lin = pow(10, SNR / 10.0);
     sigma = 1.0 / sqrt(2 * SNR_lin);
 
     for (trial = 0; trial < n_trials && !stop; trial++) {
+      ulschsim_pusch_t *pu = &pusch[trial % nb_pusch];
+      const int tb_bytes = pu->TBS >> 3;
       for (int k = 0; k < nb_tb; k++) {
+        gNB->ulsch[k].harq_process->ulsch_pdu = pu->pdu;
+        gNB->pusch_vars[k].uci_info.G_ulsch = pu->G;
         int16_t *llr = gNB->pusch_vars[k].ulsch_llrs;
         memset(llr, 0, (8 * ((3 * 8 * 6144) + 12)) * sizeof(int16_t));
         gNB->ulsch[k].harq_process->harq_to_be_cleared = true;
-        for (i = 0; i < available_bits; i++) {
-          const int bit = (harq_process_ul_ue->f[i >> 3] >> (i & 7)) & 1;
+        for (i = 0; i < pu->G; i++) {
+          const int bit = (pu->ue_harq->f[i >> 3] >> (i & 7)) & 1;
           llr[i] = quantize(sigma / 4.0 / 4.0, (bit ? -1.0 : 1.0) + sigma * gaussdouble(0.0, 1.0), qbits); // BPSK
           if ((llr[i] < 0) != bit)
             errors_bit_uncoded++;
         }
+        n_bits += pu->G;
       }
 
       start_meas(&ts_together);
@@ -491,13 +545,15 @@ int main(int argc, char **argv)
       for (int k = 0; k < nb_tb; k++) {
         NR_UL_gNB_HARQ_t *harq = gNB->ulsch[k].harq_process;
         ok_together[k] = harq->processedSegments == harq->C;
+        pu->n_tb++;
         if (ok_together[k]) {
-          if (!check_crc(harq->b, lenWithCrc(1, TBS), crcType(1, TBS)))
+          if (!check_crc(harq->b, lenWithCrc(1, pu->TBS), crcType(1, pu->TBS)))
             n_false_positive++;
         } else {
           n_errors++;
+          pu->n_errors++;
         }
-        memcpy(b_together + k * tb_bytes, harq->b, tb_bytes);
+        memcpy(b_together + k * max_tb_bytes, harq->b, tb_bytes);
       }
 
       for (int k = 0; nb_tb > 1 && k < nb_tb; k++) {
@@ -507,7 +563,7 @@ int main(int argc, char **argv)
         nr_ulsch_decoding(gNB, frame_parms, frame, subframe, &ulsch_ids[k], 1);
         stop_meas(&ts_alone);
         const bool ok = harq->processedSegments == harq->C;
-        if (ok != ok_together[k] || (ok && memcmp(harq->b, b_together + k * tb_bytes, tb_bytes)))
+        if (ok != ok_together[k] || (ok && memcmp(harq->b, b_together + k * max_tb_bytes, tb_bytes)))
           n_mismatch++;
       }
     }
@@ -516,9 +572,18 @@ int main(int argc, char **argv)
     printf("*****************************************\n");
     printf("SNR %f, uncoded BER %f, BLER %f (false positive %f)\n",
            SNR,
-           (float)errors_bit_uncoded / (float)available_bits / (float)n_tb,
+           (float)errors_bit_uncoded / (float)n_bits,
            (float)n_errors / (float)n_tb,
            (float)n_false_positive / (float)n_tb);
+    for (int p = 0; nb_pusch > 1 && p < nb_pusch; p++)
+      printf("PUSCH %d (MCS %d, %d RBs, TBS %u): BLER %f (%d/%d)\n",
+             p,
+             pusch[p].mcs,
+             pusch[p].nb_rb,
+             pusch[p].TBS,
+             (float)pusch[p].n_errors / (float)pusch[p].n_tb,
+             pusch[p].n_errors,
+             pusch[p].n_tb);
     if (nb_tb > 1) {
       const double us_together = get_time_meas_us(&ts_together); // per call of nb_tb transport blocks
       const double us_alone = get_time_meas_us(&ts_alone) * nb_tb; // nb_tb calls of one transport block
@@ -570,5 +635,7 @@ int main(int argc, char **argv)
   loader_reset();
   logTerm();
 
-  return n_mismatch_total > 0 ? 1 : n_errors;
+  // 1, not the error count: exit statuses wrap around at 256, and the physim runner (RunTimedTest.cmake) takes any status
+  // containing a 0 digit for success
+  return n_mismatch_total > 0 || n_errors > 0 ? 1 : 0;
 }

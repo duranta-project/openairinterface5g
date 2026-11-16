@@ -197,6 +197,28 @@ GH200:
 
 Any LDPC coding library can be compared this way, e.g. `--loader.ldpc.shlibversion _cuda`.
 
+### Transport blocks of different sizes, limited buffer rate matching
+
+`-A <MCS>[,<RBs>]` adds a second PUSCH, used in every other trial, so that the
+decoder sees transport blocks with different numbers of code blocks one after
+the other. `-L` enables limited buffer rate matching, with TBS_LBRM computed
+from `-R`, `-W` and `-q`: the circular buffer of each code block,
+Ncb = min(N, 3 TBS_LBRM / (2 C)), then shrinks as the number of code blocks C
+grows. A decoder that keeps state between calls must not let one transport
+block affect the next one:
+
+    ./nr_ulschsim -R 273 -r 273 -W2 -y2 -z2 -L -m4 -A22 -s6 -S6.1 -n20 --loader.ldpc.shlibversion _cuda --nrLDPC_coding_cuda.num_contexts 1
+
+MCS 4 has 6 code blocks whose rate matched bits cover more than the circular
+buffer of the 34 code blocks of MCS 22 (Ncb < N), which is decoded with the
+rate 1/3 graph, so it reads the whole decoder input. The BLER of each PUSCH is
+printed:
+
+```
+PUSCH 0 (MCS 4, 273 RBs, TBS 43032): BLER 0.000000 (0/10)
+PUSCH 1 (MCS 22, 273 RBs, TBS 278776): BLER 0.000000 (0/10)
+```
+
 ## Adding a New Physim Test
 
 To define a new test or modify existing ones, update the following file:
