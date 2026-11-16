@@ -197,6 +197,9 @@ GH200:
 
 Any LDPC coding library can be compared this way, e.g. `--loader.ldpc.shlibversion _cuda`.
 
+`-A <MCS>[,<RBs>]` adds a second PUSCH, used in every other trial, and prints the
+BLER of each; `-L` enables limited buffer rate matching (TS 38.212 5.4.2.1).
+
 ## Adding a New Physim Test
 
 To define a new test or modify existing ones, update the following file:
