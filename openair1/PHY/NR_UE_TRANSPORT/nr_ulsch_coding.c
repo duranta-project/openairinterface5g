@@ -23,7 +23,11 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
 
   ///////////////////////// a---->| add CRC |---->b /////////////////////////
 
-  const int max_payload_bytes = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * nrOfLayers * 1056;
+  // payload_AB holds the TB and its CRC of at most 3 bytes
+  if (tb_size_bytes + 3 > harq_process->payload_AB_size) {
+    LOG_E(PHY, "TB of %u bytes is too big for the HARQ buffer of %d bytes\n", tb_size_bytes, harq_process->payload_AB_size);
+    return -1;
+  }
   int B;
   if (A > NR_MAX_PDSCH_TBS) {
     // Add 24-bit crc (polynomial A) to payload
@@ -32,14 +36,12 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
     harq_process->payload_AB[1 + (A >> 3)] = ((uint8_t *)&crc)[1];
     harq_process->payload_AB[2 + (A >> 3)] = ((uint8_t *)&crc)[0];
     B = A + 24;
-    AssertFatal((A / 8) + 4 <= max_payload_bytes, "A %d is too big (A/8+4 = %d > %d)\n", A, (A / 8) + 4, max_payload_bytes);
   } else {
     // Add 16-bit crc (polynomial A) to payload
     const unsigned int crc = crc16(harq_process->payload_AB, A) >> 16;
     harq_process->payload_AB[A >> 3] = ((uint8_t *)&crc)[1];
     harq_process->payload_AB[1 + (A >> 3)] = ((uint8_t *)&crc)[0];
     B = A + 16;
-    AssertFatal((A / 8) + 3 <= max_payload_bytes, "A %d is too big (A/8+3 = %d > %d)\n", A, (A / 8) + 3, max_payload_bytes);
   }
 
   ///////////////////////// segmentation parameters, the segments are built by nr_ulsch_encoding() /////////////////////////
