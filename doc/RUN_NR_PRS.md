@@ -31,7 +31,7 @@ prs_config = (
   PRSResourceSetPeriod  = [20, 2];
   SymbolStart           = [7];
   NumPRSSymbols         = [6];
-  NumRB                 = 106;
+  NumRB                 = 104;
   RBOffset              = 0;
   CombSize              = 4;
   REOffset              = [0];
@@ -49,6 +49,11 @@ prs_config = (
 The nrUE config has `Active_gNBs` to specify the number of active gNBs
 transmitting PRS simultaneously. Help strings for all PRS parameters are
 documented in `openair2/COMMON/prs_nr_paramdef.h`.
+
+`NumRB` has to be a multiple of 4 between 24 and 272, as the PRS bandwidth is
+signalled in steps of 4 PRBs (TS 38.473 §9.3.1.176). `CombSize`,
+`PRSResourceRepetition` and `PRSResourceTimeGap` are restricted to the values
+allowed by the specification.
 
 > Note: PRS transmission and reception can only be validated in `phy-test` mode.
 
