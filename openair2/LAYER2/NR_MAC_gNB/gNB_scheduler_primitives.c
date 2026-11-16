@@ -3445,7 +3445,20 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
 
           LOG_D(NR_MAC,"Scheduling CSI-RS in frame %d slot %d Resource ID %ld\n", frame, slot, nzpcsi->nzp_CSI_RS_ResourceId);
           NR_beam_alloc_t beam_csi = beam_allocation_procedure(&cell->beam_info, frame, slot, UE->UE_beam_index, n_slots_frame);
-          AssertFatal(beam_csi.idx >= 0, "Cannot allocate CSI-RS in any available beam\n");
+          // the slot can already be allocated to another beam: skip this occasion. With a fixed beam pattern
+          // this can repeat on every period, so make it visible.
+          if (beam_csi.idx < 0) {
+            static int num_skipped = 0;
+            if (num_skipped++ % 100 == 0)
+              LOG_W(NR_MAC,
+                    "%d.%d UE %04x: no free slot for CSI-RS on beam %d, skipped (%d CSI-RS occasions skipped)\n",
+                    frame,
+                    slot,
+                    UE->rnti,
+                    UE->UE_beam_index,
+                    num_skipped);
+            continue;
+          }
           uint16_t *vrb_map = cell->common_channels.vrb_map[beam_csi.idx];
           UE_info->sched_csirs |= (1 << dl_bwp->bwp_id);
 
