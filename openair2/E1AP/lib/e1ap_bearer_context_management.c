@@ -344,6 +344,7 @@ static E1AP_UP_Parameters_t encode_dl_up_parameters(const int numUpParam, const 
   for (const up_params_t *k = in; k < in + numUpParam; k++) {
     asn1cSequenceAdd(out.list, E1AP_UP_Parameters_Item_t, ieC3_1_1_1);
     ieC3_1_1_1->uP_TNL_Information = e1_encode_up_tnl_info(&k->tl_info);
+    ieC3_1_1_1->cell_Group_ID = k->cell_group_id; // TS 38.463 §9.3.1.13 (M)
   }
   return out;
 }
@@ -1126,7 +1127,14 @@ bool eq_bearer_context_setup_response(const e1ap_bearer_setup_resp_t *a, const e
       const DRB_nGRAN_setup_t *drb_b = &ps_b->DRBnGRanList[j];
       _EQ_CHECK_LONG(drb_a->id, drb_b->id);
       _EQ_CHECK_INT(drb_a->numUpParam, drb_b->numUpParam);
+      for (int k = 0; k < drb_a->numUpParam; k++) {
+        _EQ_CHECK_INT(drb_a->UpParamList[k].cell_group_id, drb_b->UpParamList[k].cell_group_id);
+        if (!eq_up_tl_info(&drb_a->UpParamList[k].tl_info, &drb_b->UpParamList[k].tl_info))
+          return false;
+      }
       _EQ_CHECK_INT(drb_a->numQosFlowSetup, drb_b->numQosFlowSetup);
+      for (int k = 0; k < drb_a->numQosFlowSetup; k++)
+        _EQ_CHECK_LONG(drb_a->qosFlows[k].qfi, drb_b->qosFlows[k].qfi);
     }
     // Check DRB Failed
     for (int j = 0; j < ps_a->numDRBFailed; j++) {

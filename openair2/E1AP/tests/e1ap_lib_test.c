@@ -75,7 +75,7 @@ static pdu_session_setup_t pdu_session_setup_resp_template(long pdu_id)
   p.numDRBFailed = 0;
   p.DRBnGRanList[0].numUpParam = 1;
   p.DRBnGRanList[0].numQosFlowSetup = 1;
-  p.DRBnGRanList[0].UpParamList[0].cell_group_id = MCG;
+  p.DRBnGRanList[0].UpParamList[0].cell_group_id = SCG;
   return p;
 }
 
