@@ -140,26 +140,26 @@ int e1apCUCP_handle_SETUP_REQUEST(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst,
 {
   DevAssert(pdu != NULL);
   UNUSED(inst);
+  // Decode E1 CU-UP Setup Request
+  e1ap_setup_req_t req = {0};
+  if (!decode_e1ap_cuup_setup_request(pdu, &req)) {
+    free_e1ap_cuup_setup_request(&req);
+    return -1;
+  }
+
+  if (req.supported_plmns == 0) {
+    e1ap_cause_t cause = { .type = E1AP_CAUSE_PROTOCOL, .value = E1AP_PROTOCOL_CAUSE_SEMANTIC_ERROR};
+    e1ap_setup_fail_t setup_fail = {.transac_id = req.transac_id, .cause = cause};
+    e1apCUCP_send_SETUP_FAILURE(assoc_id, &setup_fail);
+    free_e1ap_cuup_setup_request(&req);
+    return -1;
+  }
+
   /* Create ITTI message and send to queue */
   MessageDef *msg_p = itti_alloc_new_message(TASK_CUCP_E1, 0 /*unused by callee*/, E1AP_SETUP_REQ);
-  // Decode E1 CU-UP Setup Request
-  if (!decode_e1ap_cuup_setup_request(pdu, &E1AP_SETUP_REQ(msg_p))) {
-    free_e1ap_cuup_setup_request(&E1AP_SETUP_REQ(msg_p));
-    return -1;
-  }
-
+  E1AP_SETUP_REQ(msg_p) = req;
   msg_p->ittiMsgHeader.originInstance = assoc_id;
-
-  if (E1AP_SETUP_REQ(msg_p).supported_plmns > 0) {
-    itti_send_msg_to_task(TASK_RRC_GNB, 0 /*unused by callee*/, msg_p);
-  } else {
-    e1ap_cause_t cause = { .type = E1AP_CAUSE_PROTOCOL, .value = E1AP_PROTOCOL_CAUSE_SEMANTIC_ERROR};
-    e1ap_setup_fail_t setup_fail = {.transac_id = E1AP_SETUP_REQ(msg_p).transac_id, .cause = cause};
-    e1apCUCP_send_SETUP_FAILURE(assoc_id, &setup_fail);
-    itti_free(TASK_CUCP_E1, msg_p);
-    return -1;
-  }
-
+  itti_send_msg_to_task(TASK_RRC_GNB, 0 /*unused by callee*/, msg_p);
   return 0;
 }
 
@@ -309,6 +309,7 @@ int e1apCUUP_handle_BEARER_CONTEXT_SETUP_REQUEST(sctp_assoc_t assoc_id, e1ap_upc
   e1ap_bearer_setup_req_t bearerCxt = {0};
   if (!decode_E1_bearer_context_setup_request(pdu, &bearerCxt)) {
     LOG_E(E1AP, "Failed to decode E1 Bearer Context Setup Request\n");
+    free_e1ap_context_setup_request(&bearerCxt);
     return -1;
   }
   e1_bearer_context_setup(&bearerCxt);
@@ -319,13 +320,14 @@ int e1apCUUP_handle_BEARER_CONTEXT_SETUP_REQUEST(sctp_assoc_t assoc_id, e1ap_upc
 int e1apCUCP_handle_BEARER_CONTEXT_SETUP_RESPONSE(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst, const E1AP_E1AP_PDU_t *pdu)
 {
   UNUSED(inst);
-  MessageDef *msg = itti_alloc_new_message(TASK_CUCP_E1, 0, E1AP_BEARER_CONTEXT_SETUP_RESP);
-  // Decode
-  e1ap_bearer_setup_resp_t *bearerCxt = &E1AP_BEARER_CONTEXT_SETUP_RESP(msg);
-  if (!decode_E1_bearer_context_setup_response(pdu, bearerCxt)) {
+  e1ap_bearer_setup_resp_t resp = {0};
+  if (!decode_E1_bearer_context_setup_response(pdu, &resp)) {
     LOG_E(E1AP, "Failed to decode Bearer Context Setup Response\n");
+    free_e1ap_context_setup_response(&resp);
     return -1;
   }
+  MessageDef *msg = itti_alloc_new_message(TASK_CUCP_E1, 0, E1AP_BEARER_CONTEXT_SETUP_RESP);
+  E1AP_BEARER_CONTEXT_SETUP_RESP(msg) = resp;
   msg->ittiMsgHeader.originInstance = assoc_id;
   // Fixme: instance is the NGAP instance, no good way to set it here
   instance_t instance = 0;
@@ -399,12 +401,13 @@ int e1apCUCP_handle_BEARER_CONTEXT_MODIFICATION_RESPONSE(sctp_assoc_t assoc_id,
 {
   UNUSED(assoc_id);
   UNUSED(e1_inst);
-  MessageDef *msg = itti_alloc_new_message(TASK_CUUP_E1, 0, E1AP_BEARER_CONTEXT_MODIFICATION_RESP);
-  e1ap_bearer_modif_resp_t *modif = &E1AP_BEARER_CONTEXT_MODIFICATION_RESP(msg);
-  if(!decode_E1_bearer_context_mod_response(pdu, modif)) {
-    free_e1ap_context_mod_response(modif);
+  e1ap_bearer_modif_resp_t modif = {0};
+  if (!decode_E1_bearer_context_mod_response(pdu, &modif)) {
+    free_e1ap_context_mod_response(&modif);
     return -1;
   }
+  MessageDef *msg = itti_alloc_new_message(TASK_CUUP_E1, 0, E1AP_BEARER_CONTEXT_MODIFICATION_RESP);
+  E1AP_BEARER_CONTEXT_MODIFICATION_RESP(msg) = modif;
   itti_send_msg_to_task(TASK_RRC_GNB, 0, msg);
   return 0;
 }
