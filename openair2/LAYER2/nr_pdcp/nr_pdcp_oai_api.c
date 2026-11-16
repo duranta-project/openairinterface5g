@@ -992,6 +992,70 @@ void nr_pdcp_reestablishment(ue_id_t ue_id,
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
 
+/* Deliver a broadcast session's payload to every attached UE.
+ *
+ * This is the interim scheme, and it is the eBPF proxy's job moved into the
+ * gNB: one copy per UE, each on that UE's own unicast bearer. It is not what
+ * broadcast is supposed to look like -- the payload should go out once on
+ * the session's MRB, addressed to the group -- but the MRB cannot transmit
+ * until group scheduling lands, and the data has to reach the UEs somehow in
+ * the meantime.
+ *
+ * What it does buy immediately: the payload now arrives on the real
+ * broadcast tunnel, terminated by the gNB, instead of being rewritten below
+ * the IP stack by a tc program that had to guess the TEID off the wire. When
+ * the MRB can carry it, only the body of this function changes.
+ *
+ * DRB 1 because that is the only one a UE has in these testbeds; a session
+ * mapped onto the right bearer is work for when there can be more than one.
+ */
+/* The MBS session's PDCP context, as created when the broadcast context
+ * reaches the DU. One session, so one of each.
+ *
+ * It lives here because the two ends of the session sit in different places:
+ * the G-RNTI -- and with it the PDCP context id, NR_PDCP_MBS_CONTEXT_ID() --
+ * is allocated by the MAC when the group is created at the DU, while the
+ * payload arrives on the broadcast tunnel at the CU-UP. In one process that
+ * is a shared variable; across a CU/DU split the DU has to report the G-RNTI
+ * back in the F1AP Multicast Context Setup Response and the CU-UP carry it in
+ * the E1 bearer context. Neither exists yet, which is the same gap that stops
+ * the MRB's PDUs reaching the DU at all -- see nr_rlc_mrb_recv_sdu(). */
+static ue_id_t mbs_pdcp_context;
+static int mbs_pdcp_mrb_id;
+
+void nr_pdcp_mbs_set_context(ue_id_t context_id, int mrb_id)
+{
+  mbs_pdcp_context = context_id;
+  mbs_pdcp_mrb_id = mrb_id;
+  LOG_I(PDCP, "MBS: broadcast payload will go to PDCP context %lu, MRB %d\n", context_id, mrb_id);
+}
+
+/* Hand a broadcast session's payload to its MRB.
+ *
+ * Shaped as a gtpCallbackSDAP so the broadcast GTP-U tunnel can call it
+ * directly. Everything below this point -- PDCP, the PTM RLC entity, the
+ * group transmission on the G-RNTI -- is the standard path. */
+bool nr_pdcp_mbs_broadcast_deliver(protocol_ctxt_t *ctxt_pP,
+                                   const ue_id_t ue_id,
+                                   const srb_flag_t srb_flagP,
+                                   const mui_t muiP,
+                                   const confirm_t confirmP,
+                                   const sdu_size_t sdu_buffer_size,
+                                   unsigned char *const sdu_buffer,
+                                   const pdcp_transmission_mode_t mode,
+                                   const uint32_t *const sourceL2Id,
+                                   const uint32_t *const destinationL2Id,
+                                   const uint8_t qfi,
+                                   const bool rqi,
+                                   const int pdusession_id)
+{
+  if (mbs_pdcp_context == 0) {
+    LOG_D(PDCP, "MBS: broadcast payload with no MRB to put it on yet\n");
+    return false;
+  }
+  return nr_pdcp_mrb_data_req(mbs_pdcp_context, mbs_pdcp_mrb_id, sdu_buffer, sdu_buffer_size);
+}
+
 bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
                           const srb_flag_t srb_flagP,
                           const rb_id_t rb_id,

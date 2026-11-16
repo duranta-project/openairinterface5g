@@ -53,6 +53,8 @@ More general information is available in the
 - [5G NSA setup](./TESTING_OAI_NSA_COTS_UE.md): non-standalone setup with an OAI eNB and gNB (may be outdated)
 - [NTN setup](./ntn-configuration.md): non-terrestrial network setup for LEO and GEO satellites
 - [Handover](./handover-tutorial.md): F1 (intra-gNB) and N2 (inter-gNB) handovers
+- [MBS](./MBS.md): point-to-multipoint transmission, HARQ feedback and retransmissions
+- [MBS broadcast tutorial](./MBS_Broadcast_Tutorial.md): a broadcast session from the core, received by three UEs over rfsimulator
 - [F1-based NR-DC](./nr-dc.md): NR dual connectivity with one CU and FR1/FR2 DUs
 - [Positioning reference signal (PRS)](./RUN_NR_PRS.md): Rel-16 PRS positioning with the gNB and NR-UE
 - [E2 agent](../openair2/E2AP/README.md): deploy the gNB with the E2 agent and the FlexRIC near-RT RIC

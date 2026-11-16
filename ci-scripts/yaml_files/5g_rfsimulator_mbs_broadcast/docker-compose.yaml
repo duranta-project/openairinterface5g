@@ -1,0 +1,153 @@
+# MBS broadcast over rfsimulator: one monolithic gNB, three UEs, and a core
+# that can create a broadcast session.
+#
+# Monolithic on purpose. The MRB's PDCP PDUs have to reach the RLC entity
+# that transmits them, and nr_rlc_mrb_recv_sdu() only works when PDCP and RLC
+# are in the same process, so neither a CU/DU nor a CU-CP/CU-UP split can
+# carry this yet.
+#
+# See doc/MBS_Broadcast_Tutorial.md.
+
+services:
+
+  mbs-mongo:
+    container_name: mbs-mongo
+    image: mongo:latest
+    # The subscribers are imported on first start, when the database is still
+    # empty. `docker compose down -v` throws it away so they are imported again.
+    volumes:
+      - ./provision-subscribers.sh:/docker-entrypoint-initdb.d/provision-subscribers.sh:ro
+      - ./subscribers.json:/docker-entrypoint-initdb.d/subscribers.json:ro
+      - mbs-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks:
+      mbs_net:
+        ipv4_address: 192.168.77.5
+
+  # Open5GS with the 5G-MAG MBS network functions. Not an OAI image: the
+  # upstream core has no MB-SMF, so it cannot allocate a TMGI or create a
+  # broadcast session. See doc/MBS_Broadcast_Tutorial.md for how to build it.
+  mbs-cn:
+    container_name: mbs-cn
+    image: ${CN_IMG:-open5gs_core:latest}
+    privileged: true
+    # Wait for MongoDB: the PCF gives up if the database is not there yet, and
+    # a missing PCF rejects every UE with a cause that says nothing useful.
+    depends_on:
+      mbs-mongo:
+        condition: service_healthy
+    volumes:
+      - ./core.yaml:/container/open5gs/core.yaml:ro
+    # Healthy once the AMF is listening for NGAP. The gNB attempts the SCTP
+    # association once and does not retry, so it must not start before this.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ' 38412 ' /proc/net/sctp/eps"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      mbs_net:
+        ipv4_address: 192.168.77.10
+
+  mbs-gnb:
+    container_name: mbs-gnb
+    image: ${REGISTRY-}${GNB_IMG:-oai-gnb}:${TAG:-mbs}
+    cap_add:
+      - SYS_NICE
+    environment:
+      USE_ADDITIONAL_OPTIONS: --rfsim --log_config.global_log_options level,nocolor,time
+    depends_on:
+      mbs-cn:
+        condition: service_healthy
+    volumes:
+      - ./gnb.mbs.band78.106prb.rfsim.conf:/opt/oai-gnb/etc/gnb.conf
+    networks:
+      mbs_net:
+        ipv4_address: 192.168.77.101
+      rfsim_net:
+        ipv4_address: 192.168.78.101
+
+  mbs-ue1:
+    container_name: mbs-ue1
+    image: ${REGISTRY-}${NRUE_IMG:-oai-nr-ue}:${TAG:-mbs}
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      USE_ADDITIONAL_OPTIONS: --rfsim -r 106 --numerology 1 --band 78 -C 3319680000 --ssb 516
+                              --uicc0.imsi 999700123456701
+                              --uicc0.key 00112233445566778899aabbccddee01
+                              --rfsimulator.[0].serveraddr 192.168.78.101
+                              --log_config.global_log_options level,nocolor,time
+    depends_on:
+      - mbs-gnb
+    volumes:
+      - ./nr-ue.mbs.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+    networks:
+      rfsim_net:
+        ipv4_address: 192.168.78.201
+
+  mbs-ue2:
+    container_name: mbs-ue2
+    image: ${REGISTRY-}${NRUE_IMG:-oai-nr-ue}:${TAG:-mbs}
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      USE_ADDITIONAL_OPTIONS: --rfsim -r 106 --numerology 1 --band 78 -C 3319680000 --ssb 516
+                              --uicc0.imsi 999700123456702
+                              --uicc0.key 00112233445566778899aabbccddee02
+                              --rfsimulator.[0].serveraddr 192.168.78.101
+                              --log_config.global_log_options level,nocolor,time
+    depends_on:
+      - mbs-gnb
+    volumes:
+      - ./nr-ue.mbs.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+    networks:
+      rfsim_net:
+        ipv4_address: 192.168.78.202
+
+  mbs-ue3:
+    container_name: mbs-ue3
+    image: ${REGISTRY-}${NRUE_IMG:-oai-nr-ue}:${TAG:-mbs}
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      USE_ADDITIONAL_OPTIONS: --rfsim -r 106 --numerology 1 --band 78 -C 3319680000 --ssb 516
+                              --uicc0.imsi 999700123456703
+                              --uicc0.key 00112233445566778899aabbccddee03
+                              --rfsimulator.[0].serveraddr 192.168.78.101
+                              --log_config.global_log_options level,nocolor,time
+    depends_on:
+      - mbs-gnb
+    volumes:
+      - ./nr-ue.mbs.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+    networks:
+      rfsim_net:
+        ipv4_address: 192.168.78.203
+
+volumes:
+  mbs-mongo-data:
+
+networks:
+  mbs_net:
+    name: mbs-core-net
+    ipam:
+      config:
+        - subnet: 192.168.77.0/24
+  rfsim_net:
+    name: mbs-rfsim-net
+    ipam:
+      config:
+        - subnet: 192.168.78.0/24

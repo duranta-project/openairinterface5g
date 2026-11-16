@@ -21,6 +21,21 @@ static void cucp_cuup_bearer_context_setup_e1ap(sctp_assoc_t assoc_id, const e1a
   itti_send_msg_to_task (TASK_CUCP_E1, 0, msg_p);
 }
 
+/* A broadcast session has no UE, so there is no UE context to pick a CU-UP
+ * by: the session goes to whichever one is attached. */
+static void cucp_cuup_bc_bearer_context_setup_e1ap(const e1ap_bc_bearer_setup_req_t *req)
+{
+  const sctp_assoc_t assoc_id = get_any_cuup();
+  if (assoc_id <= 0) {
+    LOG_E(E1AP, "MBS: no CU-UP attached, the broadcast session has no user plane\n");
+    return;
+  }
+  MessageDef *msg_p = itti_alloc_new_message(TASK_CUCP_E1, 0, E1AP_BC_BEARER_CONTEXT_SETUP_REQ);
+  msg_p->ittiMsgHeader.originInstance = assoc_id;
+  E1AP_BC_BEARER_CONTEXT_SETUP_REQ(msg_p) = *req;
+  itti_send_msg_to_task(TASK_CUCP_E1, 0, msg_p);
+}
+
 static void cucp_cuup_bearer_context_mod_e1ap(sctp_assoc_t assoc_id, const e1ap_bearer_mod_req_t *req)
 {
   AssertFatal(assoc_id > 0, "illegal assoc_id %d\n", assoc_id);
@@ -53,6 +68,7 @@ static void cucp_cuup_bearer_context_release_cmd_e1ap(sctp_assoc_t assoc_id, con
 
 void cucp_cuup_message_transfer_e1ap_init(gNB_RRC_INST *rrc) {
   rrc->cucp_cuup.bearer_context_setup = cucp_cuup_bearer_context_setup_e1ap;
+  rrc->cucp_cuup.bc_bearer_context_setup = cucp_cuup_bc_bearer_context_setup_e1ap;
   rrc->cucp_cuup.bearer_context_mod = cucp_cuup_bearer_context_mod_e1ap;
   rrc->cucp_cuup.bearer_context_mod_confirm = cucp_cuup_bearer_context_mod_confirm_e1ap;
   rrc->cucp_cuup.bearer_context_release = cucp_cuup_bearer_context_release_cmd_e1ap;

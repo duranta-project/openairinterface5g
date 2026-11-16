@@ -25,6 +25,7 @@
 #include "NGAP_PagingAttemptInformation.h"
 #include "NGAP_FiveG-S-TMSI.h"
 #include "NGAP_TAI.h"
+#include "NGAP_TargetRANNodeID.h"
 #include "NGAP_UEPagingIdentity.h"
 #include "NGAP_PDUSessionResourceFailedToModifyItemModRes.h"
 #include "NGAP_PDUSessionResourceFailedToSetupItemCxtRes.h"
@@ -105,4 +106,15 @@
 #include "NGAP_PDUSessionResourceNotify.h"
 #include "NGAP_PDUSessionResourceReleasedItemNot.h"
 #include "NGAP_PDUSessionResourceNotifyReleasedTransfer.h"
+
+/* MBS broadcast session user plane. The build runs asn1c with
+ * -fno-include-deps, so every type reached from here has to be named. */
+#include "NGAP_MBSSessionSetupOrModRequestTransfer.h"
+#include "NGAP_MBS-SessionTNLInfo5GC.h"
+#include "NGAP_MBS-SessionTNLInfo5GCList.h"
+#include "NGAP_MBS-SessionTNLInfo5GCItem.h"
+#include "NGAP_MBS-AreaSessionID.h"
+#include "NGAP_SharedNGU-MulticastTNLInformation.h"
+#include "NGAP_TransportLayerAddress.h"
+
 #endif // NGAP_MSG_INCLUDES_H

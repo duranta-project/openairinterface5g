@@ -1070,6 +1070,79 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
 #endif /* E3_AGENT */
 }
 
+static bool cell_has_du_sib(const nr_cell_sched_t *cell, int sib_type)
+{
+  seq_arr_t *du_SIBs = cell->common_channels.du_SIBs;
+  for (int i = 0; du_SIBs && i < du_SIBs->size; i++) {
+    if (((nr_SIBs_t *)seq_arr_at(du_SIBs, i))->SIB_type == sib_type)
+      return true;
+  }
+  return false;
+}
+
+/* SIB20 of a cell, announcing its broadcast sessions. The CORESET and search space of the MBS PDCCHs are needed for it
+ * before any session exists, so they are created here if they are not there yet */
+static NR_SIB20_r17_t *get_cell_SIB20(nr_cell_sched_t *cell)
+{
+  const gNB_MAC_INST *mac = RC.nrmac[0];
+  if (!cell->mbs_search_space) {
+    cell->mbs_coreset = get_mbs_coreset_config(cell->common_channels.ServingCellConfigCommon, &cell->radio_config);
+    cell->mbs_search_space = get_mbs_search_space_config(cell->mbs_coreset, &cell->radio_config);
+  }
+  nr_mbs_broadcast_session_t sessions[NR_MAX_MBS_GROUPS];
+  int n = 0;
+  for (nr_mbs_group_t *const *g = mac->UE_info.mbs_group_list; *g; g++) {
+    const nr_mbs_group_t *group = *g;
+    if (group->cell != cell || !group->config.broadcast)
+      continue;
+    nr_mbs_broadcast_session_t *s = &sessions[n++];
+    memcpy(s->service_id, group->config.tmgi, sizeof(s->service_id));
+    s->g_rnti = group->g_rnti;
+    s->lcid = group->config.lcid;
+    s->t_reassembly = group->ptm_rlc_bearer->rlc_Config->choice.um_Uni_Directional_DL->dl_UM_RLC.t_Reassembly;
+  }
+  return get_SIB20_NR(cell->mbs_coreset, n, sessions);
+}
+
+/* the SI message of the Rel-17 SIBs the DU generates itself, built again whenever one of them changes */
+static void encode_du_sibs_v17(nr_cell_sched_t *cell)
+{
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  NR_SystemInformation_IEs_t *sysInfov17 = calloc_or_fail(1, sizeof(*sysInfov17));
+  seq_arr_t *du_SIBs = cc->du_SIBs;
+  for (int i = 0; du_SIBs && i < du_SIBs->size; i++) {
+    const nr_SIBs_t *si = (nr_SIBs_t *)seq_arr_at(du_SIBs, i);
+    struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc_or_fail(1, sizeof(*type_du));
+    switch (si->SIB_type) {
+      case NR_SIB_19:
+        type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
+        type_du->choice.sib19_v1700 = get_SIB19_NR(cc->ServingCellConfigCommon);
+        break;
+      case NR_SIB_20:
+        type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib20_v1700;
+        type_du->choice.sib20_v1700 = get_cell_SIB20(cell);
+        break;
+      default:
+        AssertFatal(false, "Invalid or not supported DU SIB%d\n", (int)si->SIB_type);
+    }
+    add_sib_to_systeminformation(sysInfov17, type_du);
+  }
+  cc->other_sib_bcch_length[1] = encode_sysinfo_ie(sysInfov17, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]));
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
+}
+
+/** @brief Announces the broadcast sessions of the cell in SIB20 again, after one was added or released. Must be called
+ * with the scheduler lock held.
+ * @return false if the cell does not broadcast SIB20, in which case no UE can find the sessions */
+bool nr_mac_update_sib20(nr_cell_sched_t *cell)
+{
+  if (!cell_has_du_sib(cell, NR_SIB_20))
+    return false;
+  encode_du_sibs_v17(cell);
+  AssertFatal(cell->common_channels.other_sib_bcch_length[1] > 0, "could not encode SIB20\n");
+  return true;
+}
+
 bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib])
 {
   NR_COMMON_channels_t *cc = &cell->common_channels;
@@ -1082,7 +1155,6 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
 
   int config_sibs[num_cu_sib + num_du_sib];
   NR_SystemInformation_IEs_t *sysInfo = calloc(1, sizeof(*sysInfo)); //for SIB up to 14 included
-  NR_SystemInformation_IEs_t *sysInfov17 = calloc(1, sizeof(*sysInfov17)); // for othersibs
   for (int i = 0; i < num_cu_sib; i++) {
     config_sibs[i] = cu_sib[i].SI_type;
     const byte_array_t *container = &cu_sib[i].SI_container;
@@ -1144,30 +1216,25 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
     nr_SIBs_t *si = (nr_SIBs_t *)seq_arr_at(du_SIBs, i);
     int sib_idx = i + num_cu_sib;
     config_sibs[sib_idx] = si->SIB_type;
-    switch (config_sibs[sib_idx]) {
-      case NR_SIB_19: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));
-        type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
-        NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);
-        type_du->choice.sib19_v1700 = sib19;
-        add_sib_to_systeminformation(sysInfov17, type_du);
-        break;
-      }
-      default :
-        AssertFatal(false, "Invalid or not supported SIB%d\n", sib_idx);
-    }
+    AssertFatal(si->SIB_type == NR_SIB_19 || si->SIB_type == NR_SIB_20, "Invalid or not supported SIB%d\n", (int)si->SIB_type);
   }
 
   update_SIB1_NR_SI(cc->sib1, num_cu_sib + num_du_sib, config_sibs);
+  if (cell_has_du_sib(cell, NR_SIB_20)) {
+    /* creates the MBS search space, which SIB1 then points at as the one of the MTCH */
+    NR_SIB20_r17_t *sib20 = get_cell_SIB20(cell);
+    ASN_STRUCT_FREE(asn_DEF_NR_SIB20_r17, sib20);
+    add_SIB1_mtch_search_space(cc->sib1, cell->mbs_search_space);
+    LOG_I(NR_MAC, "MBS: SIB20 is broadcast, search space %ld is the one of the MTCH\n", cell->mbs_search_space->searchSpaceId);
+  }
   cc->sib1_bcch_length = encode_SIB_NR(cc->sib1, cc->sib1_bcch_pdu, sizeof(cc->sib1_bcch_pdu));
   AssertFatal(cc->sib1_bcch_length > 0, "could not encode SIB1\n");
 
   // generate otherSIB payloads
   cc->other_sib_bcch_length[0] = encode_sysinfo_ie(sysInfo, cc->other_sib_bcch_pdu[0], sizeof(cc->other_sib_bcch_pdu[0]));
-  cc->other_sib_bcch_length[1] = encode_sysinfo_ie(sysInfov17, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]));
+  encode_du_sibs_v17(cell);
 
   ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfo);
-  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
   return true;
 }
 
@@ -1231,16 +1298,8 @@ static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_u
   sib19_PosVel->velocityVY_r17 = vel->Y;
   sib19_PosVel->velocityVZ_r17 = vel->Z;
 
-  NR_SystemInformation_IEs_t *sysInfov17 = calloc(1, sizeof(*sysInfov17)); // for othersibs
-  struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));
-  type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
-  NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);
-  type_du->choice.sib19_v1700 = sib19;
-  add_sib_to_systeminformation(sysInfov17, type_du);
-
-  cc->other_sib_bcch_length[1] = encode_sysinfo_ie(sysInfov17, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]));
+  encode_du_sibs_v17(cell);
   AssertFatal(cc->other_sib_bcch_length[1] > 0, "could not encode SIB19\n");
-  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
 }
 
 bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)

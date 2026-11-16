@@ -26,6 +26,11 @@
 #include "bits.h"
 
 #include "NR_MeasurementTimingConfiguration.h"
+#include "NR_MBSBroadcastConfiguration-r17.h"
+#include "NR_MBSBroadcastConfiguration-r17-IEs.h"
+#include "NR_MBS-SessionInfo-r17.h"
+#include "NR_MRB-InfoBroadcast-r17.h"
+#include "NR_CFR-ConfigMCCH-MTCH-r17.h"
 #include "uper_decoder.h"
 #include "uper_encoder.h"
 #include "utils.h"
@@ -3129,6 +3134,90 @@ NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc)
   const int copy_result = asn_copy(&asn_DEF_NR_NTN_Config_r17, (void **) &sib19->ntn_Config_r17, scc->ext2->ntn_Config_r17);
   AssertFatal(copy_result == 0, "Was unable to copy ntn_Config_r17 from scc to SIB19 structure\n");
   return sib19;
+}
+
+/* MBSBroadcastConfiguration (TS 38.331 §5.9.2): the broadcast sessions of the cell, each with its TMGI, its G-RNTI and
+ * the configuration of its MRB. Receivers take everything they need from it, without the network knowing them */
+static NR_MBSBroadcastConfiguration_r17_t *get_mbs_broadcast_config(int num_sessions,
+                                                                    const nr_mbs_broadcast_session_t sessions[num_sessions])
+{
+  NR_MBSBroadcastConfiguration_r17_t *cfg = calloc_or_fail(1, sizeof(*cfg));
+  cfg->criticalExtensions.present = NR_MBSBroadcastConfiguration_r17__criticalExtensions_PR_mbsBroadcastConfiguration_r17;
+  NR_MBSBroadcastConfiguration_r17_IEs_t *ies = calloc_or_fail(1, sizeof(*ies));
+  cfg->criticalExtensions.choice.mbsBroadcastConfiguration_r17 = ies;
+  if (num_sessions == 0)
+    return cfg;
+
+  ies->mbs_SessionInfoList_r17 = calloc_or_fail(1, sizeof(*ies->mbs_SessionInfoList_r17));
+  for (int i = 0; i < num_sessions; i++) {
+    asn1cSequenceAdd(ies->mbs_SessionInfoList_r17->list, NR_MBS_SessionInfo_r17_t, session);
+    /* the PLMN of the TMGI is the first one of SIB1: a single PLMN is broadcast */
+    session->mbs_SessionId_r17.plmn_Id_r17.present = NR_TMGI_r17__plmn_Id_r17_PR_plmn_Index;
+    session->mbs_SessionId_r17.plmn_Id_r17.choice.plmn_Index = 1;
+    OCTET_STRING_fromBuf(&session->mbs_SessionId_r17.serviceId_r17, (const char *)sessions[i].service_id, 3);
+    session->g_RNTI_r17 = sessions[i].g_rnti;
+
+    /* one MRB per session. Broadcast leaves no choice for the SN sizes: 12 bits in PDCP, 6 bits in RLC */
+    asn1cSequenceAdd(session->mrb_ListBroadcast_r17.list, NR_MRB_InfoBroadcast_r17_t, mrb);
+    asn1cCallocOne(mrb->pdcp_Config_r17.pdcp_SN_SizeDL_r17, NR_MRB_PDCP_ConfigBroadcast_r17__pdcp_SN_SizeDL_r17_len12bits);
+    mrb->pdcp_Config_r17.headerCompression_r17.present = NR_MRB_PDCP_ConfigBroadcast_r17__headerCompression_r17_PR_notUsed;
+    asn1cCallocOne(mrb->pdcp_Config_r17.t_Reordering_r17, NR_MRB_PDCP_ConfigBroadcast_r17__t_Reordering_r17_ms160);
+    mrb->rlc_Config_r17.logicalChannelIdentity_r17 = sessions[i].lcid;
+    asn1cCallocOne(mrb->rlc_Config_r17.sn_FieldLength_r17, NR_MRB_RLC_ConfigBroadcast_r17__sn_FieldLength_r17_size6);
+    asn1cCallocOne(mrb->rlc_Config_r17.t_Reassembly_r17, sessions[i].t_reassembly);
+  }
+  return cfg;
+}
+
+/* SIB20 (TS 38.331 §6.3.1): says where the MCCH is, and gives the CORESET the broadcast PDCCHs are sent in.
+ *
+ * INTERIM: there is no MCCH yet, so the message that belongs on it -- MBSBroadcastConfiguration, the list of sessions --
+ * is carried in the lateNonCriticalExtension of SIB20 instead, and the UE reads SIB20 again periodically to follow it.
+ * The message is the real one, so only its transport changes when the MCCH exists; the mcch-Config below is valid but
+ * describes a channel that is not transmitted */
+NR_SIB20_r17_t *get_SIB20_NR(const NR_ControlResourceSet_t *coreset,
+                             int num_sessions,
+                             const nr_mbs_broadcast_session_t sessions[num_sessions])
+{
+  NR_SIB20_r17_t *sib20 = calloc_or_fail(1, sizeof(*sib20));
+  NR_MCCH_Config_r17_t *mcch = &sib20->mcch_Config_r17;
+  mcch->mcch_RepetitionPeriodAndOffset_r17.present = NR_MCCH_RepetitionPeriodAndOffset_r17_PR_rf32_r17;
+  mcch->mcch_RepetitionPeriodAndOffset_r17.choice.rf32_r17 = 0;
+  mcch->mcch_WindowStartSlot_r17 = 0;
+  mcch->mcch_ModificationPeriod_r17 = NR_MCCH_Config_r17__mcch_ModificationPeriod_r17_rf32;
+
+  sib20->cfr_ConfigMCCH_MTCH_r17 = calloc_or_fail(1, sizeof(*sib20->cfr_ConfigMCCH_MTCH_r17));
+  const int copy_result = asn_copy(&asn_DEF_NR_ControlResourceSet,
+                                   (void **)&sib20->cfr_ConfigMCCH_MTCH_r17->commonControlResourceSetExt_r17,
+                                   coreset);
+  AssertFatal(copy_result == 0, "unable to copy the MBS CORESET into SIB20\n");
+
+  NR_MBSBroadcastConfiguration_r17_t *cfg = get_mbs_broadcast_config(num_sessions, sessions);
+  uint8_t buf[1024];
+  asn_enc_rval_t enc = uper_encode_to_buffer(&asn_DEF_NR_MBSBroadcastConfiguration_r17, NULL, cfg, buf, sizeof(buf));
+  AssertFatal(enc.encoded > 0, "could not encode MBSBroadcastConfiguration (failed at %s)\n", enc.failed_type ? enc.failed_type->name : "?");
+  sib20->lateNonCriticalExtension = calloc_or_fail(1, sizeof(*sib20->lateNonCriticalExtension));
+  OCTET_STRING_fromBuf(sib20->lateNonCriticalExtension, (const char *)buf, (enc.encoded + 7) / 8);
+  ASN_STRUCT_FREE(asn_DEF_NR_MBSBroadcastConfiguration_r17, cfg);
+  return sib20;
+}
+
+/* The search space of the broadcast PDCCHs belongs to the common configuration of the initial BWP, where
+ * searchSpaceMTCH points at it (TS 38.331 §6.3.2 PDCCH-ConfigCommon). Its CORESET is the one of SIB20 */
+void add_SIB1_mtch_search_space(NR_BCCH_DL_SCH_Message_t *sib1_bcch, const NR_SearchSpace_t *ss)
+{
+  NR_SIB1_t *sib1 = sib1_bcch->message.choice.c1->choice.systemInformationBlockType1;
+  NR_PDCCH_ConfigCommon_t *pdcch = sib1->servingCellConfigCommon->downlinkConfigCommon.initialDownlinkBWP.pdcch_ConfigCommon->choice.setup;
+  if (pdcch->ext3 && pdcch->ext3->searchSpaceMTCH_r17)
+    return;
+  AssertFatal(pdcch->commonSearchSpaceList->list.count < 4, "no room for the MTCH search space in commonSearchSpaceList\n");
+  NR_SearchSpace_t *ss_copy = NULL;
+  const int copy_result = asn_copy(&asn_DEF_NR_SearchSpace, (void **)&ss_copy, ss);
+  AssertFatal(copy_result == 0, "unable to copy the MBS search space into SIB1\n");
+  asn1cSeqAdd(&pdcch->commonSearchSpaceList->list, ss_copy);
+  if (!pdcch->ext3)
+    pdcch->ext3 = calloc_or_fail(1, sizeof(*pdcch->ext3));
+  asn1cCallocOne(pdcch->ext3->searchSpaceMTCH_r17, ss->searchSpaceId);
 }
 
 void free_SIB19_NR(NR_BCCH_DL_SCH_Message_t *sib19)

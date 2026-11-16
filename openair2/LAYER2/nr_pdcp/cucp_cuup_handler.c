@@ -140,6 +140,36 @@ static instance_t get_n3_gtp_instance(void)
   return inst->gtpInstN3;
 }
 
+/* Set up a broadcast session's user plane at the CU-UP.
+ *
+ * Reached two ways, as every other bearer operation is: directly in a
+ * monolithic gNB, and over E1AP when the CU is split. Only the caller
+ * differs -- what has to happen is the same, because N3 terminates wherever
+ * the user plane lives. */
+void e1_bc_bearer_context_setup(const e1ap_bc_bearer_setup_req_t *req)
+{
+  LOG_A(E1AP,
+        "MBS: broadcast bearer context for TMGI %02x%02x%02x%02x%02x%02x, MRB %ld, SST %d\n",
+        req->tmgi[0], req->tmgi[1], req->tmgi[2], req->tmgi[3], req->tmgi[4], req->tmgi[5],
+        req->mrb_id, req->sst);
+  if (!req->tnl_present) {
+    LOG_W(E1AP, "MBS: broadcast bearer context without a tunnel, nothing to terminate\n");
+    return;
+  }
+  const instance_t n3inst = get_n3_gtp_instance();
+  const in_addr_t local = gtpv1uGetLocalAddr(n3inst);
+  const instance_t mc = gtpv1InitMulticast(req->multicast_addr, req->source_addr, local, 2152);
+  if (mc < 0) {
+    LOG_E(E1AP, "MBS: could not join the broadcast group, the session will not deliver\n");
+    return;
+  }
+  if (!gtpv1uRegisterIncomingTeid(req->c_teid, 0, req->mrb_id, nr_pdcp_mbs_broadcast_deliver)) {
+    LOG_E(E1AP, "MBS: could not listen on the broadcast TEID 0x%x\n", req->c_teid);
+    return;
+  }
+  LOG_A(E1AP, "MBS: broadcast user plane up on TEID 0x%x\n", req->c_teid);
+}
+
 /** @brief Fill and send request to create GTP-U tunnel (N3). One tunnel per PDU session. */
 static UP_TL_information_t n3_gtpu_create(const gtpv1u_gnb_create_tunnel_req_t *req)
 {

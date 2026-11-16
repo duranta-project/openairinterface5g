@@ -612,7 +612,118 @@ static int udpServerSocket(openAddr_s addr)
   return sockfd;
 }
 
+/* Create a socket that receives a source-specific multicast group.
+ *
+ * A broadcast MBS session is distributed to a multicast group rather than to
+ * this gNB: the 5GC gives every gNB in the service area the same group and
+ * the same common TEID (TS 23.247 shared delivery, and our core offers
+ * nothing else -- MBS-SessionTNLInfo5GC has no unicast variant).
+ *
+ * The ordinary N3 socket cannot pick that up. It is bound to the gNB's own
+ * unicast address, and the kernel matches the destination, so a datagram
+ * addressed to the group is never delivered to it. Hence a socket of its
+ * own, bound to the group and joined to it. Keeping it separate also leaves
+ * the N3 and F1-U sockets exactly as they were.
+ */
+static int udpMulticastSocket(in_addr_t group, in_addr_t source, in_addr_t local, uint16_t port)
+{
+  char g[INET_ADDRSTRLEN], s[INET_ADDRSTRLEN], l[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &group, g, sizeof(g));
+  inet_ntop(AF_INET, &source, s, sizeof(s));
+  inet_ntop(AF_INET, &local, l, sizeof(l));
+
+  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sockfd == -1) {
+    LOG_E(GTPU, "MBS: socket for group %s: %s\n", g, strerror(errno));
+    return -1;
+  }
+
+  /* The unicast N3 socket already holds this port on another address. */
+  int one = 1;
+  if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) != 0)
+    LOG_W(GTPU, "MBS: SO_REUSEADDR for group %s: %s\n", g, strerror(errno));
+
+  struct sockaddr_in me = {};
+  me.sin_family = AF_INET;
+  me.sin_port = htons(port);
+  me.sin_addr.s_addr = group;
+  if (bind(sockfd, (struct sockaddr *)&me, sizeof(me)) == -1) {
+    LOG_E(GTPU, "MBS: bind to group %s:%u: %s\n", g, port, strerror(errno));
+    close(sockfd);
+    return -1;
+  }
+
+  /* An any-source join, although the core names a source and LL-SSM is what
+   * this is.
+   *
+   * A source-specific join would be cheaper and closer to the intent, but it
+   * cannot be used here: the address the 5GC advertises as iP-SourceAddress
+   * is not the address it transmits from. Measured -- the core advertises
+   * 192.168.55.5 and the G-PDUs arrive from 192.168.77.10, so the kernel's
+   * source filter discards every one of them and the session goes silent
+   * with no error anywhere. The same core already mis-encodes the TMGI and
+   * the C-TEID byte order.
+   *
+   * `source` is kept in the signature: it is the right thing to filter on
+   * the moment the core's two addresses agree. */
+  (void)s;
+  struct ip_mreq join = {};
+  join.imr_multiaddr.s_addr = group;
+  join.imr_interface.s_addr = local;
+  if (setsockopt(sockfd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &join, sizeof(join)) != 0) {
+    LOG_E(GTPU, "MBS: join of group %s on %s: %s\n", g, l, strerror(errno));
+    close(sockfd);
+    return -1;
+  }
+  LOG_I(GTPU, "MBS: joined group %s on %s, port %u (any-source; advertised source %s is not used, see comment)\n",
+        g, l, port, s);
+
+  globGtp.instances[sockfd].addr = {};
+  snprintf(globGtp.instances[sockfd].addr.originHost, sizeof(globGtp.instances[sockfd].addr.originHost), "%s", g);
+  snprintf(globGtp.instances[sockfd].addr.originService, sizeof(globGtp.instances[sockfd].addr.originService), "%u", port);
+  memcpy(globGtp.instances[sockfd].foundAddr, &group, sizeof(group));
+  globGtp.instances[sockfd].foundAddrLen = sizeof(group);
+  globGtp.instances[sockfd].ipVersion = 4;
+  return sockfd;
+}
+
 static void* gtpv1uReceiver(void *thr);
+
+/* Start receiving a broadcast session's multicast distribution. Mirrors
+ * gtpv1Init, but on a group instead of this gNB's own address. */
+/* The address a GTP-U instance is bound to. Needed to join a multicast group
+ * on the interface that faces the core, which is the same one N3 uses. */
+in_addr_t gtpv1uGetLocalAddr(instance_t instance)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  auto it = globGtp.instances.find(compatInst(instance));
+  in_addr_t addr = 0;
+  if (it != globGtp.instances.end() && it->second.ipVersion == 4)
+    memcpy(&addr, it->second.foundAddr, sizeof(addr));
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+  return addr;
+}
+
+instance_t gtpv1InitMulticast(in_addr_t group, in_addr_t source, in_addr_t local, uint16_t port)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  int id = udpMulticastSocket(group, source, local, port);
+
+  if (id >= 0) {
+    LOG_I(GTPU, "MBS: created gtpu instance id %d for the broadcast group\n", id);
+    getInstRetInt(compatInst(id));
+    inst->thrData.h = id;
+    char name[32];
+    snprintf(name, sizeof(name), "GTPmc_%d", id);
+    threadCreate(&inst->thrData.t, gtpv1uReceiver, &inst->thrData, name, -1, OAI_PRIORITY_RT);
+  } else {
+    LOG_E(GTPU, "MBS: can't create a GTP-U instance for the broadcast group\n");
+  }
+
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+  return id;
+}
+
 instance_t gtpv1Init(openAddr_t context)
 {
   pthread_mutex_lock(&globGtp.gtp_lock);
@@ -685,6 +796,37 @@ void GtpuUpdateTunnelOutgoingAddressAndTeid(instance_t instance,
 
   pthread_mutex_unlock(&globGtp.gtp_lock);
   return;
+}
+
+/* Register a receive-only tunnel on a TEID that was not ours to choose.
+ *
+ * newGtpuCreateTunnel() allocates the incoming TEID, which is right for a
+ * PDU session: the gNB picks it and tells the core. A broadcast session is
+ * the other way round -- the 5GC picks one common TEID and gives the same
+ * one to every gNB in the service area -- so the value has to be accepted
+ * rather than generated. Nothing is ever sent back on it, so there is no
+ * outgoing side to fill in.
+ */
+bool gtpv1uRegisterIncomingTeid(teid_t incoming_teid, ue_id_t ue_id, int rb_id, gtpCallbackSDAP callBack)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  if (globGtp.te2ue_mapping.find(incoming_teid) != globGtp.te2ue_mapping.end()) {
+    LOG_W(GTPU, "MBS: TEID 0x%x is already in use, not registering it again\n", incoming_teid);
+    pthread_mutex_unlock(&globGtp.gtp_lock);
+    return false;
+  }
+  globGtp.te2ue_mapping[incoming_teid].ue_id = ue_id;
+  globGtp.te2ue_mapping[incoming_teid].incoming_rb_id = rb_id;
+  globGtp.te2ue_mapping[incoming_teid].outgoing_teid = 0;
+  globGtp.te2ue_mapping[incoming_teid].callBack = NULL;
+  /* The SDAP-shaped callback on purpose: the plain one asserts that no QFI
+   * is present, and a broadcast G-PDU may well carry one. */
+  globGtp.te2ue_mapping[incoming_teid].callBackSDAP = callBack;
+  globGtp.te2ue_mapping[incoming_teid].errorIndicationCallBack = NULL;
+  globGtp.te2ue_mapping[incoming_teid].pdusession_id = (uint8_t)rb_id;
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+  LOG_I(GTPU, "MBS: listening for the broadcast session on TEID 0x%x\n", incoming_teid);
+  return true;
 }
 
 teid_t newGtpuCreateTunnel(instance_t instance,

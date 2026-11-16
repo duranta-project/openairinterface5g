@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
-set(NGAP_VERSION 15 8 0)
+set(NGAP_VERSION 17 10 0)
 make_version(NGAP_cc ${NGAP_VERSION})
 #add_definitions(-DNGAP_VERSION=${NGAP_cc})
 string(REPLACE ";" "." NGAP_RELEASE "${NGAP_VERSION}")
 
 if(NGAP_RELEASE VERSION_EQUAL "15.8.0")
   include(ASN1/ngap-15.8.0.cmake)
+elseif(NGAP_RELEASE VERSION_EQUAL "17.10.0")
+  include(ASN1/ngap-17.10.0.cmake)
 else()
   message(FATAL_ERROR "unknown NGAP_RELEASE ${NGAP_RELEASE}")
 endif()

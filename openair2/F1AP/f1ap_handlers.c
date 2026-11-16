@@ -10,6 +10,7 @@
 #include "f1ap_cu_ue_context_management.h"
 #include "f1ap_du_ue_context_management.h"
 #include "f1ap_du_paging.h"
+#include "f1ap_mbs.h"
 #include "f1ap_du_positioning.h"
 #include "f1ap_cu_positioning.h"
 
@@ -85,6 +86,7 @@ static const f1ap_message_processing_t f1ap_messages_processing[][3] = {
     {0, 0, 0}, /* PositioningInformationUpdate */
     {0, 0, 0}, /* ReferenceTimeInformationReport */
     {0, 0, 0}, /* ReferenceTimeInformationReportingControl */
+    {DU_handle_BROADCAST_CONTEXT_SETUP_REQUEST, 0, 0} /* BroadcastContextSetup */
 };
 
 const char *f1ap_direction2String(int f1ap_dir) {

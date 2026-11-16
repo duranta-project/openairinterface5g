@@ -165,11 +165,21 @@ static void positioning_measurement_request_f1ap(sctp_assoc_t assoc_id, const f1
   itti_send_msg_to_task(TASK_CU_F1, 0, message_p);
 }
 
+static void broadcast_context_setup_f1ap(sctp_assoc_t assoc_id, const f1ap_broadcast_ctx_setup_t *req)
+{
+  DevAssert(req != NULL);
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_GNB, 0, F1AP_BROADCAST_CONTEXT_SETUP_REQ);
+  msg->ittiMsgHeader.originInstance = assoc_id;
+  F1AP_BROADCAST_CONTEXT_SETUP_REQ(msg) = *req;
+  itti_send_msg_to_task(TASK_CU_F1, 0, msg);
+}
+
 void mac_rrc_dl_f1ap_init(nr_mac_rrc_dl_if_t *mac_rrc)
 {
   mac_rrc->f1_reset = f1_reset_cu_initiated_f1ap;
   mac_rrc->f1_reset_acknowledge = f1_reset_acknowledge_du_initiated_f1ap;
   mac_rrc->f1_setup_response = f1_setup_response_f1ap;
+  mac_rrc->broadcast_context_setup = broadcast_context_setup_f1ap;
   mac_rrc->f1_setup_failure = f1_setup_failure_f1ap;
   mac_rrc->gnb_du_configuration_update_acknowledge = gnb_du_configuration_update_ack_f1ap;
   mac_rrc->ue_context_setup_request = ue_context_setup_request_f1ap;

@@ -72,7 +72,7 @@
 #include "F1AP_UL-AoA.h"
 #include "F1AP_UL-RTOA-Measurement.h"
 #include "F1AP_GNB-RxTxTimeDiff.h"
-#include "F1AP_LCS-to-GCS-TranslationAoA.h"
+#include "F1AP_LCS-to-GCS-Translation.h"
 #include "F1AP_CNUEPagingIdentity.h"
 #include "F1AP_RANUEPagingIdentity.h"
 #include "F1AP_PagingIdentity.h"

@@ -25,6 +25,9 @@ typedef void (*ue_context_release_command_func_t)(sctp_assoc_t assoc_id, const f
 typedef void (*dl_rrc_message_transfer_func_t)(sctp_assoc_t assoc_id, const f1ap_dl_rrc_message_t *dl_rrc);
 typedef void (*f1_paging_transfer_func_t)(sctp_assoc_t assoc_id, const f1ap_paging_t *paging);
 
+/* A broadcast session has no UE, so this is not a UE context procedure. */
+typedef void (*broadcast_context_setup_func_t)(sctp_assoc_t assoc_id, const f1ap_broadcast_ctx_setup_t *req);
+
 typedef void (*trp_information_request_func_t)(sctp_assoc_t assoc_id, const f1ap_trp_information_req_t *req);
 typedef void (*positioning_information_request_func_t)(sctp_assoc_t assoc_id, const f1ap_positioning_information_req_t *req);
 typedef void (*positioning_activation_request_func_t)(sctp_assoc_t assoc_id, const f1ap_positioning_activation_req_t *req);

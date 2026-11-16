@@ -104,6 +104,21 @@ sctp_assoc_t get_existing_cuup_for_ue(const gNB_RRC_UE_t *ue)
   return ue_data.e1_assoc_id;
 }
 
+/* Any connected CU-UP.
+ *
+ * The per-UE selectors above cannot serve a broadcast session, which has no
+ * UE to select for. One CU-UP is the assumption everywhere in this code
+ * path; choosing between several is a question for when a session can be
+ * confined to a service area. */
+sctp_assoc_t get_any_cuup(void)
+{
+  const gNB_RRC_INST *rrc = RC.nrrrc[0];
+  if (rrc == NULL || RB_EMPTY(&rrc->cuups))
+    return 0;
+  const nr_rrc_cuup_container_t *c = RB_ROOT(&rrc->cuups);
+  return c != NULL ? c->assoc_id : 0;
+}
+
 sctp_assoc_t get_new_cuup_for_ue(const gNB_RRC_INST *rrc, const gNB_RRC_UE_t *ue, int sst, int sd)
 {
   /* check if there is already a UE associated */

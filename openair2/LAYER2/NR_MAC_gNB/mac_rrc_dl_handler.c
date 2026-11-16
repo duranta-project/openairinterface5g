@@ -5,6 +5,7 @@
 #include "mac_rrc_dl_handler.h"
 
 #include "mac_proto.h"
+#include "openair2/LAYER2/nr_pdcp/nr_pdcp_mbs_test.h"
 #include "nr_radio_config.h"
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/F1AP/f1ap_common.h"
@@ -1370,4 +1371,65 @@ void positioning_measurement_request(const f1ap_positioning_measurement_req_t *r
   pos_meas_info->meas_req = cp_positioning_measurement_req(req);
   pos_meas_info->active = true;
   NR_SCHED_UNLOCK(&mac->sched_lock);
+}
+
+/* Broadcast Context Setup, at the DU.
+ *
+ * The session the core created has reached the component that puts it on the
+ * air. Everything the DU needs to announce it -- the TMGI, the bearer -- now
+ * comes from the network rather than from a file beside the binary. */
+void broadcast_context_setup(const f1ap_broadcast_ctx_setup_t *req)
+{
+  DevAssert(req != NULL);
+  gNB_MAC_INST *mac = RC.nrmac[0];
+  NR_SCHED_LOCK(&mac->sched_lock);
+  nr_cell_sched_t *cell = nr_mac_get_cell_by_cgi(mac, req->plmn, req->nr_cellid);
+  if (cell == NULL) {
+    NR_SCHED_UNLOCK(&mac->sched_lock);
+    LOG_E(NR_MAC, "MBS: broadcast context for a cell this DU does not serve\n");
+    return;
+  }
+  /* Broadcast has no membership, so nothing can report what it missed: no
+   * HARQ feedback, and the session is sent at a fixed rate that every
+   * receiver can decode instead. Multicast is where ACK/NACK belongs. */
+  nr_mbs_group_config_t config = {
+      .config_id = 0,
+      .mrb_id = req->mrb_id,
+      /* LCID 32 is the MTCH, and four HARQ processes reserved for PTM --
+       * the values his test adapter used. They belong in the F1AP message
+       * once TS 38.473 carries them. */
+      .lcid = 32,
+      .harq_feedback = NR_MBS_HARQ_FEEDBACK_DISABLED,
+      .num_harq = 4,
+      .broadcast = true,
+      /* The highest QPSK entry of the table. It belongs in the
+       * configuration, next to whatever decides the coverage of a session. */
+      .mcs = 9,
+  };
+  memcpy(config.tmgi, req->tmgi, sizeof(config.tmgi));
+  const nr_mbs_group_t *group = nr_mac_add_mbs_group(mac, cell, &config);
+  /* Announce it: from here on any UE that reads SIB20 can receive the
+   * session, connected or not, and the gNB does not know which ones do. */
+  const bool announced = group != NULL && nr_mac_update_sib20(cell);
+  NR_SCHED_UNLOCK(&mac->sched_lock);
+  if (group == NULL) {
+    LOG_E(NR_MAC, "MBS: could not create the group for MRB %ld\n", req->mrb_id);
+    return;
+  }
+  LOG_A(NR_MAC,
+        "MBS: group for TMGI %02x%02x%02x%02x%02x%02x on G-RNTI %04x, MRB %ld\n",
+        req->tmgi[0], req->tmgi[1], req->tmgi[2], req->tmgi[3], req->tmgi[4], req->tmgi[5],
+        group->g_rnti, req->mrb_id);
+  if (!announced)
+    LOG_E(NR_MAC, "MBS: this cell does not broadcast SIB20 (du_sibs), so no UE can find the session\n");
+
+  /* The session's MRB. It belongs to the CU-UP's bearer setup, and lands here
+   * only because the PDCP context id is derived from the G-RNTI the MAC just
+   * allocated -- which the CU-UP has no way to learn until the DU reports it
+   * back in the F1AP response. The SN size and t-Reordering are the fixed
+   * values of nr_pdcp_mbs_test.h until the PDCP-Config of the session is
+   * carried over E1. */
+  const ue_id_t pdcp_context = NR_PDCP_MBS_CONTEXT_ID(group->g_rnti);
+  nr_pdcp_add_mrb(true, pdcp_context, req->mrb_id, 0, NR_MBS_TEST_PDCP_SN_SIZE, NR_MBS_TEST_PDCP_T_REORDERING);
+  nr_pdcp_mbs_set_context(pdcp_context, req->mrb_id);
 }

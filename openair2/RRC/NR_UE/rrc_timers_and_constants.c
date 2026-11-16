@@ -24,6 +24,9 @@ void init_SI_timers(NR_UE_RRC_SI_INFO *SInfo)
   nr_timer_setup(&SInfo->sib13_timer, 10800000, 10);
   nr_timer_setup(&SInfo->sib14_timer, 10800000, 10);
   nr_timer_setup(&SInfo->SInfo_r17.sib19_timer, 10800000, 10);
+  /* INTERIM: SIB20 carries the list of MBS broadcast sessions until there is an MCCH. A stored SIB20 is therefore only
+   * trusted for about as long as an MCCH modification period would last, then read again */
+  nr_timer_setup(&SInfo->SInfo_r17.sib20_timer, 1280, 10);
 }
 
 void nr_rrc_SI_timers(NR_UE_RRC_SI_INFO *SInfo)
@@ -102,6 +105,11 @@ void nr_rrc_SI_timers(NR_UE_RRC_SI_INFO *SInfo)
    bool sib19_expired = nr_timer_tick(&SInfo->SInfo_r17.sib19_timer);
    if (sib19_expired)
      SInfo->SInfo_r17.sib19_validity = false;
+  }
+  if (SInfo->SInfo_r17.sib20_validity) {
+    bool sib20_expired = nr_timer_tick(&SInfo->SInfo_r17.sib20_timer);
+    if (sib20_expired)
+      SInfo->SInfo_r17.sib20_validity = false;
   }
 }
 

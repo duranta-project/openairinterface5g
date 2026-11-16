@@ -40,6 +40,13 @@ void nr_sdap_set_dl_redirect(sdap_dl_redirect_t redirect)
   sdap_dl_redirect = redirect;
 }
 
+static sdap_mbs_broadcast_tun_t sdap_mbs_broadcast_tun;
+
+void nr_sdap_set_mbs_broadcast_tun(sdap_mbs_broadcast_tun_t tun)
+{
+  sdap_mbs_broadcast_tun = tun;
+}
+
 bool sdap_data_req(protocol_ctxt_t *ctxt_p,
                    const ue_id_t ue_id,
                    const srb_flag_t srb_flag,
@@ -94,6 +101,16 @@ void sdap_mrb_data_ind(ue_id_t ue_id, int pdusession_id, const char *buf, int si
 {
   /* TS 37.324 §5.2.2: SDAP SDUs of an MRB configured without SDAP header, delivered by the UE to the interface of the PDU
    * session the multicast session is associated with */
+  if (pdusession_id == 0) {
+    /* A broadcast session is not associated with a PDU session, and is received in RRC_IDLE too, when there is no SDAP
+     * entity at all: the interface is asked for instead */
+    const int sock = sdap_mbs_broadcast_tun ? sdap_mbs_broadcast_tun(ue_id) : -1;
+    if (sock < 0)
+      LOG_D(SDAP, "UE %lx: no interface for an MBS broadcast session, MRB SDU of %d bytes dropped\n", ue_id, size);
+    else if (write(sock, buf, size) != size)
+      LOG_E(SDAP, "UE %lx: write of MRB SDU failed: %s\n", ue_id, strerror(errno));
+    return;
+  }
   nr_sdap_entity_t *sdap_entity = nr_sdap_get_entity(ue_id, pdusession_id);
   if (!sdap_entity || sdap_entity->tun.sock < 0) {
     LOG_D(SDAP, "UE %lx: no interface for PDU session %d, MRB SDU of %d bytes dropped\n", ue_id, pdusession_id, size);

@@ -972,6 +972,12 @@ typedef struct nr_mbs_group_config {
   nr_mbs_harq_feedback_t harq_feedback;
   /// number of DL HARQ processes reserved in every member for PTM transmissions
   int num_harq;
+  /// broadcast session (TS 38.300 §16.10.6): announced in the cell, no members, receivers unknown to the gNB
+  bool broadcast;
+  /// TMGI of a broadcast session as received from the 5GC, announced to the UEs
+  uint8_t tmgi[6];
+  /// MCS of a broadcast session: its receivers report nothing, so it cannot follow a CQI
+  int mcs;
 } nr_mbs_group_config_t;
 
 /// state of one HARQ process used for PTM transmissions of a group

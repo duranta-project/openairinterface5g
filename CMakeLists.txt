@@ -580,6 +580,7 @@ add_library(f1ap
             ${F1AP_DIR}/f1ap_cu_paging.c
             ${F1AP_DIR}/f1ap_cu_rrc_message_transfer.c
             ${F1AP_DIR}/f1ap_cu_task.c
+            ${F1AP_DIR}/f1ap_mbs.c
             ${F1AP_DIR}/f1ap_cu_ue_context_management.c
             ${F1AP_DIR}/f1ap_du_interface_management.c
             ${F1AP_DIR}/f1ap_du_paging.c

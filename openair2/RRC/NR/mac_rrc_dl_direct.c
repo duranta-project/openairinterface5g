@@ -108,11 +108,18 @@ static void positioning_measurement_request_direct(sctp_assoc_t assoc_id, const 
   positioning_measurement_request(req);
 }
 
+static void broadcast_context_setup_direct(sctp_assoc_t assoc_id, const f1ap_broadcast_ctx_setup_t *req)
+{
+  AssertFatal(assoc_id == -1, "illegal assoc_id %d\n", assoc_id);
+  broadcast_context_setup(req);
+}
+
 void mac_rrc_dl_direct_init(nr_mac_rrc_dl_if_t *mac_rrc)
 {
   mac_rrc->f1_reset = f1_reset_cu_initiated_direct;
   mac_rrc->f1_reset_acknowledge = f1_reset_acknowledge_du_initiated_direct;
   mac_rrc->f1_setup_response = f1_setup_response_direct;
+  mac_rrc->broadcast_context_setup = broadcast_context_setup_direct;
   mac_rrc->f1_setup_failure = f1_setup_failure_direct;
   mac_rrc->gnb_du_configuration_update_acknowledge = gnb_du_configuration_update_ack_direct;
   mac_rrc->ue_context_setup_request = ue_context_setup_request_direct;

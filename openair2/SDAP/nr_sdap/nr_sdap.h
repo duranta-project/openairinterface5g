@@ -40,6 +40,9 @@ bool sdap_data_req(protocol_ctxt_t *ctxt_p,
  */
 void sdap_data_ind(int drb_id, int is_gnb, int pdusession_id, ue_id_t ue_id, char *buf, int size);
 void sdap_mrb_data_ind(ue_id_t ue_id, int pdusession_id, const char *buf, int size);
+/* the interface the SDUs of MBS broadcast sessions are delivered to in a UE (MRBs with pdusession_id 0), or -1 */
+typedef int (*sdap_mbs_broadcast_tun_t)(ue_id_t ue_id);
+void nr_sdap_set_mbs_broadcast_tun(sdap_mbs_broadcast_tun_t tun);
 /* TEMPORARY test hook, returns true if it took the DL SDAP SDU */
 typedef bool (*sdap_dl_redirect_t)(ue_id_t ue_id, int pdusession_id, const uint8_t *buf, int size);
 void nr_sdap_set_dl_redirect(sdap_dl_redirect_t redirect);

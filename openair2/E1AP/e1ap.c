@@ -2,7 +2,10 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include <arpa/inet.h>
 #include "e1ap.h"
+#include "openair3/ocp-gtpu/gtp_itf.h"
+#include "openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "e1ap_common.h"
 #include "gnb_config.h"
 #include "openair3/UTILS/conversions.h"
@@ -21,7 +24,73 @@
 #include "openair2/E2AP/RAN_FUNCTION/setup_msg_store.h"
 #endif
 
-#define E1AP_NUM_MSG_HANDLERS 14
+/* BC Bearer Context Setup (TS 37.483, Rel-17 MBS).
+ *
+ * The CU-UP side: a broadcast session has arrived at the CU-CP over N2, and
+ * this is how the CU-UP is told about it. Creating the context is all that
+ * happens for now -- the payload still has no way here, which is the user
+ * plane's part and waits on the MBS tunnel. */
+static int e1apCUUP_handle_BC_BEARER_CONTEXT_SETUP_REQUEST(sctp_assoc_t assoc_id,
+                                                           e1ap_upcp_inst_t *inst,
+                                                           const E1AP_E1AP_PDU_t *pdu)
+{
+  UNUSED(inst);
+  DevAssert(pdu != NULL);
+  e1ap_bc_bearer_setup_req_t req = {0};
+  if (!decode_E1_bc_bearer_context_setup_request(&req, pdu)) {
+    LOG_E(E1AP, "Failed to decode BC Bearer Context Setup Request\n");
+    return -1;
+  }
+  LOG_A(E1AP,
+        "MBS: broadcast bearer context for TMGI %02x%02x%02x%02x%02x%02x, MRB %ld, SST %d\n",
+        req.tmgi[0], req.tmgi[1], req.tmgi[2], req.tmgi[3], req.tmgi[4], req.tmgi[5],
+        req.mrb_id, req.sst);
+
+  e1_bc_bearer_context_setup(&req);
+
+  /* The CU-UP's own identifier for the context. One session for now, so it
+   * is derived rather than allocated; a session table replaces this when
+   * there can be more than one. */
+  E1AP_E1AP_PDU_t *resp = encode_E1_bc_bearer_context_setup_response(req.gNB_cu_cp_mbs_e1ap_id,
+                                                                     req.gNB_cu_cp_mbs_e1ap_id);
+  e1ap_encode_send(UPtype, assoc_id, resp, 0, __func__);
+  LOG_A(E1AP, "MBS: broadcast bearer context acknowledged\n");
+  return 0;
+}
+
+static int e1apCUCP_handle_BC_BEARER_CONTEXT_SETUP_RESPONSE(sctp_assoc_t assoc_id,
+                                                            e1ap_upcp_inst_t *inst,
+                                                            const E1AP_E1AP_PDU_t *pdu)
+{
+  UNUSED(assoc_id);
+  UNUSED(inst);
+  UNUSED(pdu);
+  LOG_A(E1AP, "MBS: the CU-UP accepted the broadcast bearer context\n");
+  return 0;
+}
+
+void e1apCUCP_send_BC_BEARER_CONTEXT_SETUP_REQUEST(instance_t instance,
+                                                   sctp_assoc_t assoc_id,
+                                                   const e1ap_bc_bearer_setup_req_t *req)
+{
+  /* Every other bearer context takes its association from the UE it belongs
+   * to. A broadcast session belongs to no UE, so take it from the CU-UP this
+   * CU-CP is connected to. One CU-UP for now; choosing between several is a
+   * question for when a session can be confined to a service area. */
+  if (assoc_id <= 0) {
+    const e1ap_upcp_inst_t *inst = getCxtE1(instance);
+    if (inst != NULL)
+      assoc_id = inst->cuup.assoc_id;
+  }
+  if (assoc_id <= 0) {
+    LOG_E(E1AP, "MBS: no CU-UP to send the broadcast bearer context to\n");
+    return;
+  }
+  E1AP_E1AP_PDU_t *pdu = encode_E1_bc_bearer_context_setup_request(req);
+  e1ap_encode_send(CPtype, assoc_id, pdu, 0, __func__);
+}
+
+#define E1AP_NUM_MSG_HANDLERS 30
 typedef int (*e1ap_message_processing_t)(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst, const E1AP_E1AP_PDU_t *message_p);
 
 /**
@@ -48,8 +117,29 @@ const e1ap_message_processing_t e1ap_message_processing[E1AP_NUM_MSG_HANDLERS][3
      0}, /* bearerContextModificationRequired */
     {e1apCUUP_handle_BEARER_CONTEXT_RELEASE_COMMAND, e1apCUCP_handle_BEARER_CONTEXT_RELEASE_COMPLETE, 0}, /* bearerContextRelease */
     {0, 0, 0}, /* bearerContextReleaseRequired */
-    {0, 0, 0} /* bearerContextInactivityNotification */
+    {0, 0, 0}, /* bearerContextInactivityNotification */
+    /* Rel-17. Listed so the table reaches far enough for the dispatcher to
+     * admit the MBS procedures; only the one we act on has a handler. */
+    {0, 0, 0}, /* dLDataNotification */
+    {0, 0, 0}, /* dataUsageReport */
+    {0, 0, 0}, /* gNB-CU-UP-CounterCheck */
+    {0, 0, 0}, /* gNB-CU-UP-StatusIndication */
+    {0, 0, 0}, /* uLDataNotification */
+    {0, 0, 0}, /* mRDC-DataUsageReport */
+    {0, 0, 0}, /* TraceStart */
+    {0, 0, 0}, /* DeactivateTrace */
+    {0, 0, 0}, /* resourceStatusReportingInitiation */
+    {0, 0, 0}, /* resourceStatusReporting */
+    {0, 0, 0}, /* iAB-UPTNLAddressUpdate */
+    {0, 0, 0}, /* CellTrafficTrace */
+    {0, 0, 0}, /* earlyForwardingSNTransfer */
+    {0, 0, 0}, /* gNB-CU-CPMeasurementResultsInformation */
+    {0, 0, 0}, /* iABPSKNotification */
+    {e1apCUUP_handle_BC_BEARER_CONTEXT_SETUP_REQUEST,
+     e1apCUCP_handle_BC_BEARER_CONTEXT_SETUP_RESPONSE,
+     0} /* BCBearerContextSetup */
 };
+
 
 const char *const e1ap_direction2String(int e1ap_dir)
 {
@@ -715,6 +805,10 @@ void *E1AP_CUCP_task(void *arg)
       case E1AP_BEARER_CONTEXT_SETUP_REQ:
         e1apCUCP_send_BEARER_CONTEXT_SETUP_REQUEST(assoc_id, &E1AP_BEARER_CONTEXT_SETUP_REQ(msg));
         free_e1ap_context_setup_request(&E1AP_BEARER_CONTEXT_SETUP_REQ(msg));
+        break;
+
+      case E1AP_BC_BEARER_CONTEXT_SETUP_REQ:
+        e1apCUCP_send_BC_BEARER_CONTEXT_SETUP_REQUEST(myInstance, assoc_id, &E1AP_BC_BEARER_CONTEXT_SETUP_REQ(msg));
         break;
 
       case E1AP_BEARER_CONTEXT_MODIFICATION_REQ:

@@ -41,4 +41,7 @@ int handle_ue_context_drbs_setup(NR_UE_info_t *UE,
 
 byte_array_t encode_cellgroup_config(const NR_CellGroupConfig_t *cellGroup);
 
+
+void broadcast_context_setup(const f1ap_broadcast_ctx_setup_t *req);
+
 #endif /* MAC_RRC_DL_HANDLER_H */

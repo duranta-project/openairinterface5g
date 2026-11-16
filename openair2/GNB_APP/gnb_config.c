@@ -1090,7 +1090,9 @@ f1ap_gnb_du_system_info_t *get_sys_info(NR_BCCH_BCH_Message_t *mib, const NR_BCC
       nr_SIBs_t *si = (nr_SIBs_t *)seq_arr_at(du_SIBs, i);
       // other SIB in gNB-DU System Information not implemented yet
       // only DU SIB not included in this message is SIB19
-      AssertFatal(si->SIB_type == NR_SIB_19, "Cannot handle SIB%d in gNB-DU System Information\n", (int)si->SIB_type);
+      AssertFatal(si->SIB_type == NR_SIB_19 || si->SIB_type == NR_SIB_20,
+                  "Cannot handle SIB%d in gNB-DU System Information\n",
+                  (int)si->SIB_type);
     }
   }
   return sys_info;

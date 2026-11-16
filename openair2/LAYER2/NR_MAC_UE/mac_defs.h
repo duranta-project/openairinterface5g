@@ -483,6 +483,8 @@ typedef struct {
   long otherSI_SS_id;
   long ra_SS_id;
   long paging_SS_id;
+  /// searchSpaceMTCH of PDCCH-ConfigCommon, for the PDCCHs of MBS broadcast sessions; -1 if absent
+  long mtch_SS_id;
   NR_ControlResourceSet_t *commonControlResourceSet;
   A_SEQUENCE_OF(NR_ControlResourceSet_t) list_Coreset;
   A_SEQUENCE_OF(NR_SearchSpace_t) list_common_SS;
@@ -678,9 +680,15 @@ typedef struct NR_UE_MAC_INST_s {
     int config_id[NR_MAX_G_RNTI];
     /// harq-FeedbackEnablerMulticast with harq-FeedbackOptionMulticast 'ack-nack' (TS 38.213 §18)
     bool harq_feedback[NR_MAX_G_RNTI];
+    /// G-RNTI of a broadcast session, announced in the cell (MBSBroadcastConfiguration) rather than configured in an
+    /// RRCReconfiguration: monitored in the MTCH search space of the initial BWP, also in RRC_IDLE, and kept when
+    /// the connection is released
+    bool broadcast[NR_MAX_G_RNTI];
     NR_SearchSpace_t *search_space;
     /// LCIDs of the MTCHs of PTM RLC entities, which are not in lc_ordered_list
     uint64_t mtch_lcids;
+    /// the same for the MTCHs of broadcast sessions
+    uint64_t broadcast_mtch_lcids;
     /// PTM transport blocks received on a G-RNTI
     uint64_t rx_tb;
   } mbs;

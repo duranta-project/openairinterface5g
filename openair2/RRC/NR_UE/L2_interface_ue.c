@@ -145,6 +145,11 @@ void process_msg_rcc_to_mac(nr_mac_rrc_message_t *msg, int instance_id)
                                   msg->payload.config_other_sib.frame,
                                   msg->payload.config_other_sib.can_start_ra);
     } break;
+    case NR_MAC_RRC_CONFIG_MBS_BROADCAST: {
+      nr_mac_rrc_config_mbs_broadcast_t *bc = &msg->payload.config_mbs_broadcast;
+      nr_rrc_mac_config_mbs_broadcast(instance_id, bc->coreset, bc->num_sessions, bc->g_rnti, bc->lcid);
+      ASN_STRUCT_FREE(asn_DEF_NR_ControlResourceSet, bc->coreset);
+    } break;
     case NR_MAC_RRC_START_RA:
       nr_rrc_mac_start_ra(instance_id, msg->payload.start_ra.cause);
       break;

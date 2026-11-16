@@ -36,6 +36,7 @@ static void cucp_cuup_bearer_context_release_cmd_direct(sctp_assoc_t assoc_id, c
 
 void cucp_cuup_message_transfer_direct_init(gNB_RRC_INST *rrc) {
   rrc->cucp_cuup.bearer_context_setup = cucp_cuup_bearer_context_setup_direct;
+  rrc->cucp_cuup.bc_bearer_context_setup = e1_bc_bearer_context_setup;
   rrc->cucp_cuup.bearer_context_mod = cucp_cuup_bearer_context_modif_direct;
   rrc->cucp_cuup.bearer_context_mod_confirm = cucp_cuup_bearer_context_mod_confirm_direct;
   rrc->cucp_cuup.bearer_context_release = cucp_cuup_bearer_context_release_cmd_direct;

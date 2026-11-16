@@ -649,6 +649,37 @@ static void add_si_msg(served_cells_to_activate_t *cell, int sib_type, const byt
   cell->num_SI++;
 }
 
+/* Any connected DU.
+ *
+ * A broadcast session belongs to no UE, so the per-UE lookups cannot find
+ * the DU to send it to. One DU per CU is the assumption here; announcing a
+ * session on a subset of cells is what the service area is for, and that
+ * comes with the rest of the MBS control plane. */
+sctp_assoc_t get_any_du(void)
+{
+  return get_any_du_cell(NULL, NULL);
+}
+
+/* The DU to send to, and optionally which of its cells. A broadcast session
+ * has no UE to locate either from. */
+sctp_assoc_t get_any_du_cell(plmn_id_t *plmn, uint64_t *nr_cellid)
+{
+  const gNB_RRC_INST *rrc = RC.nrrrc[0];
+  if (rrc == NULL || RB_EMPTY(&rrc->dus))
+    return 0;
+  const nr_rrc_du_container_t *du = RB_ROOT(&rrc->dus);
+  if (du == NULL)
+    return 0;
+  if (plmn != NULL && nr_cellid != NULL && seq_arr_size(&du->cells) > 0) {
+    const nr_rrc_cell_container_t *cell = *(nr_rrc_cell_container_t **)seq_arr_at(&du->cells, 0);
+    if (cell != NULL) {
+      *plmn = cell->info.plmn;
+      *nr_cellid = cell->info.cell_id;
+    }
+  }
+  return du->assoc_id;
+}
+
 void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
 {
   AssertFatal(assoc_id != 0, "illegal assoc_id == 0: should be -1 (monolithic) or >0 (split)\n");

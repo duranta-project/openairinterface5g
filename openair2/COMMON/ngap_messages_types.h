@@ -185,6 +185,27 @@ typedef struct {
   gtpu_tunnel_t n3_incoming;
 } pdusession_transfer_t;
 
+/* MBS Session Setup or Modification Request Transfer (9.3.4.26 3GPP TS 38.413)
+ *
+ * What the 5GC offers for a broadcast session's user plane. Note the shape:
+ * MBS-SessionTNLInfo5GC has no unicast variant, so this is always the
+ * lower-layer source-specific multicast (LL-SSM) pair plus the common TEID
+ * that every gNB in the service area receives the payload on. There is no
+ * per-gNB tunnel to allocate and nothing to hand back.
+ */
+typedef struct {
+  // Set only when the 5GC supplied MBS-SessionTNLInfo5GC. It is optional in
+  // the ASN.1, and a session without it has no user plane to terminate.
+  bool tnl_present;
+  // The multicast group the payload is distributed to, and the MB-UPF that
+  // sources it -- together the (S,G) pair the gNB has to subscribe to.
+  in_addr_t multicast_addr;
+  in_addr_t source_addr;
+  // Common TEID: shared by every receiver of this session, unlike a PDU
+  // session's TEID which is allocated per UE.
+  uint32_t c_teid;
+} mbs_session_transfer_t;
+
 typedef enum pdusession_qosflow_mapping_ind_e{
   QOSFLOW_MAPPING_INDICATION_UL = 0,
   QOSFLOW_MAPPING_INDICATION_DL = 1,

@@ -89,6 +89,19 @@ void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1);
 int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size);
 void add_sib_to_systeminformation(NR_SystemInformation_IEs_t *si, struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type);
 NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc);
+/// one MBS broadcast session as announced to the UEs of a cell (MBS-SessionInfo, TS 38.331 §6.3.2)
+typedef struct {
+  /// MBS service ID of the TMGI the 5GC allocated
+  uint8_t service_id[3];
+  rnti_t g_rnti;
+  /// MTCH of the broadcast MRB, and the t-Reassembly of its RLC entity (ASN.1 value)
+  long lcid;
+  long t_reassembly;
+} nr_mbs_broadcast_session_t;
+NR_SIB20_r17_t *get_SIB20_NR(const NR_ControlResourceSet_t *coreset,
+                             int num_sessions,
+                             const nr_mbs_broadcast_session_t sessions[num_sessions]);
+void add_SIB1_mtch_search_space(NR_BCCH_DL_SCH_Message_t *sib1, const NR_SearchSpace_t *ss);
 
 NR_CellGroupConfig_t *get_initial_cellGroupConfig(int uid,
                                                   bool redcap,

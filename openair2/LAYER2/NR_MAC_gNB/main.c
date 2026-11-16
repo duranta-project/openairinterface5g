@@ -230,6 +230,19 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     output = st_append(output, end, " goodput DL %7.2f UL %7.2f Mbps\n",  dl_thr, ul_thr);
   }
   DevAssert(output <= end);
+  /* a broadcast session has no members to list it under, and is transmitted even with no UE in the cell */
+  for (nr_mbs_group_t *const *g = gNB->UE_info.mbs_group_list; *g; g++) {
+    const nr_mbs_group_t *group = *g;
+    if (group->cell != cell || !group->config.broadcast)
+      continue;
+    output = st_append(output,
+                       end,
+                       "MBS broadcast session G-RNTI %04x: %" PRIu64 " PTM transmissions, %" PRIu64 " bytes, MCS %d\n",
+                       group->g_rnti,
+                       group->ptm_tx,
+                       group->ptm_sdu_bytes,
+                       group->config.mcs);
+  }
   return output - begin;
 }
 

@@ -349,6 +349,27 @@ static void config_dci_pdu_g_rnti(NR_UE_MAC_INST_t *mac,
     dl_config->dl_config_list[pdu_idx].dci_config_pdu.dci_config_rel15.rnti = g_rnti;
 }
 
+/* searchSpaceMTCH of the initial BWP, once the CORESET it refers to has been read from SIB20; NULL if the UE cannot
+ * receive broadcast sessions now */
+static const NR_SearchSpace_t *get_mtch_search_space(const NR_UE_MAC_INST_t *mac)
+{
+  const NR_BWP_PDCCH_t *pdcch = &mac->config_BWP_PDCCH[0];
+  if (!mac->current_DL_BWP || mac->current_DL_BWP->bwp_id != 0 || pdcch->mtch_SS_id <= 0)
+    return NULL;
+  const NR_SearchSpace_t *ss = NULL;
+  for (int i = 0; i < pdcch->list_common_SS.count && !ss; i++) {
+    if (pdcch->list_common_SS.array[i]->searchSpaceId == pdcch->mtch_SS_id)
+      ss = pdcch->list_common_SS.array[i];
+  }
+  if (!ss || !ss->controlResourceSetId)
+    return NULL;
+  for (int i = 0; i < pdcch->list_Coreset.count; i++) {
+    if (pdcch->list_Coreset.array[i]->controlResourceSetId == *ss->controlResourceSetId)
+      return ss;
+  }
+  return NULL;
+}
+
 bool is_ss_monitor_occasion(const int frame, const int slot, const int slots_per_frame, const NR_SearchSpace_t *ss)
 {
   if (!ss)
@@ -591,6 +612,18 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
       config_dci_pdu(mac, dl_config, TYPE_SI_RNTI_, slot, ss);
     }
   }
+  /* MBS broadcast (TS 38.300 §16.10.6): the PDCCHs of the sessions announced in the cell are monitored in the MTCH
+   * search space of the initial BWP, connected or not. INTERIM: for DCI format 4_1, where TS 38.213 §18 has 4_0 */
+  if (mac->state == UE_CONNECTED || mac->state == UE_IDLE) {
+    const NR_SearchSpace_t *mtch_ss = get_mtch_search_space(mac);
+    if (mtch_ss && is_ss_monitor_occasion(frame, slot, slots_per_frame, mtch_ss)) {
+      for (int i = 0; i < mac->mbs.num_g_rnti; i++) {
+        if (mac->mbs.broadcast[i])
+          config_dci_pdu_g_rnti(mac, dl_config, mac->mbs.g_rnti[i], slot, mtch_ss);
+      }
+    }
+  }
+
   RA_config_t *ra = &mac->ra;
   if (mac->state == UE_PERFORMING_RA && ra->ra_state >= nrRA_WAIT_RAR) {
     const NR_SearchSpace_t *ra_SS = get_common_search_space(mac, pdcch_config->ra_SS_id);
@@ -664,8 +697,10 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
     // TS 38.213 §10.1: Type-3 CSS of pdcch-ConfigMulticast for DCI format 4_1 with CRC scrambled by G-RNTI
     const NR_SearchSpace_t *mbs_ss = mac->mbs.search_space;
     if (mbs_ss && is_ss_monitor_occasion(frame, slot, slots_per_frame, mbs_ss)) {
-      for (int i = 0; i < mac->mbs.num_g_rnti; i++)
-        config_dci_pdu_g_rnti(mac, dl_config, mac->mbs.g_rnti[i], slot, mbs_ss);
+      for (int i = 0; i < mac->mbs.num_g_rnti; i++) {
+        if (!mac->mbs.broadcast[i])
+          config_dci_pdu_g_rnti(mac, dl_config, mac->mbs.g_rnti[i], slot, mbs_ss);
+      }
     }
   } else if (mac->state == UE_IDLE) {
     /* UE_IDLE (RRC-triggered camped idle) monitors pagingSearchSpace per TS 38.213 §10.1 and TS 38.304 §7.1. */

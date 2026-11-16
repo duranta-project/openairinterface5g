@@ -344,70 +344,70 @@ static F1AP_SRSConfig_t encode_srs_config(const f1ap_srs_config_t *in_config)
         asn1cCalloc(f1_resourceTypePos->choice.periodic, f1_pos_periodic);
         switch (resource_type_pos->choice.periodic.periodicity) {
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT1:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot1;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot1;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT2:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot2;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot2;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT4:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot4;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot4;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT5:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot5;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot5;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT8:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot8;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot8;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT10:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot10;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot10;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT16:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot16;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot16;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT20:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot20;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot20;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT32:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot32;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot32;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT40:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot40;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot40;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT64:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot64;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot64;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT80:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot80;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot80;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT160:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot160;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot160;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT320:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot320;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot320;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT640:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot640;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot640;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT1280:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot1280;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot1280;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT2560:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot2560;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot2560;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT5120:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot5120;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot5120;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT10240:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot10240;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot10240;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT20480:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot20480;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot20480;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT40960:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot40960;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot40960;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT81920:
-            f1_pos_periodic->periodicity = F1AP_ResourceTypePeriodicPos__periodicity_slot81920;
+            f1_pos_periodic->periodicity = F1AP_SRS_Periodicity_slot81920;
             break;
           default:
             AssertFatal(false, "illegal periodicity %d\n", resource_type_pos->choice.periodic.periodicity);
@@ -420,70 +420,70 @@ static F1AP_SRSConfig_t encode_srs_config(const f1ap_srs_config_t *in_config)
         asn1cCalloc(f1_resourceTypePos->choice.semi_persistent, f1_pos_semi_persistent);
         switch (resource_type_pos->choice.semi_persistent.periodicity) {
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT1:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot1;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot1;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT2:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot2;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot2;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT4:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot4;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot4;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT5:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot5;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot5;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT8:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot8;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot8;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT10:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot10;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot10;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT16:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot16;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot16;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT20:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot20;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot20;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT32:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot32;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot32;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT40:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot40;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot40;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT64:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot64;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot64;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT80:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot80;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot80;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT160:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot160;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot160;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT320:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot320;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot320;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT640:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot640;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot640;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT1280:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot1280;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot1280;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT2560:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot2560;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot2560;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT5120:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot5120;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot5120;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT10240:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot10240;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot10240;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT20480:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot20480;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot20480;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT40960:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot40960;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot40960;
             break;
           case F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT81920:
-            f1_pos_semi_persistent->periodicity = F1AP_ResourceTypeSemi_persistentPos__periodicity_slot81920;
+            f1_pos_semi_persistent->periodicity = F1AP_SRS_Periodicity_slot81920;
             break;
           default:
             AssertFatal(false, "illegal periodicity %d\n", resource_type_pos->choice.semi_persistent.periodicity);
@@ -1006,70 +1006,70 @@ static void decode_srs_config(const F1AP_SRSConfig_t *in_config, f1ap_srs_config
         res_type_pos->present = F1AP_RESOURCE_TYPE_POS_PR_PERIODIC;
         f1ap_resource_type_periodic_pos_t *pos_periodic = &res_type_pos->choice.periodic;
         switch (f1_res_type_pos->choice.periodic->periodicity) {
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot1:
+          case F1AP_SRS_Periodicity_slot1:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT1;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot2:
+          case F1AP_SRS_Periodicity_slot2:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT2;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot4:
+          case F1AP_SRS_Periodicity_slot4:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT4;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot5:
+          case F1AP_SRS_Periodicity_slot5:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT5;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot8:
+          case F1AP_SRS_Periodicity_slot8:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT8;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot10:
+          case F1AP_SRS_Periodicity_slot10:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT10;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot16:
+          case F1AP_SRS_Periodicity_slot16:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT16;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot20:
+          case F1AP_SRS_Periodicity_slot20:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT20;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot32:
+          case F1AP_SRS_Periodicity_slot32:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT32;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot40:
+          case F1AP_SRS_Periodicity_slot40:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT40;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot64:
+          case F1AP_SRS_Periodicity_slot64:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT64;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot80:
+          case F1AP_SRS_Periodicity_slot80:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT80;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot160:
+          case F1AP_SRS_Periodicity_slot160:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT160;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot320:
+          case F1AP_SRS_Periodicity_slot320:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT320;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot640:
+          case F1AP_SRS_Periodicity_slot640:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT640;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot1280:
+          case F1AP_SRS_Periodicity_slot1280:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT1280;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot2560:
+          case F1AP_SRS_Periodicity_slot2560:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT2560;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot5120:
+          case F1AP_SRS_Periodicity_slot5120:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT5120;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot10240:
+          case F1AP_SRS_Periodicity_slot10240:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT10240;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot20480:
+          case F1AP_SRS_Periodicity_slot20480:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT20480;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot40960:
+          case F1AP_SRS_Periodicity_slot40960:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT40960;
             break;
-          case F1AP_ResourceTypePeriodicPos__periodicity_slot81920:
+          case F1AP_SRS_Periodicity_slot81920:
             pos_periodic->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT81920;
             break;
           default:
@@ -1081,70 +1081,70 @@ static void decode_srs_config(const F1AP_SRSConfig_t *in_config, f1ap_srs_config
         res_type_pos->present = F1AP_RESOURCE_TYPE_POS_PR_SEMI_PERSISTENT;
         f1ap_resource_type_semi_persistent_pos_t *pos_semi_persistent = &res_type_pos->choice.semi_persistent;
         switch (f1_res_type_pos->choice.semi_persistent->periodicity) {
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot1:
+          case F1AP_SRS_Periodicity_slot1:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT1;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot2:
+          case F1AP_SRS_Periodicity_slot2:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT2;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot4:
+          case F1AP_SRS_Periodicity_slot4:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT4;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot5:
+          case F1AP_SRS_Periodicity_slot5:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT5;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot8:
+          case F1AP_SRS_Periodicity_slot8:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT8;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot10:
+          case F1AP_SRS_Periodicity_slot10:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT10;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot16:
+          case F1AP_SRS_Periodicity_slot16:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT16;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot20:
+          case F1AP_SRS_Periodicity_slot20:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT20;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot32:
+          case F1AP_SRS_Periodicity_slot32:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT32;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot40:
+          case F1AP_SRS_Periodicity_slot40:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT40;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot64:
+          case F1AP_SRS_Periodicity_slot64:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT64;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot80:
+          case F1AP_SRS_Periodicity_slot80:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT80;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot160:
+          case F1AP_SRS_Periodicity_slot160:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT160;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot320:
+          case F1AP_SRS_Periodicity_slot320:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT320;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot640:
+          case F1AP_SRS_Periodicity_slot640:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT640;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot1280:
+          case F1AP_SRS_Periodicity_slot1280:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT1280;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot2560:
+          case F1AP_SRS_Periodicity_slot2560:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT2560;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot5120:
+          case F1AP_SRS_Periodicity_slot5120:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT5120;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot10240:
+          case F1AP_SRS_Periodicity_slot10240:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT10240;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot20480:
+          case F1AP_SRS_Periodicity_slot20480:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT20480;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot40960:
+          case F1AP_SRS_Periodicity_slot40960:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT40960;
             break;
-          case F1AP_ResourceTypeSemi_persistentPos__periodicity_slot81920:
+          case F1AP_SRS_Periodicity_slot81920:
             pos_semi_persistent->periodicity = F1AP_SRS_RESOURCE_TYPE_POS_PERIODICITY_SLOT81920;
             break;
           default:
@@ -2848,12 +2848,12 @@ static F1AP_PosMeasurementResult_t encode_positioning_measurement_result(const f
           *f1_zenithAoA = *uL_AngleOfArrival->zenith_aoa;
         }
         if (uL_AngleOfArrival->lcs_to_gcs_translation_aoa) {
-          asn1cCalloc(f1_uL_AngleOfArrival->lCS_to_GCS_TranslationAoA, f1_lCS_to_GCS_TranslationAoA);
-          f1ap_lcs_to_gcs_translationaoa_t *lCS_to_GCS_TranslationAoA = uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
+          asn1cCalloc(f1_uL_AngleOfArrival->lCS_to_GCS_Translation, f1_lCS_to_GCS_Translation);
+          f1ap_lcs_to_gcs_translationaoa_t *lCS_to_GCS_Translation = uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
 
-          f1_lCS_to_GCS_TranslationAoA->alpha = lCS_to_GCS_TranslationAoA->alpha;
-          f1_lCS_to_GCS_TranslationAoA->beta = lCS_to_GCS_TranslationAoA->beta;
-          f1_lCS_to_GCS_TranslationAoA->gamma = lCS_to_GCS_TranslationAoA->gamma;
+          f1_lCS_to_GCS_Translation->alpha = lCS_to_GCS_Translation->alpha;
+          f1_lCS_to_GCS_Translation->beta = lCS_to_GCS_Translation->beta;
+          f1_lCS_to_GCS_Translation->gamma = lCS_to_GCS_Translation->gamma;
         }
         break;
       // UL SRS RSRP
@@ -3014,14 +3014,14 @@ static bool decode_positioning_measurement_result(F1AP_PosMeasurementResult_t *f
           uL_AngleOfArrival->zenith_aoa = calloc_or_fail(1, sizeof(*uL_AngleOfArrival->zenith_aoa));
           *uL_AngleOfArrival->zenith_aoa = *f1_uL_AngleOfArrival->zenithAoA;
         }
-        if (f1_uL_AngleOfArrival->lCS_to_GCS_TranslationAoA) {
+        if (f1_uL_AngleOfArrival->lCS_to_GCS_Translation) {
           uL_AngleOfArrival->lcs_to_gcs_translation_aoa = calloc_or_fail(1, sizeof(*uL_AngleOfArrival->lcs_to_gcs_translation_aoa));
-          f1ap_lcs_to_gcs_translationaoa_t *lCS_to_GCS_TranslationAoA = uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
-          F1AP_LCS_to_GCS_TranslationAoA_t *f1_lCS_to_GCS_TranslationAoA = f1_uL_AngleOfArrival->lCS_to_GCS_TranslationAoA;
+          f1ap_lcs_to_gcs_translationaoa_t *lCS_to_GCS_Translation = uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
+          F1AP_LCS_to_GCS_Translation_t *f1_lCS_to_GCS_Translation = f1_uL_AngleOfArrival->lCS_to_GCS_Translation;
 
-          lCS_to_GCS_TranslationAoA->alpha = f1_lCS_to_GCS_TranslationAoA->alpha;
-          lCS_to_GCS_TranslationAoA->beta = f1_lCS_to_GCS_TranslationAoA->beta;
-          lCS_to_GCS_TranslationAoA->gamma = f1_lCS_to_GCS_TranslationAoA->gamma;
+          lCS_to_GCS_Translation->alpha = f1_lCS_to_GCS_Translation->alpha;
+          lCS_to_GCS_Translation->beta = f1_lCS_to_GCS_Translation->beta;
+          lCS_to_GCS_Translation->gamma = f1_lCS_to_GCS_Translation->gamma;
         }
         break;
       // UL SRS RSRP
@@ -3182,12 +3182,12 @@ static f1ap_pos_measurement_result_t cp_positioning_measurement_result(const f1a
         if (f1_uL_AngleOfArrival->lcs_to_gcs_translation_aoa) {
           uL_AngleOfArrival->lcs_to_gcs_translation_aoa = calloc_or_fail(1, sizeof(*uL_AngleOfArrival->lcs_to_gcs_translation_aoa));
 
-          f1ap_lcs_to_gcs_translationaoa_t *lCS_to_GCS_TranslationAoA = uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
-          f1ap_lcs_to_gcs_translationaoa_t *f1_lCS_to_GCS_TranslationAoA = f1_uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
+          f1ap_lcs_to_gcs_translationaoa_t *lCS_to_GCS_Translation = uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
+          f1ap_lcs_to_gcs_translationaoa_t *f1_lCS_to_GCS_Translation = f1_uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
 
-          lCS_to_GCS_TranslationAoA->alpha = f1_lCS_to_GCS_TranslationAoA->alpha;
-          lCS_to_GCS_TranslationAoA->beta = f1_lCS_to_GCS_TranslationAoA->beta;
-          lCS_to_GCS_TranslationAoA->gamma = f1_lCS_to_GCS_TranslationAoA->gamma;
+          lCS_to_GCS_Translation->alpha = f1_lCS_to_GCS_Translation->alpha;
+          lCS_to_GCS_Translation->beta = f1_lCS_to_GCS_Translation->beta;
+          lCS_to_GCS_Translation->gamma = f1_lCS_to_GCS_Translation->gamma;
         }
         break;
       }
@@ -3329,12 +3329,12 @@ static bool eq_positioning_measurement_result(const f1ap_pos_measurement_result_
           _EQ_CHECK_INT(*uL_AngleOfArrival->zenith_aoa, *f1_uL_AngleOfArrival->zenith_aoa);
         }
         if (f1_uL_AngleOfArrival->lcs_to_gcs_translation_aoa) {
-          f1ap_lcs_to_gcs_translationaoa_t *lCS_to_GCS_TranslationAoA = uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
-          f1ap_lcs_to_gcs_translationaoa_t *f1_lCS_to_GCS_TranslationAoA = f1_uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
+          f1ap_lcs_to_gcs_translationaoa_t *lCS_to_GCS_Translation = uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
+          f1ap_lcs_to_gcs_translationaoa_t *f1_lCS_to_GCS_Translation = f1_uL_AngleOfArrival->lcs_to_gcs_translation_aoa;
 
-          _EQ_CHECK_INT(lCS_to_GCS_TranslationAoA->alpha, f1_lCS_to_GCS_TranslationAoA->alpha);
-          _EQ_CHECK_INT(lCS_to_GCS_TranslationAoA->beta, f1_lCS_to_GCS_TranslationAoA->beta);
-          _EQ_CHECK_INT(lCS_to_GCS_TranslationAoA->gamma, f1_lCS_to_GCS_TranslationAoA->gamma);
+          _EQ_CHECK_INT(lCS_to_GCS_Translation->alpha, f1_lCS_to_GCS_Translation->alpha);
+          _EQ_CHECK_INT(lCS_to_GCS_Translation->beta, f1_lCS_to_GCS_Translation->beta);
+          _EQ_CHECK_INT(lCS_to_GCS_Translation->gamma, f1_lCS_to_GCS_Translation->gamma);
         }
         break;
       }

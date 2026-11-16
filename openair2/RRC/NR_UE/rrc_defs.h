@@ -232,6 +232,11 @@ typedef struct NR_UE_RRC_INST_s {
   NR_RB_status_t status_DRBs[MAX_DRBS_PER_UE];
   // indexed by LCID, 1 to 32 for logical channels (TS 38.321 Table 6.2.1-1)
   bool active_RLC_entity[NR_MAX_NUM_LCID + 1];
+  /// MBS broadcast sessions read from the cell (MBSBroadcastConfiguration): their G-RNTIs, and the LCIDs of the MTCHs
+  /// whose RLC entity and MRB are set up. They are not part of the RRC connection, and outlive it
+  int mbs_broadcast_num;
+  uint16_t mbs_broadcast_g_rnti[16];
+  uint64_t mbs_broadcast_lcids;
 
   /* KgNB as computed from parameters within USIM card */
   uint8_t kgnb[32];

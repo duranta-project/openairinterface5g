@@ -23,6 +23,7 @@
 #define F1AP_RESET_ACK(mSGpTR)                         (mSGpTR)->ittiMsg.f1ap_reset_ack
 
 #define F1AP_SETUP_REQ(mSGpTR)                     (mSGpTR)->ittiMsg.f1ap_setup_req
+#define F1AP_BROADCAST_CONTEXT_SETUP_REQ(mSGpTR)   (mSGpTR)->ittiMsg.f1ap_broadcast_ctx_setup
 #define F1AP_SETUP_RESP(mSGpTR)                    (mSGpTR)->ittiMsg.f1ap_setup_resp
 #define F1AP_GNB_CU_CONFIGURATION_UPDATE(mSGpTR)   (mSGpTR)->ittiMsg.f1ap_gnb_cu_configuration_update
 #define F1AP_GNB_CU_CONFIGURATION_UPDATE_ACKNOWLEDGE(mSGpTR)   (mSGpTR)->ittiMsg.f1ap_gnb_cu_configuration_update_acknowledge
@@ -1654,5 +1655,20 @@ typedef struct f1ap_positioning_measurement_update_s {
   // IE 9.3.1.192 (optional)
   f1ap_srs_configuration_t *srs_configuration;
 } f1ap_positioning_measurement_update_t;
+
+
+/* Broadcast Context Setup (TS 38.473, Rel-17 MBS).
+ *
+ * What the DU needs in order to put a session on the air: which session it
+ * is, and which bearer carries it. The service area, the QoS detail and the
+ * F1-U tunnel follow when the user plane does. */
+typedef struct f1ap_broadcast_ctx_setup_s {
+  uint32_t gNB_cu_mbs_f1ap_id;
+  uint8_t tmgi[6];
+  long mrb_id;
+  uint8_t sst;
+  plmn_id_t plmn;
+  uint64_t nr_cellid;
+} f1ap_broadcast_ctx_setup_t;
 
 #endif /* F1AP_MESSAGES_TYPES_H_ */

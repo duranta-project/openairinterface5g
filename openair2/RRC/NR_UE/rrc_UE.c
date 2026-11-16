@@ -14,6 +14,12 @@
 #include "NR_DL-CCCH-Message.h"        //asn_DEF_NR_DL_CCCH_Message
 #include "NR_BCCH-BCH-Message.h"       //asn_DEF_NR_BCCH_BCH_Message
 #include "NR_BCCH-DL-SCH-Message.h"    //asn_DEF_NR_BCCH_DL_SCH_Message
+#include "NR_SIB20-r17.h"
+#include "NR_CFR-ConfigMCCH-MTCH-r17.h"
+#include "NR_MBSBroadcastConfiguration-r17.h"
+#include "NR_MBSBroadcastConfiguration-r17-IEs.h"
+#include "NR_MBS-SessionInfo-r17.h"
+#include "NR_MRB-InfoBroadcast-r17.h"
 #include "NR_PCCH-Message.h" //asn_DEF_NR_PCCH_Message
 #include "NR_CellGroupConfig.h"        //asn_DEF_NR_CellGroupConfig
 #include "NR_BWP-Downlink.h"           //asn_DEF_NR_BWP_Downlink
@@ -283,6 +289,115 @@ static void nr_rrc_process_ntnconfig(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *S
     nr_timer_start(&SI_info->SInfo_r17.sib19_timer);
 }
 
+/* INTERIM: the SDUs of a broadcast session go to the interface of the first PDU session of the UE, until the UE has an
+ * interface for MBS sessions. NAS keeps that interface while the UE is in RRC_IDLE, SDAP does not */
+static int nr_rrc_ue_mbs_broadcast_tun(ue_id_t ue_id)
+{
+  const nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
+  for (int psi = 1; psi < MAX_NUM_PSI; psi++) {
+    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && nas->pdu_tun[psi].sock >= 0)
+      return nas->pdu_tun[psi].sock;
+  }
+  return -1;
+}
+
+/* RLC entity and MRB of a broadcast session, from its MRB-InfoBroadcast (TS 38.331 §5.9.2.3). The MRB has no identity
+ * on the air, the LCID of its MTCH stands in for one */
+static void nr_rrc_ue_add_mbs_broadcast_mrb(NR_UE_RRC_INST_t *rrc, const NR_MRB_InfoBroadcast_r17_t *mrb)
+{
+  static const int t_reordering_ms[] = {1, 10, 40, 160, 500, 1000, 1250, 2750};
+  const long lcid = mrb->rlc_Config_r17.logicalChannelIdentity_r17;
+  if (rrc->mbs_broadcast_lcids & (1ULL << lcid))
+    return;
+  if (mrb->pdcp_Config_r17.headerCompression_r17.present != NR_MRB_PDCP_ConfigBroadcast_r17__headerCompression_r17_PR_notUsed) {
+    RRCLOG_E("MBS: header compression not supported, broadcast MRB on LCID %ld ignored\n", lcid);
+    return;
+  }
+  NR_RLC_BearerConfig_t *bearer = calloc_or_fail(1, sizeof(*bearer));
+  bearer->logicalChannelIdentity = lcid;
+  bearer->rlc_Config = calloc_or_fail(1, sizeof(*bearer->rlc_Config));
+  bearer->rlc_Config->present = NR_RLC_Config_PR_um_Uni_Directional_DL;
+  bearer->rlc_Config->choice.um_Uni_Directional_DL = calloc_or_fail(1, sizeof(*bearer->rlc_Config->choice.um_Uni_Directional_DL));
+  NR_DL_UM_RLC_t *dl_um = &bearer->rlc_Config->choice.um_Uni_Directional_DL->dl_UM_RLC;
+  asn1cCallocOne(dl_um->sn_FieldLength, NR_SN_FieldLengthUM_size6);
+  dl_um->t_Reassembly = mrb->rlc_Config_r17.t_Reassembly_r17 ? *mrb->rlc_Config_r17.t_Reassembly_r17 : NR_T_Reassembly_ms35;
+  bearer->ext2 = calloc_or_fail(1, sizeof(*bearer->ext2));
+  bearer->ext2->multicastRLC_BearerConfig_r17 = calloc_or_fail(1, sizeof(*bearer->ext2->multicastRLC_BearerConfig_r17));
+  bearer->ext2->multicastRLC_BearerConfig_r17->servedMBS_RadioBearer_r17 = lcid;
+  nr_rlc_add_mrb(rrc->ue_id, bearer);
+  ASN_STRUCT_FREE(asn_DEF_NR_RLC_BearerConfig, bearer);
+
+  const long *t_reordering = mrb->pdcp_Config_r17.t_Reordering_r17;
+  /* no PDU session: a broadcast session has none (TS 23.247 §7.3) */
+  nr_sdap_set_mbs_broadcast_tun(nr_rrc_ue_mbs_broadcast_tun);
+  nr_pdcp_add_mrb(false, rrc->ue_id, lcid, 0, 12, t_reordering ? t_reordering_ms[*t_reordering] : 0);
+  rrc->mbs_broadcast_lcids |= 1ULL << lcid;
+}
+
+/* MBS broadcast (TS 38.300 §16.10.6): the UE takes the sessions of the cell, and everything it needs to receive them,
+ * from what the cell broadcasts. The network is not told, and no connection is needed.
+ *
+ * INTERIM: the list of sessions belongs on the MCCH, which SIB20 only points at. Until there is one, the gNB carries the
+ * MBSBroadcastConfiguration in the lateNonCriticalExtension of SIB20, which is read again periodically (sib20_timer).
+ * The message is the real one, so this function moves to the MCCH as it is */
+static void nr_rrc_ue_process_sib20(NR_UE_RRC_INST_t *rrc, const NR_SIB20_r17_t *sib20)
+{
+  nr_mac_rrc_message_t rrc_msg = {.payload_type = NR_MAC_RRC_CONFIG_MBS_BROADCAST};
+  nr_mac_rrc_config_mbs_broadcast_t *bc = &rrc_msg.payload.config_mbs_broadcast;
+  if (sib20->cfr_ConfigMCCH_MTCH_r17 && sib20->cfr_ConfigMCCH_MTCH_r17->commonControlResourceSetExt_r17)
+    asn_copy(&asn_DEF_NR_ControlResourceSet, (void **)&bc->coreset, sib20->cfr_ConfigMCCH_MTCH_r17->commonControlResourceSetExt_r17);
+
+  NR_MBSBroadcastConfiguration_r17_t *cfg = NULL;
+  const NR_MBS_SessionInfoList_r17_t *sessions = NULL;
+  if (sib20->lateNonCriticalExtension) {
+    const OCTET_STRING_t *ext = sib20->lateNonCriticalExtension;
+    asn_dec_rval_t dec = uper_decode(NULL, &asn_DEF_NR_MBSBroadcastConfiguration_r17, (void **)&cfg, ext->buf, ext->size, 0, 0);
+    if (dec.code == RC_OK
+        && cfg->criticalExtensions.present == NR_MBSBroadcastConfiguration_r17__criticalExtensions_PR_mbsBroadcastConfiguration_r17)
+      sessions = cfg->criticalExtensions.choice.mbsBroadcastConfiguration_r17->mbs_SessionInfoList_r17;
+    else
+      RRCLOG_W("MBS: could not decode the MBSBroadcastConfiguration carried in SIB20\n");
+  }
+
+  uint64_t lcids = 0;
+  for (int i = 0; sessions && i < sessions->list.count && bc->num_sessions < (int)sizeofArray(bc->g_rnti); i++) {
+    const NR_MBS_SessionInfo_r17_t *s = sessions->list.array[i];
+    if (s->mrb_ListBroadcast_r17.list.count < 1)
+      continue;
+    /* one MRB per session is all the gNB sets up */
+    const NR_MRB_InfoBroadcast_r17_t *mrb = s->mrb_ListBroadcast_r17.list.array[0];
+    const long lcid = mrb->rlc_Config_r17.logicalChannelIdentity_r17;
+    nr_rrc_ue_add_mbs_broadcast_mrb(rrc, mrb);
+    if (!(rrc->mbs_broadcast_lcids & (1ULL << lcid)))
+      continue;
+    bool known = false;
+    for (int j = 0; j < rrc->mbs_broadcast_num; j++)
+      known |= rrc->mbs_broadcast_g_rnti[j] == s->g_RNTI_r17;
+    if (!known) {
+      const uint8_t *id = s->mbs_SessionId_r17.serviceId_r17.buf;
+      RRCLOG_A("MBS: broadcast session with service ID %02x%02x%02x announced on G-RNTI %04lx, MTCH on LCID %ld\n",
+               id[0], id[1], id[2], s->g_RNTI_r17, lcid);
+    }
+    bc->g_rnti[bc->num_sessions] = s->g_RNTI_r17;
+    bc->lcid[bc->num_sessions] = lcid;
+    bc->num_sessions++;
+    lcids |= 1ULL << lcid;
+  }
+
+  /* sessions that are not announced anymore: stop receiving them */
+  for (int lcid = 1; lcid <= NR_MAX_NUM_LCID; lcid++) {
+    if ((rrc->mbs_broadcast_lcids & ~lcids) & (1ULL << lcid)) {
+      RRCLOG_A("MBS: broadcast session with MTCH on LCID %d not announced anymore\n", lcid);
+      nr_rlc_release_entity(rrc->ue_id, lcid);
+    }
+  }
+  rrc->mbs_broadcast_lcids &= lcids;
+  rrc->mbs_broadcast_num = bc->num_sessions;
+  memcpy(rrc->mbs_broadcast_g_rnti, bc->g_rnti, sizeof(rrc->mbs_broadcast_g_rnti));
+  ASN_STRUCT_FREE(asn_DEF_NR_MBSBroadcastConfiguration_r17, cfg);
+  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+}
+
 static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si, NR_UE_RRC_INST_t *rrc, int hfn, int frame)
 {
   if (si->criticalExtensions.present != NR_SystemInformation__criticalExtensions_PR_systemInformation) {
@@ -294,7 +409,9 @@ static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si,
   for (int i = 0; i < si->criticalExtensions.choice.systemInformation->sib_TypeAndInfo.list.count; i++) {
     SystemInformation_IEs__sib_TypeAndInfo__Member *typeandinfo;
     typeandinfo = si->criticalExtensions.choice.systemInformation->sib_TypeAndInfo.list.array[i];
-    LOG_A(NR_RRC, "Found SIB%d\n", typeandinfo->present + 1);
+    /* SIB20 is read again and again while it stands in for the MCCH */
+    if (typeandinfo->present != NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib20_v1700)
+      LOG_A(NR_RRC, "Found SIB%d\n", typeandinfo->present + 1);
     switch(typeandinfo->present) {
       case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib2:
         SI_info->sib2_validity = true;
@@ -353,6 +470,11 @@ static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si,
         if (g_log->log_component[NR_RRC].level >= OAILOG_DEBUG)
           xer_fprint(stdout, &asn_DEF_NR_SIB19_r17, (const void *)sib19);
         nr_rrc_process_ntnconfig(rrc, SI_info, sib19->ntn_Config_r17, frame, false);
+        break;
+      case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib20_v1700:
+        SI_info->SInfo_r17.sib20_validity = true;
+        nr_timer_start(&SI_info->SInfo_r17.sib20_timer);
+        nr_rrc_ue_process_sib20(rrc, typeandinfo->choice.sib20_v1700);
         break;
       default:
         break;

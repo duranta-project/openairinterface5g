@@ -29,6 +29,7 @@
 #define E1AP_SETUP_RESP(mSGpTR)                           (mSGpTR)->ittiMsg.e1ap_setup_resp
 #define E1AP_SETUP_FAIL(mSGpTR)                           (mSGpTR)->ittiMsg.e1ap_setup_fail
 #define E1AP_BEARER_CONTEXT_SETUP_REQ(mSGpTR)             (mSGpTR)->ittiMsg.e1ap_bearer_setup_req
+#define E1AP_BC_BEARER_CONTEXT_SETUP_REQ(mSGpTR)          (mSGpTR)->ittiMsg.e1ap_bc_bearer_setup_req
 #define E1AP_BEARER_CONTEXT_SETUP_RESP(mSGpTR)            (mSGpTR)->ittiMsg.e1ap_bearer_setup_resp
 #define E1AP_BEARER_CONTEXT_SETUP_FAILURE(mSGpTR)         (mSGpTR)->ittiMsg.e1ap_bearer_setup_fail
 #define E1AP_BEARER_CONTEXT_MODIFICATION_REQ(mSGpTR)      (mSGpTR)->ittiMsg.e1ap_bearer_mod_req
@@ -521,6 +522,27 @@ typedef struct e1ap_bearer_setup_req_s {
   int numPDUSessions;
   pdu_session_to_setup_t *pduSession;
 } e1ap_bearer_setup_req_t;
+
+/* BC Bearer Context Setup (TS 37.483, Rel-17 MBS).
+ *
+ * A broadcast session belongs to the cell, not to a UE, so this carries the
+ * session identity instead of a UE id. Minimal on purpose: enough for the
+ * CU-UP to create the context and answer. The service area, the NG-U tunnel
+ * and the QoS detail follow when the user plane does. */
+typedef struct e1ap_bc_bearer_setup_req_s {
+  uint32_t gNB_cu_cp_mbs_e1ap_id;
+  uint8_t tmgi[6];
+  long mrb_id;
+  uint8_t sst;
+  /* Where the payload arrives. Only the CU-CP sees N2, so without carrying
+   * this the CU-UP -- which is the half that terminates N3 -- would have no
+   * way to know which tunnel to open. Optional in the ASN.1 and absent for a
+   * session the core has not given a user plane to. */
+  bool tnl_present;
+  in_addr_t multicast_addr;
+  in_addr_t source_addr;
+  uint32_t c_teid;
+} e1ap_bc_bearer_setup_req_t;
 
 /** Bearer Context Setup Failure (9.2.2.3 3GPP TS 38.463) */
 typedef struct e1ap_bearer_context_setup_failure_s {

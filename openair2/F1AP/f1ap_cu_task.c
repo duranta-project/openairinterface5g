@@ -12,6 +12,7 @@
 #include "f1ap_cu_paging.h"
 #include "lib/f1ap_paging.h"
 #include "f1ap_cu_task.h"
+#include "f1ap_mbs.h"
 #include "openair2/RRC/NR/nr_rrc_defs.h"
 #include <openair3/ocp-gtpu/gtp_itf.h>
 #include "common_lib.h"
@@ -131,6 +132,10 @@ void *F1AP_CU_task(void *arg)
 
       case F1AP_RESET_ACK:
         CU_send_RESET_ACKNOWLEDGE(assoc_id, &F1AP_RESET_ACK(received_msg));
+        break;
+
+      case F1AP_BROADCAST_CONTEXT_SETUP_REQ: // from rrc
+        CU_send_BROADCAST_CONTEXT_SETUP_REQUEST(assoc_id, &F1AP_BROADCAST_CONTEXT_SETUP_REQ(received_msg));
         break;
 
       case F1AP_SETUP_RESP: // from rrc

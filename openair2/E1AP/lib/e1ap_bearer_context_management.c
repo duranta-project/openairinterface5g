@@ -611,7 +611,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_setup_request(const e1ap_bearer_setup_
   ieC6->value.present = E1AP_BearerContextSetupRequestIEs__value_PR_System_BearerContextSetupRequest;
   ieC6->value.choice.System_BearerContextSetupRequest.present =
       E1AP_System_BearerContextSetupRequest_PR_nG_RAN_BearerContextSetupRequest;
-  E1AP_ProtocolIE_Container_4932P19_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
+  E1AP_ProtocolIE_Container_492P19_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   ieC6->value.choice.System_BearerContextSetupRequest.choice.nG_RAN_BearerContextSetupRequest =
       (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
   asn1cSequenceAdd(msgNGRAN_list->list, E1AP_NG_RAN_BearerContextSetupRequest_t, msgNGRAN);
@@ -718,8 +718,8 @@ bool decode_E1_bearer_context_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_bea
             break;
         }
 
-        E1AP_ProtocolIE_Container_4932P19_t *msgNGRAN_list =
-            (E1AP_ProtocolIE_Container_4932P19_t *)System_BearerContextSetupRequest->choice.nG_RAN_BearerContextSetupRequest;
+        E1AP_ProtocolIE_Container_492P19_t *msgNGRAN_list =
+            (E1AP_ProtocolIE_Container_492P19_t *)System_BearerContextSetupRequest->choice.nG_RAN_BearerContextSetupRequest;
         E1AP_NG_RAN_BearerContextSetupRequest_t *msgNGRAN = msgNGRAN_list->list.array[0];
         // NG-RAN
         _EQ_CHECK_INT(msgNGRAN_list->list.count, 1); // only one RAN is expected
@@ -969,7 +969,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_setup_response(const e1ap_bearer_setup
   // CHOICE System: default NG-RAN (M)
   ieC3->value.choice.System_BearerContextSetupResponse.present =
       E1AP_System_BearerContextSetupResponse_PR_nG_RAN_BearerContextSetupResponse;
-  E1AP_ProtocolIE_Container_4932P22_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
+  E1AP_ProtocolIE_Container_492P22_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   ieC3->value.choice.System_BearerContextSetupResponse.choice.nG_RAN_BearerContextSetupResponse =
       (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
   asn1cSequenceAdd(msgNGRAN_list->list, E1AP_NG_RAN_BearerContextSetupResponse_t, msgNGRAN);
@@ -1019,8 +1019,8 @@ bool decode_E1_bearer_context_setup_response(const E1AP_E1AP_PDU_t *pdu, e1ap_be
         _EQ_CHECK_INT(ie->value.present, E1AP_BearerContextSetupResponseIEs__value_PR_System_BearerContextSetupResponse);
         switch (ie->value.choice.System_BearerContextSetupResponse.present) {
           case E1AP_System_BearerContextSetupResponse_PR_nG_RAN_BearerContextSetupResponse: {
-            E1AP_ProtocolIE_Container_4932P22_t *msgNGRAN_list =
-                (E1AP_ProtocolIE_Container_4932P22_t *)
+            E1AP_ProtocolIE_Container_492P22_t *msgNGRAN_list =
+                (E1AP_ProtocolIE_Container_492P22_t *)
                     ie->value.choice.System_BearerContextSetupResponse.choice.nG_RAN_BearerContextSetupResponse;
             _EQ_CHECK_INT(msgNGRAN_list->list.count, 1);
             E1AP_NG_RAN_BearerContextSetupResponse_t *msgNGRAN = msgNGRAN_list->list.array[0];
@@ -1502,7 +1502,7 @@ static E1AP_NG_RAN_BearerContextModificationRequest_t *encode_ng_ran_to_mod(E1AP
   ie->value.present = E1AP_BearerContextModificationRequestIEs__value_PR_System_BearerContextModificationRequest;
   E1AP_System_BearerContextModificationRequest_t *reqIE = &ie->value.choice.System_BearerContextModificationRequest;
   reqIE->present = E1AP_System_BearerContextModificationRequest_PR_nG_RAN_BearerContextModificationRequest;
-  E1AP_ProtocolIE_Container_4932P26_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
+  E1AP_ProtocolIE_Container_492P26_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   reqIE->choice.nG_RAN_BearerContextModificationRequest = (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
   asn1cSequenceAdd(msgNGRAN_list->list, E1AP_NG_RAN_BearerContextModificationRequest_t, msgNGRAN);
   return msgNGRAN;
@@ -1898,8 +1898,8 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
             // NG-RAN
             AssertFatal(modReq->choice.nG_RAN_BearerContextModificationRequest != NULL,
                         "System_BearerContextSetupRequest->choice.nG_RAN_BearerContextSetupRequest shall not be null");
-            E1AP_ProtocolIE_Container_4932P26_t *msgNGRAN_list =
-                (E1AP_ProtocolIE_Container_4932P26_t *)modReq->choice.nG_RAN_BearerContextModificationRequest;
+            E1AP_ProtocolIE_Container_492P26_t *msgNGRAN_list =
+                (E1AP_ProtocolIE_Container_492P26_t *)modReq->choice.nG_RAN_BearerContextModificationRequest;
             // loop through all items in the NG-RAN list (to setup, to modify, etc)
             for (int i = 0; i < msgNGRAN_list->list.count; i++) {
               E1AP_NG_RAN_BearerContextModificationRequest_t *msgNGRAN = msgNGRAN_list->list.array[i];
@@ -2275,7 +2275,7 @@ struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_response(const e1ap_bearer_mo
     ie3->value.present = E1AP_BearerContextModificationResponseIEs__value_PR_System_BearerContextModificationResponse;
     E1AP_System_BearerContextModificationResponse_t *sys = &ie3->value.choice.System_BearerContextModificationResponse;
     // NG-RAN
-    E1AP_ProtocolIE_Container_4932P29_t *ngran = calloc_or_fail(1, sizeof(*ngran));
+    E1AP_ProtocolIE_Container_492P29_t *ngran = calloc_or_fail(1, sizeof(*ngran));
     sys->present = E1AP_System_BearerContextModificationResponse_PR_nG_RAN_BearerContextModificationResponse;
     sys->choice.nG_RAN_BearerContextModificationResponse = (struct E1AP_ProtocolIE_Container *)ngran;
     asn1cSequenceAdd(ngran->list, E1AP_NG_RAN_BearerContextModificationResponse_t, list);
@@ -2446,7 +2446,7 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
         E1AP_System_BearerContextModificationResponse_t *sys = &ie->value.choice.System_BearerContextModificationResponse;
         _EQ_CHECK_INT(sys->present, E1AP_System_BearerContextModificationResponse_PR_nG_RAN_BearerContextModificationResponse);
         // NG-RAN List
-        E1AP_ProtocolIE_Container_4932P29_t *msgNGRAN_list = (E1AP_ProtocolIE_Container_4932P29_t *)sys->choice.nG_RAN_BearerContextModificationResponse;
+        E1AP_ProtocolIE_Container_492P29_t *msgNGRAN_list = (E1AP_ProtocolIE_Container_492P29_t *)sys->choice.nG_RAN_BearerContextModificationResponse;
         _EQ_CHECK_INT(msgNGRAN_list->list.count, 1);
         E1AP_NG_RAN_BearerContextModificationResponse_t *msgNGRAN = msgNGRAN_list->list.array[0];
         _EQ_CHECK_LONG(msgNGRAN->id, E1AP_ProtocolIE_ID_id_PDU_Session_Resource_Modified_List);
@@ -2794,7 +2794,7 @@ static void e1_encode_pdu_session_to_remove_item(E1AP_PDU_Session_Resource_To_Re
   out->pDU_Session_ID = in->sessionId;
   // Cause (O) - PDU-Session-Resource-To-Remove-Item-ExtIEs id-Cause
   if (in->cause.type != E1AP_CAUSE_NOTHING) {
-    E1AP_ProtocolExtensionContainer_4961P104_t *ext = calloc_or_fail(1, sizeof(*ext));
+    E1AP_ProtocolExtensionContainer_521P172_t *ext = calloc_or_fail(1, sizeof(*ext));
     out->iE_Extensions = (struct E1AP_ProtocolExtensionContainer *)ext;
     asn1cSequenceAdd(ext->list, E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs_t, ie);
     ie->id = E1AP_ProtocolIE_ID_id_Cause;
@@ -2812,7 +2812,7 @@ static bool e1_decode_pdu_session_to_remove_item(pdu_session_to_remove_t *out, c
   out->sessionId = in->pDU_Session_ID;
   // Cause (O)
   if (in->iE_Extensions != NULL) {
-    const E1AP_ProtocolExtensionContainer_4961P104_t *ext = (const E1AP_ProtocolExtensionContainer_4961P104_t *)in->iE_Extensions;
+    const E1AP_ProtocolExtensionContainer_521P172_t *ext = (const E1AP_ProtocolExtensionContainer_521P172_t *)in->iE_Extensions;
     for (int i = 0; i < ext->list.count; i++) {
       const E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs_t *ie = ext->list.array[i];
       AssertFatal(ie != NULL, "ext->list.array[i] shall not be null");
@@ -2920,7 +2920,7 @@ E1AP_E1AP_PDU_t *encode_E1_bearer_context_mod_required(const e1ap_bearer_mod_req
   ie3->value.present = E1AP_BearerContextModificationRequiredIEs__value_PR_System_BearerContextModificationRequired;
   E1AP_System_BearerContextModificationRequired_t *sys = &ie3->value.choice.System_BearerContextModificationRequired;
   sys->present = E1AP_System_BearerContextModificationRequired_PR_nG_RAN_BearerContextModificationRequired;
-  E1AP_ProtocolIE_Container_4932P33_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
+  E1AP_ProtocolIE_Container_492P33_t *msgNGRAN_list = calloc_or_fail(1, sizeof(*msgNGRAN_list));
   sys->choice.nG_RAN_BearerContextModificationRequired = (struct E1AP_ProtocolIE_Container *)msgNGRAN_list;
 
   // NG-RAN PDU Session Resource Required To Modify List (O)
@@ -2995,8 +2995,8 @@ bool decode_E1_bearer_context_mod_required(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
           case E1AP_System_BearerContextModificationRequired_PR_nG_RAN_BearerContextModificationRequired: {
             AssertFatal(modReq->choice.nG_RAN_BearerContextModificationRequired != NULL,
                         "nG_RAN_BearerContextModificationRequired shall not be null");
-            const E1AP_ProtocolIE_Container_4932P33_t *msgNGRAN_list =
-                (const E1AP_ProtocolIE_Container_4932P33_t *)modReq->choice.nG_RAN_BearerContextModificationRequired;
+            const E1AP_ProtocolIE_Container_492P33_t *msgNGRAN_list =
+                (const E1AP_ProtocolIE_Container_492P33_t *)modReq->choice.nG_RAN_BearerContextModificationRequired;
             for (int j = 0; j < msgNGRAN_list->list.count; j++) {
               const E1AP_NG_RAN_BearerContextModificationRequired_t *msgNGRAN = msgNGRAN_list->list.array[j];
               switch (msgNGRAN->id) {
@@ -3203,4 +3203,168 @@ void free_e1ap_context_mod_confirm(const e1ap_bearer_mod_confirm_t *msg)
 {
   UNUSED(msg);
   // do nothing
+}
+
+/* ---------------------------------------------------------------------------
+ * BC Bearer Context Setup (TS 37.483, Rel-17 MBS)
+ *
+ * The broadcast counterpart of the bearer context above. The difference that
+ * matters is whose context it is: a DRB belongs to a UE, an MRB belongs to
+ * the session, so the message carries a TMGI where the other carries a UE id.
+ * ------------------------------------------------------------------------ */
+
+struct E1AP_E1AP_PDU *encode_E1_bc_bearer_context_setup_request(const e1ap_bc_bearer_setup_req_t *in)
+{
+  E1AP_E1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+  pdu->present = E1AP_E1AP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, msg);
+  msg->procedureCode = E1AP_ProcedureCode_id_BCBearerContextSetup;
+  msg->criticality = E1AP_Criticality_reject;
+  msg->value.present = E1AP_InitiatingMessage__value_PR_BCBearerContextSetupRequest;
+  E1AP_BCBearerContextSetupRequest_t *out = &msg->value.choice.BCBearerContextSetupRequest;
+
+  /* mandatory: the CU-CP's identifier for this MBS context */
+  {
+    asn1cSequenceAdd(out->protocolIEs.list, E1AP_BCBearerContextSetupRequestIEs_t, ie);
+    ie->id = E1AP_ProtocolIE_ID_id_GNB_CU_CP_MBS_E1AP_ID;
+    ie->criticality = E1AP_Criticality_reject;
+    ie->value.present = E1AP_BCBearerContextSetupRequestIEs__value_PR_GNB_CU_CP_MBS_E1AP_ID;
+    ie->value.choice.GNB_CU_CP_MBS_E1AP_ID = in->gNB_cu_cp_mbs_e1ap_id;
+  }
+
+  /* mandatory: which session, as the core named it */
+  {
+    asn1cSequenceAdd(out->protocolIEs.list, E1AP_BCBearerContextSetupRequestIEs_t, ie);
+    ie->id = E1AP_ProtocolIE_ID_id_GlobalMBSSessionID;
+    ie->criticality = E1AP_Criticality_reject;
+    ie->value.present = E1AP_BCBearerContextSetupRequestIEs__value_PR_GlobalMBSSessionID;
+    OCTET_STRING_fromBuf(&ie->value.choice.GlobalMBSSessionID.tmgi, (const char *)in->tmgi, sizeof(in->tmgi));
+  }
+
+  /* mandatory: the bearer to create */
+  {
+    asn1cSequenceAdd(out->protocolIEs.list, E1AP_BCBearerContextSetupRequestIEs_t, ie);
+    ie->id = E1AP_ProtocolIE_ID_id_BCBearerContextToSetup;
+    ie->criticality = E1AP_Criticality_reject;
+    ie->value.present = E1AP_BCBearerContextSetupRequestIEs__value_PR_BCBearerContextToSetup;
+    E1AP_BCBearerContextToSetup_t *ctx = &ie->value.choice.BCBearerContextToSetup;
+
+    uint8_t sst = in->sst;
+    OCTET_STRING_fromBuf(&ctx->snssai.sST, (const char *)&sst, 1);
+
+    /* The 5GC side of the tunnel. locationindependent: one tunnel for the
+     * session. The 5GC offers it per MBS area, but there is one service area
+     * until the MBS service area is implemented, so the distinction has
+     * nothing to carry yet. */
+    if (in->tnl_present) {
+      asn1cCalloc(ctx->bcBearerContextNGU_TNLInfoat5GC, tnl);
+      tnl->present = E1AP_BCBearerContextNGU_TNLInfoat5GC_PR_locationindependent;
+      asn1cCalloc(tnl->choice.locationindependent, li);
+      li->present = E1AP_MBSNGUInformationAt5GC_PR_multicast;
+      asn1cCalloc(li->choice.multicast, mc);
+      TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(in->multicast_addr, &mc->ipmcAddress);
+      TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(in->source_addr, &mc->ipsourceAddress);
+      INT32_TO_OCTET_STRING(in->c_teid, &mc->gtpDLTEID);
+    }
+
+    asn1cSequenceAdd(ctx->bcMRBToSetupList.list, E1AP_BCMRBSetupConfiguration_Item_t, mrb);
+    mrb->mrb_ID = in->mrb_id;
+    /* Broadcast has no feedback, so the PDCP side is as plain as it gets:
+     * unacknowledged, no reordering to wait on. */
+    const bearer_context_pdcp_config_t pdcp = {
+        .pDCP_SN_Size_UL = E1AP_PDCP_SN_Size_s_12,
+        .pDCP_SN_Size_DL = E1AP_PDCP_SN_Size_s_12,
+        .rLC_Mode = E1AP_RLC_Mode_rlc_um_bidirectional,
+        .reorderingTimer = 0,
+        .discardTimer = 0,
+        .pDCP_Reestablishment = false,
+    };
+    mrb->mbs_pdcp_config = e1_encode_pdcp_config(&pdcp);
+
+    const qos_flow_to_setup_t qos = {.qfi = 1};
+    asn1cSequenceAdd(mrb->qoS_Flow_QoS_Parameter_List.list, E1AP_QoS_Flow_QoS_Parameter_Item_t, q);
+    *q = e1_encode_qos_flow_to_setup(&qos);
+  }
+
+  return pdu;
+}
+
+bool decode_E1_bc_bearer_context_setup_request(e1ap_bc_bearer_setup_req_t *out, const struct E1AP_E1AP_PDU *pdu)
+{
+  memset(out, 0, sizeof(*out));
+  const E1AP_BCBearerContextSetupRequest_t *in = &pdu->choice.initiatingMessage->value.choice.BCBearerContextSetupRequest;
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    const E1AP_BCBearerContextSetupRequestIEs_t *ie = in->protocolIEs.list.array[i];
+    switch (ie->id) {
+      case E1AP_ProtocolIE_ID_id_GNB_CU_CP_MBS_E1AP_ID:
+        out->gNB_cu_cp_mbs_e1ap_id = ie->value.choice.GNB_CU_CP_MBS_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_GlobalMBSSessionID: {
+        const OCTET_STRING_t *t = &ie->value.choice.GlobalMBSSessionID.tmgi;
+        if (t->size != (int)sizeof(out->tmgi))
+          return false;
+        memcpy(out->tmgi, t->buf, sizeof(out->tmgi));
+        break;
+      }
+      case E1AP_ProtocolIE_ID_id_BCBearerContextToSetup: {
+        const E1AP_BCBearerContextToSetup_t *ctx = &ie->value.choice.BCBearerContextToSetup;
+        if (ctx->bcMRBToSetupList.list.count > 0)
+          out->mrb_id = ctx->bcMRBToSetupList.list.array[0]->mrb_ID;
+        if (ctx->snssai.sST.size > 0)
+          out->sst = ctx->snssai.sST.buf[0];
+        const E1AP_BCBearerContextNGU_TNLInfoat5GC_t *tnl = ctx->bcBearerContextNGU_TNLInfoat5GC;
+        const E1AP_MBSNGUInformationAt5GC_Multicast_t *mc = NULL;
+        if (tnl != NULL) {
+          if (tnl->present == E1AP_BCBearerContextNGU_TNLInfoat5GC_PR_locationindependent
+              && tnl->choice.locationindependent != NULL
+              && tnl->choice.locationindependent->present == E1AP_MBSNGUInformationAt5GC_PR_multicast) {
+            mc = tnl->choice.locationindependent->choice.multicast;
+          } else if (tnl->present == E1AP_BCBearerContextNGU_TNLInfoat5GC_PR_locationdependent
+                     && tnl->choice.locationdependent != NULL
+                     && tnl->choice.locationdependent->list.count > 0
+                     && tnl->choice.locationdependent->list.array[0]->mbsNGUInformationAt5GC.present
+                            == E1AP_MBSNGUInformationAt5GC_PR_multicast) {
+            mc = tnl->choice.locationdependent->list.array[0]->mbsNGUInformationAt5GC.choice.multicast;
+          }
+        }
+        if (mc != NULL) {
+          BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&mc->ipmcAddress, out->multicast_addr);
+          BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&mc->ipsourceAddress, out->source_addr);
+          OCTET_STRING_TO_INT32(&mc->gtpDLTEID, out->c_teid);
+          out->tnl_present = true;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return true;
+}
+
+struct E1AP_E1AP_PDU *encode_E1_bc_bearer_context_setup_response(uint32_t cp_id, uint32_t up_id)
+{
+  E1AP_E1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+  pdu->present = E1AP_E1AP_PDU_PR_successfulOutcome;
+  asn1cCalloc(pdu->choice.successfulOutcome, msg);
+  msg->procedureCode = E1AP_ProcedureCode_id_BCBearerContextSetup;
+  msg->criticality = E1AP_Criticality_reject;
+  msg->value.present = E1AP_SuccessfulOutcome__value_PR_BCBearerContextSetupResponse;
+  E1AP_BCBearerContextSetupResponse_t *out = &msg->value.choice.BCBearerContextSetupResponse;
+
+  {
+    asn1cSequenceAdd(out->protocolIEs.list, E1AP_BCBearerContextSetupResponseIEs_t, ie);
+    ie->id = E1AP_ProtocolIE_ID_id_GNB_CU_CP_MBS_E1AP_ID;
+    ie->criticality = E1AP_Criticality_reject;
+    ie->value.present = E1AP_BCBearerContextSetupResponseIEs__value_PR_GNB_CU_CP_MBS_E1AP_ID;
+    ie->value.choice.GNB_CU_CP_MBS_E1AP_ID = cp_id;
+  }
+  {
+    asn1cSequenceAdd(out->protocolIEs.list, E1AP_BCBearerContextSetupResponseIEs_t, ie);
+    ie->id = E1AP_ProtocolIE_ID_id_GNB_CU_UP_MBS_E1AP_ID;
+    ie->criticality = E1AP_Criticality_reject;
+    ie->value.present = E1AP_BCBearerContextSetupResponseIEs__value_PR_GNB_CU_UP_MBS_E1AP_ID;
+    ie->value.choice.GNB_CU_UP_MBS_E1AP_ID = up_id;
+  }
+  return pdu;
 }

@@ -626,6 +626,7 @@ static void release_common_ss_cset(NR_BWP_PDCCH_t *pdcch)
   pdcch->otherSI_SS_id = -1;
   pdcch->ra_SS_id = -1;
   pdcch->paging_SS_id = -1;
+  pdcch->mtch_SS_id = -1;
   asn_sequence_empty(&pdcch->list_common_SS);
   asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, pdcch->commonControlResourceSet);
 }
@@ -703,6 +704,9 @@ static void configure_common_ss_coreset(NR_BWP_PDCCH_t *pdcch, NR_PDCCH_ConfigCo
   ASIGN_P_VAL(pdcch->otherSI_SS_id, pdcch_ConfigCommon->searchSpaceOtherSystemInformation);
   ASIGN_P_VAL(pdcch->ra_SS_id, pdcch_ConfigCommon->ra_SearchSpace);
   ASIGN_P_VAL(pdcch->paging_SS_id, pdcch_ConfigCommon->pagingSearchSpace);
+  pdcch->mtch_SS_id = -1;
+  if (pdcch_ConfigCommon->ext3)
+    ASIGN_P_VAL(pdcch->mtch_SS_id, pdcch_ConfigCommon->ext3->searchSpaceMTCH_r17);
 
   UPDATE_IE(pdcch->commonControlResourceSet, pdcch_ConfigCommon->commonControlResourceSet, NR_ControlResourceSet_t);
 }
@@ -2203,6 +2207,62 @@ void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *si
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }
 
+/* removes the G-RNTIs of the multicast sessions, or the ones of the broadcast sessions */
+void nr_ue_mbs_release_g_rnti(NR_UE_MAC_INST_t *mac, bool broadcast)
+{
+  int n = 0;
+  for (int i = 0; i < mac->mbs.num_g_rnti; i++) {
+    if (mac->mbs.broadcast[i] == broadcast)
+      continue;
+    mac->mbs.g_rnti[n] = mac->mbs.g_rnti[i];
+    mac->mbs.config_id[n] = mac->mbs.config_id[i];
+    mac->mbs.harq_feedback[n] = mac->mbs.harq_feedback[i];
+    mac->mbs.broadcast[n] = mac->mbs.broadcast[i];
+    n++;
+  }
+  mac->mbs.num_g_rnti = n;
+}
+
+/* MBS broadcast (TS 38.300 §16.10.6): the sessions announced in the cell replace the ones known so far. Their PDCCHs are
+ * in the CORESET given with them, monitored in the MTCH search space of the initial BWP; nothing is reported for them
+ * (TS 38.213 §18) */
+void nr_rrc_mac_config_mbs_broadcast(module_id_t module_id,
+                                     NR_ControlResourceSet_t *coreset,
+                                     int num_sessions,
+                                     const uint16_t g_rnti[num_sessions],
+                                     const int lcid[num_sessions])
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int ret = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+
+  if (coreset) {
+    struct NR_PDCCH_Config__controlResourceSetToAddModList list = {0};
+    ASN_SEQUENCE_ADD(&list.list, coreset);
+    NR_PDCCH_Config_t coresets = {.controlResourceSetToAddModList = &list};
+    configure_ss_coreset(&mac->config_BWP_PDCCH[0], &coresets);
+    asn_sequence_empty(&list.list);
+  }
+
+  nr_ue_mbs_release_g_rnti(mac, true);
+  mac->mbs.broadcast_mtch_lcids = 0;
+  for (int i = 0; i < num_sessions; i++) {
+    if (mac->mbs.num_g_rnti == NR_MAX_G_RNTI) {
+      LOG_E(NR_MAC, "more than %d G-RNTIs, broadcast session on G-RNTI %04x ignored\n", NR_MAX_G_RNTI, g_rnti[i]);
+      continue;
+    }
+    const int j = mac->mbs.num_g_rnti++;
+    mac->mbs.g_rnti[j] = g_rnti[i];
+    mac->mbs.config_id[j] = -1;
+    mac->mbs.harq_feedback[j] = false;
+    mac->mbs.broadcast[j] = true;
+    mac->mbs.broadcast_mtch_lcids |= 1ULL << lcid[i];
+  }
+
+  ret = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+}
+
 void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19, int hfn, int frame, bool can_start_ra)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
@@ -2503,11 +2563,12 @@ static void configure_g_rnti(NR_UE_MAC_INST_t *mac,
   for (int i = 0; release_list && i < release_list->list.count; i++) {
     const long id = *release_list->list.array[i];
     for (int j = 0; j < mac->mbs.num_g_rnti; j++) {
-      if (mac->mbs.config_id[j] == id) {
+      if (!mac->mbs.broadcast[j] && mac->mbs.config_id[j] == id) {
         mac->mbs.num_g_rnti--;
         mac->mbs.g_rnti[j] = mac->mbs.g_rnti[mac->mbs.num_g_rnti];
         mac->mbs.config_id[j] = mac->mbs.config_id[mac->mbs.num_g_rnti];
         mac->mbs.harq_feedback[j] = mac->mbs.harq_feedback[mac->mbs.num_g_rnti];
+        mac->mbs.broadcast[j] = mac->mbs.broadcast[mac->mbs.num_g_rnti];
         break;
       }
     }
@@ -2531,7 +2592,7 @@ static void configure_g_rnti(NR_UE_MAC_INST_t *mac,
       continue;
     }
     int j = 0;
-    while (j < mac->mbs.num_g_rnti && mac->mbs.config_id[j] != cfg->mbs_RNTI_SpecificConfigId_r17)
+    while (j < mac->mbs.num_g_rnti && (mac->mbs.broadcast[j] || mac->mbs.config_id[j] != cfg->mbs_RNTI_SpecificConfigId_r17))
       j++;
     if (j == mac->mbs.num_g_rnti) {
       AssertFatal(j < NR_MAX_G_RNTI, "more than %d G-RNTIs configured\n", NR_MAX_G_RNTI);
@@ -2540,6 +2601,7 @@ static void configure_g_rnti(NR_UE_MAC_INST_t *mac,
     mac->mbs.config_id[j] = cfg->mbs_RNTI_SpecificConfigId_r17;
     mac->mbs.g_rnti[j] = cfg->groupCommon_RNTI_r17.choice.g_RNTI;
     mac->mbs.harq_feedback[j] = harq_feedback;
+    mac->mbs.broadcast[j] = false;
     LOG_I(NR_MAC,
           "[UE %d] configured G-RNTI %04x for multicast, HARQ-ACK %s\n",
           mac->ue_id,

@@ -645,5 +645,6 @@ void nr_mac_release_mbs_group(gNB_MAC_INST *mac, rnti_t g_rnti);
 bool nr_mac_add_mbs_member(gNB_MAC_INST *mac, nr_mbs_group_t *group, NR_UE_info_t *UE);
 void nr_mac_remove_mbs_member(gNB_MAC_INST *mac, nr_mbs_group_t *group, NR_UE_info_t *UE);
 void nr_schedule_mbs(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_process_pdsch_t *pp_pdsch);
+bool nr_mac_update_sib20(nr_cell_sched_t *cell);
 void nr_mbs_handle_dl_harq(NR_UE_info_t *UE, int harq_pid, bool success, int harq_round_max);
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/

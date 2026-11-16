@@ -337,7 +337,9 @@ int nr_mbs_mcs_select_default(const nr_cell_sched_t *cell,
                               NR_UE_info_t *const *members,
                               int n_members)
 {
-  (void)group;
+  /* the receivers of a broadcast session are not known, and may be idle: nothing to adapt to */
+  if (group->config.broadcast)
+    return group->config.mcs;
   const NR_bler_options_t *bo = &cell->dl_bler;
   const int ptm_mcs_table = 0;
   const int max_mcs = min(bo->max_mcs, 28);

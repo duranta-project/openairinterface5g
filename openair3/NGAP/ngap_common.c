@@ -270,6 +270,76 @@ static gtpu_tunnel_t decode_TNLInformation(const NGAP_GTPTunnel_t *gTPTunnel_p)
   return out;
 }
 
+/** @brief Decode MBS Session Setup or Modification Request Transfer
+ *         (9.3.4.26 3GPP TS 38.413).
+ *
+ * Pulls out the broadcast session's user plane: the LL-SSM pair and the
+ * common TEID the payload arrives on. Until this existed the gNB knew a
+ * session's identity but not where its bytes would come from, which is why
+ * the interim delivery path had to read the TEID off the wire itself.
+ */
+bool decodeMBSSessionSetup(mbs_session_transfer_t *out, const OCTET_STRING_t in)
+{
+  void *decoded = decode_pdusession_transfer(&asn_DEF_NGAP_MBSSessionSetupOrModRequestTransfer, in);
+  if (!decoded) {
+    NGAP_ERROR("Failed to decode MBSSessionSetupOrModRequestTransfer\n");
+    return false;
+  }
+
+  NGAP_MBSSessionSetupOrModRequestTransfer_t *transfer = (NGAP_MBSSessionSetupOrModRequestTransfer_t *)decoded;
+  for (int i = 0; i < transfer->protocolIEs.list.count; i++) {
+    NGAP_MBSSessionSetupOrModRequestTransferIEs_t *ie = transfer->protocolIEs.list.array[i];
+    if (ie->id != NGAP_ProtocolIE_ID_id_MBS_SessionTNLInfo5GC)
+      continue;
+
+    /* Two shapes carry the same thing. locationindependent is one tunnel for
+     * the whole session; locationdependent is one per MBS area, and is what
+     * the 5G-MAG core sends even with a single area. Take the first either
+     * way: one service area until the MBS service area is implemented. */
+    const NGAP_SharedNGU_MulticastTNLInformation_t *shared = NULL;
+    const NGAP_MBS_SessionTNLInfo5GC_t *tnl = &ie->value.choice.MBS_SessionTNLInfo5GC;
+    if (tnl->present == NGAP_MBS_SessionTNLInfo5GC_PR_locationindependent) {
+      shared = tnl->choice.locationindependent;
+    } else if (tnl->present == NGAP_MBS_SessionTNLInfo5GC_PR_locationdependent
+               && tnl->choice.locationdependent != NULL
+               && tnl->choice.locationdependent->list.count > 0) {
+      shared = &tnl->choice.locationdependent->list.array[0]->sharedNGU_MulticastTNLInformation;
+    }
+    if (shared == NULL)
+      continue;
+
+    /* IPv4 only: the 5GC sends a 32-bit address here and OAI has no v6 user
+     * plane to terminate it on. */
+    if (shared->iP_MulticastAddress.size != 4 || shared->iP_SourceAddress.size != 4) {
+      NGAP_WARN("Broadcast session with a non-IPv4 transport address, ignoring its user plane\n");
+      continue;
+    }
+    BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&shared->iP_MulticastAddress, out->multicast_addr);
+    BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&shared->iP_SourceAddress, out->source_addr);
+
+    /* A GTP-TEID OCTET STRING holds the TEID in network byte order, so a
+     * big-endian read is the whole of it -- but the 5G-MAG core writes it
+     * byte-swapped, and the TEID that then turns up in the GTP-U header is
+     * the reverse of what this IE says. Compensating here keeps the
+     * workaround in one place and next to its evidence; it comes off the
+     * moment the core is fixed.
+     *
+     * Evidence: with the core sending 63 9e 00 00 the payload arrives on
+     * TEID 0x00009e63. The interim eBPF path reached the same conclusion
+     * independently -- it byte-swaps the NGAP value before matching it
+     * against the GTP-U header, and delivery only works because it does.
+     * The same core also corrupts the TMGI service id on N2. */
+    uint32_t teid_as_sent = 0;
+    OCTET_STRING_TO_INT32(&shared->gTP_TEID, teid_as_sent);
+    out->c_teid = __builtin_bswap32(teid_as_sent);
+    out->tnl_present = true;
+    break;
+  }
+
+  ASN_STRUCT_FREE(asn_DEF_NGAP_MBSSessionSetupOrModRequestTransfer, transfer);
+  return true;
+}
+
 void *decode_pdusession_transfer(const asn_TYPE_descriptor_t *td, const OCTET_STRING_t buf)
 {
   void *decoded = NULL;

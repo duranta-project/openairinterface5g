@@ -1,0 +1,189 @@
+[
+  {
+    "ambr": {
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      },
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "schema_version": 1,
+    "msisdn": [],
+    "imeisv": "6754567890123413",
+    "mme_host": [],
+    "mme_realm": [],
+    "purge_flag": [],
+    "access_restriction_data": 32,
+    "subscriber_status": 0,
+    "operator_determined_barring": 0,
+    "network_access_mode": 0,
+    "subscribed_rau_tau_timer": 12,
+    "imsi": "999700123456701",
+    "security": {
+      "k": "00112233445566778899aabbccddee01",
+      "amf": "8000",
+      "op": null,
+      "opc": "63BFA50EE6523365FF14C1F45F88737D",
+      "sqn": 32
+    },
+    "slice": [
+      {
+        "sst": 1,
+        "default_indicator": true,
+        "session": [
+          {
+            "qos": {
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              },
+              "index": 9
+            },
+            "ambr": {
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              },
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "name": "srsapn",
+            "type": 3,
+            "pcc_rule": []
+          }
+        ]
+      }
+    ],
+    "__v": 0
+  },
+  {
+    "ambr": {
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      },
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "schema_version": 1,
+    "msisdn": [],
+    "imeisv": [],
+    "mme_host": [],
+    "mme_realm": [],
+    "purge_flag": [],
+    "access_restriction_data": 32,
+    "subscriber_status": 0,
+    "operator_determined_barring": 0,
+    "network_access_mode": 0,
+    "subscribed_rau_tau_timer": 12,
+    "imsi": "999700123456702",
+    "security": {
+      "k": "00112233445566778899aabbccddee02",
+      "amf": "8000",
+      "op": null,
+      "opc": "63BFA50EE6523365FF14C1F45F88737D"
+    },
+    "slice": [
+      {
+        "sst": 1,
+        "default_indicator": true,
+        "session": [
+          {
+            "qos": {
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              },
+              "index": 9
+            },
+            "ambr": {
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              },
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "name": "srsapn",
+            "type": 3,
+            "pcc_rule": []
+          }
+        ]
+      }
+    ],
+    "__v": 0
+  },
+  {
+    "ambr": {
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      },
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "schema_version": 1,
+    "msisdn": [],
+    "imeisv": [],
+    "mme_host": [],
+    "mme_realm": [],
+    "purge_flag": [],
+    "access_restriction_data": 32,
+    "subscriber_status": 0,
+    "operator_determined_barring": 0,
+    "network_access_mode": 0,
+    "subscribed_rau_tau_timer": 12,
+    "imsi": "999700123456703",
+    "security": {
+      "k": "00112233445566778899aabbccddee03",
+      "amf": "8000",
+      "op": null,
+      "opc": "63BFA50EE6523365FF14C1F45F88737D"
+    },
+    "slice": [
+      {
+        "sst": 1,
+        "default_indicator": true,
+        "session": [
+          {
+            "qos": {
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              },
+              "index": 9
+            },
+            "ambr": {
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              },
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "name": "srsapn",
+            "type": 3,
+            "pcc_rule": []
+          }
+        ]
+      }
+    ],
+    "__v": 0
+  }
+]

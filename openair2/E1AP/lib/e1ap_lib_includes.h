@@ -31,6 +31,11 @@
 
 // E1 Bearer Context Setup Request
 #include "E1AP_BearerContextSetupRequest.h"
+#include "E1AP_BCBearerContextSetupRequest.h"
+#include "E1AP_BCBearerContextSetupResponse.h"
+#include "E1AP_BCBearerContextToSetup.h"
+#include "E1AP_BCMRBSetupConfiguration-Item.h"
+#include "E1AP_GlobalMBSSessionID.h"
 #include "E1AP_GNB-CU-CP-E1SetupRequest.h"
 #include "E1AP_GNB-CU-UP-E1SetupRequest.h"
 #include "E1AP_System-BearerContextSetupRequest.h"
@@ -82,5 +87,13 @@
 #include "E1AP_QoS-Flow-Failed-Item.h"
 #include "E1AP_DRB-Failed-To-Modify-Item-NG-RAN.h"
 #include "E1AP_ActivityNotificationLevel.h"
+
+/* The 5GC side of a broadcast session's user plane. asn1c runs with
+ * -fno-include-deps, so every type reached from here has to be named. */
+#include "E1AP_BCBearerContextNGU-TNLInfoat5GC.h"
+#include "E1AP_MBSNGUInformationAt5GC.h"
+#include "E1AP_MBSNGUInformationAt5GC-Multicast.h"
+#include "E1AP_LocationDependentMBSNGUInformationAt5GC.h"
+#include "E1AP_LocationDependentMBSNGUInformationAt5GC-Item.h"
 
 #endif /* E1AP_LIB_INCLUDES_H_ */

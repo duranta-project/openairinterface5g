@@ -4573,7 +4573,7 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
           break;
         }
         // discard the received subPDU if RB is suspended
-        if (!(mac->mbs.mtch_lcids & (1ULL << rx_lcid)) && is_lcid_suspended(mac, rx_lcid)) {
+        if (!((mac->mbs.mtch_lcids | mac->mbs.broadcast_mtch_lcids) & (1ULL << rx_lcid)) && is_lcid_suspended(mac, rx_lcid)) {
           LOG_W(NR_MAC, "Received PDU for a suspended RB, corresponding to LCID %d. Dropping it.\n", rx_lcid);
           break;
         }

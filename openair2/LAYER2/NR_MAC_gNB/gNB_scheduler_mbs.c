@@ -5,6 +5,11 @@
 /*!
  * \brief gNB MBS multicast scheduling: point-to-multipoint (PTM) transmissions of MBS groups on a G-RNTI with DCI format 4_1
  * in the Type-3 CSS of the CFR (TS 38.300 §16.10.5, TS 38.213 §18)
+ *
+ * A broadcast session (TS 38.300 §16.10.6) is scheduled the same way, with two differences that follow from its
+ * receivers being unknown to the gNB: it has no members, so it is transmitted whether or not anybody is connected, and
+ * it has a fixed MCS. INTERIM: it still uses DCI format 4_1 and the HARQ processes of the unicast HARQ entity, where
+ * TS 38.213 §18 has DCI format 4_0 and TS 38.321 §5.3.2.1 a broadcast HARQ process of its own.
  */
 
 #include <errno.h>
@@ -39,6 +44,40 @@ static bool is_mbs_member(const nr_mbs_group_t *group, rnti_t rnti)
       return true;
   }
   return false;
+}
+
+/* Keeps the PTM HARQ processes of a group out of the unicast scheduling of a UE: G-RNTI and C-RNTI share the DL HARQ
+ * entity of the UE (TS 38.321 §5.3.2.1). Free processes are reserved now, busy ones when their unicast transport block
+ * is finished. Returns false if the UE does not have these processes */
+static bool nr_mac_reserve_ptm_harq(const nr_mbs_group_t *group, NR_UE_info_t *UE)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  if ((sched_ctrl->ptm_dl_harq_mask & group->harq_mask) == group->harq_mask)
+    return true;
+  if (group->harq_mask >> sched_ctrl->available_dl_harq.len)
+    return false;
+  sched_ctrl->ptm_dl_harq_mask |= group->harq_mask;
+  sched_ctrl->ptm_pdsch_frame = MAX_FRAME_NUMBER;
+  for (int pid = 0; pid < sched_ctrl->available_dl_harq.len; pid++) {
+    const NR_UE_harq_t *harq = &sched_ctrl->harq_processes[pid];
+    if ((group->harq_mask & (1U << pid)) && !harq->is_waiting && harq->round == 0)
+      remove_nr_list(&sched_ctrl->available_dl_harq, pid);
+  }
+  return true;
+}
+
+/* gives the PTM HARQ processes of a group back to the unicast scheduling of a UE */
+static void nr_mac_release_ptm_harq(const nr_mbs_group_t *group, NR_UE_info_t *UE)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  if (!(sched_ctrl->ptm_dl_harq_mask & group->harq_mask))
+    return;
+  sched_ctrl->ptm_dl_harq_mask &= ~group->harq_mask;
+  for (int pid = 0; pid < sched_ctrl->available_dl_harq.len; pid++) {
+    const NR_UE_harq_t *harq = &sched_ctrl->harq_processes[pid];
+    if ((group->harq_mask & (1U << pid)) && !harq->is_waiting && harq->round == 0)
+      add_tail_nr_list(&sched_ctrl->available_dl_harq, pid);
+  }
 }
 
 /** @brief Establishes the context of an MBS multicast session in a cell, as done in the gNB-DU by Multicast Context
@@ -80,6 +119,10 @@ nr_mbs_group_t *nr_mac_add_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, c
   for (int pid = num_dlharq - config->num_harq; pid < num_dlharq; pid++)
     group->harq_mask |= 1U << pid;
   group->ptm_rlc_bearer = get_MRB_PTM_RLC_BearerConfig(config->lcid, config->mrb_id, &mac->rlc_config);
+  /* the RLC entity of a broadcast MRB has a 6-bit SN, the only one MRB-RLC-ConfigBroadcast can announce
+   * (TS 38.331 §6.3.2) */
+  if (config->broadcast)
+    *group->ptm_rlc_bearer->rlc_Config->choice.um_Uni_Directional_DL->dl_UM_RLC.sn_FieldLength = NR_SN_FieldLengthUM_size6;
   nr_rlc_add_mrb(g_rnti, group->ptm_rlc_bearer);
   if (!cell->mbs_search_space) {
     cell->mbs_coreset = get_mbs_coreset_config(cell->common_channels.ServingCellConfigCommon, &cell->radio_config);
@@ -87,7 +130,8 @@ nr_mbs_group_t *nr_mac_add_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, c
   }
   UE_info->mbs_group_list[idx] = group;
   LOG_I(NR_MAC,
-        "added MBS group G-RNTI %04x: LCID %d, HARQ feedback %s, PTM HARQ processes 0x%04x\n",
+        "added MBS %s G-RNTI %04x: LCID %d, HARQ feedback %s, PTM HARQ processes 0x%04x\n",
+        config->broadcast ? "broadcast session" : "group",
         g_rnti,
         config->lcid,
         config->harq_feedback == NR_MBS_HARQ_FEEDBACK_DISABLED ? "disabled" : "ACK/NACK",
@@ -114,6 +158,11 @@ void nr_mac_release_mbs_group(gNB_MAC_INST *mac, rnti_t g_rnti)
       nr_mac_remove_mbs_member(mac, group, UE);
     } else {
       group->num_members--;
+    }
+  }
+  if (group->config.broadcast) {
+    FOR_EACH_CONNECTED_UE(UE_info, UE) {
+      nr_mac_release_ptm_harq(group, UE);
     }
   }
   for (int pid = 0; pid < NR_MAX_HARQ_PROCESSES; pid++)
@@ -449,8 +498,17 @@ static void nr_schedule_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post
     if (UE && nr_mac_ue_is_active(UE) && !UE->reconfigCellGroup)
       members[n_members++] = UE;
   }
-  if (n_members == 0)
+  if (group->config.broadcast) {
+    /* A broadcast session has no members: it is announced in the cell, and transmitted whether or not anybody is
+     * connected. The connected UEs of the cell are still looked at, as any of them may be receiving it: the PTM HARQ
+     * processes are kept out of their unicast scheduling, and they get no unicast PDSCH in the slot of a PTM one */
+    FOR_EACH_CONNECTED_UE(&mac->UE_info, UE) {
+      if (UE->pcell == cell && nr_mac_ue_is_active(UE) && nr_mac_reserve_ptm_harq(group, UE))
+        members[n_members++] = UE;
+    }
+  } else if (n_members == 0) {
     return;
+  }
 
   const logical_chan_id_t lcid = group->config.lcid;
   mac_rlc_status_resp_t rlc_status;
@@ -550,7 +608,7 @@ static void nr_schedule_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post
                                        sched_pdsch.nrOfLayers)
                         >> 3;
 
-  int pucch_index[n_members];
+  int pucch_index[n_members + 1];
   const bool harq_feedback = group->config.harq_feedback == NR_MBS_HARQ_FEEDBACK_ACK_NACK;
   if (harq_feedback && nr_mbs_acknack_scheduling(cell, group, members, n_members, frame, slot, cce_index, pucch_index) < 0) {
     LOG_D(NR_MAC, "%4d.%2d G-RNTI %04x: no common PUCCH occasion for the HARQ-ACK of the members\n", frame, slot, group->g_rnti);
