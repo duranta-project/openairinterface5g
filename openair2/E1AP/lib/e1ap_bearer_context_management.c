@@ -541,7 +541,8 @@ static bool eq_pdu_session_item(const pdu_session_to_setup_t *a, const pdu_sessi
 {
   _EQ_CHECK_LONG(a->sessionId, b->sessionId);
   _EQ_CHECK_LONG(a->sessionType, b->sessionType);
-  eq_up_tl_info(&a->UP_TL_information, &b->UP_TL_information);
+  if (!eq_up_tl_info(&a->UP_TL_information, &b->UP_TL_information))
+    return false;
   _EQ_CHECK_INT(a->numDRB2Setup, b->numDRB2Setup);
   for (int i = 0; i < a->numDRB2Setup; i++)
     if (!eq_drb_to_setup(&a->DRBnGRanList[i], &b->DRBnGRanList[i]))
@@ -1115,7 +1116,8 @@ bool eq_bearer_context_setup_response(const e1ap_bearer_setup_resp_t *a, const e
     const pdu_session_setup_t *ps_a = &a->pduSession[i];
     const pdu_session_setup_t *ps_b = &b->pduSession[i];
     _EQ_CHECK_LONG(ps_a->id, ps_b->id);
-    eq_up_tl_info(&ps_a->tl_info, &ps_b->tl_info);
+    if (!eq_up_tl_info(&ps_a->tl_info, &ps_b->tl_info))
+      return false;
     _EQ_CHECK_INT(ps_a->numDRBSetup, ps_b->numDRBSetup);
     _EQ_CHECK_INT(ps_a->numDRBFailed, ps_b->numDRBFailed);
     // Check DRB Setup
