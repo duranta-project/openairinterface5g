@@ -1656,13 +1656,30 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
 /* PDSCH scheduled by DCI format 4_1 with CRC scrambled by G-RNTI, received as for DCI format 1_0 (TS 38.214 §5.1.4) in
  * the CFR, i.e., the active DL BWP. pdsch-ConfigMulticast is not configured: default DMRS (TS 38.214 §5.1.6.2),
  * PDSCH-ConfigCommon TDRA (Table 5.1.2.1.1-1), MCS Table 5.1.3.1-1, no xOverhead-Multicast, cell ID scrambling */
-static int nr_ue_process_dci_dl_41(NR_UE_MAC_INST_t *mac,
+static int nr_ue_process_dci_dl_mbs(NR_UE_MAC_INST_t *mac,
                                    frame_t frame,
                                    int slot,
                                    dci_pdu_rel15_t *dci,
-                                   fapi_nr_dci_indication_pdu_t *dci_ind)
+                                   fapi_nr_dci_indication_pdu_t *dci_ind,
+                                   nr_dci_format_t format)
 {
   const NR_UE_DL_BWP_t *current_DL_BWP = mac->current_DL_BWP;
+  NR_UE_DL_BWP_t multicast_bwp;
+  const bool dci_4_2 = format == NR_DL_DCI_FORMAT_4_2;
+  if (dci_4_2) {
+    if (!mac->mbs.pdsch_config || (dci->antenna_ports.val != 0 && dci->antenna_ports.val != 3))
+      return -1;
+    multicast_bwp = *current_DL_BWP;
+    multicast_bwp.pdsch_Config = mac->mbs.pdsch_config;
+    multicast_bwp.dci_format = format;
+    current_DL_BWP = &multicast_bwp;
+    const NR_SetupRelease_PDSCH_TimeDomainResourceAllocationList_t *tda =
+        multicast_bwp.pdsch_Config->pdsch_TimeDomainAllocationList;
+    if (dci->time_domain_assignment.val >= (tda ? tda->choice.setup->list.count : 16))
+      return -1;
+    if (!tda)
+      multicast_bwp.tdaList_Common = NULL;
+  }
   fapi_nr_dl_config_request_t *dl_config = get_dl_config_request(mac, slot);
   fapi_nr_dl_config_request_pdu_t *dl_conf_req = &dl_config->dl_config_list[dl_config->number_pdus];
   dl_conf_req->pdu_type = FAPI_NR_DL_CONFIG_TYPE_DLSCH;
@@ -1675,15 +1692,16 @@ static int nr_ue_process_dci_dl_41(NR_UE_MAC_INST_t *mac,
   dlsch_pdu->numCsiRsForRateMatching = 0;
   dlsch_pdu->refPoint = 0;
 
-  /* TS 38.214 §5.1.2.2.3: RIV sized on CORESET 0 (or the initial DL BWP), RB'start and L'RBs in units of K RBs of the CFR */
+  /* TS 38.214 §5.1.2.2.3: format 4_1 uses CORESET-0 units of K RBs; format 4_2 addresses CFR PRBs directly. */
   const int cset0_size = mac->type0_PDCCH_CSS_config.num_rbs;
-  const int n_initial = cset0_size ? cset0_size : mac->sc_info.initial_dl_BWPSize;
+  const int n_initial = dci_4_2 ? current_DL_BWP->BWPSize
+      : (cset0_size ? cset0_size : mac->sc_info.initial_dl_BWPSize);
   if (nr_ue_process_dci_freq_dom_resource_assignment(NULL, dlsch_pdu, NULL, 0, n_initial, 0, dci->frequency_domain_assignment)
       < 0) {
-    LOG_W(NR_MAC, "[%d.%d] Invalid frequency_domain_assignment in DCI 4_1, ignoring it\n", frame, slot);
+    LOG_W(NR_MAC, "[%d.%d] Invalid frequency_domain_assignment in MBS DCI, ignoring it\n", frame, slot);
     return -1;
   }
-  const int K = get_multicast_type1_rb_granularity(dlsch_pdu->BWPSize, n_initial);
+  const int K = dci_4_2 ? 1 : get_multicast_type1_rb_granularity(dlsch_pdu->BWPSize, n_initial);
   dlsch_pdu->start_rb *= K;
   dlsch_pdu->number_rbs *= K;
 
@@ -1699,7 +1717,7 @@ static int nr_ue_process_dci_dl_41(NR_UE_MAC_INST_t *mac,
     return -1;
   dlsch_pdu->number_symbols = tda_info.nrOfSymbols;
   dlsch_pdu->start_symbol = tda_info.startSymbolIndex;
-  dlsch_pdu->nscid = 0;
+  dlsch_pdu->nscid = dci_4_2 ? dci->dmrs_sequence_initialization.val : 0;
   dlsch_pdu->dlDmrsScramblingId = mac->physCellId;
   dlsch_pdu->dlDataScramblingId = mac->physCellId;
   dlsch_pdu->dlDmrsSymbPos = fill_dmrs_mask(NULL,
@@ -1710,11 +1728,12 @@ static int nr_ue_process_dci_dl_41(NR_UE_MAC_INST_t *mac,
                                             tda_info.mapping_type,
                                             1);
   dlsch_pdu->dmrsConfigType = NFAPI_NR_DMRS_TYPE1;
-  dlsch_pdu->n_dmrs_cdm_groups = dlsch_pdu->number_symbols == 2 ? 1 : 2;
+  dlsch_pdu->n_dmrs_cdm_groups = dci_4_2 ? (dci->antenna_ports.val == 0 ? 1 : 2)
+      : (dlsch_pdu->number_symbols == 2 ? 1 : 2);
   dlsch_pdu->dmrs_ports = 1;
   dlsch_pdu->vrb_to_prb_mapping =
       dci->vrb_to_prb_mapping.val == 0 ? vrb_to_prb_mapping_non_interleaved : vrb_to_prb_mapping_interleaved;
-  dlsch_pdu->mcs_table = get_dlsch_mcs_table(NR_DL_DCI_FORMAT_4_1, TYPE_G_RNTI_, dci_ind->ss_type, NULL, NULL, false, NULL);
+  dlsch_pdu->mcs_table = get_dlsch_mcs_table(format, TYPE_G_RNTI_, dci_ind->ss_type, NULL, NULL, false, NULL);
 
   /* TS 38.321 §5.3.1: the NDI of a G-RNTI assignment is considered toggled if the previous assignment of the HARQ
    * process was for another RNTI */
@@ -1750,6 +1769,9 @@ static int nr_ue_process_dci_dl_41(NR_UE_MAC_INST_t *mac,
   if (nr_ue_g_rnti_harq_feedback(mac, dci_ind->rnti)) {
     // TS 38.213 §9.2.3: dl-DataToUL-ACK of PUCCH-Config, as dl-DataToUL-ACK-MulticastDCI-Format4-1 is not configured
     const NR_PUCCH_Config_t *pucch_Config = mac->current_UL_BWP->pucch_Config;
+    if (!pucch_Config || !pucch_Config->dl_DataToUL_ACK
+        || dci->pdsch_to_harq_feedback_timing_indicator.val >= pucch_Config->dl_DataToUL_ACK->list.count)
+      return -1;
     const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->phy_config.config_req.ntn_config, dlsch_pdu->SubcarrierSpacing);
     const int feedback_ti =
         pucch_Config->dl_DataToUL_ACK->list.array[dci->pdsch_to_harq_feedback_timing_indicator.val][0] + ntn_ue_koffset;
@@ -1774,9 +1796,10 @@ static int nr_ue_process_dci_dl_41(NR_UE_MAC_INST_t *mac,
   }
   mac->mbs.rx_tb++;
   LOG_D(NR_MAC,
-        "[%d.%d] DCI 4_1 G-RNTI %04x: RBs %d+%d (K %d) symbols %d+%d MCS %d TBS %d HARQ %d NDI %d\n",
+        "[%d.%d] DCI 4_%d G-RNTI %04x: RBs %d+%d (K %d) symbols %d+%d MCS %d TBS %d HARQ %d NDI %d\n",
         frame,
         slot,
+        dci_4_2 ? 2 : 1,
         dci_ind->rnti,
         dlsch_pdu->start_rb,
         dlsch_pdu->number_rbs,
@@ -1798,7 +1821,7 @@ static int8_t nr_ue_process_dci(NR_UE_MAC_INST_t *mac,
                                 fapi_nr_dci_indication_pdu_t *dci_ind,
                                 const nr_dci_format_t format)
 {
-  const char *dci_formats[] = {"1_0", "1_1", "2_0", "2_1", "2_2", "2_3", "0_0", "0_1", "4_1"};
+  const char *dci_formats[] = {"1_0", "1_1", "2_0", "2_1", "2_2", "2_3", "0_0", "0_1", "4_1", "4_2"};
   LOG_D(MAC, "Processing received DCI format %s\n", dci_formats[format]);
 
   switch (format) {
@@ -1819,7 +1842,8 @@ static int8_t nr_ue_process_dci(NR_UE_MAC_INST_t *mac,
       break;
 
     case NR_DL_DCI_FORMAT_4_1:
-      return nr_ue_process_dci_dl_41(mac, frame, slot, dci, dci_ind);
+    case NR_DL_DCI_FORMAT_4_2:
+      return nr_ue_process_dci_dl_mbs(mac, frame, slot, dci, dci_ind, format);
       break;
 
     case NR_DL_DCI_FORMAT_2_0:
@@ -4220,6 +4244,12 @@ static nr_dci_format_t nr_extract_dci_info(NR_UE_MAC_INST_t *mac,
         LOG_E(NR_MAC_DCI, "RNTI type not supported for formats 01 or 11\n");
         return NR_DCI_NONE;
       }
+      break;
+    case NFAPI_NR_FORMAT_4_2:
+      if (rnti_type != TYPE_G_RNTI_ || mac->mbs.dci_format != NR_DL_DCI_FORMAT_4_2
+          || !nr_dci_4_2_unpack(&mac->def_dci_pdu_rel15[slot][NR_DL_DCI_FORMAT_4_2], dci_pdu, dci_size))
+        return NR_DCI_NONE;
+      format = NR_DL_DCI_FORMAT_4_2;
       break;
     case NFAPI_NR_FORMAT_4_1:
       if (rnti_type != TYPE_G_RNTI_) {

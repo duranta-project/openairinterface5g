@@ -20,6 +20,7 @@
 #include "nr_mac_gNB.h"
 
 #define CONFIG_STRING_MBS_TEST "MBS_TEST"
+#define CONFIG_STRING_MBS_TEST_DCI_FORMAT "dci_format"
 #define CONFIG_STRING_MBS_TEST_LCID "lcid"
 #define CONFIG_STRING_MBS_TEST_MRB_ID "mrb_id"
 #define CONFIG_STRING_MBS_TEST_NUM_HARQ "num_ptm_harq"
@@ -31,6 +32,7 @@
 
 // clang-format off
 #define MBS_TEST_PARAMS_DESC { \
+  {CONFIG_STRING_MBS_TEST_DCI_FORMAT, "PTM DCI format (41 or 42)\n", 0, .iptr = NULL, .defintval = 41, TYPE_INT, 0}, \
   {CONFIG_STRING_MBS_TEST_LCID,                        "PTM MTCH LCID\n",       0, .iptr = NULL, .defintval = 32,   TYPE_INT, 0}, \
   {CONFIG_STRING_MBS_TEST_MRB_ID,                      "MRB-Identity\n",        0, .iptr = NULL, .defintval = 1,    TYPE_INT, 0}, \
   {CONFIG_STRING_MBS_TEST_NUM_HARQ,                    "PTM HARQ processes\n",  0, .iptr = NULL, .defintval = 4,    TYPE_INT, 0}, \

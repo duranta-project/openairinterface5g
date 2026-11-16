@@ -146,9 +146,10 @@ static void config_dci_pdu(NR_UE_MAC_INST_t *mac,
   int temp_num_dci_options = (mac->ra.ra_state == nrRA_WAIT_RAR || rnti_type == TYPE_SI_RNTI_) ? 1 : 2;
   int dci_format[2] = {0};
   if (rnti_type == TYPE_G_RNTI_) {
-    // Type-3 CSS of pdcch-ConfigMulticast configured for DCI format 4_1 only
+    // Type-3 CSS of pdcch-ConfigMulticast; broadcast uses its separate 4_1 search space
     temp_num_dci_options = 1;
-    dci_format[0] = NR_DL_DCI_FORMAT_4_1;
+    dci_format[0] = ss == mac->mbs.search_space && mac->mbs.dci_format == NR_DL_DCI_FORMAT_4_2
+                        ? NR_DL_DCI_FORMAT_4_2 : NR_DL_DCI_FORMAT_4_1;
   } else if (ss->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_ue_Specific) {
     if (ss->searchSpaceType->choice.ue_Specific->dci_Formats ==
         NR_SearchSpace__searchSpaceType__ue_Specific__dci_Formats_formats0_0_And_1_0) {
@@ -167,6 +168,13 @@ static void config_dci_pdu(NR_UE_MAC_INST_t *mac,
     dci_format[1] = NR_UL_DCI_FORMAT_0_0;
   }
 
+  NR_UE_DL_BWP_t multicast_bwp;
+  if (dci_format[0] == NR_DL_DCI_FORMAT_4_2) {
+    multicast_bwp = *current_DL_BWP;
+    multicast_bwp.pdsch_Config = mac->mbs.pdsch_config;
+    multicast_bwp.dci_format = NR_DL_DCI_FORMAT_4_2;
+    current_DL_BWP = &multicast_bwp;
+  }
   NR_UE_ServingCell_Info_t *sc_info = &mac->sc_info;
   // loop over DCI options and configure resource allocation
   // need to configure mac->def_dci_pdu_rel15 for all possible format options
@@ -176,6 +184,8 @@ static void config_dci_pdu(NR_UE_MAC_INST_t *mac,
       rel15->dci_format_options[i] = NFAPI_NR_FORMAT_0_0_AND_1_0;
     else if (dci_format[i] == NR_DL_DCI_FORMAT_4_1)
       rel15->dci_format_options[i] = NFAPI_NR_FORMAT_4_1;
+    else if (dci_format[i] == NR_DL_DCI_FORMAT_4_2)
+      rel15->dci_format_options[i] = NFAPI_NR_FORMAT_4_2;
     else
       rel15->dci_format_options[i] = NFAPI_NR_FORMAT_0_1_AND_1_1;
     uint16_t alt_size = 0;
@@ -694,7 +704,7 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
       AssertFatal(css, "Atleast one CSS should be present in connected state\n");
       config_dci_pdu(mac, dl_config, TYPE_C_RNTI_, slot, css);
     }
-    // TS 38.213 §10.1: Type-3 CSS of pdcch-ConfigMulticast for DCI format 4_1 with CRC scrambled by G-RNTI
+    // TS 38.213 §10.1: Type-3 CSS of pdcch-ConfigMulticast for MBS DCI with CRC scrambled by G-RNTI
     const NR_SearchSpace_t *mbs_ss = mac->mbs.search_space;
     if (mbs_ss && is_ss_monitor_occasion(frame, slot, slots_per_frame, mbs_ss)) {
       for (int i = 0; i < mac->mbs.num_g_rnti; i++) {

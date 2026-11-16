@@ -129,7 +129,14 @@ void nr_mbs_test_adapter_init(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
   nr_mbs_test_adapter_t *a = calloc_or_fail(1, sizeof(*a));
   a->mac = mac;
   a->cell = cell;
+  const int dci_format = *gpd(p, np, CONFIG_STRING_MBS_TEST_DCI_FORMAT)->iptr;
+  if (dci_format != 41 && dci_format != 42) {
+    LOG_E(NR_MAC, "MBS DCI format must be 41 or 42\n");
+    free(a);
+    return;
+  }
   a->group_config = (nr_mbs_group_config_t){
+      .dci_4_2 = dci_format == 42,
       .config_id = 0,
       .mrb_id = *gpd(p, np, CONFIG_STRING_MBS_TEST_MRB_ID)->iptr,
       .lcid = *gpd(p, np, CONFIG_STRING_MBS_TEST_LCID)->iptr,

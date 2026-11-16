@@ -48,13 +48,16 @@ NR_SearchSpace_t *rrc_searchspace_config(bool is_common,
 #define NR_MBS_SEARCH_SPACE_ID 30
 NR_ControlResourceSet_t *get_mbs_coreset_config(const NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *configuration);
 NR_SearchSpace_t *get_mbs_search_space_config(const NR_ControlResourceSet_t *coreset, const nr_mac_config_t *configuration);
+NR_PDSCH_Config_t *get_mbs_pdsch_config(const NR_ServingCellConfigCommon_t *scc);
 void add_mbs_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
                              rnti_t g_rnti,
                              int config_id,
                              bool harq_feedback,
                              const NR_ControlResourceSet_t *coreset,
                              const NR_SearchSpace_t *ss,
-                             const NR_RLC_BearerConfig_t *ptm_bearer);
+                             const NR_RLC_BearerConfig_t *ptm_bearer,
+                             const NR_PDSCH_Config_t *pdsch_config,
+                             int dci_size);
 int csi_symbols_in_slot(const NR_ServingCellConfigCommon_t *scc);
 void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
                        NR_ServingCellConfigCommon_t *scc,

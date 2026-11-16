@@ -203,7 +203,8 @@ log_config:
 # TEMPORARY: MBS PTM test adapter (openair2/LAYER2/NR_MAC_gNB/nr_mbs_test_adapter.h)
 # Stands in for the MBS control plane: every UE with a PDU session joins one group (G-RNTI)
 MBS_TEST:
-  - lcid: 32                         # LCID of the MTCH
+  - dci_format: 41                   # 41 or 42 (single-layer type-1 multicast profile)
+    lcid: 32                         # LCID of the MTCH
     mrb_id: 1
     num_ptm_harq: 4                  # HARQ processes reserved for PTM (12-15)
     harq_feedback: 1                 # 1: ACK/NACK + PTP retransmissions on C-RNTI, 0: no feedback

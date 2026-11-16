@@ -104,6 +104,7 @@ void signal_rrc_msg(void /*const nr_rrc_class_e nr_channel, const uint32_t rrc_m
 void signal_rrc_state_changed_to(void /* const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state */) { abort(); }
 void signal_ue_id(void /* const gNB_RRC_UE_t *rrc_ue_context, const uint16_t class, const uint32_t msg_id */) { abort(); }
 
+void e1_bc_bearer_context_setup(const e1ap_bc_bearer_setup_req_t *req) { abort(); }
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req) { abort(); }
 void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req) { abort(); }
 void e1_bearer_context_mod_confirm(const e1ap_bearer_mod_confirm_t *conf) { abort(); }

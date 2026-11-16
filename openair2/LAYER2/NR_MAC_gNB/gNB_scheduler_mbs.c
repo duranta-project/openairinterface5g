@@ -3,7 +3,7 @@
  */
 
 /*!
- * \brief gNB MBS multicast scheduling: point-to-multipoint (PTM) transmissions of MBS groups on a G-RNTI with DCI format 4_1
+ * \brief gNB MBS multicast scheduling: point-to-multipoint (PTM) transmissions of MBS groups on a G-RNTI with DCI formats 4_1/4_2
  * in the Type-3 CSS of the CFR (TS 38.300 §16.10.5, TS 38.213 §18)
  *
  * A broadcast session (TS 38.300 §16.10.6) is scheduled the same way, with two differences that follow from its
@@ -92,6 +92,16 @@ nr_mbs_group_t *nr_mac_add_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, c
     LOG_E(NR_MAC, "MBS PTM transmissions are not supported with analog beamforming\n");
     return NULL;
   }
+  if (config->broadcast && config->dci_4_2) {
+    LOG_E(NR_MAC, "DCI 4_2 is supported for multicast sessions only\n");
+    return NULL;
+  }
+  for (nr_mbs_group_t **g = UE_info->mbs_group_list; *g; g++) {
+    if ((*g)->cell == cell && (*g)->config.dci_4_2 != config->dci_4_2) {
+      LOG_E(NR_MAC, "MBS groups sharing a CFR must use the same DCI format\n");
+      return NULL;
+    }
+  }
   const int num_dlharq = min(cell->radio_config.num_dlharq, NR_MBS_MAX_PTM_HARQ);
   if (config->num_harq < 1 || config->num_harq >= num_dlharq) {
     LOG_E(NR_MAC, "cannot reserve %d of %d DL HARQ processes for PTM transmissions\n", config->num_harq, num_dlharq);
@@ -114,6 +124,8 @@ nr_mbs_group_t *nr_mac_add_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, c
   group->g_rnti = g_rnti;
   group->config = *config;
   group->cell = cell;
+  if (config->dci_4_2)
+    group->pdsch_config = get_mbs_pdsch_config(cell->common_channels.ServingCellConfigCommon);
   group->last_harq_pid = -1;
   /* the highest HARQ process numbers are reserved, the lowest ones are kept for unicast */
   for (int pid = num_dlharq - config->num_harq; pid < num_dlharq; pid++)
@@ -130,12 +142,13 @@ nr_mbs_group_t *nr_mac_add_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, c
   }
   UE_info->mbs_group_list[idx] = group;
   LOG_I(NR_MAC,
-        "added MBS %s G-RNTI %04x: LCID %d, HARQ feedback %s, PTM HARQ processes 0x%04x\n",
+        "added MBS %s G-RNTI %04x: LCID %d, HARQ feedback %s, PTM HARQ processes 0x%04x, DCI 4_%d\n",
         config->broadcast ? "broadcast session" : "group",
         g_rnti,
         config->lcid,
         config->harq_feedback == NR_MBS_HARQ_FEEDBACK_DISABLED ? "disabled" : "ACK/NACK",
-        group->harq_mask);
+        group->harq_mask,
+        config->dci_4_2 ? 2 : 1);
   return group;
 }
 
@@ -173,6 +186,7 @@ void nr_mac_release_mbs_group(gNB_MAC_INST *mac, rnti_t g_rnti)
   for (; idx < NR_MAX_MBS_GROUPS; idx++)
     UE_info->mbs_group_list[idx] = UE_info->mbs_group_list[idx + 1];
   LOG_I(NR_MAC, "released MBS group G-RNTI %04x\n", g_rnti);
+  ASN_STRUCT_FREE(asn_DEF_NR_PDSCH_Config, group->pdsch_config);
   free(group);
 }
 
@@ -208,6 +222,19 @@ bool nr_mac_add_mbs_member(gNB_MAC_INST *mac, nr_mbs_group_t *group, NR_UE_info_
           group->harq_mask);
     return false;
   }
+  int dci_size = 0;
+  if (group->config.dci_4_2) {
+    NR_UE_DL_BWP_t dl = UE->current_DL_BWP;
+    dl.pdsch_Config = group->pdsch_config;
+    dci_pdu_rel15_t dci = {0};
+    dci_size = nr_dci_size(&dl, &UE->current_UL_BWP, NULL, UE->pdsch_HARQ_ACK_Codebook, &dci,
+                           NR_DL_DCI_FORMAT_4_2, TYPE_G_RNTI_, group->cell->mbs_coreset,
+                           NR_SearchSpace__searchSpaceType_PR_common, 0, 0);
+    if (dci_size == 0 || (group->num_members > 0 && dci_size != group->dci_size)) {
+      LOG_E(NR_MAC, "UE %04x: unsupported DCI 4_2 multicast configuration\n", UE->rnti);
+      return false;
+    }
+  }
   DevAssert(group->num_members < MAX_MOBILES_PER_GNB);
   NR_CellGroupConfig_t *cellGroup_for_UE = NULL;
   asn_copy(&asn_DEF_NR_CellGroupConfig, (void **)&cellGroup_for_UE, UE->CellGroup);
@@ -217,9 +244,12 @@ bool nr_mac_add_mbs_member(gNB_MAC_INST *mac, nr_mbs_group_t *group, NR_UE_info_
                           group->config.harq_feedback == NR_MBS_HARQ_FEEDBACK_ACK_NACK,
                           group->cell->mbs_coreset,
                           group->cell->mbs_search_space,
-                          group->ptm_rlc_bearer);
+                          group->ptm_rlc_bearer,
+                          group->pdsch_config,
+                          dci_size);
   UE->cm_info.trigger_info = MBS_JOIN;
   nr_mac_request_reconfiguration(mac, UE, cellGroup_for_UE);
+  group->dci_size = dci_size;
   group->member[group->num_members++] = UE->rnti;
   sched_ctrl->ptm_dl_harq_mask |= group->harq_mask;
   sched_ctrl->ptm_pdsch_frame = MAX_FRAME_NUMBER;
@@ -403,7 +433,8 @@ static void nr_mbs_fill_pdcch_pdsch(nr_cell_sched_t *cell,
                                     int aggregation_level,
                                     int cce_index,
                                     int beam_idx,
-                                    int pdu_index)
+                                    int pdu_index,
+                                    const NR_UE_info_t *member)
 {
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   NR_SearchSpace_t *ss = cell->mbs_search_space;
@@ -455,10 +486,12 @@ static void nr_mbs_fill_pdcch_pdsch(nr_cell_sched_t *cell,
   pdcch_pdu->numDlDci++;
 
   /* TS 38.214 §5.1.2.2.3: RIV of RB'start = RBstart / K and L'RBs = LRBs / K relative to the CFR, sized on CORESET 0 */
-  const int K = get_multicast_type1_rb_granularity(sched_pdsch->bwp_info.bwpSize, cell->cset0_bwp_size);
+  const int K = group->config.dci_4_2 ? 1
+      : get_multicast_type1_rb_granularity(sched_pdsch->bwp_info.bwpSize, cell->cset0_bwp_size);
   dci_pdu_rel15_t dci_payload = {0};
   dci_payload.frequency_domain_assignment.val =
-      PRBalloc_to_locationandbandwidth0(sched_pdsch->rbSize / K, sched_pdsch->rbStart / K, cell->cset0_bwp_size);
+      PRBalloc_to_locationandbandwidth0(sched_pdsch->rbSize / K, sched_pdsch->rbStart / K,
+                                       group->config.dci_4_2 ? sched_pdsch->bwp_info.bwpSize : cell->cset0_bwp_size);
   dci_payload.time_domain_assignment.val = sched_pdsch->time_domain_allocation;
   dci_payload.vrb_to_prb_mapping.val = 0;
   dci_payload.mcs = sched_pdsch->mcs;
@@ -469,17 +502,25 @@ static void nr_mbs_fill_pdcch_pdsch(nr_cell_sched_t *cell,
   dci_payload.dai[0].val = pucch ? (pucch->dai_c_mc - 1) & 3 : 0;
   dci_payload.pucch_resource_indicator = pucch ? pucch->resource_indicator : 0;
   dci_payload.pdsch_to_harq_feedback_timing_indicator.val = pucch ? pucch->timing_indicator : 0;
-  fill_dci_pdu_rel15(NULL,
-                     NULL,
-                     NULL,
+  NR_UE_DL_BWP_t dl = {0};
+  NR_UE_ServingCell_Info_t sc_info = {0};
+  if (group->config.dci_4_2) {
+    dl = member->current_DL_BWP;
+    dl.pdsch_Config = group->pdsch_config;
+    /* TS 38.212 Table 7.3.1.2.2-1: port 1000, one or two CDM groups without data. */
+    dci_payload.antenna_ports.val = pdsch_pdu->numDmrsCdmGrpsNoData == 1 ? 0 : 3;
+  }
+  fill_dci_pdu_rel15(group->config.dci_4_2 ? &sc_info : NULL,
+                     group->config.dci_4_2 ? &dl : NULL,
+                     group->config.dci_4_2 ? &member->current_UL_BWP : NULL,
                      dci_pdu,
                      &dci_payload,
-                     NR_DL_DCI_FORMAT_4_1,
+                     group->config.dci_4_2 ? NR_DL_DCI_FORMAT_4_2 : NR_DL_DCI_FORMAT_4_1,
                      TYPE_G_RNTI_,
                      0,
                      ss,
                      coreset,
-                     0,
+                     group->config.dci_4_2 ? member->pdsch_HARQ_ACK_Codebook : 0,
                      cell->cset0_bwp_size);
 }
 
@@ -538,7 +579,7 @@ static void nr_schedule_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post
   int aggregation_level = 0;
   const int cce_index = get_cce_index(cell, slot, group->g_rnti, &aggregation_level, beam.idx, ss, coreset, &sched_pdcch, 0.0f);
   if (cce_index < 0) {
-    LOG_D(NR_MAC, "%4d.%2d G-RNTI %04x: no free CCE for DCI format 4_1\n", frame, slot, group->g_rnti);
+    LOG_D(NR_MAC, "%4d.%2d G-RNTI %04x: no free CCE for MBS DCI\n", frame, slot, group->g_rnti);
     reset_beam_status(&cell->beam_info, frame, slot, beam_index, n_slots_frame, beam.new_beam);
     return;
   }
@@ -555,10 +596,11 @@ static void nr_schedule_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post
   /* the CFR is the initial DL BWP; DCI format 4_1 addresses its first K * N_CORESET0 RBs */
   const bwp_info_t cfr = {.bwpStart = NRRIV2PRBOFFSET(initial_dl_bwp->locationAndBandwidth, MAX_BWP_SIZE),
                           .bwpSize = NRRIV2BW(initial_dl_bwp->locationAndBandwidth, MAX_BWP_SIZE)};
-  const int K = get_multicast_type1_rb_granularity(cfr.bwpSize, cell->cset0_bwp_size);
+  const int K = group->config.dci_4_2 ? 1 : get_multicast_type1_rb_granularity(cfr.bwpSize, cell->cset0_bwp_size);
   uint16_t *vrb_map = cell->common_channels.vrb_map[beam.idx];
   int rb_start = 0;
-  const int free_rbs = get_ptm_rb_block(vrb_map, cfr.bwpStart, min(cfr.bwpSize, K * cell->cset0_bwp_size), K, slbitmap, &rb_start);
+  const int addressable_rbs = group->config.dci_4_2 ? cfr.bwpSize : min(cfr.bwpSize, K * cell->cset0_bwp_size);
+  const int free_rbs = get_ptm_rb_block(vrb_map, cfr.bwpStart, addressable_rbs, K, slbitmap, &rb_start);
   const int max_rbs = free_rbs / (1 + get_num_dl_active_ues(&mac->UE_info, cell)) / K * K;
   if (max_rbs == 0) {
     reset_beam_status(&cell->beam_info, frame, slot, beam_index, n_slots_frame, beam.new_beam);
@@ -656,7 +698,8 @@ static void nr_schedule_mbs_group(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post
                           aggregation_level,
                           cce_index,
                           beam.idx,
-                          pdu_index);
+                          pdu_index,
+                          n_members > 0 ? members[0] : NULL);
   fill_dl_tx_request(pp_pdsch, buf, pdu_index, sched_pdsch.tb_size, frame, slot);
   group->ptm_tx++;
   group->ptm_sdu_bytes += sdu_bytes;

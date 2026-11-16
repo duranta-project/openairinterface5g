@@ -270,7 +270,8 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
       nr_dci_format_t dci_format = handle_dci(mac, dl_info->frame, dl_info->slot, dl_info->dci_ind->dci_list + i);
 
       /* The check below filters out UL_DCIs which are being processed as DL_DCIs. */
-      if (dci_format != NR_DL_DCI_FORMAT_1_0 && dci_format != NR_DL_DCI_FORMAT_1_1 && dci_format != NR_DL_DCI_FORMAT_4_1) {
+      if (dci_format != NR_DL_DCI_FORMAT_1_0 && dci_format != NR_DL_DCI_FORMAT_1_1 && dci_format != NR_DL_DCI_FORMAT_4_1
+          && dci_format != NR_DL_DCI_FORMAT_4_2) {
         LOG_D(NR_MAC, "We are filtering a UL_DCI to prevent it from being treated like a DL_DCI\n");
         continue;
       }

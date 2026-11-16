@@ -51,6 +51,7 @@ configmodule_interface_t *uniqCfg = NULL;
 
 NR_IF_Module_t *NR_IF_Module_init(int Mod_id) { return (NULL); }
 
+void e1_bc_bearer_context_setup(const e1ap_bc_bearer_setup_req_t *req) { abort(); }
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
 {
   abort();

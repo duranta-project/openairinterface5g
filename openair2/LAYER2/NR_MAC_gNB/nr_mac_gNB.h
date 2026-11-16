@@ -970,6 +970,7 @@ typedef struct nr_mbs_group_config {
   int mrb_id;
   logical_chan_id_t lcid;
   nr_mbs_harq_feedback_t harq_feedback;
+  bool dci_4_2;
   /// number of DL HARQ processes reserved in every member for PTM transmissions
   int num_harq;
   /// broadcast session (TS 38.300 §16.10.6): announced in the cell, no members, receivers unknown to the gNB
@@ -993,6 +994,8 @@ typedef struct nr_mbs_harq {
 typedef struct nr_mbs_group {
   rnti_t g_rnti;
   nr_mbs_group_config_t config;
+  NR_PDSCH_Config_t *pdsch_config;
+  int dci_size;
   struct nr_cell_sched_s *cell;
   /// RLC-BearerConfig of the PTM RLC entity, also sent to the members
   NR_RLC_BearerConfig_t *ptm_rlc_bearer;

@@ -1679,7 +1679,7 @@ NR_UE_UL_BWP_t *get_ul_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool set
 }
 
 /* CFR for multicast of a DL BWP (TS 38.213 §18). Without locationAndBandwidthMulticast, the CFR is the BWP, so its
- * CORESETs are added to the ones of the BWP. The search space is the Type-3 CSS for DCI format 4_1 (TS 38.213 §10.1), as
+ * CORESETs are added to the ones of the BWP. The search space is the Type-3 CSS for DCI formats 4_1/4_2 (TS 38.213 §10.1), as
  * given by searchSpaceType-r17 of searchSpacesToAddModListExt-v1700, in the order of searchSpacesToAddModList */
 static void configure_cfr_multicast(NR_UE_MAC_INST_t *mac,
                                     NR_BWP_PDCCH_t *pdcch,
@@ -1687,6 +1687,8 @@ static void configure_cfr_multicast(NR_UE_MAC_INST_t *mac,
 {
   if (cfr->present == NR_SetupRelease_CFR_ConfigMulticast_r17_PR_release) {
     asn1cFreeStruc(asn_DEF_NR_SearchSpace, mac->mbs.search_space);
+    asn1cFreeStruc(asn_DEF_NR_PDSCH_Config, mac->mbs.pdsch_config);
+    mac->mbs.dci_format = NR_DL_DCI_FORMAT_4_1;
     return;
   }
   const NR_CFR_ConfigMulticast_r17_t *setup = cfr->choice.setup;
@@ -1698,23 +1700,47 @@ static void configure_cfr_multicast(NR_UE_MAC_INST_t *mac,
   if (!pdcch_mc)
     return;
   NR_SearchSpace_t *ss = NULL;
+  nr_dci_format_t format = NR_DL_DCI_FORMAT_4_1;
   for (int i = 0; pdcch_mc->searchSpacesToAddModList && i < pdcch_mc->searchSpacesToAddModList->list.count; i++) {
     const NR_SearchSpaceExt_v1700_t *ext = NULL;
     if (pdcch_mc->ext2 && pdcch_mc->ext2->searchSpacesToAddModListExt_v1700
         && i < pdcch_mc->ext2->searchSpacesToAddModListExt_v1700->list.count)
       ext = pdcch_mc->ext2->searchSpacesToAddModListExt_v1700->list.array[i];
-    if (ext && ext->searchSpaceType_r17 && ext->searchSpaceType_r17->common_r17.dci_Format4_1_r17)
-      ss = pdcch_mc->searchSpacesToAddModList->list.array[i];
+    if (ext && ext->searchSpaceType_r17) {
+      if (ext->searchSpaceType_r17->common_r17.dci_Format4_1_r17) {
+        ss = pdcch_mc->searchSpacesToAddModList->list.array[i];
+        format = NR_DL_DCI_FORMAT_4_1;
+      } else if (ext->searchSpaceType_r17->common_r17.dci_Format4_2_r17) {
+        ss = pdcch_mc->searchSpacesToAddModList->list.array[i];
+        format = NR_DL_DCI_FORMAT_4_2;
+      }
+    }
   }
   if (!ss) {
-    LOG_E(NR_MAC, "no search space for DCI format 4_1 in pdcch-ConfigMulticast\n");
+    LOG_E(NR_MAC, "no supported MBS search space in pdcch-ConfigMulticast\n");
     return;
+  }
+  if (format == NR_DL_DCI_FORMAT_4_2) {
+    NR_UE_DL_BWP_t dl = *mac->current_DL_BWP;
+    dl.pdsch_Config = setup->pdsch_ConfigMulticast_r17;
+    dci_pdu_rel15_t dci = {0};
+    if (!dl.pdsch_Config || !dl.pdsch_Config->ext3 || !dl.pdsch_Config->ext3->sizeDCI_4_2_r17
+        || !nr_dci_size(&dl, mac->current_UL_BWP, NULL, mac->pdsch_HARQ_ACK_Codebook, &dci,
+                        format, TYPE_G_RNTI_, NULL, NR_SearchSpace__searchSpaceType_PR_common, 0, 0)) {
+      LOG_E(NR_MAC, "Unsupported DCI 4_2 multicast profile\n");
+      return;
+    }
   }
   NR_PDCCH_Config_t coresets = {.controlResourceSetToAddModList = pdcch_mc->controlResourceSetToAddModList};
   configure_ss_coreset(pdcch, &coresets);
   asn1cFreeStruc(asn_DEF_NR_SearchSpace, mac->mbs.search_space);
   asn_copy(&asn_DEF_NR_SearchSpace, (void **)&mac->mbs.search_space, ss);
-  LOG_I(NR_MAC, "[UE %d] configured search space %ld for DCI format 4_1\n", mac->ue_id, ss->searchSpaceId);
+  asn1cFreeStruc(asn_DEF_NR_PDSCH_Config, mac->mbs.pdsch_config);
+  if (format == NR_DL_DCI_FORMAT_4_2)
+    asn_copy(&asn_DEF_NR_PDSCH_Config, (void **)&mac->mbs.pdsch_config, setup->pdsch_ConfigMulticast_r17);
+  mac->mbs.dci_format = format;
+  LOG_I(NR_MAC, "[UE %d] configured search space %ld for DCI format 4_%d\n",
+        mac->ue_id, ss->searchSpaceId, format == NR_DL_DCI_FORMAT_4_2 ? 2 : 1);
 }
 
 static void configure_dedicated_BWP_dl(NR_UE_MAC_INST_t *mac, int bwp_id, NR_BWP_DownlinkDedicated_t *dl_dedicated)
@@ -2584,6 +2610,12 @@ static void configure_g_rnti(NR_UE_MAC_INST_t *mac,
     /* TS 38.213 §18: HARQ-ACK of PDSCH receptions scheduled by DCI format 4_1 with harq-FeedbackEnablerMulticast
      * 'enabled' or 'dci-enabler', in the first (ack-nack) or second (nack-only) HARQ-ACK reporting mode */
     const bool harq_feedback = cfg->harq_FeedbackEnablerMulticast_r17 != NULL;
+    if (harq_feedback && *cfg->harq_FeedbackEnablerMulticast_r17
+                         != NR_MBS_RNTI_SpecificConfig_r17__harq_FeedbackEnablerMulticast_r17_enabled) {
+      LOG_E(NR_MAC, "DCI-controlled HARQ-ACK enabling is not supported, G-RNTI %04lx ignored\n",
+            cfg->groupCommon_RNTI_r17.choice.g_RNTI);
+      continue;
+    }
     const long *option = cfg->harq_FeedbackOptionMulticast_r17;
     if (harq_feedback && (!option || *option != NR_MBS_RNTI_SpecificConfig_r17__harq_FeedbackOptionMulticast_r17_ack_nack)) {
       LOG_E(NR_MAC,

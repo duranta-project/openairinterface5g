@@ -685,6 +685,8 @@ typedef struct NR_UE_MAC_INST_s {
     /// the connection is released
     bool broadcast[NR_MAX_G_RNTI];
     NR_SearchSpace_t *search_space;
+    nr_dci_format_t dci_format;
+    NR_PDSCH_Config_t *pdsch_config;
     /// LCIDs of the MTCHs of PTM RLC entities, which are not in lc_ordered_list
     uint64_t mtch_lcids;
     /// the same for the MTCHs of broadcast sessions

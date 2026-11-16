@@ -2161,6 +2161,11 @@ void fill_dci_pdu_rel15(const NR_UE_ServingCell_Info_t *servingCellInfo,
     }
     break;
 
+  case NR_DL_DCI_FORMAT_4_2:
+    AssertFatal(rnti_type == TYPE_G_RNTI_, "DCI 4_2 requires G-RNTI\n");
+    AssertFatal(nr_dci_4_2_pack(dci_pdu_rel15, pdcch_dci_pdu->Payload, dci_size), "Invalid DCI 4_2 fields\n");
+    break;
+
   case NR_DL_DCI_FORMAT_4_1:
     /* TS 38.212 §7.3.1.5.2: pack MSB-first in the order of the field description, reserved bits are left to 0 */
     AssertFatal(rnti_type == TYPE_G_RNTI_, "DCI format 4_1 is only scrambled by G-RNTI, not %s\n", rnti_types(rnti_type));

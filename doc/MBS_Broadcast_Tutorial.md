@@ -35,7 +35,7 @@ HARQ feedback is off, because a broadcast session has no members to report
 with, and the session is sent at a fixed MCS for the same reason. Multicast,
 where feedback is on, is described in [MBS.md](./MBS.md).
 
-Three things are not as the specifications have them yet; see
+The remaining specification gaps are listed under
 [Known gaps](#known-gaps).
 
 ## What this needs
@@ -46,7 +46,9 @@ Three things are not as the specifications have them yet; see
 * **A monolithic gNB.** The MRB's PDCP PDUs have to reach the RLC entity that
   transmits them, and `nr_rlc_mrb_recv_sdu()` only works when PDCP and RLC
   run in the same process. Neither a CU/DU nor a CU-CP/CU-UP split can carry
-  this yet.
+  the MRB payload yet. Broadcast setup signalling over F1AP and E1AP is
+  implemented; the missing part is MRB context coordination and F1-U data
+  delivery, as described in [MBS.md](./MBS.md#implemented-broadcast-integration).
 * **SIB20 switched on in the gNB**, with `du_sibs = [20];` in its
   configuration. A cell that schedules any other SIB also has to schedule one
   of SIB2 to SIB14, hence `cu_sibs = [2];` next to it. The configuration file

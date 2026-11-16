@@ -2884,7 +2884,8 @@ NR_PDSCH_TimeDomainResourceAllocationList_t *get_dl_tdalist(const NR_UE_DL_BWP_t
   if (!DL_BWP)
     return NULL;
   // see table 5.1.2.1.1-1 in 38.214
-  if ((rnti_type == TYPE_CS_RNTI_ || rnti_type == TYPE_C_RNTI_ || rnti_type == TYPE_MCS_C_RNTI_)
+  if ((rnti_type == TYPE_CS_RNTI_ || rnti_type == TYPE_C_RNTI_ || rnti_type == TYPE_MCS_C_RNTI_
+        || (rnti_type == TYPE_G_RNTI_ && DL_BWP->dci_format == NR_DL_DCI_FORMAT_4_2))
       && !(ss_type == NR_SearchSpace__searchSpaceType_PR_common && controlResourceSetId == 0)
       && (DL_BWP->pdsch_Config && DL_BWP->pdsch_Config->pdsch_TimeDomainAllocationList))
     return DL_BWP->pdsch_Config->pdsch_TimeDomainAllocationList->choice.setup;
@@ -2984,6 +2985,115 @@ static int get_nrofHARQ_bits_PUSCH(int dci_format, int num_ul_harq, NR_PUSCH_Con
   return harqbits;
 }
 
+/* TS 38.212 §7.3.1.5.3: type-1 allocation, one codeword, type-1 single-symbol DMRS, dynamic codebook.
+ * Optional fields requiring additional PDSCH/PUCCH processing are rejected rather than omitted from the payload. */
+static int dci_4_2_size(const NR_UE_DL_BWP_t *dl,
+                       const NR_UE_UL_BWP_t *ul,
+                       long codebook,
+                       dci_pdu_rel15_t *dci,
+                       const NR_ControlResourceSet_t *coreset)
+{
+  const NR_PDSCH_Config_t *p = dl ? dl->pdsch_Config : NULL;
+  const NR_PUCCH_Config_t *u = ul ? ul->pucch_Config : NULL;
+  if (!p || !u || !u->dl_DataToUL_ACK || dl->BWPSize < 1 || dl->BWPSize > MAX_BWP_SIZE || dl->cyclicprefix
+      || codebook != NR_PhysicalCellGroupConfig__pdsch_HARQ_ACK_Codebook_dynamic
+      || p->resourceAllocation != NR_PDSCH_Config__resourceAllocation_resourceAllocationType1 || p->vrb_ToPRB_Interleaver
+      || p->prb_BundlingType.present != NR_PDSCH_Config__prb_BundlingType_PR_staticBundling
+      || p->rateMatchPatternGroup1 || p->rateMatchPatternGroup2 || p->rateMatchPatternToAddModList
+      || p->aperiodic_ZP_CSI_RS_ResourceSetsToAddModList || p->mcs_Table || p->dataScramblingIdentityPDSCH
+      || p->pdsch_AggregationFactor || (p->maxNrofCodeWordsScheduledByDCI && *p->maxNrofCodeWordsScheduledByDCI != 0)
+      || (coreset && coreset->tci_PresentInDCI)
+      || (p->ext1 && p->ext1->maxMIMO_Layers_r16)
+      || (p->ext3 && (p->ext3->priorityIndicatorDCI_4_2_r17 || p->ext3->xOverheadMulticast_r17 || p->ext3->mcs_Table_r17)))
+    return 0;
+  const NR_SetupRelease_DMRS_DownlinkConfig_t *dmrs[] = {
+      p->dmrs_DownlinkForPDSCH_MappingTypeA, p->dmrs_DownlinkForPDSCH_MappingTypeB};
+  for (int i = 0; i < 2; i++) {
+    if (!dmrs[i])
+      continue;
+    if (dmrs[i]->present != NR_SetupRelease_DMRS_DownlinkConfig_PR_setup)
+      return 0;
+    const NR_DMRS_DownlinkConfig_t *d = dmrs[i]->choice.setup;
+    if (!d || d->dmrs_Type || d->maxLength || d->dmrs_AdditionalPosition || d->scramblingID0 || d->scramblingID1
+        || d->phaseTrackingRS)
+      return 0;
+  }
+  int tda_count = 16;
+  if (p->pdsch_TimeDomainAllocationList) {
+    if (p->pdsch_TimeDomainAllocationList->present != NR_SetupRelease_PDSCH_TimeDomainResourceAllocationList_PR_setup
+        || !p->pdsch_TimeDomainAllocationList->choice.setup)
+      return 0;
+    tda_count = p->pdsch_TimeDomainAllocationList->choice.setup->list.count;
+  }
+  const int k1_count = u->dl_DataToUL_ACK->list.count;
+  if (tda_count < 1 || tda_count > 16 || k1_count < 1 || k1_count > 8)
+    return 0;
+  dci->frequency_domain_assignment.nbits = ceil_log2_u32(dl->BWPSize * (dl->BWPSize + 1) / 2);
+  dci->time_domain_assignment.nbits = ceil_log2_u32(tda_count);
+  dci->vrb_to_prb_mapping.nbits = 0;
+  dci->harq_pid.nbits = 4;
+  dci->dai[0].nbits = 2;
+  dci->pdsch_to_harq_feedback_timing_indicator.nbits = ceil_log2_u32(k1_count);
+  dci->antenna_ports.nbits = 4;
+  dci->dmrs_sequence_initialization.nbits = 1;
+  const int size = dci->frequency_domain_assignment.nbits + dci->time_domain_assignment.nbits
+                   + 8 + 4 + 2 + 3 + dci->pdsch_to_harq_feedback_timing_indicator.nbits + 4 + 1;
+  if (p->ext3 && p->ext3->sizeDCI_4_2_r17 && *p->ext3->sizeDCI_4_2_r17 != size)
+    return 0;
+  return size >= 20 && size <= 64 ? size : 0;
+}
+
+/* The supported profile has no padding: field widths are shared by the production packer and UE extractor. */
+#define DCI_4_2_FIELDS(X) \
+  X(frequency_domain_assignment.val, dci->frequency_domain_assignment.nbits) \
+  X(time_domain_assignment.val, dci->time_domain_assignment.nbits) \
+  X(mcs, 5) X(ndi, 1) X(rv, 2) X(harq_pid.val, 4) X(dai[0].val, 2) X(pucch_resource_indicator, 3) \
+  X(pdsch_to_harq_feedback_timing_indicator.val, dci->pdsch_to_harq_feedback_timing_indicator.nbits) \
+  X(antenna_ports.val, 4) X(dmrs_sequence_initialization.val, 1)
+
+bool nr_dci_4_2_pack(const dci_pdu_rel15_t *dci, uint8_t *payload, int size)
+{
+  if (size < 20 || size > 64)
+    return false;
+  uint64_t bits = 0;
+  int remaining = size;
+#define PACK(field, width) do { \
+    const int n = (width); \
+    if (n < 0 || n > 16 || n > remaining || dci->field >= (1U << n)) \
+      return false; \
+    remaining -= n; \
+    if (n) \
+      bits |= (uint64_t)dci->field << remaining; \
+  } while (0);
+  DCI_4_2_FIELDS(PACK)
+#undef PACK
+  if (remaining != 0)
+    return false;
+  memcpy(payload, &bits, sizeof(bits));
+  return true;
+}
+
+bool nr_dci_4_2_unpack(dci_pdu_rel15_t *dci, const uint8_t *payload, int size)
+{
+  if (size < 20 || size > 64)
+    return false;
+  uint64_t bits;
+  memcpy(&bits, payload, sizeof(bits));
+  int remaining = size;
+#define UNPACK(field, width) do { \
+    const int n = (width); \
+    if (n < 0 || n > 16 || n > remaining) \
+      return false; \
+    remaining -= n; \
+    dci->field = n ? (bits >> remaining) & ((1U << n) - 1) : 0; \
+  } while (0);
+  DCI_4_2_FIELDS(UNPACK)
+#undef UNPACK
+  dci->vrb_to_prb_mapping.val = 0;
+  return remaining == 0;
+}
+#undef DCI_4_2_FIELDS
+
 uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
                      const NR_UE_UL_BWP_t *UL_BWP,
                      const NR_UE_ServingCell_Info_t *sc_info,
@@ -2996,6 +3106,9 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
                      uint16_t cset0_bwp_size,
                      uint16_t alt_size)
 {
+  if (format == NR_DL_DCI_FORMAT_4_2)
+    return rnti_type == TYPE_G_RNTI_ ? dci_4_2_size(DL_BWP, UL_BWP, pdsch_HARQ_ACK_Codebook, dci_pdu, coreset) : 0;
+
   uint16_t size = 0;
   uint16_t numRBG = 0;
   long rbg_size_config;

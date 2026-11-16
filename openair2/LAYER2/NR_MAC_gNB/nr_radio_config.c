@@ -3922,7 +3922,7 @@ NR_ControlResourceSet_t *get_mbs_coreset_config(const NR_ServingCellConfigCommon
 
 NR_SearchSpace_t *get_mbs_search_space_config(const NR_ControlResourceSet_t *coreset, const nr_mac_config_t *configuration)
 {
-  /* Type-3 CSS of pdcch-ConfigMulticast (TS 38.213 §10.1). It is monitored for DCI format 4_1 only, which is indicated by
+  /* Type-3 CSS of pdcch-ConfigMulticast (TS 38.213 §10.1). The selected MBS format is indicated by
    * searchSpaceType-r17 of searchSpacesToAddModListExt-v1700, hence no Rel-15 DCI format here */
   int num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS];
   const int num_cces = get_coreset_num_cces(coreset->frequencyDomainResources.buf, coreset->duration);
@@ -3933,13 +3933,37 @@ NR_SearchSpace_t *get_mbs_search_space_config(const NR_ControlResourceSet_t *cor
   return ss;
 }
 
+/* TS 38.331 §6.3.2 CFR-ConfigMulticast: the single-layer type-1 DCI 4_2 profile. */
+NR_PDSCH_Config_t *get_mbs_pdsch_config(const NR_ServingCellConfigCommon_t *scc)
+{
+  NR_PDSCH_Config_t *p = calloc_or_fail(1, sizeof(*p));
+  p->resourceAllocation = NR_PDSCH_Config__resourceAllocation_resourceAllocationType1;
+  p->prb_BundlingType.present = NR_PDSCH_Config__prb_BundlingType_PR_staticBundling;
+  p->prb_BundlingType.choice.staticBundling = calloc_or_fail(1, sizeof(*p->prb_BundlingType.choice.staticBundling));
+  p->dmrs_DownlinkForPDSCH_MappingTypeA = calloc_or_fail(1, sizeof(*p->dmrs_DownlinkForPDSCH_MappingTypeA));
+  p->dmrs_DownlinkForPDSCH_MappingTypeA->present = NR_SetupRelease_DMRS_DownlinkConfig_PR_setup;
+  p->dmrs_DownlinkForPDSCH_MappingTypeA->choice.setup = calloc_or_fail(1, sizeof(NR_DMRS_DownlinkConfig_t));
+  p->dmrs_DownlinkForPDSCH_MappingTypeB = calloc_or_fail(1, sizeof(*p->dmrs_DownlinkForPDSCH_MappingTypeB));
+  p->dmrs_DownlinkForPDSCH_MappingTypeB->present = NR_SetupRelease_DMRS_DownlinkConfig_PR_setup;
+  p->dmrs_DownlinkForPDSCH_MappingTypeB->choice.setup = calloc_or_fail(1, sizeof(NR_DMRS_DownlinkConfig_t));
+  p->pdsch_TimeDomainAllocationList = calloc_or_fail(1, sizeof(*p->pdsch_TimeDomainAllocationList));
+  p->pdsch_TimeDomainAllocationList->present = NR_SetupRelease_PDSCH_TimeDomainResourceAllocationList_PR_setup;
+  const NR_PDSCH_TimeDomainResourceAllocationList_t *tda =
+      scc->downlinkConfigCommon->initialDownlinkBWP->pdsch_ConfigCommon->choice.setup->pdsch_TimeDomainAllocationList;
+  asn_copy(&asn_DEF_NR_PDSCH_TimeDomainResourceAllocationList,
+           (void **)&p->pdsch_TimeDomainAllocationList->choice.setup, tda);
+  return p;
+}
+
 void add_mbs_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
                              rnti_t g_rnti,
                              int config_id,
                              bool harq_feedback,
                              const NR_ControlResourceSet_t *coreset,
                              const NR_SearchSpace_t *ss,
-                             const NR_RLC_BearerConfig_t *ptm_bearer)
+                             const NR_RLC_BearerConfig_t *ptm_bearer,
+                             const NR_PDSCH_Config_t *pdsch_config,
+                             int dci_size)
 {
   /* TS 38.331 §6.3.2 MAC-CellGroupConfig: G-RNTI of the multicast session. With harq-FeedbackEnablerMulticast 'enabled'
    * and harq-FeedbackOptionMulticast 'ack-nack', the UE provides ACK/NACK for its PDSCH receptions, else no HARQ-ACK
@@ -3962,7 +3986,7 @@ void add_mbs_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
   }
 
   /* TS 38.331 §6.3.2 BWP-DownlinkDedicated: CFR of the initial DL BWP, of the same size as the BWP as
-   * locationAndBandwidthMulticast is absent, with the Type-3 CSS for DCI format 4_1 (searchSpaceType-r17 of
+   * locationAndBandwidthMulticast is absent, with the Type-3 CSS for the selected MBS format (searchSpaceType-r17 of
    * searchSpacesToAddModListExt-v1700, in the order of searchSpacesToAddModList) */
   NR_BWP_DownlinkDedicated_t *dl_bwp = cellGroupConfig->spCellConfig->spCellConfigDedicated->initialDownlinkBWP;
   DevAssert(dl_bwp);
@@ -3987,8 +4011,18 @@ void add_mbs_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
     pdcch->ext2->searchSpacesToAddModListExt_v1700 = calloc_or_fail(1, sizeof(*pdcch->ext2->searchSpacesToAddModListExt_v1700));
     asn1cSequenceAdd(pdcch->ext2->searchSpacesToAddModListExt_v1700->list, NR_SearchSpaceExt_v1700_t, ss_ext);
     ss_ext->searchSpaceType_r17 = calloc_or_fail(1, sizeof(*ss_ext->searchSpaceType_r17));
-    ss_ext->searchSpaceType_r17->common_r17.dci_Format4_1_r17 =
-        calloc_or_fail(1, sizeof(*ss_ext->searchSpaceType_r17->common_r17.dci_Format4_1_r17));
+    if (pdsch_config) {
+      ss_ext->searchSpaceType_r17->common_r17.dci_Format4_2_r17 =
+          calloc_or_fail(1, sizeof(*ss_ext->searchSpaceType_r17->common_r17.dci_Format4_2_r17));
+      asn_copy(&asn_DEF_NR_PDSCH_Config, (void **)&cfr->pdsch_ConfigMulticast_r17, pdsch_config);
+      NR_PDSCH_Config_t *p = cfr->pdsch_ConfigMulticast_r17;
+      if (!p->ext3)
+        p->ext3 = calloc_or_fail(1, sizeof(*p->ext3));
+      asn1cCallocOne(p->ext3->sizeDCI_4_2_r17, dci_size);
+    } else {
+      ss_ext->searchSpaceType_r17->common_r17.dci_Format4_1_r17 =
+          calloc_or_fail(1, sizeof(*ss_ext->searchSpaceType_r17->common_r17.dci_Format4_1_r17));
+    }
   }
 
   /* PTM RLC entity of the MRB (TS 38.331 §6.3.2 RLC-BearerConfig) */

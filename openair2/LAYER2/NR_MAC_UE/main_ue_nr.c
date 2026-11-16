@@ -259,6 +259,7 @@ void release_mac_configuration(NR_UE_MAC_INST_t *mac, NR_UE_MAC_reset_cause_t ca
   /* the multicast configuration is part of the connected-mode configuration. The broadcast sessions are not: they were
    * read from the cell, and are received in RRC_IDLE too */
   asn1cFreeStruc(asn_DEF_NR_SearchSpace, mac->mbs.search_space);
+  asn1cFreeStruc(asn_DEF_NR_PDSCH_Config, mac->mbs.pdsch_config);
   nr_ue_mbs_release_g_rnti(mac, false);
   mac->mbs.mtch_lcids = 0;
   if (cause != GO_TO_IDLE_KEEP_CAMPED) {

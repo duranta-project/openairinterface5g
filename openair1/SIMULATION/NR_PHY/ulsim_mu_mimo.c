@@ -115,6 +115,7 @@ void signal_ue_id(void /* const gNB_RRC_UE_t *rrc_ue_context, const uint16_t cla
 
 extern void fix_scd(NR_ServingCellConfig_t *scd); // forward declaration
 
+void e1_bc_bearer_context_setup(const e1ap_bc_bearer_setup_req_t *req) { abort(); }
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
 {
   abort();

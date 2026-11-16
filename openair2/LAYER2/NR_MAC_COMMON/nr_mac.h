@@ -418,6 +418,7 @@ typedef enum {
   NR_UL_DCI_FORMAT_0_0,
   NR_UL_DCI_FORMAT_0_1,
   NR_DL_DCI_FORMAT_4_1,
+  NR_DL_DCI_FORMAT_4_2,
   NR_DCI_NONE
 } nr_dci_format_t;
 

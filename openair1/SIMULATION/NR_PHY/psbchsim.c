@@ -30,6 +30,7 @@
 #include "nr-uesoftmodem.h"
 #include "nr_unitary_defs.h"
 
+void e1_bc_bearer_context_setup(const e1ap_bc_bearer_setup_req_t *req) { abort(); }
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
 {
   abort();
