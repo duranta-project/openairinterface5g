@@ -3359,6 +3359,53 @@ int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
   }
 }
 
+void nr_schedule_prs(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req)
+{
+  const nr_mac_prs_config_t *prs = gNB_mac->prs_config;
+  if (prs == NULL || cell != nr_mac_get_cell_by_idx(gNB_mac, 0))
+    return;
+
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
+  const NR_SCS_SpecificCarrier_t *carrier = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0];
+  const int slots_frame = cell->frame_structure.numb_slots_frame;
+  const int num_beams = cell->beam_info.config.bf_method == BF_METHOD_STRAIGHT_WIRE ? 1 : cell->beam_info.config.beams_per_period;
+  nfapi_nr_dl_tti_request_body_t *dl_req = &DL_req->dl_tti_request_body;
+  for (int k = 0; k < prs->num_prs_resources; k++) {
+    const nr_mac_prs_resource_t *res = &prs->resource[k];
+    for (int i = 0; i < prs->repetition; i++) {
+      if ((frame * slots_frame + slot - prs->offset - res->slot_offset + prs->period) % prs->period != i * prs->time_gap)
+        continue;
+      // the PRS RBs and symbols have to be free on all beams: asking for exactly numRbs RBs in a window of numRbs RBs
+      const uint16_t slbitmap = SL_to_bitmap(res->pdu.firstSymbol, res->pdu.numSymbols);
+      bool free = true;
+      for (int b = 0; b < num_beams && free; b++) {
+        int rb_start, rb_size;
+        const int n_rb = res->pdu.numRbs;
+        free = get_rb_alloc(n_rb, n_rb, res->pdu.startRb, n_rb, cell->common_channels.vrb_map[b], slbitmap, &rb_start, &rb_size);
+      }
+      if (!free) {
+        LOG_E(NR_MAC, "%d.%d: PRS resource %d not scheduled, RBs and symbols used by SSB, SIBs or paging\n", frame, slot, k);
+        continue;
+      }
+      AssertFatal(dl_req->nPDUs < NFAPI_NR_MAX_DL_TTI_PDUS, "no space in DL_TTI.request for PRS resource %d\n", k);
+      nfapi_nr_dl_tti_request_pdu_t *pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs++];
+      memset(pdu, 0, sizeof(*pdu));
+      pdu->PDUType = NFAPI_NR_DL_TTI_PRS_PDU_TYPE;
+      pdu->PDUSize = 2 + sizeof(nfapi_nr_dl_tti_prs_pdu_rel16_t);
+      pdu->prs_pdu.prs_pdu_rel16 = res->pdu;
+      pdu->prs_pdu.prs_pdu_rel16.subcarrierSpacing = carrier->subcarrierSpacing;
+      pdu->prs_pdu.prs_pdu_rel16.pduIndex = k;
+
+      // The comb leaves the other REs free, but PDSCH is not rate-matched around PRS
+      for (int b = 0; b < num_beams; b++) {
+        uint16_t *vrb_map = cell->common_channels.vrb_map[b];
+        for (int rb = res->pdu.startRb; rb < res->pdu.startRb + res->pdu.numRbs; rb++)
+          vrb_map[rb] |= slbitmap;
+      }
+    }
+  }
+}
+
 void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req)
 {
   NR_UEs_t *UE_info = &gNB_mac->UE_info;
@@ -3442,6 +3489,14 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
 
           if (!is_periodic_occasion(frame, slot, n_slots_frame, period, offset))
             continue;
+
+          // the CSI-RS configuration never overlaps with PRS
+          for (int i = 0; i < dl_req->nPDUs; i++)
+            AssertFatal(dl_req->dl_tti_pdu_list[i].PDUType != NFAPI_NR_DL_TTI_PRS_PDU_TYPE,
+                        "%d.%d: CSI-RS resource %ld scheduled in a slot with PRS\n",
+                        frame,
+                        slot,
+                        nzpcsi->nzp_CSI_RS_ResourceId);
 
           LOG_D(NR_MAC,"Scheduling CSI-RS in frame %d slot %d Resource ID %ld\n", frame, slot, nzpcsi->nzp_CSI_RS_ResourceId);
           NR_beam_alloc_t beam_csi = beam_allocation_procedure(&cell->beam_info, frame, slot, UE->UE_beam_index, n_slots_frame);

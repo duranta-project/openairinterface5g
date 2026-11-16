@@ -430,6 +430,23 @@ static void set_csirs_periodicity(NR_NZP_CSI_RS_Resource_t *nzpcsi0,
     AssertFatal(false, "Invalid CSIRS period %d\n", ideal_period);
 }
 
+// Check PRS overlap with CSI-RS
+static bool check_prs_overlap(const nr_mac_prs_config_t *prs, int slots_frame, int period, int offset)
+{
+  if (prs == NULL)
+    return false;
+  for (int k = 0; k < prs->num_prs_resources; k++) {
+    for (int i = 0; i < prs->repetition; i++) {
+      const int first = (prs->offset + prs->resource[k].slot_offset + i * prs->time_gap) % prs->period;
+      for (int s = first; s < slots_frame * 1024; s += prs->period) {
+        if (s % period == offset)
+          return true;
+      }
+    }
+  }
+  return false;
+}
+
 static NR_NZP_CSI_RS_Resource_t *get_nzp_csi_rs_resource(int id,
                                                          int num_dl_antenna_ports,
                                                          int curr_bwp,
@@ -506,6 +523,11 @@ static NR_NZP_CSI_RS_Resource_t *get_nzp_csi_rs_resource(int id,
   const int num_pucch2 = get_nb_pucch2_per_slot(scc, curr_bwp, num_dl_antenna_ports);
   const int ideal_period = get_ideal_period(cell, CSI_RS, num_pucch2); // same periodicity as CSI measurement report
   const frame_structure_t *fs = &cell->frame_structure;
+  AssertFatal(!check_prs_overlap(RC.nrmac ? RC.nrmac[0]->prs_config : NULL, fs->numb_slots_frame, ideal_period, id),
+              "CSI-RS resource %d (period %d, offset %d) overlaps with a PRS occasion: change the PRS or CSI-RS configuration\n",
+              id,
+              ideal_period,
+              id);
   set_csirs_periodicity(nzpcsi, id, ideal_period, fs);
   nzpcsi->qcl_InfoPeriodicCSI_RS = calloc(1, sizeof(*nzpcsi->qcl_InfoPeriodicCSI_RS));
   *nzpcsi->qcl_InfoPeriodicCSI_RS = 0;

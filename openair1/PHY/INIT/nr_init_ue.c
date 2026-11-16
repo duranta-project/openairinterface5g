@@ -25,107 +25,6 @@
 #include "PHY/gpu_alloc.h"
 #endif
 
-void RCconfig_nrUE_prs(void *cfg)
-{
-  int j = 0, k = 0, gNB_id = 0;
-  char aprefix[MAX_OPTNAME_SIZE*2 + 8];
-  char str[7][100] = {{'\0'}}; int16_t n[7] = {0};
-  PHY_VARS_NR_UE *ue  = (PHY_VARS_NR_UE *)cfg;
-  prs_config_t *prs_config = NULL;
-
-  paramlist_def_t gParamList = {CONFIG_STRING_PRS_LIST,NULL,0};
-  paramdef_t gParams[] = PRS_GLOBAL_PARAMS_DESC;
-  config_getlist(config_get_if(), &gParamList, gParams, sizeofArray(gParams), NULL);
-  if (gParamList.numelt > 0)
-  {
-    ue->prs_active_gNBs = *(gParamList.paramarray[j][PRS_ACTIVE_GNBS_IDX].uptr);
-  } else {
-    LOG_I(PHY,"%s configuration NOT found..!! Skipped configuring UE for the PRS reception\n", CONFIG_STRING_PRS_CONFIG);
-  }
-
-  paramlist_def_t PRS_ParamList = {{0},NULL,0};
-  for(int i = 0; i < ue->prs_active_gNBs; i++)
-  {
-    paramdef_t PRS_Params[] = PRS_PARAMS_DESC;
-    sprintf(PRS_ParamList.listname, "%s%i", CONFIG_STRING_PRS_CONFIG, i);
-
-    sprintf(aprefix, "%s.[%i]", CONFIG_STRING_PRS_LIST, 0);
-    config_getlist(config_get_if(), &PRS_ParamList, PRS_Params, sizeofArray(PRS_Params), aprefix);
-
-    if (PRS_ParamList.numelt > 0) {
-      for (j = 0; j < PRS_ParamList.numelt; j++) {
-        gNB_id = *(PRS_ParamList.paramarray[j][PRS_GNB_ID].uptr);
-        if(gNB_id != i)  gNB_id = i; // force gNB_id to avoid mismatch
-
-        memset(n,0,sizeof(n));
-        ue->prs_vars[gNB_id]->NumPRSResources = *(PRS_ParamList.paramarray[j][NUM_PRS_RESOURCES].uptr);
-        for (k = 0; k < ue->prs_vars[gNB_id]->NumPRSResources; k++)
-        {
-          prs_config = &ue->prs_vars[gNB_id]->prs_resource[k].prs_cfg;
-          prs_config->PRSResourceSetPeriod[0]  = PRS_ParamList.paramarray[j][PRS_RESOURCE_SET_PERIOD_LIST].uptr[0];
-          prs_config->PRSResourceSetPeriod[1]  = PRS_ParamList.paramarray[j][PRS_RESOURCE_SET_PERIOD_LIST].uptr[1];
-          // per PRS resources parameters
-          prs_config->SymbolStart              = PRS_ParamList.paramarray[j][PRS_SYMBOL_START_LIST].uptr[k];
-          prs_config->NumPRSSymbols            = PRS_ParamList.paramarray[j][PRS_NUM_SYMBOLS_LIST].uptr[k];
-          prs_config->REOffset                 = PRS_ParamList.paramarray[j][PRS_RE_OFFSET_LIST].uptr[k];
-          prs_config->NPRSID                   = PRS_ParamList.paramarray[j][PRS_ID_LIST].uptr[k];
-          prs_config->PRSResourceOffset        = PRS_ParamList.paramarray[j][PRS_RESOURCE_OFFSET_LIST].uptr[k];
-          // Common parameters to all PRS resources
-          prs_config->NumRB                    = *(PRS_ParamList.paramarray[j][PRS_NUM_RB].uptr);
-          prs_config->RBOffset                 = *(PRS_ParamList.paramarray[j][PRS_RB_OFFSET].uptr);
-          prs_config->CombSize                 = *(PRS_ParamList.paramarray[j][PRS_COMB_SIZE].uptr);
-          prs_config->PRSResourceRepetition    = *(PRS_ParamList.paramarray[j][PRS_RESOURCE_REPETITION].uptr);
-          prs_config->PRSResourceTimeGap       = *(PRS_ParamList.paramarray[j][PRS_RESOURCE_TIME_GAP].uptr);
-
-          prs_config->MutingBitRepetition      = *(PRS_ParamList.paramarray[j][PRS_MUTING_BIT_REPETITION].uptr);
-          for (int l = 0; l < PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt; l++)
-          {
-            prs_config->MutingPattern1[l]      = PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].uptr[l];
-            if (k == 0) // print only for 0th resource
-              n[5] += snprintf(str[5]+n[5],sizeof(str[5]),"%d, ",prs_config->MutingPattern1[l]);
-          }
-          for (int l = 0; l < PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].numelt; l++)
-          {
-            prs_config->MutingPattern2[l]      = PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].uptr[l];
-            if (k == 0) // print only for 0th resource
-              n[6] += snprintf(str[6]+n[6],sizeof(str[6]),"%d, ",prs_config->MutingPattern2[l]);
-          }
-
-          // print to buffer
-          n[0] += snprintf(str[0]+n[0],sizeof(str[0]),"%d, ",prs_config->SymbolStart);
-          n[1] += snprintf(str[1]+n[1],sizeof(str[1]),"%d, ",prs_config->NumPRSSymbols);
-          n[2] += snprintf(str[2]+n[2],sizeof(str[2]),"%d, ",prs_config->REOffset);
-          n[3] += snprintf(str[3]+n[3],sizeof(str[3]),"%d, ",prs_config->PRSResourceOffset);
-          n[4] += snprintf(str[4]+n[4],sizeof(str[4]),"%d, ",prs_config->NPRSID);
-        } // for k
-
-        prs_config = &ue->prs_vars[gNB_id]->prs_resource[0].prs_cfg;
-        LOG_I(PHY, "-----------------------------------------\n");
-        LOG_I(PHY, "PRS Config for gNB_id %d @ %p\n", gNB_id, prs_config);
-        LOG_I(PHY, "-----------------------------------------\n");
-        LOG_I(PHY, "NumPRSResources \t%d\n", ue->prs_vars[gNB_id]->NumPRSResources);
-        LOG_I(PHY, "PRSResourceSetPeriod \t[%d, %d]\n", prs_config->PRSResourceSetPeriod[0], prs_config->PRSResourceSetPeriod[1]);
-        LOG_I(PHY, "NumRB \t\t\t%d\n", prs_config->NumRB);
-        LOG_I(PHY, "RBOffset \t\t%d\n", prs_config->RBOffset);
-        LOG_I(PHY, "CombSize \t\t%d\n", prs_config->CombSize);
-        LOG_I(PHY, "PRSResourceRepetition \t%d\n", prs_config->PRSResourceRepetition);
-        LOG_I(PHY, "PRSResourceTimeGap \t%d\n", prs_config->PRSResourceTimeGap);
-        LOG_I(PHY, "MutingBitRepetition \t%d\n", prs_config->MutingBitRepetition);
-        LOG_I(PHY, "SymbolStart \t\t[%s\b\b]\n", str[0]);
-        LOG_I(PHY, "NumPRSSymbols \t\t[%s\b\b]\n", str[1]);
-        LOG_I(PHY, "REOffset \t\t[%s\b\b]\n", str[2]);
-        LOG_I(PHY, "PRSResourceOffset \t[%s\b\b]\n", str[3]);
-        LOG_I(PHY, "NPRS_ID \t\t[%s\b\b]\n", str[4]);
-        LOG_I(PHY, "MutingPattern1 \t\t[%s\b\b]\n", str[5]);
-        LOG_I(PHY, "MutingPattern2 \t\t[%s\b\b]\n", str[6]);
-        LOG_I(PHY, "-----------------------------------------\n");
-      }
-    } else {
-      LOG_I(PHY,"No %s configuration found..!!\n", PRS_ParamList.listname);
-    }
-  }
-}
-
 void init_nr_prs_ue_vars(PHY_VARS_NR_UE *ue)
 {
   NR_UE_PRS   **const prs_vars = ue->prs_vars;
@@ -153,7 +52,6 @@ void init_nr_prs_ue_vars(PHY_VARS_NR_UE *ue)
   }
 
   // load the config file params
-  RCconfig_nrUE_prs(ue);
 }
 
 int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)

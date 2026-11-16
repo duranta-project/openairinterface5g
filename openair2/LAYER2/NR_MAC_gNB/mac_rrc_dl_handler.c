@@ -1314,30 +1314,32 @@ static void fill_prs_configuration(f1ap_prs_configuration_t *out,
     set->subcarrier_spacing = du_cell->tdd.tbw.scs;
     set->point_a = du_cell->tdd.freqinfo.arfcn;
   }
-  set->num_rb = cfg->num_rb;
-  set->start_prb = cfg->rb_offset;
-  set->comb_size = cfg->comb_size;
-  set->cp_type = 0;
+  const nfapi_nr_dl_tti_prs_pdu_rel16_t *pdu0 = &cfg->resource[0].pdu;
+  set->num_rb = pdu0->numRbs;
+  set->start_prb = pdu0->startRb;
+  set->comb_size = pdu0->combSize;
+  set->cp_type = pdu0->cyclicPrefix;
   set->resource_set_periodicity = cfg->period;
   set->resource_set_slot_offset = cfg->offset;
   set->resource_repetition_factor = cfg->repetition;
   set->resource_time_gap = cfg->time_gap;
   for (int k = 1; k < cfg->num_prs_resources; k++)
-    AssertFatal(cfg->resource[k].num_symbols == cfg->resource[0].num_symbols,
+    AssertFatal(cfg->resource[k].pdu.numSymbols == pdu0->numSymbols,
                 "PRS resources %d and 0 have different NumPRSSymbols: NRPPa has one value per resource set\n",
                 k);
-  set->resource_number_of_symbols = cfg->resource[0].num_symbols;
+  set->resource_number_of_symbols = pdu0->numSymbols;
   set->prs_resource_transmit_power = NR_MAC_PRS_TX_POWER_DBM;
 
   set->prs_resource_list_length = cfg->num_prs_resources;
   set->prs_resource = calloc_or_fail(cfg->num_prs_resources, sizeof(*set->prs_resource));
   for (int k = 0; k < cfg->num_prs_resources; k++) {
+    const nr_mac_prs_resource_t *res = &cfg->resource[k];
     f1ap_prs_resource_t *r = &set->prs_resource[k];
     r->prs_resource_id = k;
-    r->sequence_id = cfg->resource[k].sequence_id;
-    r->re_offset = cfg->resource[k].re_offset;
-    r->resource_slot_offset = cfg->resource[k].slot_offset;
-    r->resource_symbol_offset = cfg->resource[k].symbol_start;
+    r->sequence_id = res->pdu.nIdPrs;
+    r->re_offset = res->pdu.combOffset;
+    r->resource_slot_offset = res->slot_offset;
+    r->resource_symbol_offset = res->pdu.firstSymbol;
   }
 }
 

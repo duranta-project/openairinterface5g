@@ -1381,23 +1381,17 @@ typedef struct nr_cell_sched_s {
 #define NR_MAC_MAX_PRS_RESOURCES 64
 
 typedef struct nr_mac_prs_resource_s {
-  uint16_t sequence_id;
-  uint8_t re_offset;
+  nfapi_nr_dl_tti_prs_pdu_rel16_t pdu;
   uint16_t slot_offset;
-  uint8_t symbol_start;
-  uint8_t num_symbols;
 } nr_mac_prs_resource_t;
 
 typedef struct nr_mac_prs_config_s {
   uint32_t period;
   uint32_t offset;
-  uint16_t num_rb;
-  uint16_t rb_offset;
-  uint8_t comb_size;
   uint8_t repetition;
   uint8_t time_gap;
   uint8_t num_prs_resources;
-  nr_mac_prs_resource_t resource[NR_MAC_MAX_PRS_RESOURCES];
+  nr_mac_prs_resource_t resource[];
 } nr_mac_prs_config_t;
 
 /*! \brief top level gNB MAC structure */
