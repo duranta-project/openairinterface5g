@@ -281,12 +281,12 @@ per-antenna gain it sends with its samples (the same field as the beam gains) an
 defaults (30 dBm, 0 dB, 0 dB) nothing changes.
 
 An RE of amplitude `A` (frequency domain) is `tx_cal_dBm + 20 log10(A / 32768) - 10 log10(ofdm_symbol_size)` dBm. For
-the gNB to send its SSB at `ss-PBCH-BlockPower`, with `AMP` = 512 and a 2048-point FFT (106 PRBs at 30 kHz):
-`tx_cal_dBm = ss-PBCH-BlockPower + 69`, e.g. 45 dBm for -25 dBm. For a UE whose full band at `AMP` is PCMAX 23 dBm:
+the gNB to send its SSB at `ss-PBCH-BlockPower` (the power of an SSS RE, sent at `AMP`/sqrt(2)), with `AMP` = 512 and a
+2048-point FFT (106 PRBs at 30 kHz): `tx_cal_dBm = ss-PBCH-BlockPower + 72.25`, e.g. 47.25 dBm for -25 dBm. For a UE whose full band at `AMP` is PCMAX 23 dBm:
 `tx_cal_dBm` = 62 dBm. Example, 1 UE at 80 dB with a 5 dB noise figure on both sides:
 
 ```
-gNB: --rfsimulator.[0].tx_cal_dBm 45 --rfsimulator.[0].rx_gain 80 --rfsimulator.[0].noise_figure 5
+gNB: --rfsimulator.[0].tx_cal_dBm 47.25 --rfsimulator.[0].rx_gain 80 --rfsimulator.[0].noise_figure 5
 UE:  --rfsimulator.[0].tx_cal_dBm 62 --rfsimulator.[0].pathloss 80 --rfsimulator.[0].rx_gain 80 --rfsimulator.[0].noise_figure 5
 ```
 

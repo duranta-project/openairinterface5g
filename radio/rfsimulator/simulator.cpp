@@ -1256,6 +1256,19 @@ static bool flushInput(rfsimulator_state_t *t, int timeout, bool first_time)
   return nfds > 0;
 }
 
+/* standard deviation of each real component of the receiver noise, in sample units (0: no noise): the global level in dBFS,
+   plus the receiver thermal noise kTB + NF in dBm brought to dBFS with the PHY convention (dBFS = dBm - 30 + rx_gain) */
+static float rx_noise_amplitude(const rfsimulator_state_t *t)
+{
+  const float nf = t->noise_figure_dB;
+  double sigma2 = 0;
+  if (get_noise_power_dBFS() != INVALID_DBFS_VALUE)
+    sigma2 += pow(10.0, .1 * get_noise_power_dBFS());
+  if (nf >= 0)
+    sigma2 += pow(10.0, .1 * (-174.0 + 10 * log10(t->sample_rate) + nf - 30.0 + t->rx_gain_dB)) / 2;
+  return (float)(32767.0 * sqrt(sigma2));
+}
+
 static void rfsimulator_read_internal(rfsimulator_state_t *t,
                                       sample_t **samples,
                                       openair0_timestamp_t timestamp,
@@ -1354,21 +1367,12 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
     }
   }
 
-  bool apply_global_noise = get_noise_power_dBFS() != INVALID_DBFS_VALUE;
-  const float nf = t->noise_figure_dB;
-  if (apply_global_noise || nf >= 0) {
+  const float noise_power = rx_noise_amplitude(t);
+  if (noise_power > 0) {
     if (!channel_modelling) {
       memset(temp_array, 0, sizeof(temp_array));
       channel_modelling = true;
     }
-    /* standard deviation of each real component relative to full scale: the global level in dBFS, plus the receiver
-       thermal noise kTB + NF in dBm brought to dBFS with the PHY convention (dBFS = dBm - 30 + rx_gain) */
-    double sigma2 = 0;
-    if (apply_global_noise)
-      sigma2 += pow(10.0, .1 * get_noise_power_dBFS());
-    if (nf >= 0)
-      sigma2 += pow(10.0, .1 * (-174.0 + 10 * log10(t->sample_rate) + nf - 30.0 + t->rx_gain_dB)) / 2;
-    const float noise_power = (float)(32767.0 * sqrt(sigma2));
     for (int a = 0; a < nbAnt; a++) {
       for (int i = 0; i < nsamps; i++) {
         temp_array[a][i].r += noise_power * gaussZiggurat(0.0, 1.0);
@@ -1433,8 +1437,18 @@ static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *pti
       LOG_I(HW, "No connected device, generating void samples...\n");
 
     if (!flushInput(t, t->wait_timeout, false)) {
-      for (int x = 0; x < nbAnt; x++)
-        memset(samplesVoid[x], 0, sampleToByte(nsamps, 1));
+      // nothing is received: silence, with the receiver noise as when a peer is connected
+      const float noise_power = rx_noise_amplitude(t);
+      for (int x = 0; x < nbAnt; x++) {
+        sample_t *out = (sample_t *)samplesVoid[x];
+        if (noise_power > 0) {
+          for (int i = 0; i < nsamps; i++) {
+            out[i].r = lroundf(noise_power * gaussZiggurat(0.0, 1.0));
+            out[i].i = lroundf(noise_power * gaussZiggurat(0.0, 1.0));
+          }
+        } else
+          memset(out, 0, sampleToByte(nsamps, 1));
+      }
 
       t->nextRxTstamp += nsamps;
 
@@ -1516,7 +1530,7 @@ static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *pti
         nsamps,
         *ptimestamp,
         t->nextRxTstamp,
-        signal_energy_nodc(samples[0], nsamps));
+        signal_energy_nodc((sample_t *)samplesVoid[0], nsamps)); // samples[] was advanced by the loop above
 
   /* trace only first antenna */
   T(T_USRP_RX_ANT0, T_INT(t->nextRxTstamp), T_BUFFER(samplesVoid[0], (int)sampleToByte(nsamps, 1)));
