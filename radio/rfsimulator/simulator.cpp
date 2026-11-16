@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <sys/epoll.h>
+#include <sys/uio.h>
 #include <netdb.h>
 
 #include <common/utils/assertions.h>
@@ -42,6 +43,8 @@ extern int get_currentchannels_type(const char *buf,
 }
 #include <queue>
 #include <mutex>
+#include <condition_variable>
+#include <thread>
 #include <atomic>
 #include <vector>
 #include <sstream>
@@ -234,6 +237,7 @@ typedef struct {
   std::atomic<float> noise_figure_dB; // < 0: no thermal noise
   bool tx_cal_set; // tx_cal_dBm given: reported to the PHY, which then applies the UL powers
   openair0_config_t *openair0_cfg;
+  struct rfsim_tx_pool *tx_pool; // threads that write to the peers in parallel, created with the second peer
 } rfsimulator_state_t;
 
 static float rfchain_tx_db(const rfsimulator_state_t *t)
@@ -489,6 +493,128 @@ static void fullwrite(int fd, void *_buf, ssize_t count, rfsimulator_state_t *t)
     buf += l;
   }
 }
+
+/* one block (header, gains, samples of each antenna) to one peer, in one system call when the socket takes it all */
+static void fullwritev(int fd, const struct iovec *iov_in, int iovcnt, rfsimulator_state_t *t)
+{
+  if (t->saveIQfile != -1) {
+    for (int i = 0; i < iovcnt; i++)
+      if (write(t->saveIQfile, iov_in[i].iov_base, iov_in[i].iov_len) != (ssize_t)iov_in[i].iov_len)
+        LOG_E(HW, "write() in save iq file failed (%d)\n", errno);
+  }
+  struct iovec iov[iovcnt];
+  memcpy(iov, iov_in, sizeof(iov));
+  struct iovec *cur = iov;
+  while (iovcnt > 0) {
+    ssize_t l = writev(fd, cur, iovcnt);
+    if (l == 0) {
+      LOG_E(HW, "writev() failed, returned 0\n");
+      return;
+    }
+    if (l < 0) {
+      if (errno == EINTR)
+        continue;
+      if (errno == EAGAIN) {
+        LOG_D(HW, "writev() failed, errno(%d)\n", errno);
+        usleep(250);
+        continue;
+      }
+      LOG_E(HW, "writev() failed, errno(%d)\n", errno);
+      return;
+    }
+    while (iovcnt > 0 && l >= (ssize_t)cur->iov_len) {
+      l -= cur->iov_len;
+      cur++;
+      iovcnt--;
+    }
+    if (iovcnt > 0) {
+      cur->iov_base = (char *)cur->iov_base + l;
+      cur->iov_len -= l;
+    }
+  }
+}
+
+/* The same block goes to every peer, and a write is mostly a copy of the samples to the socket buffer: with several
+   peers (a gNB and several UE processes) the caller shares them with a few threads. The caller takes peers like the
+   others, so a thread that wakes up late costs nothing, and it returns when all the peers are served, as before */
+#define RFSIM_TX_THREADS 7
+struct rfsim_tx_pool {
+  std::vector<std::thread> threads;
+  std::mutex m;
+  std::condition_variable start, done;
+  uint64_t job = 0; // number of the current job
+  bool open = false; // the current job still accepts threads
+  bool stop = false;
+  int active = 0; // threads working on the current job
+  // the job: valid while open or active
+  rfsimulator_state_t *t;
+  const struct iovec *iov;
+  int iovcnt;
+  int fds[MAX_FD_RFSIMU];
+  int nfds;
+  std::atomic<int> next;
+
+  void serve()
+  {
+    for (int i = next.fetch_add(1); i < nfds; i = next.fetch_add(1))
+      fullwritev(fds[i], iov, iovcnt, t);
+  }
+
+  void thread_main()
+  {
+    uint64_t seen = 0;
+    std::unique_lock<std::mutex> lock(m);
+    while (true) {
+      start.wait(lock, [&] { return stop || (open && job != seen); });
+      if (stop)
+        return;
+      seen = job;
+      active++;
+      lock.unlock();
+      serve();
+      lock.lock();
+      if (--active == 0)
+        done.notify_one();
+    }
+  }
+
+  void write_all(rfsimulator_state_t *state, const struct iovec *v, int cnt)
+  {
+    {
+      std::lock_guard<std::mutex> lock(m);
+      t = state;
+      iov = v;
+      iovcnt = cnt;
+      next = 0;
+      job++;
+      open = true;
+    }
+    start.notify_all();
+    serve();
+    std::unique_lock<std::mutex> lock(m);
+    open = false;
+    done.wait(lock, [&] { return active == 0; });
+  }
+
+  void grow(int n)
+  {
+    while ((int)threads.size() < std::min(n, RFSIM_TX_THREADS)) {
+      threads.emplace_back([this] { thread_main(); });
+      pthread_setname_np(threads.back().native_handle(), "rfsim_tx");
+    }
+  }
+
+  ~rfsim_tx_pool()
+  {
+    {
+      std::lock_guard<std::mutex> lock(m);
+      stop = true;
+    }
+    start.notify_all();
+    for (auto &th : threads)
+      th.join();
+  }
+};
 
 static float get_beam_gain_db(rfsimulator_state_t *rfsimulator, uint beam_id)
 {
@@ -961,18 +1087,29 @@ static int rfsimulator_write_internal(rfsimulator_state_t *t,
   mutexlock(t->Sockmutex);
   LOG_D(HW, "Sending %d samples at time: %ld, nbAnt %d\n", nsamps, timestamp, nbAnt);
 
-  for (int i = 0; i < MAX_FD_RFSIMU; i++) {
-    buffer_t *b = &t->buf[i];
-
-    if (b->conn_sock >= 0) {
-      samplesBlockHeader_t header = {(uint32_t)nsamps, (uint32_t)nbAnt, (uint64_t)timestamp, 0, 0};
-      fullwrite(b->conn_sock, &header, sizeof(header), t);
-      AssertFatal((uint)nbAnt == tx_gains_db.size(), "rfsim requires one gain value per IQ stream\n");
-      fullwrite(b->conn_sock, tx_gains_db.data(), sizeof(float) * nbAnt, t);
-      for (int a = 0; a < nbAnt; a++) {
-        fullwrite(b->conn_sock, (void *)samples[a], sampleToByte(nsamps, 1), t);
-      }
-    }
+  AssertFatal((uint)nbAnt == tx_gains_db.size(), "rfsim requires one gain value per IQ stream\n");
+  samplesBlockHeader_t header = {(uint32_t)nsamps, (uint32_t)nbAnt, (uint64_t)timestamp, 0, 0};
+  struct iovec iov[2 + nbAnt];
+  iov[0] = {&header, sizeof(header)};
+  iov[1] = {tx_gains_db.data(), sizeof(float) * nbAnt};
+  for (int a = 0; a < nbAnt; a++)
+    iov[2 + a] = {samples[a], sampleToByte(nsamps, 1)};
+  int fds[MAX_FD_RFSIMU];
+  int nfds = 0;
+  for (int i = 0; i < MAX_FD_RFSIMU; i++)
+    if (t->buf[i].conn_sock >= 0)
+      fds[nfds++] = t->buf[i].conn_sock;
+  // the IQ file takes the blocks one after the other
+  if (nfds > 1 && t->saveIQfile == -1) {
+    if (!t->tx_pool)
+      t->tx_pool = new rfsim_tx_pool;
+    t->tx_pool->grow(nfds - 1);
+    memcpy(t->tx_pool->fds, fds, sizeof(fds));
+    t->tx_pool->nfds = nfds;
+    t->tx_pool->write_all(t, iov, 2 + nbAnt);
+  } else {
+    for (int i = 0; i < nfds; i++)
+      fullwritev(fds[i], iov, 2 + nbAnt, t);
   }
 
   if (t->lastWroteTS > timestamp)
@@ -1660,6 +1797,7 @@ static void rfsimulator_end(openair0_device_t *device)
   clear_beam_queue(&s->beam_ctrl->active, BeamSide::kTx, INT64_MAX);
   clear_beam_queue(&s->beam_ctrl->active, BeamSide::kRx, INT64_MAX);
   delete s->beam_ctrl;
+  delete s->tx_pool;
   close(s->epollfd);
   free(s->ip);
   delete s;
