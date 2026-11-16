@@ -189,6 +189,9 @@ void nr_srs_ri_computation(const nfapi_nr_srs_normalized_channel_iq_matrix_t *nr
                            const NR_UE_UL_BWP_t *current_BWP,
                            uint8_t *ul_ri);
 
+/* nr_srs_estimate_aoa() is a static inline in nr_srs_aoa.h (self-contained, unit-testable in
+ * isolation) - callers include that header directly rather than declaring it here. */
+
 int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_resource);
 
 void nr_schedule_periodic_srs(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, int slot);
@@ -523,6 +526,7 @@ uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const NR_beam_info_t *bea
 NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame);
 void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame, bool new_beam);
 int beam_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE);
+int aoa_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE, double aoa_deg);
 void beam_switching_procedure(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int new_beam_index);
 void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
 bwp_info_t get_pdsch_bwp_start_size(nr_cell_sched_t *cell, NR_UE_info_t *UE);

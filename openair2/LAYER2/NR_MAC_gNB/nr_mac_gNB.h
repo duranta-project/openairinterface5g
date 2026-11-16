@@ -241,6 +241,12 @@ typedef struct nr_mac_config_s {
   /// Sized to the max number of physical RU antenna ports, NOT to be confused
   /// with MAX_NUM_SPATIAL_STREAMS, which bounds the per-PDU NFAPI wire field.
   uint16_t spatial_stream_index[NR_MAC_MAX_RU_ANTENNA_PORTS];
+  /// SRS-AoA beam selection: 0 = disabled, else the number of transmitted SSB beams it selects from
+  int aoa_nb_beams;
+  /// pointing angle (deg) of each SSB beam, in transmitted SSB order (like ssb_beams)
+  double aoa_beam_angles[MAX_NUM_OF_SSB];
+  /// switch only when the new beam is this much closer to the AoA than the current beam
+  double aoa_margin_deg;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -877,7 +883,7 @@ typedef struct NR_UE_info {
   NR_UE_NR_Capability_t *capability;
   NR_feature_set_ids_t uecap_fs_ids;
   measgap_config_t measgap_config;
-  // UE selected beam index
+  // UE selected beam index (SSB / RRC beam association; drives ssb_index[] reconfiguration)
   uint16_t UE_beam_index;
   /// Per-SSB L1-RSRP table, indexed by SSB index (resource_id from CSI report).
   /// INT16_MIN means no measurement received yet for that beam.

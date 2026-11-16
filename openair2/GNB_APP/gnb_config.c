@@ -1584,6 +1584,50 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
   }
 }
 
+// hysteresis for configured beam angles, which can be much closer than equal sectors
+#define AOA_MARGIN_CONFIGURED_DEG 3.0
+
+static void config_aoa_beams(const paramdef_t *param,
+                             const size_t np,
+                             const NR_ServingCellConfigCommon_t *scc,
+                             const NR_beam_info_t *beam_info,
+                             nr_mac_config_t *rc)
+{
+  rc->aoa_nb_beams = *gpd(param, np, MACRLC_AOA_NB_BEAMS)->u8ptr;
+  const paramdef_t *angles = gpd(param, np, MACRLC_AOA_BEAM_ANGLES);
+  if (rc->aoa_nb_beams == 0) {
+    AssertFatal(angles->numelt == 0, MACRLC_AOA_BEAM_ANGLES " is set, but " MACRLC_AOA_NB_BEAMS " is 0\n");
+    return;
+  }
+  // with AoA on, RSRP does not switch beams: every condition that stops the AoA path is a config error
+  const int num_ssb = count_bits64(get_ssb_bitmap(scc));
+  AssertFatal(rc->aoa_nb_beams == num_ssb,
+              MACRLC_AOA_NB_BEAMS " %d must be equal to the number of transmitted SSBs %d\n",
+              rc->aoa_nb_beams,
+              num_ssb);
+  AssertFatal(num_ssb > 1, MACRLC_AOA_NB_BEAMS " needs at least 2 transmitted SSBs\n");
+  AssertFatal(beam_info->bf_method != BF_METHOD_STRAIGHT_WIRE, MACRLC_AOA_NB_BEAMS " needs beamforming\n");
+  AssertFatal(!rc->do_TCI, MACRLC_AOA_NB_BEAMS " is not supported with do_TCI\n");
+  AssertFatal(rc->do_SRS != NO_SRS, MACRLC_AOA_NB_BEAMS " needs do_SRS\n");
+
+  if (angles->numelt == 0) {
+    // beams tile [-90, 90] in equal sectors. A margin of half a sector switches only when the AoA is
+    // within a quarter sector of the new beam's center.
+    const double step = 180.0 / num_ssb;
+    for (int b = 0; b < num_ssb; b++)
+      rc->aoa_beam_angles[b] = -90.0 + (b + 0.5) * step;
+    rc->aoa_margin_deg = step / 2;
+  } else {
+    AssertFatal(angles->numelt == num_ssb,
+                MACRLC_AOA_BEAM_ANGLES " has %d entries, but " MACRLC_AOA_NB_BEAMS " is %d\n",
+                angles->numelt,
+                num_ssb);
+    for (int b = 0; b < num_ssb; b++)
+      rc->aoa_beam_angles[b] = angles->iptr[b];
+    rc->aoa_margin_deg = AOA_MARGIN_CONFIGURED_DEG;
+  }
+}
+
 void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cell)
 {
   int j = 0;
@@ -2003,6 +2047,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg, nr_cell_sched_t **out_cel
 
       // Read spatial stream indices
       config_spatial_stream_index(params, np, &cell->radio_config, num_tx);
+
+      config_aoa_beams(params, np, scc, beam_info, &cell->radio_config);
 
       // triggers also PHY initialization in case we have L1 via FAPI
       nr_mac_config_scc(nrmac, cell, scc, &config);
