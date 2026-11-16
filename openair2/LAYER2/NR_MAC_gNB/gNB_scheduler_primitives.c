@@ -12,6 +12,7 @@
 
 #include "nr_mac_gNB.h"
 #include "mac_proto.h"
+#include "nr_srs_aoa.h"
 #include "common/utils/bits.h"
 #include "common/utils/LOG/log.h"
 #include "UTIL/OPT/opt.h"
@@ -3807,9 +3808,12 @@ void beam_switching_procedure(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_in
 {
   // currently we only need to reconfigure if CSI-RS is enabled
   // if we reconfigure we need to wait to switch the confirmation of context modification
-  if (cell->radio_config.do_CSIRS)
+  if (cell->radio_config.do_CSIRS) {
+    // one reconfiguration at a time: a new trigger would overwrite cm_info of the pending one
+    if (UE->cm_info.trigger_info != NO_TRIGGER)
+      return;
     nr_mac_trigger_reconfiguration(mac, cell, UE, -1, new_beam_index);
-  else {
+  } else {
     LOG_I(NR_MAC, "[UE %x] Switching to beam with ID %d (from %d)\n", UE->rnti, new_beam_index, UE->UE_beam_index);
     UE->UE_beam_index = new_beam_index;
   }
@@ -4131,6 +4135,33 @@ int beam_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE)
   tci->coresetId = sched_ctrl->coreset->controlResourceSetId;
   tci->tciStateId = best_beam;
   return -1;
+}
+
+/* SRS-AoA beam selection, the counterpart of beam_selection_procedures() (SSB RSRP). Selects the SSB beam
+ * nearest to the AoA, so that SSB, PDCCH, PDSCH and CSI-RS stay on one beam. config_aoa_beams() checks the
+ * preconditions. Returns the new beam index (as in UE_beam_index), or -1 for no change. */
+int aoa_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE, double aoa_deg)
+{
+  const nr_mac_config_t *rc = &cell->radio_config;
+  // aoa_beam_angles is indexed by beam position, UE_beam_index holds the FAPI beam index
+  const int cur = nr_srs_aoa_beam_pos(UE->UE_beam_index, cell->beam_index_list, MAX_NUM_OF_SSB, rc->aoa_nb_beams);
+  AssertFatal(cur >= 0, "beam index %d is not one of the %d SSB beams\n", UE->UE_beam_index, rc->aoa_nb_beams);
+  // the O-RU combined the SRS with the UL weights of the current beam
+  const double aoa_abs = nr_srs_aoa_to_absolute(aoa_deg, rc->aoa_beam_angles[cur]);
+  const int pos = nr_srs_aoa_select_beam(aoa_abs, rc->aoa_beam_angles, rc->aoa_nb_beams, cur, rc->aoa_margin_deg);
+  LOG_D(NR_MAC, "[UE %04x] SRS-AoA: raw %.1f -> abs %.1f deg, beam position %d -> %d\n", UE->rnti, aoa_deg, aoa_abs, cur, pos);
+  if (pos < 0)
+    return -1;
+
+  const int beam_idx = nr_srs_aoa_beam_at(pos, cell->beam_index_list, MAX_NUM_OF_SSB);
+  LOG_I(NR_MAC,
+        "[UE %04x] AoA-beam: AoA=%.1f deg (raw %.1f) -> SSB beam %d (cur %d)\n",
+        UE->rnti,
+        aoa_abs,
+        aoa_deg,
+        beam_idx,
+        UE->UE_beam_index);
+  return beam_idx;
 }
 
 void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_len, void *data)
