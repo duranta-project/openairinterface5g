@@ -658,12 +658,26 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
 
+  // the last feedback time seen, its slot and whether it is an UL slot: the UEs mostly have the same one
+  int fb_time = -1;
+  fsn_t sched = {0};
+  bool sched_ul = false;
+
   FOR_EACH_CONNECTED_UE(&nrmac->UE_info, UE) {
     if (UE->pcell != cell)
       continue;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
     const int n_slots_frame = cell->frame_structure.numb_slots_frame;
+    // we schedule CSI reporting max_fb_time slots in advance. A report is always in an UL slot: for the other slots, do
+    // not go through the configuration of each UE
+    if (ul_bwp->max_fb_time != fb_time) {
+      fb_time = ul_bwp->max_fb_time;
+      sched = get_fb_frame_slot(frame, slot, fb_time, n_slots_frame, NTN_gNB_Koffset);
+      sched_ul = is_ul_slot(sched.s, &cell->frame_structure);
+    }
+    if (!sched_ul)
+      continue;
     if (!nr_mac_ue_is_active(UE) && !get_softmodem_params()->phy_test) {
       continue;
     }
@@ -686,10 +700,8 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
         LOG_E(NR_MAC, "Invalid PUCCH BWP ID %ld, we only configure BWP up to 1\n", pucchcsires->uplinkBandwidthPartId);
         continue;
       }
-      // we schedule CSI reporting max_fb_time slots in advance
       int period, offset;
       csi_period_offset(csirep, NULL, &period, &offset);
-      const fsn_t sched = get_fb_frame_slot(frame, slot, ul_bwp->max_fb_time, n_slots_frame, NTN_gNB_Koffset);
       // prepare to schedule csi measurement reception according to 5.2.1.4 in 38.214
       if (!is_periodic_occasion(sched.f, sched.s, n_slots_frame, period, offset))
         continue;
@@ -1875,12 +1887,26 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, sl
 {
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
+  // the last feedback time seen, its slot and whether it is an UL slot: the UEs mostly have the same one
+  int fb_time = -1;
+  fsn_t sched = {0};
+  bool sched_ul = false;
+
   FOR_EACH_CONNECTED_UE(&nrmac->UE_info, UE) {
     if (UE->pcell != cell)
       continue;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
     const int n_slots_frame = cell->frame_structure.numb_slots_frame;
+    // we schedule SR max_fb_time slots in advance. A SR is always in an UL slot: for the other slots, do not go through
+    // the configuration of each UE
+    if (ul_bwp->max_fb_time != fb_time) {
+      fb_time = ul_bwp->max_fb_time;
+      sched = get_fb_frame_slot(SFN, slot, fb_time, n_slots_frame, NTN_gNB_Koffset);
+      sched_ul = is_ul_slot(sched.s, &cell->frame_structure);
+    }
+    if (!sched_ul)
+      continue;
     if (!nr_mac_ue_is_active(UE))
       continue;
     NR_PUCCH_Config_t *pucch_Config = ul_bwp->pucch_Config;
@@ -1894,8 +1920,6 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, sl
       NR_SchedulingRequestResourceConfig_t *srConf = sr_list->list.array[id];
       int SR_period; int SR_offset;
       find_period_offset_SR(srConf, &SR_period, &SR_offset);
-      // we schedule SR max_fb_time slots in advance
-      const fsn_t sched = get_fb_frame_slot(SFN, slot, ul_bwp->max_fb_time, n_slots_frame, NTN_gNB_Koffset);
       int sfn_sf = sched.f * n_slots_frame + sched.s;
       LOG_D(NR_MAC, "SR_resource_id %d: SR_period %d, SR_offset %d\n", id, SR_period, SR_offset);
       if ((sfn_sf - SR_offset) % SR_period != 0)

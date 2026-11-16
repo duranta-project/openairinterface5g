@@ -3089,6 +3089,7 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
   int n_slots_frame = cell->frame_structure.numb_slots_frame;
 
   UE_info->sched_csirs = 0;
+  int bwp_done = 0;
 
   FOR_EACH_CONNECTED_UE(UE_info, UE) {
     if (UE->pcell != cell)
@@ -3096,10 +3097,10 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
     NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
 
     // CSI-RS is common to all UEs in a given BWP
-    // therefore we need to schedule only once per BWP
-    // the following condition verifies if CSI-RS
-    // has been already scheduled in this BWP
-    if (UE_info->sched_csirs & (1 << dl_bwp->bwp_id))
+    // therefore we need to go through the configuration only once per BWP,
+    // whether this slot is a CSI-RS occasion or not: the following condition
+    // verifies if the configuration of a UE of this BWP has already been examined
+    if (bwp_done & (1 << dl_bwp->bwp_id))
       continue;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     if (nr_timer_is_active(&sched_ctrl->transm_interrupt))
@@ -3116,6 +3117,7 @@ void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t f
       continue;
 
     nfapi_nr_dl_tti_request_body_t *dl_req = &DL_req->dl_tti_request_body;
+    bwp_done |= 1 << dl_bwp->bwp_id;
 
     for (int csi_list = 0; csi_list < csi_measconfig->csi_ResourceConfigToAddModList->list.count; csi_list++) {
       NR_CSI_ResourceConfig_t *csires = csi_measconfig->csi_ResourceConfigToAddModList->list.array[csi_list];
