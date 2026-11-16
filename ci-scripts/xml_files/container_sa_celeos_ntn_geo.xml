@@ -60,7 +60,7 @@
   <testCase>
     <class>Ping</class>
     <desc>Ping: 100pings in 20sec</desc>
-    <id>rocket</id>
+    <id>oai_ue_rocket</id>
     <svr_id>oc-cn5g-00103-ho</svr_id>
     <ping_args>-c 100 -i 0.2</ping_args>
     <ping_packetloss_threshold>5</ping_packetloss_threshold>
