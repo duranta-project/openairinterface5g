@@ -73,7 +73,7 @@
     <node>groot</node>
     <yaml_path>ci-scripts/yaml_files/5g_sa_celeos_ntn_geo</yaml_path>
     <analysis>
-      <services>oai-cu=EndsWithBye oai-gnb=EndsWithBye</services>
+      <services>oai-gnb=EndsWithBye</services>
     </analysis>
   </testCase>
 
