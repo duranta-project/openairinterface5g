@@ -16,6 +16,7 @@
 #include "nrLDPC_mPass.h"
 #include "nrLDPC_cnProc.h"
 #include "nrLDPC_bnProc.h"
+#include "nrLDPC_cnProc_rot.h"
 #include "openair1/PHY/CODING/coding_defs.h"
 #include "log.h"
 
@@ -107,6 +108,12 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
     int8_t bnProcBufRes[NR_LDPC_SIZE_BN_PROC_BUF] __attribute__ ((aligned(64)));
     int8_t llrRes[NR_LDPC_MAX_NUM_LLR]            __attribute__ ((aligned(64)));
     int8_t llrProcBuf[NR_LDPC_MAX_NUM_LLR] __attribute__((aligned(64)));
+    // CN processing with the cyclic shifts folded in (nrLDPC_cnProc_rot.h): no CN-ordered buffers, no copies
+    const int rot = NR_LDPC_ROT;
+#if NR_LDPC_ROT
+    nrLDPC_cnEdges_t edges;
+    nrLDPC_cnEdges_init(p_lut, BG, Z, &edges);
+#endif
     // Minimum number of iterations is 1
     // 0 iterations means hard-decision on input LLRs
     // Initialize with parity check fail != 0
@@ -121,9 +128,9 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
 #endif
 
     NR_LDPC_PROFILER_DETAIL(p_profiler, start_meas(&p_profiler->llr2CnProcBuf));
-    if (BG == 1)
+    if (!rot && BG == 1)
       nrLDPC_llr2CnProcBuf_BG1(p_lut, p_llr, cnProcBuf, Z);
-    else
+    else if (!rot)
       nrLDPC_llr2CnProcBuf_BG2(p_lut, p_llr, cnProcBuf, Z);
     NR_LDPC_PROFILER_DETAIL(p_profiler, stop_meas(&p_profiler->llr2CnProcBuf));
 
@@ -136,6 +143,11 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
 
     // CN processing
     NR_LDPC_PROFILER_DETAIL(p_profiler, start_meas(&p_profiler->cnProc));
+#if NR_LDPC_ROT
+    if (rot)
+      nrLDPC_cnProc_rot(&edges, p_llr, edges.llrOff, bnProcBuf, Z);
+    else
+#endif
     if (BG==1) {
       nrLDPC_cnProc_BG1_2pass(p_lut, cnProcBuf, cnProcBufRes, Z);
     } else {
@@ -149,9 +161,9 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
 #endif
 
     NR_LDPC_PROFILER_DETAIL(p_profiler, start_meas(&p_profiler->cn2bnProcBuf));
-    if (BG == 1)
+    if (!rot && BG == 1)
       nrLDPC_cn2bnProcBuf_BG1(p_lut, cnProcBufRes, bnProcBuf, Z);
-    else
+    else if (!rot)
       nrLDPC_cn2bnProcBuf_BG2(p_lut, cnProcBufRes, bnProcBuf, Z);
     NR_LDPC_PROFILER_DETAIL(p_profiler, stop_meas(&p_profiler->cn2bnProcBuf));
 
@@ -181,8 +193,10 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
 
     // BN results to CN processing buffer
     NR_LDPC_PROFILER_DETAIL(p_profiler, start_meas(&p_profiler->bn2cnProcBuf))
-    if (BG == 1) nrLDPC_bn2cnProcBuf_BG1(p_lut, bnProcBufRes, cnProcBuf, Z);
-    else         nrLDPC_bn2cnProcBuf_BG2(p_lut, bnProcBufRes, cnProcBuf, Z);
+    if (!rot && BG == 1)
+      nrLDPC_bn2cnProcBuf_BG1(p_lut, bnProcBufRes, cnProcBuf, Z);
+    else if (!rot)
+      nrLDPC_bn2cnProcBuf_BG2(p_lut, bnProcBufRes, cnProcBuf, Z);
     NR_LDPC_PROFILER_DETAIL(p_profiler, stop_meas(&p_profiler->bn2cnProcBuf))
 
 #ifdef NR_LDPC_DEBUG_MODE
@@ -203,6 +217,11 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
       }
       // CN processing
         NR_LDPC_PROFILER_DETAIL(p_profiler, start_meas(&p_profiler->cnProc))
+#if NR_LDPC_ROT
+        if (rot)
+          nrLDPC_cnProc_rot(&edges, bnProcBufRes, edges.bnOff, bnProcBuf, Z);
+        else
+#endif
         if (BG==1) {
            nrLDPC_cnProc_BG1_2pass(p_lut, cnProcBuf, cnProcBufRes, Z);
         } else {
@@ -216,8 +235,10 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
 
         // Send CN results back to BNs
         NR_LDPC_PROFILER_DETAIL(p_profiler, start_meas(&p_profiler->cn2bnProcBuf))
-        if (BG == 1) nrLDPC_cn2bnProcBuf_BG1(p_lut, cnProcBufRes, bnProcBuf, Z);
-        else         nrLDPC_cn2bnProcBuf_BG2(p_lut, cnProcBufRes, bnProcBuf, Z);
+        if (!rot && BG == 1)
+          nrLDPC_cn2bnProcBuf_BG1(p_lut, cnProcBufRes, bnProcBuf, Z);
+        else if (!rot)
+          nrLDPC_cn2bnProcBuf_BG2(p_lut, cnProcBufRes, bnProcBuf, Z);
         NR_LDPC_PROFILER_DETAIL(p_profiler, stop_meas(&p_profiler->cn2bnProcBuf))
 
 #ifdef NR_LDPC_DEBUG_MODE
@@ -243,9 +264,9 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
 
         // BN results to CN processing buffer
         NR_LDPC_PROFILER_DETAIL(p_profiler, start_meas(&p_profiler->bn2cnProcBuf));
-        if (BG == 1)
+        if (!rot && BG == 1)
           nrLDPC_bn2cnProcBuf_BG1(p_lut, bnProcBufRes, cnProcBuf, Z);
-        else
+        else if (!rot)
           nrLDPC_bn2cnProcBuf_BG2(p_lut, bnProcBufRes, cnProcBuf, Z);
         NR_LDPC_PROFILER_DETAIL(p_profiler, stop_meas(&p_profiler->bn2cnProcBuf));
 
@@ -256,6 +277,11 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
    // Parity Check
         if (!p_decParams->check_crc) {
           NR_LDPC_PROFILER_DETAIL(p_profiler, start_meas(&p_profiler->cnProcPc));
+#if NR_LDPC_ROT
+          if (rot)
+            pcRes = nrLDPC_cnProcPc_rot(&edges, bnProcBufRes, bnProcBuf, Z);
+          else
+#endif
           if (BG == 1)
             pcRes = nrLDPC_cnProcPc_BG1(p_lut, cnProcBuf, cnProcBufRes, Z);
           else
