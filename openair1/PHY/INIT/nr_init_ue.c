@@ -461,20 +461,17 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
 
 void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb, int num_ant_tx)
 {
-  int max_layers = min(num_ant_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER*max_layers;  //number of segments to be allocated
-
-  if (num_rb != 273) {
-    a_segments = a_segments * num_rb;
-    a_segments = a_segments / 273 + 1;
-  }
-
-  uint32_t ulsch_bytes = a_segments * 1056;
+  const int max_layers = max(1, min(num_ant_tx, NR_MAX_NB_LAYERS));
+  // Bound the largest TB using 256QAM, rate 948/1024 and the 156-RE-per-PRB TBS cap, with its 24-bit CRC.
+  const uint32_t max_tbs = nr_compute_tbs(8, 9480, num_rb, NR_SYMBOLS_PER_SLOT, 0, 0, 0, max_layers);
+  // Keep the existing encoder limit; nr_ulsch_pre_encoding() rejects larger TBs.
+  const int ulsch_bytes = min(max_tbs / 8 + 3, MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * max_layers * 1056);
 
   for (int i = 0; i < number_of_processes; i++) {
     memset(&harq_list[i], 0, sizeof(NR_UL_UE_HARQ_t));
 
     harq_list[i].payload_AB = malloc16_clear(ulsch_bytes);
+    harq_list[i].payload_AB_size = ulsch_bytes;
     harq_list[i].round = 0;
   }
 }

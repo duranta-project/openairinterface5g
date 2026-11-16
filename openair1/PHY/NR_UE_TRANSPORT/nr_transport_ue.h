@@ -17,6 +17,8 @@ typedef struct {
   uint8_t round;
   /// pointer to pdu from MAC interface (TS 36.212 V15.4.0, Sec 5.1 p. 8)
   unsigned char *payload_AB;
+  /// allocated bytes of payload_AB: the largest TB of the carrier and its CRC
+  int payload_AB_size;
   /// Number of bits of payload_AB with the CRC (B in TS 38.212 5.2.2)
   uint32_t B;
   /// Number of code segments
