@@ -23,14 +23,49 @@ e2_node_level_stats_t cp_node_level_stats(const e2_node_level_stats_t *src)
   return dst;
 }
 
-/* measurements that need to store values from previous reporting period have a limitation
-   when it comes to multiple subscriptions to the same UEs; ric_req_id is unique per subscription */
+/* Measurements reported as the difference to the previous report need the counters of that
+   previous report. They are kept per UE (rrc_ue_id), and not per position of the UE in the list
+   of UEs matched by one subscription: this position is 0 for the first UE of every subscription
+   (e.g., one subscription per S-NSSAI), and it changes when another UE leaves.
+   Limitation: multiple subscriptions to the same UE share these values; ric_req_id is unique
+   per subscription */
 typedef struct uldlcounter {
   uint32_t dl;
   uint32_t ul;
 } uldlcounter_t;
 
-static uldlcounter_t last_pdcp_sdu_total_bytes[MAX_MOBILES_PER_GNB] = {0};
+typedef struct {
+  uint32_t rrc_ue_id;
+  uint64_t last_use; // 0: free entry; otherwise, the higher the more recently reported
+  uldlcounter_t pdcp_sdu_bytes;
+  uldlcounter_t rlc_pdu_bytes;
+  uldlcounter_t ue_prbs;
+  uint64_t cell_prbs_dl; // PRBs of the cell at the previous report of this UE
+  uint64_t cell_prbs_ul;
+} ue_prev_meas_t;
+
+static ue_prev_meas_t ue_prev_meas[MAX_MOBILES_PER_GNB] = {0};
+
+static ue_prev_meas_t *get_ue_prev_meas(const uint32_t rrc_ue_id)
+{
+  static uint64_t use_count = 0;
+
+  ue_prev_meas_t *oldest = &ue_prev_meas[0];
+  for (ue_prev_meas_t *p = ue_prev_meas; p < ue_prev_meas + MAX_MOBILES_PER_GNB; p++) {
+    if (p->last_use != 0 && p->rrc_ue_id == rrc_ue_id) {
+      p->last_use = ++use_count;
+      return p;
+    }
+    if (p->last_use < oldest->last_use)
+      oldest = p;
+  }
+
+  /* UE not reported before: take a free entry or, if there is none, the entry reported the
+     longest time ago, which is of a UE that left. The first report of a UE is the difference
+     to zero */
+  *oldest = (ue_prev_meas_t){.rrc_ue_id = rrc_ue_id, .last_use = ++use_count};
+  return oldest;
+}
 
 static nr_pdcp_statistics_t get_pdcp_stats_per_drb(const uint32_t rrc_ue_id, const int rb_id)
 {
@@ -49,7 +84,7 @@ static nr_pdcp_statistics_t get_pdcp_stats_per_drb(const uint32_t rrc_ue_id, con
 static meas_record_lst_t fill_DRB_PdcpSduVolumeDL(__attribute__((unused)) const label_info_lst_t label,
                                                   __attribute__((unused)) uint32_t gran_period_ms,
                                                   cudu_ue_info_pair_t ue_info,
-                                                  const size_t ue_idx,
+                                                  __attribute__((unused)) const size_t ue_idx,
                                                   __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -61,8 +96,9 @@ static meas_record_lst_t fill_DRB_PdcpSduVolumeDL(__attribute__((unused)) const 
   meas_record.value = INTEGER_MEAS_VALUE;
 
   // Get DL data volume delivered to PDCP layer
-  meas_record.int_val = (pdcp.rxsdu_bytes - last_pdcp_sdu_total_bytes[ue_idx].dl)*8/1000000;   // [Mb]
-  last_pdcp_sdu_total_bytes[ue_idx].dl = pdcp.rxsdu_bytes;
+  ue_prev_meas_t *prev = get_ue_prev_meas(ue_info.rrc_ue_id);
+  meas_record.int_val = (pdcp.rxsdu_bytes - prev->pdcp_sdu_bytes.dl)*8/1000000;   // [Mb]
+  prev->pdcp_sdu_bytes.dl = pdcp.rxsdu_bytes;
 
   return meas_record;
 }
@@ -72,7 +108,7 @@ static meas_record_lst_t fill_DRB_PdcpSduVolumeDL(__attribute__((unused)) const 
 static meas_record_lst_t fill_DRB_PdcpSduVolumeUL(__attribute__((unused)) const label_info_lst_t label,
                                                   __attribute__((unused)) uint32_t gran_period_ms,
                                                   cudu_ue_info_pair_t ue_info,
-                                                  const size_t ue_idx,
+                                                  __attribute__((unused)) const size_t ue_idx,
                                                   __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -84,8 +120,9 @@ static meas_record_lst_t fill_DRB_PdcpSduVolumeUL(__attribute__((unused)) const 
   meas_record.value = INTEGER_MEAS_VALUE;
 
   // Get UL data volume delivered from PDCP layer
-  meas_record.int_val = (pdcp.txsdu_bytes - last_pdcp_sdu_total_bytes[ue_idx].ul)*8/1000000;   // [Mb]
-  last_pdcp_sdu_total_bytes[ue_idx].ul = pdcp.txsdu_bytes;
+  ue_prev_meas_t *prev = get_ue_prev_meas(ue_info.rrc_ue_id);
+  meas_record.int_val = (pdcp.txsdu_bytes - prev->pdcp_sdu_bytes.ul)*8/1000000;   // [Mb]
+  prev->pdcp_sdu_bytes.ul = pdcp.txsdu_bytes;
 
   return meas_record;
 }
@@ -195,9 +232,6 @@ static meas_record_lst_t fill_RRC_ConnMean(__attribute__((unused)) const label_i
 }
 
 #if defined (NGRAN_GNB_DU)
-static uldlcounter_t last_rlc_pdu_total_bytes[MAX_MOBILES_PER_GNB] = {0};
-static uldlcounter_t last_total_prbs[MAX_MOBILES_PER_GNB] = {0};
-
 static nr_rlc_statistics_t get_rlc_stats_per_drb(const rnti_t rnti, const int rb_id)
 {
   nr_rlc_statistics_t rlc = {0};
@@ -241,7 +275,7 @@ static meas_record_lst_t fill_DRB_RlcSduDelayDl(__attribute__((unused)) const la
 static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_info_lst_t label,
                                           uint32_t gran_period_ms,
                                           cudu_ue_info_pair_t ue_info,
-                                          const size_t ue_idx,
+                                          __attribute__((unused)) const size_t ue_idx,
                                           __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -251,8 +285,9 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
   meas_record.value = REAL_MEAS_VALUE;
 
   // Calculate DL Thp
-  meas_record.real_val = (double)(rlc.txpdu_bytes - last_rlc_pdu_total_bytes[ue_idx].dl)*8/gran_period_ms;  // [kbps]
-  last_rlc_pdu_total_bytes[ue_idx].dl = rlc.txpdu_bytes;
+  ue_prev_meas_t *prev = get_ue_prev_meas(ue_info.rrc_ue_id);
+  meas_record.real_val = (double)(rlc.txpdu_bytes - prev->rlc_pdu_bytes.dl)*8/gran_period_ms;  // [kbps]
+  prev->rlc_pdu_bytes.dl = rlc.txpdu_bytes;
 
   return meas_record;
 }
@@ -263,7 +298,7 @@ static meas_record_lst_t fill_DRB_UEThpDl(__attribute__((unused)) const label_in
 static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_info_lst_t label,
                                           uint32_t gran_period_ms,
                                           cudu_ue_info_pair_t ue_info,
-                                          const size_t ue_idx,
+                                          __attribute__((unused)) const size_t ue_idx,
                                           __attribute__((unused))e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -275,8 +310,9 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
   meas_record.value = REAL_MEAS_VALUE;
 
   // Calculate UL Thp
-  meas_record.real_val = (double)(rlc.rxpdu_bytes - last_rlc_pdu_total_bytes[ue_idx].ul)*8/gran_period_ms;  // [kbps]
-  last_rlc_pdu_total_bytes[ue_idx].ul = rlc.rxpdu_bytes;
+  ue_prev_meas_t *prev = get_ue_prev_meas(ue_info.rrc_ue_id);
+  meas_record.real_val = (double)(rlc.rxpdu_bytes - prev->rlc_pdu_bytes.ul)*8/gran_period_ms;  // [kbps]
+  prev->rlc_pdu_bytes.ul = rlc.rxpdu_bytes;
   
   return meas_record;
 }
@@ -286,7 +322,7 @@ static meas_record_lst_t fill_DRB_UEThpUl(__attribute__((unused)) const label_in
 static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_info_lst_t label,
                                            __attribute__((unused)) uint32_t gran_period_ms,
                                            cudu_ue_info_pair_t ue_info,
-                                           const size_t ue_idx,
+                                           __attribute__((unused)) const size_t ue_idx,
                                            e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -294,9 +330,13 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
   meas_record.value = INTEGER_MEAS_VALUE;
 
   // Get the number of DL PRBs
-  const uint64_t tot_prb_dl_aggr = node_stats[1].mac_stats.dl.total_prb_aggregate - node_stats[0].mac_stats.dl.total_prb_aggregate;
-  meas_record.int_val = (tot_prb_dl_aggr == 0) ? 0 : (ue_info.ue->mac_stats.dl.total_rbs - last_total_prbs[ue_idx].dl) * 100 / tot_prb_dl_aggr;   // [%]
-  last_total_prbs[ue_idx].dl = ue_info.ue->mac_stats.dl.total_rbs;
+  ue_prev_meas_t *prev = get_ue_prev_meas(ue_info.rrc_ue_id);
+  const uint64_t cell_prbs_dl = node_stats[1].mac_stats.dl.total_prb_aggregate;
+  const uint64_t tot_prb_dl_aggr = cell_prbs_dl - prev->cell_prbs_dl;
+  const uint64_t ue_prb_dl_aggr = ue_info.ue->mac_stats.dl.total_rbs - prev->ue_prbs.dl;
+  meas_record.int_val = (tot_prb_dl_aggr == 0) ? 0 : ue_prb_dl_aggr * 100 / tot_prb_dl_aggr;   // [%]
+  prev->ue_prbs.dl = ue_info.ue->mac_stats.dl.total_rbs;
+  prev->cell_prbs_dl = cell_prbs_dl;
 
   return meas_record;
 }
@@ -306,7 +346,7 @@ static meas_record_lst_t fill_RRU_PrbTotDl(__attribute__((unused)) const label_i
 static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_info_lst_t label,
                                            __attribute__((unused)) uint32_t gran_period_ms,
                                            cudu_ue_info_pair_t ue_info,
-                                           const size_t ue_idx,
+                                           __attribute__((unused)) const size_t ue_idx,
                                            e2_node_level_stats_t* node_stats)
 {
   meas_record_lst_t meas_record = {0};
@@ -314,9 +354,13 @@ static meas_record_lst_t fill_RRU_PrbTotUl(__attribute__((unused)) const label_i
   meas_record.value = INTEGER_MEAS_VALUE;
 
   // Get the number of UL PRBs
-  const uint64_t tot_prb_ul_aggr = node_stats[1].mac_stats.ul.total_prb_aggregate - node_stats[0].mac_stats.ul.total_prb_aggregate;
-  meas_record.int_val = (tot_prb_ul_aggr == 0) ? 0 : (ue_info.ue->mac_stats.ul.total_rbs - last_total_prbs[ue_idx].ul) * 100 / tot_prb_ul_aggr;   // [%]
-  last_total_prbs[ue_idx].ul = ue_info.ue->mac_stats.ul.total_rbs;
+  ue_prev_meas_t *prev = get_ue_prev_meas(ue_info.rrc_ue_id);
+  const uint64_t cell_prbs_ul = node_stats[1].mac_stats.ul.total_prb_aggregate;
+  const uint64_t tot_prb_ul_aggr = cell_prbs_ul - prev->cell_prbs_ul;
+  const uint64_t ue_prb_ul_aggr = ue_info.ue->mac_stats.ul.total_rbs - prev->ue_prbs.ul;
+  meas_record.int_val = (tot_prb_ul_aggr == 0) ? 0 : ue_prb_ul_aggr * 100 / tot_prb_ul_aggr;   // [%]
+  prev->ue_prbs.ul = ue_info.ue->mac_stats.ul.total_rbs;
+  prev->cell_prbs_ul = cell_prbs_ul;
 
   return meas_record;
 }
