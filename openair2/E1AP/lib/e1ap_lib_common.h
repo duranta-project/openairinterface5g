@@ -12,12 +12,13 @@
 #include "e1ap_messages_types.h"
 #include "common/utils/eq_check.h"
 
-#define CHECK_E1AP_DEC(exp)                                                             \
-  do {                                                                                  \
-    if (!(exp)) {                                                                       \
-        PRINT_ERROR("Failed executing " #exp " in %s() line %d\n", __func__, __LINE__); \
-        return false;                                                                   \
-    }                                                                                   \
+#define CHECK_E1AP_DEC(exp)                               \
+  do {                                                    \
+    const bool e1ap_dec_ok_ = (exp);                      \
+    if (!e1ap_dec_ok_) {                                  \
+      PRINT_ERROR("%s(): '%s' failed\n", __func__, #exp); \
+      return e1ap_dec_ok_;                                \
+    }                                                     \
   } while (0)
 
 // Macro to look up IE. If mandatory and not found, macro will log an error and return false.
