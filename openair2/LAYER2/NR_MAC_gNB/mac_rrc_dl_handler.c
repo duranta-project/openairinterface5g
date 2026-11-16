@@ -826,7 +826,18 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
   resp.du_to_cu_rrc_info.cell_group_config = encode_cellgroup_config(new_CellGroup);
 
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
-  UE->reconfigCellGroup = new_CellGroup;
+  if (ue_id_provided) {
+    // enqueue cellGroupConfig for application on ack
+    UE->reconfigCellGroup = new_CellGroup;
+  } else {
+    // HO, NSA, phy-test, do-ra: the UE will come with the cellGroupConfig
+    // applied, apply now new_CellGroup was cloned from UE->CellGroup, replace
+    // the latter with the former
+    ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
+    UE->CellGroup = new_CellGroup;
+    UE->reconfigCellGroup = NULL;
+  }
+
   int ss_type = cg_configinfo ? NR_SearchSpace__searchSpaceType_PR_ue_Specific: NR_SearchSpace__searchSpaceType_PR_common;
   configure_UE_BWP(cell, scc, UE, false, ss_type, -1, -1);
 
