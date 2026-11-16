@@ -14,7 +14,7 @@
 #include "openair2/PHY_INTERFACE/IF_Module.h"
 #include "PHY/defs_eNB.h"
 #include "nfapi_interface.h"
-#include "nfapi_pnf_interface.h"
+#include "nfapi_lte_pnf_interface.h"
 #include <pthread.h>
 #include <semaphore.h>
 #include "nfapi/oai_integration/vendor_ext.h"

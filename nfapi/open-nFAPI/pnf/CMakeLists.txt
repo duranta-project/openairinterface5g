@@ -7,7 +7,9 @@ add_library(nfapi_pnf_lib
         src/pnf_interface_common.c
         src/pnf_interface_lte.c
         src/pnf_interface_nr.c
-        src/pnf_p7.c
+        src/pnf_p7_common.c
+        src/pnf_p7_lte.c
+        src/pnf_p7_nr.c
         src/pnf_p7_interface_common.c
         src/pnf_p7_interface_lte.c
         src/pnf_p7_interface_nr.c)

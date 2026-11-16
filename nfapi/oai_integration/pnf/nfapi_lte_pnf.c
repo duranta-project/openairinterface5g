@@ -12,7 +12,7 @@
 
 #include "debug.h"
 #include "nfapi/oai_integration/vendor_ext.h"
-#include "nfapi_pnf_interface.h"
+#include "nfapi_lte_pnf_interface.h"
 
 #include "nfapi.h"
 #include "pnf/nfapi_lte_pnf.h"

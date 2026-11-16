@@ -39,12 +39,12 @@ static PWLS_MAC_CTX wls_mac_get_ctx(void)
   return &g_phy_wls;
 }
 
-static nfapi_pnf_config_t *cfg;
+static nfapi_nr_pnf_config_t *cfg;
 
 void *wls_fapi_pnf_nr_start_thread(void *ptr)
 {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] IN WLS PNF NFAPI start thread %s\n", __FUNCTION__);
-  cfg = (nfapi_pnf_config_t *)ptr;
+  cfg = (nfapi_nr_pnf_config_t *)ptr;
   wls_fapi_nr_pnf_start();
   return (void *)0;
 }
@@ -80,7 +80,7 @@ int wls_fapi_nr_pnf_start()
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
 
-  _this = (pnf_t *)(cfg);
+  _this = PNF_FROM_NR_CONFIG(cfg);
   _this->terminate = 0;
   // Init PNF config
   nfapi_pnf_phy_config_t *phy = malloc_or_fail(sizeof(nfapi_pnf_phy_config_t));
@@ -166,7 +166,7 @@ uint8_t phy_wls_init(const char *dev_name, uint64_t nWlsMacMemSize, uint64_t nWl
 
 bool wls_pnf_nr_send_p5_message(pnf_t *pnf, nfapi_nr_p4_p5_message_header_t *msg, uint32_t msg_len)
 {
-  int packed_len = cfg->pack_func(msg, msg_len, pnf->tx_message_buffer, sizeof(pnf->tx_message_buffer), &pnf->_public.codec_config);
+  int packed_len = cfg->pack_func(msg, msg_len, pnf->tx_message_buffer, sizeof(pnf->tx_message_buffer), &cfg->codec_config);
 
   if (packed_len < 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "nfapi_p5_message_pack failed (%d)\n", packed_len);

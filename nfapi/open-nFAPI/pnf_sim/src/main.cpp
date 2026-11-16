@@ -11,7 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "debug.h"
-#include "nfapi_pnf_interface.h"
+#include "nfapi_lte_pnf_interface.h"
 #include "nfapi.h"
 #include <sys/socket.h>
 #include <sys/time.h>
