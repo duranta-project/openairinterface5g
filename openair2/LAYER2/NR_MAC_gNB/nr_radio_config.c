@@ -1053,8 +1053,8 @@ void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
     bandNRinfo->pusch_256QAM = calloc(1,sizeof(*bandNRinfo->pusch_256QAM));
     *bandNRinfo->pusch_256QAM = NR_BandNR__pusch_256QAM_supported;
   }
+  const frequency_range_t freq_range = get_freq_range_from_band(band);
   if (mcs_table_dl == 1) {
-    const frequency_range_t freq_range = get_freq_range_from_band(band);
     if (freq_range == FR2) {
       bandNRinfo->pdsch_256QAM_FR2 = calloc(1, sizeof(*bandNRinfo->pdsch_256QAM_FR2));
       *bandNRinfo->pdsch_256QAM_FR2 = NR_BandNR__pdsch_256QAM_FR2_supported;
@@ -1065,38 +1065,41 @@ void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
       phy_fr1->pdsch_256QAM_FR1 = calloc(1, sizeof(*phy_fr1->pdsch_256QAM_FR1));
       *phy_fr1->pdsch_256QAM_FR1 = NR_Phy_ParametersFR1__pdsch_256QAM_FR1_supported;
     }
-    cap->featureSets = calloc(1, sizeof(*cap->featureSets));
-    NR_FeatureSets_t *fs=cap->featureSets;
-    fs->featureSetsDownlinkPerCC = calloc(1, sizeof(*fs->featureSetsDownlinkPerCC));
-    NR_FeatureSetDownlinkPerCC_t *fs_cc = calloc(1, sizeof(*fs_cc));
-    fs_cc->supportedSubcarrierSpacingDL = numerology;
-    int bw_index = get_supported_band_index(numerology, freq_range, rbsize);
-    int bw = get_supported_bw_mhz(freq_range, bw_index);
-    if (bw == 90) // 90MHz
-      fs_cc->channelBW_90mhz = calloc(1, sizeof(*fs_cc->channelBW_90mhz));
-    if(freq_range == FR2) {
-      fs_cc->supportedBandwidthDL.present = NR_SupportedBandwidth_PR_fr2;
-      fs_cc->supportedBandwidthDL.choice.fr2 = bw_index;
-    }
-    else{
-      fs_cc->supportedBandwidthDL.present = NR_SupportedBandwidth_PR_fr1;
-      fs_cc->supportedBandwidthDL.choice.fr1 = get_SupportedBandwidth_fr1_bw_index(bw_index);
-    }
-    fs_cc->maxNumberMIMO_LayersPDSCH = calloc(1, sizeof(*fs_cc->maxNumberMIMO_LayersPDSCH));
-    *fs_cc->maxNumberMIMO_LayersPDSCH = NR_MIMO_LayersDL_fourLayers;
+  }
+  // the DL feature set is always there: without it the UE is taken as a 2-layer one, whatever the modulation
+  cap->featureSets = calloc(1, sizeof(*cap->featureSets));
+  NR_FeatureSets_t *fs=cap->featureSets;
+  fs->featureSetsDownlinkPerCC = calloc(1, sizeof(*fs->featureSetsDownlinkPerCC));
+  NR_FeatureSetDownlinkPerCC_t *fs_cc = calloc(1, sizeof(*fs_cc));
+  fs_cc->supportedSubcarrierSpacingDL = numerology;
+  int bw_index = get_supported_band_index(numerology, freq_range, rbsize);
+  int bw = get_supported_bw_mhz(freq_range, bw_index);
+  if (bw == 90) // 90MHz
+    fs_cc->channelBW_90mhz = calloc(1, sizeof(*fs_cc->channelBW_90mhz));
+  if(freq_range == FR2) {
+    fs_cc->supportedBandwidthDL.present = NR_SupportedBandwidth_PR_fr2;
+    fs_cc->supportedBandwidthDL.choice.fr2 = bw_index;
+  }
+  else{
+    fs_cc->supportedBandwidthDL.present = NR_SupportedBandwidth_PR_fr1;
+    fs_cc->supportedBandwidthDL.choice.fr1 = get_SupportedBandwidth_fr1_bw_index(bw_index);
+  }
+  fs_cc->maxNumberMIMO_LayersPDSCH = calloc(1, sizeof(*fs_cc->maxNumberMIMO_LayersPDSCH));
+  *fs_cc->maxNumberMIMO_LayersPDSCH = NR_MIMO_LayersDL_fourLayers;
+  if (mcs_table_dl == 1) {
     fs_cc->supportedModulationOrderDL = calloc(1, sizeof(*fs_cc->supportedModulationOrderDL));
     *fs_cc->supportedModulationOrderDL = NR_ModulationOrder_qam256;
-    asn1cSeqAdd(&fs->featureSetsDownlinkPerCC->list, fs_cc);
+  }
+  asn1cSeqAdd(&fs->featureSetsDownlinkPerCC->list, fs_cc);
 
-    if (bw == 35 || bw == 45 || bw == 70) {
-      fs->ext6 = calloc(1, sizeof(*fs->ext6));
-      fs->ext6->featureSetsDownlinkPerCC_v1700 = calloc(1, sizeof(*fs->ext6->featureSetsDownlinkPerCC_v1700));
-      NR_FeatureSetDownlinkPerCC_v1700_t *fs_dlcc_v1700 = calloc(1, sizeof(*fs_dlcc_v1700));
-      fs_dlcc_v1700->supportedBandwidthDL_v1710 = calloc(1, sizeof(*fs_dlcc_v1700->supportedBandwidthDL_v1710));
-      fs_dlcc_v1700->supportedBandwidthDL_v1710->present = NR_SupportedBandwidth_v1700_PR_fr1_r17;
-      fs_dlcc_v1700->supportedBandwidthDL_v1710->choice.fr1_r17 = bw_index;
-      asn1cSeqAdd(&fs->ext6->featureSetsDownlinkPerCC_v1700->list, fs_dlcc_v1700);
-    }
+  if (bw == 35 || bw == 45 || bw == 70) {
+    fs->ext6 = calloc(1, sizeof(*fs->ext6));
+    fs->ext6->featureSetsDownlinkPerCC_v1700 = calloc(1, sizeof(*fs->ext6->featureSetsDownlinkPerCC_v1700));
+    NR_FeatureSetDownlinkPerCC_v1700_t *fs_dlcc_v1700 = calloc(1, sizeof(*fs_dlcc_v1700));
+    fs_dlcc_v1700->supportedBandwidthDL_v1710 = calloc(1, sizeof(*fs_dlcc_v1700->supportedBandwidthDL_v1710));
+    fs_dlcc_v1700->supportedBandwidthDL_v1710->present = NR_SupportedBandwidth_v1700_PR_fr1_r17;
+    fs_dlcc_v1700->supportedBandwidthDL_v1710->choice.fr1_r17 = bw_index;
+    asn1cSeqAdd(&fs->ext6->featureSetsDownlinkPerCC_v1700->list, fs_dlcc_v1700);
   }
 
   phy_Parameters->phy_ParametersFRX_Diff = calloc(1, sizeof(*phy_Parameters->phy_ParametersFRX_Diff));
