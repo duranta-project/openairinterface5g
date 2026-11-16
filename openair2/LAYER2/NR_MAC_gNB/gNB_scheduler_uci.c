@@ -689,6 +689,13 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
     NR_PUCCH_Config_t *pucch_Config = ul_bwp->pucch_Config;
 
     for (int csi_report_id = 0; csi_report_id < csi_measconfig->csi_ReportConfigToAddModList->list.count; csi_report_id++) {
+      // the period and the offset kept in the report template (see compute_csi_bitlen()) tell if this slot is an
+      // occasion without reading the RRC configuration; it is 0 for the reports that are not periodic.
+      // prepare to schedule csi measurement reception according to 5.2.1.4 in 38.214
+      const nr_csi_report_t *report = &UE->csi_report_template[csi_report_id];
+      if (!is_periodic_occasion(sched.f, sched.s, n_slots_frame, report->periodicity, report->offset))
+        continue;
+
       NR_CSI_ReportConfig_t *csirep = csi_measconfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
 
       // the aperiodic reports are requested by DCI 0_1 and sent on PUSCH
@@ -700,12 +707,6 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
         LOG_E(NR_MAC, "Invalid PUCCH BWP ID %ld, we only configure BWP up to 1\n", pucchcsires->uplinkBandwidthPartId);
         continue;
       }
-      int period, offset;
-      csi_period_offset(csirep, NULL, &period, &offset);
-      // prepare to schedule csi measurement reception according to 5.2.1.4 in 38.214
-      if (!is_periodic_occasion(sched.f, sched.s, n_slots_frame, period, offset))
-        continue;
-
       AssertFatal(is_ul_slot(sched.s, &cell->frame_structure), "CSI reporting slot %d is not set for an uplink slot\n", sched.s);
       LOG_D(NR_MAC, "CSI reporting in frame %d slot %d CSI report ID %ld\n", sched.f, sched.s, csirep->reportConfigId);
       const int pucch_index = get_pucch_index(sched.f, sched.s, &cell->frame_structure, sched_ctrl->sched_pucch_size);
