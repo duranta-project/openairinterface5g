@@ -126,40 +126,6 @@ void seq_arr_erase_it(seq_arr_t* arr, void* start_it, void* end_it, void (*free_
   maybe_shrink(arr);
 }
 
-size_t seq_arr_size(seq_arr_t const* arr)
-{
-  assert(arr != NULL);
-  return arr->size;
-}
-
-void* seq_arr_front(seq_arr_t const* arr)
-{
-  assert(arr != NULL);
-  return arr->data;
-}
-
-void* seq_arr_next(seq_arr_t const* arr, void const* it)
-{
-  assert(arr != NULL);
-  assert(it != NULL);
-  return (uint8_t*)it + arr->elt_size;
-}
-
-void* seq_arr_end(seq_arr_t const* arr)
-{
-  assert(arr != NULL);
-  assert(arr->data != NULL);
-  return &arr->data[arr->size * arr->elt_size];
-}
-
-void* seq_arr_at(seq_arr_t const* arr, uint32_t pos)
-{
-  assert(arr != NULL);
-  assert(arr->data != NULL);
-  assert(pos < arr->size);
-  return arr->data + pos * arr->elt_size;
-}
-
 ptrdiff_t seq_arr_dist(seq_arr_t const* arr, void const* first, void const* last)
 {
   assert(arr != NULL);

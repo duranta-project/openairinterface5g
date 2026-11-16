@@ -11,6 +11,7 @@
  * Basic sequence container with a similar API and behaviour to C++ std::vector
  */
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -81,10 +82,14 @@ void seq_arr_erase_it(seq_arr_t* arr, void* first, void* last, void (*free_func)
  * @param arr The sequence container
  * @return The number of elements in the sequence container
  */
-size_t seq_arr_size(seq_arr_t const* arr);
+static inline size_t seq_arr_size(seq_arr_t const* arr)
+{
+  assert(arr != NULL);
+  return arr->size;
+}
 
 /////
-// Iterators
+// Iterators (inline, like the size: they are in the per-UE loops of the scheduler)
 /////
 
 /**
@@ -92,7 +97,11 @@ size_t seq_arr_size(seq_arr_t const* arr);
  * @param arr The sequence container
  * @return The iterator to the first element in the sequence container
  */
-void* seq_arr_front(seq_arr_t const* arr);
+static inline void* seq_arr_front(seq_arr_t const* arr)
+{
+  assert(arr != NULL);
+  return arr->data;
+}
 
 /**
  * @brief Next iterator
@@ -100,14 +109,24 @@ void* seq_arr_front(seq_arr_t const* arr);
  * @param it Iterator to a valid element
  * @return The iterator to the next element in the sequence container
  */
-void* seq_arr_next(seq_arr_t const* arr, void const* it);
+static inline void* seq_arr_next(seq_arr_t const* arr, void const* it)
+{
+  assert(arr != NULL);
+  assert(it != NULL);
+  return (uint8_t*)it + arr->elt_size;
+}
 
 /**
  * @brief End iterator
  * @param arr The sequence container
  * @return The iterator to one past the last element in the sequence container
  */
-void* seq_arr_end(seq_arr_t const* arr);
+static inline void* seq_arr_end(seq_arr_t const* arr)
+{
+  assert(arr != NULL);
+  assert(arr->data != NULL);
+  return &arr->data[arr->size * arr->elt_size];
+}
 
 /**
  * @brief Returns iterator in positions pos
@@ -115,7 +134,13 @@ void* seq_arr_end(seq_arr_t const* arr);
  * @param pos The position of the element in the sequence container
  * @return The iterator to the element
  */
-void* seq_arr_at(seq_arr_t const* arr, uint32_t pos);
+static inline void* seq_arr_at(seq_arr_t const* arr, uint32_t pos)
+{
+  assert(arr != NULL);
+  assert(arr->data != NULL);
+  assert(pos < arr->size);
+  return arr->data + pos * arr->elt_size;
+}
 
 /**
  * @brief Distance between iterators
