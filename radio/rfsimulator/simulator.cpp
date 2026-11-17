@@ -1662,12 +1662,9 @@ static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *pti
       const float noise_power = rx_noise_amplitude(t);
       for (int x = 0; x < nbAnt; x++) {
         sample_t *out = (sample_t *)samplesVoid[x];
-        if (noise_power > 0) {
-          for (int i = 0; i < nsamps; i++) {
-            out[i].r = f_to_i16_sat(noise_power * (float)gaussZiggurat(0.0, 1.0));
-            out[i].i = lroundf(noise_power * gaussZiggurat(0.0, 1.0));
-          }
-        } else
+        if (noise_power > 0)
+          gauss_noise_int16(&out[0].r, 2 * nsamps, noise_power);
+        else
           memset(out, 0, sampleToByte(nsamps, 1));
       }
 
