@@ -38,6 +38,10 @@
    \param p_profiler LDPC profiler statistics
 */
 
+// Core-local memory of the calling thread (common/utils/threadPool/core_mem.h), claimed by LDPC thread-pool workers
+// pinned to cores that have some. Weak: the decoder library also loads into executables without it.
+void *core_mem_get(size_t *size) __attribute__((weak));
+
 static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
                                            uint8_t* p_out,
                                            uint32_t numLLR,
@@ -104,10 +108,28 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
 
     int8_t cnProcBuf[NR_LDPC_SIZE_CN_PROC_BUF]    __attribute__ ((aligned(64)));
     int8_t cnProcBufRes[NR_LDPC_SIZE_CN_PROC_BUF] __attribute__ ((aligned(64)));
+#if NR_LDPC_ROT
+    // with the fused CN kernel these four buffers are the whole working set: in the thread's core-local memory if it
+    // has enough (SpacemiT K3 A100 TCM: 10 ns, against 20 ns for its L2, which LDPC workers on the cluster share)
+    int8_t bnProcBuf_s[NR_LDPC_SIZE_BN_PROC_BUF] __attribute__((aligned(64)));
+    int8_t bnProcBufRes_s[NR_LDPC_SIZE_BN_PROC_BUF] __attribute__((aligned(64)));
+    int8_t llrRes_s[NR_LDPC_MAX_NUM_LLR] __attribute__((aligned(64)));
+    int8_t llrProcBuf_s[NR_LDPC_MAX_NUM_LLR] __attribute__((aligned(64)));
+    const size_t llrSize = (NR_LDPC_MAX_NUM_LLR + 63) & ~63;
+    size_t cmSize = 0;
+    int8_t *cm = core_mem_get ? core_mem_get(&cmSize) : NULL;
+    if (cmSize < 2 * NR_LDPC_SIZE_BN_PROC_BUF + 2 * llrSize)
+      cm = NULL;
+    int8_t *const bnProcBuf = cm ? cm : bnProcBuf_s;
+    int8_t *const bnProcBufRes = cm ? cm + NR_LDPC_SIZE_BN_PROC_BUF : bnProcBufRes_s;
+    int8_t *const llrRes = cm ? cm + 2 * NR_LDPC_SIZE_BN_PROC_BUF : llrRes_s;
+    int8_t *const llrProcBuf = cm ? cm + 2 * NR_LDPC_SIZE_BN_PROC_BUF + llrSize : llrProcBuf_s;
+#else
     int8_t bnProcBuf[NR_LDPC_SIZE_BN_PROC_BUF]    __attribute__ ((aligned(64)));
     int8_t bnProcBufRes[NR_LDPC_SIZE_BN_PROC_BUF] __attribute__ ((aligned(64)));
     int8_t llrRes[NR_LDPC_MAX_NUM_LLR]            __attribute__ ((aligned(64)));
     int8_t llrProcBuf[NR_LDPC_MAX_NUM_LLR] __attribute__((aligned(64)));
+#endif
     // CN processing with the cyclic shifts folded in (nrLDPC_cnProc_rot.h): no CN-ordered buffers, no copies
     const int rot = NR_LDPC_ROT;
 #if NR_LDPC_ROT

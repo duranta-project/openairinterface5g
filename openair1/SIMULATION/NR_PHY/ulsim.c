@@ -48,6 +48,7 @@
 #include "common/utils/T/T.h"
 #include "common/utils/nr/nr_common.h"
 #include "common/utils/threadPool/thread-pool.h"
+#include "common/utils/threadPool/core_mem.h"
 #include "e1ap_messages_types.h"
 #include "executables/nr-uesoftmodem.h"
 #include "fapi_nr_ue_constants.h"
@@ -624,7 +625,7 @@ int main(int argc, char *argv[])
   else
     initNamedTpool(gNBthreads, &gNB->threadPool, true, "gNB-tpool");
   if (ldpcThreads) {
-    initNamedTpool(ldpcThreads, &gNB->ldpcPool, true, "gNB-ldpc");
+    initNamedTpoolInit(ldpcThreads, &gNB->ldpcPool, true, "gNB-ldpc", core_mem_thread_init);
     gNB->ldpcTpool = &gNB->ldpcPool;
   }
 

@@ -42,6 +42,7 @@
 #include "nfapi_nr_interface_scf.h"
 #include "notified_fifo.h"
 #include "thread-pool.h"
+#include "core_mem.h"
 #include "time_meas.h"
 #include "utils.h"
 
@@ -477,7 +478,12 @@ void init_gNB_Tpool(int inst)
   // ULSCH decoding threadpool
   initTpool(get_softmodem_params()->threadPoolConfig, &gNB->threadPool, cpumeas(CPUMEAS_GETSTATE));
   if (get_softmodem_params()->threadPoolLdpcConfig) {
-    initNamedTpool(get_softmodem_params()->threadPoolLdpcConfig, &gNB->ldpcPool, cpumeas(CPUMEAS_GETSTATE), "Tpool-ldpc");
+    // LDPC workers pinned to cores with core-local memory (SpacemiT K3 A100 TCM) decode out of it
+    initNamedTpoolInit(get_softmodem_params()->threadPoolLdpcConfig,
+                       &gNB->ldpcPool,
+                       cpumeas(CPUMEAS_GETSTATE),
+                       "Tpool-ldpc",
+                       core_mem_thread_init);
     gNB->ldpcTpool = &gNB->ldpcPool;
   }
 
