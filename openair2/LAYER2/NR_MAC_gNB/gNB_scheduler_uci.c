@@ -202,6 +202,7 @@ static int find_pucch_resource_index(const NR_PUCCH_Config_t *pucch_Config, int 
   return res_index < n ? res_index : -1;
 }
 
+// to schedule periodic CSI measurement reporting reception
 void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame, slot_t slot)
 {
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
@@ -219,15 +220,13 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
     const NR_CSI_MeasConfig_t *csi_measconfig = UE->sc_info.csi_MeasConfig;
     if (!csi_measconfig)
       continue;
-    AssertFatal(csi_measconfig->csi_ReportConfigToAddModList->list.count > 0,
-                "NO CSI report configuration available");
+    AssertFatal(csi_measconfig->csi_ReportConfigToAddModList->list.count > 0, "NO CSI report configuration available");
     NR_PUCCH_Config_t *pucch_Config = ul_bwp->pucch_Config;
 
     for (int csi_report_id = 0; csi_report_id < csi_measconfig->csi_ReportConfigToAddModList->list.count; csi_report_id++){
       NR_CSI_ReportConfig_t *csirep = csi_measconfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
-
-      AssertFatal(csirep->reportConfigType.choice.periodic,
-                  "Only periodic CSI reporting is implemented currently\n");
+      if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_periodic)
+        continue;
 
       const NR_PUCCH_CSI_Resource_t *pucchcsires = csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.array[0];
       if(pucchcsires->uplinkBandwidthPartId > 1) {
@@ -870,13 +869,15 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   int new_bf_index = -1;
   bool valid = true;
   for (int id = 0; id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; id++) {
+    const NR_CSI_ReportConfig_t *csirep = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[id];
+    if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_periodic)
+      continue;
     nr_csi_report_t *csi_report = &UE->csi_report_template[id];
     csi_report->nb_of_csi_ssb_report = 0;
     uint8_t cri_bitlen = 0;
     uint8_t ri_bitlen = 0;
     uint8_t li_bitlen = 0;
     uint8_t pmi_bitlen = 0;
-    NR_CSI_ReportConfig_t *csirep = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[id];
     uint8_t cqi_table = (dl_bwp->dci_format == NR_DL_DCI_FORMAT_1_1 && csirep->cqi_Table) ? *csirep->cqi_Table : NR_CSI_ReportConfig__cqi_Table_table1;
     const NR_PUCCH_CSI_Resource_t *pucchcsires = csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.array[0];
     if(pucchcsires->uplinkBandwidthPartId > 1) {
