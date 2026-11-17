@@ -461,7 +461,7 @@ int main(int argc, char **argv)
     }
   }
 
-  ret = itti_terminate_and_join_task(TASK_RRC_NRUE, 0);
+  int ret = itti_terminate_and_join_task(TASK_RRC_NRUE, 0);
   AssertFatal(ret == 0, "Could not terminate TASK_RRC_NRUE: %s\n", strerror(ret));
   ret = itti_terminate_and_join_task(TASK_NAS_NRUE, 0);
   AssertFatal(ret == 0, "Could not terminate TASK_NAS_NRUE: %s\n", strerror(ret));

@@ -576,7 +576,7 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, const nr_pdcp_e
   } else {
     pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, 0, slrb_id, sdap.pdusession_id,
                                   (sdap.role & SDAP_SL_RX) != 0, (sdap.role & SDAP_SL_TX) != 0,
-                                  deliver_sdu_drb, ue, deliver_pdu_drb_ue, ue,
+                                  deliver_sdu_drb, ue,
                                   sn_size, t_reordering, discard_timer,
                                   security_parameters);
 
