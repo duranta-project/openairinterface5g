@@ -684,7 +684,7 @@ void nr_pdcch_channel_estimation(const NR_DL_FRAME_PARMS *frame_parms,
                                  uint16_t BWPStart,
                                  int32_t pdcch_est_size,
                                  c16_t pdcch_dl_ch_estimates[][pdcch_est_size],
-                                 c16_t rxdataF[frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size],
+                                 c16_t *const rxdataF[frame_parms->nb_antennas_rx],
                                  c16_t *pilot)
 {
 #ifdef DEBUG_PDCCH

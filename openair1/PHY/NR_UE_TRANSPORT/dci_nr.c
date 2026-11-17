@@ -181,8 +181,7 @@ static void nr_pdcch_llr(uint32_t sz, c16_t *rxF, c16_t *llr)
 }
 
 // This function will extract the mapped DM-RS PDCCH REs as per 38.211 Section 7.4.1.3.2 (Mapping to physical resources)
-static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
-                                        c16_t rxdataF[][rxdataF_sz],
+static void nr_pdcch_extract_rbs_single(c16_t *const rxdataF[],
                                         int32_t est_size,
                                         c16_t dl_ch_estimates[][est_size],
                                         int arraySz,
@@ -283,9 +282,9 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
                                int ss_idx,
                                nr_phy_data_t *phy_data,
                                int llr_size_symbol,
-                               c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
+                               c16_t *const rxdataF[ue->frame_parms.nb_antennas_rx],
                                c16_t llr[llr_size_symbol],
-			       int pscch_processing)
+                               int pscch_processing)
 {
   // PSCCH lives on the SL carrier, so chest + RE extraction must use the SL frame params.
   NR_DL_FRAME_PARMS *fp = pscch_processing ? &ue->SL_UE_PHY_PARAMS.sl_frame_params : &ue->frame_parms;
@@ -325,8 +324,7 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
   __attribute__((aligned(32))) c16_t rxdataF_ext[fp->nb_antennas_rx][rx_size];
   __attribute__((aligned(32))) c16_t pdcch_dl_ch_estimates_ext[fp->nb_antennas_rx][rx_size];
 
-  nr_pdcch_extract_rbs_single(fp->ofdm_symbol_size,
-                              rxdataF,
+  nr_pdcch_extract_rbs_single(rxdataF,
                               pdcch_est_size,
                               pdcch_dl_ch_estimates,
                               rx_size,
@@ -417,16 +415,17 @@ void set_first_last_pdcch_symb(const NR_UE_PDCCH_CONFIG *phy_pdcch_config, int n
 }
 
 /* Generates PDCCH LLRs from received symbol for each Search-Space */
-void nr_pdcch_generate_llr(PHY_VARS_NR_UE *ue,
-                           const UE_nr_rxtx_proc_t *proc,
-                           int symbol,
-                           nr_phy_data_t *phy_data,
-                           int llr_size_symbol,
-                           int num_monitoring_occ,
-                           int max_symb,
-                           c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
-                           c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol],
-	                   int pscch_processing)
+void nr_pdcch_generate_llr(
+    PHY_VARS_NR_UE *ue,
+    const UE_nr_rxtx_proc_t *proc,
+    int symbol,
+    nr_phy_data_t *phy_data,
+    int llr_size_symbol,
+    int num_monitoring_occ,
+    int max_symb,
+    c16_t *const rxdataF[ue->frame_parms.nb_antennas_rx],
+    c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol],
+    int pscch_processing)
 {
   const NR_UE_PDCCH_CONFIG *phy_pdcch_config = &phy_data->phy_pdcch_config;
 

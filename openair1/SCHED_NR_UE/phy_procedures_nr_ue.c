@@ -963,10 +963,10 @@ void pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
       nr_slot_fep(ue, fep_fp, proc->frame_rx, proc->nr_slot_rx, symbol, rxdataF, fep_link, 0, ue->common_vars.rxdata);
     else
       nr_slot_fep_rx(ue, fp, proc->frame_rx, proc->nr_slot_rx, symbol, rxdataF);
-    __attribute__((aligned(32))) c16_t rxdataF_symb[fp->nb_antennas_rx][((fp->ofdm_symbol_size + 7) / 8) * 8];
-
+    // the symbol in place, no copy (a cold write per symbol and UE with many UE threads)
+    c16_t *rxdataF_symb[fp->nb_antennas_rx];
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++)
-      memcpy(rxdataF_symb[ant], &rxdataF[ant][symbol * fp->ofdm_symbol_size], sizeof(c16_t) * fp->ofdm_symbol_size);
+      rxdataF_symb[ant] = &rxdataF[ant][symbol * fp->ofdm_symbol_size];
 
     nr_pdcch_generate_llr(ue, proc, symbol, phy_data, llr_size_symbol, num_monitoring_occ, max_nb_symb_pdcch, rxdataF_symb, pdcch_llr,pscch_processing);
     if (symbol == last_symb_pdcch) {
