@@ -84,25 +84,25 @@ static bool map_muting_pattern(const LPP_NR_MutingPattern_r16_t *pattern,
   return true;
 }
 
-static bool map_muting(const LPP_NR_DL_PRS_ResourceSet_r16_t *set, nr_ue_prs_resource_config_t *resource)
+static bool map_muting(const LPP_NR_DL_PRS_ResourceSet_r16_t *set, nr_ue_prs_target_config_t *target)
 {
-  resource->muting_bit_repetition = 1;
+  target->muting_bit_repetition = 1;
   if (set->dl_PRS_MutingOption1_r16 != NULL) {
     const LPP_DL_PRS_MutingOption1_r16_t *option1 = set->dl_PRS_MutingOption1_r16;
-    if (!map_muting_pattern(&option1->nr_option1_muting_r16, resource->muting_pattern1, &resource->muting_pattern1_length))
+    if (!map_muting_pattern(&option1->nr_option1_muting_r16, target->muting_pattern1, &target->muting_pattern1_length))
       return false;
     if (option1->dl_prs_MutingBitRepetitionFactor_r16 != NULL) {
       static const uint8_t values[] = {1, 2, 4, 8};
       const long factor = *option1->dl_prs_MutingBitRepetitionFactor_r16;
       if (factor < 0 || factor >= (long)sizeofArray(values))
         return false;
-      resource->muting_bit_repetition = values[factor];
+      target->muting_bit_repetition = values[factor];
     }
   }
   if (set->dl_PRS_MutingOption2_r16 != NULL
       && !map_muting_pattern(&set->dl_PRS_MutingOption2_r16->nr_option2_muting_r16,
-                             resource->muting_pattern2,
-                             &resource->muting_pattern2_length))
+                             target->muting_pattern2,
+                             &target->muting_pattern2_length))
     return false;
   return true;
 }
@@ -110,7 +110,7 @@ static bool map_muting(const LPP_NR_DL_PRS_ResourceSet_r16_t *set, nr_ue_prs_res
 #define READ_PERIOD(INNER, TABLE, PERIOD, OFFSET) do { \
   const int index = (INNER)->present - 1; \
   if (index < 0 || index >= (int)sizeofArray(TABLE)) return false; \
-  /* The UE PHY currently stores PRS periods and offsets in 16 bits. */ \
+  /* The RRC-to-MAC configuration currently stores periods and offsets in 16 bits. */ \
   if ((TABLE)[index] > UINT16_MAX) return false; \
   (PERIOD) = (TABLE)[index]; \
   memcpy(&(OFFSET), &(INNER)->choice, sizeof(OFFSET)); \
@@ -160,41 +160,51 @@ static bool convert_resource_set(const LPP_NR_DL_PRS_AssistanceDataPerFreq_r16_t
   target->phys_cell_id = trp->nr_PhysCellID_r16 ? *trp->nr_PhysCellID_r16 : 0;
   target->point_a_arfcn = layer->dl_PRS_PointA_r16;
   target->trp_arfcn = trp->nr_ARFCN_r16 ? *trp->nr_ARFCN_r16 : layer->dl_PRS_PointA_r16;
-  target->normal_cyclic_prefix = true;
+  fapi_nr_dl_config_prs_pdu_rel16_t common = {0};
   if (!map_periodicity(&set->dl_PRS_Periodicity_and_ResourceSetSlotOffset_r16,
-                       &target->subcarrier_spacing,
-                       &target->resources[0].resource_set_period,
-                       &target->resources[0].resource_set_offset)
-      || target->subcarrier_spacing != layer->dl_PRS_SubcarrierSpacing_r16
-      || !map_comb_size(layer->dl_PRS_CombSizeN_r16, &target->resources[0].comb_size)
-      || !map_repetition(set->dl_PRS_ResourceRepetitionFactor_r16, &target->resources[0].resource_repetition)
-      || !map_time_gap(set->dl_PRS_ResourceTimeGap_r16, &target->resources[0].resource_time_gap)
-      || !map_num_symbols(set->dl_PRS_NumSymbols_r16, &target->resources[0].num_symbols))
+                       &common.subcarrier_spacing,
+                       &target->period,
+                       &target->offset)
+      || common.subcarrier_spacing != layer->dl_PRS_SubcarrierSpacing_r16
+      || !map_comb_size(layer->dl_PRS_CombSizeN_r16, &common.comb_size)
+      || !map_repetition(set->dl_PRS_ResourceRepetitionFactor_r16, &target->repetition)
+      || !map_time_gap(set->dl_PRS_ResourceTimeGap_r16, &target->time_gap)
+      || !map_num_symbols(set->dl_PRS_NumSymbols_r16, &common.num_symbols))
     return false;
 
   const int count = set->dl_PRS_ResourceList_r16.list.count;
-  if (count < 1 || count > NR_MAX_PRS_RESOURCES_PER_TARGET)
+  if (count < 1 || count > NR_UE_MAX_PRS_RESOURCES)
+    return false;
+  if (!map_muting(set, target))
     return false;
   target->num_resources = count;
   for (int i = 0; i < count; ++i) {
     const LPP_NR_DL_PRS_Resource_r16_t *asn_resource = set->dl_PRS_ResourceList_r16.list.array[i];
-    nr_ue_prs_resource_config_t *resource = &target->resources[i];
-    *resource = target->resources[0];
-    resource->num_rbs = 4 * layer->dl_PRS_ResourceBandwidth_r16 + 20;
-    resource->rb_offset = layer->dl_PRS_StartPRB_r16;
-    resource->resource_id = asn_resource->nr_DL_PRS_ResourceID_r16;
-    resource->nprs_id = asn_resource->dl_PRS_SequenceID_r16;
-    resource->resource_offset = asn_resource->dl_PRS_ResourceSlotOffset_r16;
-    resource->symbol_start = asn_resource->dl_PRS_ResourceSymbolOffset_r16;
+    nr_ue_prs_resource_t *resource = &target->resources[i];
+    resource->pdu = common;
+    fapi_nr_dl_config_prs_pdu_rel16_t *pdu = &resource->pdu;
+    pdu->num_rbs = 4 * layer->dl_PRS_ResourceBandwidth_r16 + 20;
+    pdu->start_rb = layer->dl_PRS_StartPRB_r16;
+    pdu->nid_prs = asn_resource->dl_PRS_SequenceID_r16;
+    resource->slot_offset = asn_resource->dl_PRS_ResourceSlotOffset_r16;
+    pdu->first_symbol = asn_resource->dl_PRS_ResourceSymbolOffset_r16;
     switch (asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.present) {
-      case LPP_NR_DL_PRS_Resource_r16__dl_PRS_CombSizeN_AndReOffset_r16_PR_n2_r16: resource->re_offset = asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n2_r16; break;
-      case LPP_NR_DL_PRS_Resource_r16__dl_PRS_CombSizeN_AndReOffset_r16_PR_n4_r16: resource->re_offset = asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n4_r16; break;
-      case LPP_NR_DL_PRS_Resource_r16__dl_PRS_CombSizeN_AndReOffset_r16_PR_n6_r16: resource->re_offset = asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n6_r16; break;
-      case LPP_NR_DL_PRS_Resource_r16__dl_PRS_CombSizeN_AndReOffset_r16_PR_n12_r16: resource->re_offset = asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n12_r16; break;
+      case LPP_NR_DL_PRS_Resource_r16__dl_PRS_CombSizeN_AndReOffset_r16_PR_n2_r16:
+        pdu->comb_offset = asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n2_r16;
+        break;
+      case LPP_NR_DL_PRS_Resource_r16__dl_PRS_CombSizeN_AndReOffset_r16_PR_n4_r16:
+        pdu->comb_offset = asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n4_r16;
+        break;
+      case LPP_NR_DL_PRS_Resource_r16__dl_PRS_CombSizeN_AndReOffset_r16_PR_n6_r16:
+        pdu->comb_offset = asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n6_r16;
+        break;
+      case LPP_NR_DL_PRS_Resource_r16__dl_PRS_CombSizeN_AndReOffset_r16_PR_n12_r16:
+        pdu->comb_offset = asn_resource->dl_PRS_CombSizeN_AndReOffset_r16.choice.n12_r16;
+        break;
       default: return false;
     }
-    if (resource->nprs_id > 4095 || resource->resource_offset > 511 || resource->symbol_start + resource->num_symbols > 14
-        || resource->re_offset >= resource->comb_size || !map_muting(set, resource))
+    if (pdu->nid_prs > 4095 || resource->slot_offset > 511 || pdu->first_symbol + pdu->num_symbols > 14
+        || pdu->comb_offset >= pdu->comb_size)
       return false;
   }
   return true;
@@ -213,7 +223,7 @@ bool lpp_nr_prs_assistance_to_configuration(const LPP_NR_DL_PRS_AssistanceData_r
     for (int t = 0; t < frequency->nr_DL_PRS_AssistanceDataPerFreq_r16.list.count; ++t) {
       const LPP_NR_DL_PRS_AssistanceDataPerTRP_r16_t *trp = frequency->nr_DL_PRS_AssistanceDataPerFreq_r16.list.array[t];
       for (int s = 0; s < trp->nr_DL_PRS_Info_r16.nr_DL_PRS_ResourceSetList_r16.list.count; ++s) {
-        if (configuration->num_targets == NR_MAX_PRS_TARGETS
+        if (configuration->num_targets == NR_UE_MAX_PRS_GNBS
             || !convert_resource_set(frequency,
                                      trp,
                                      trp->nr_DL_PRS_Info_r16.nr_DL_PRS_ResourceSetList_r16.list.array[s],

@@ -525,8 +525,7 @@ struct NR_SchedulingInfo2_r17 *find_sib19_sched_info(const struct NR_SI_Scheduli
 }
 
 static void sib_sched_control(nr_cell_sched_t *cell,
-                              frame_t frame,
-                              slot_t slot,
+                              const fsn_t fsn,
                               int ssb_index,
                               NR_SearchSpace_t *ss,
                               nfapi_nr_dl_tti_request_t *DL_req,
@@ -534,10 +533,10 @@ static void sib_sched_control(nr_cell_sched_t *cell,
                               const byte_array_t sib,
                               const char *sib_name)
 {
-  AssertFatal(is_dl_slot(slot, &cell->frame_structure),
+  AssertFatal(is_dl_slot(fsn.s, &cell->frame_structure),
               "Trying to schedule %s in slot %d which is not DL. Wrong Configuration\n",
               sib_name,
-              slot);
+              fsn.s);
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int n_slots_frame = cell->frame_structure.numb_slots_frame;
   int beam_index = get_beam_from_ssbidx(cell, ssb_index);
@@ -545,9 +544,9 @@ static void sib_sched_control(nr_cell_sched_t *cell,
   if (type0_PDCCH_CSS_config->num_rbs == 0) {
     return;
   }
-  NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, frame, slot, beam_index, n_slots_frame);
+  NR_beam_alloc_t beam = beam_allocation_procedure(&cell->beam_info, fsn.f, fsn.s, beam_index, n_slots_frame);
   AssertFatal(beam.idx >= 0, "Cannot allocate %s corresponding for SSB index %d in any available beam\n", sib_name, ssb_index);
-  LOG_D(NR_MAC, "(%d.%d) %s transmission for SSB index %d\n", frame, slot, sib_name, ssb_index);
+  LOG_D(NR_MAC, "(%d.%d) %s transmission for SSB index %d\n", fsn.f, fsn.s, sib_name, ssb_index);
 
   NR_COMMON_channels_t *cc = &cell->common_channels;
   NR_PDSCH_ConfigCommon_t *pdsch_ConfigCommon = scc->downlinkConfigCommon->initialDownlinkBWP->pdsch_ConfigCommon->choice.setup;
@@ -636,15 +635,15 @@ static void sib_sched_control(nr_cell_sched_t *cell,
   tx_req->TLVs[0].length = sched_pdsch_otherSI.tb_size;
   tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, tx_req->TLVs[0].length);
   TX_req->Number_of_PDUs++;
-  TX_req->SFN = frame;
-  TX_req->Slot = slot;
+  TX_req->SFN = fsn.f;
+  TX_req->Slot = fsn.s;
 
   T(T_GNB_MAC_DL_PDU_WITH_DATA,
     T_INT(0),
     T_INT(0),
     T_INT(SI_RNTI),
-    T_INT(frame),
-    T_INT(slot),
+    T_INT(fsn.f),
+    T_INT(fsn.s),
     T_INT(0), // harq_pid
     T_BUFFER(sib.buf, sib.len));
 }
@@ -743,8 +742,7 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
         continue;
 
       sib_sched_control(cell,
-                        frame,
-                        slot,
+                        (fsn_t){.f = frame, .s = slot},
                         cc->ssb_index[ssb],
                         ss,
                         DL_req,
@@ -767,8 +765,7 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
         continue;
 
       sib_sched_control(cell,
-                        frame,
-                        slot,
+                        (fsn_t){.f = frame, .s = slot},
                         cc->ssb_index[ssb],
                         ss,
                         DL_req,
@@ -868,8 +865,7 @@ void schedule_nr_pos_sib(nr_cell_sched_t *cell,
 
       LOG_D(NR_MAC, "(%d.%d) scheduling posSibType6-1 for SSB %d\n", frame, slot, ssb);
       sib_sched_control(cell,
-                        frame,
-                        slot,
+                        (fsn_t){.f = frame, .s = slot},
                         cc->ssb_index[ssb],
                         ss,
                         DL_req,

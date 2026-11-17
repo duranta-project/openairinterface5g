@@ -2359,25 +2359,14 @@ void nr_rrc_mac_config_prs(module_id_t module_id, const nr_ue_prs_configuration_
     const nr_ue_prs_target_config_t *target = &configuration->targets[g];
     AssertFatal(target->num_resources > 0 && target->num_resources <= NR_UE_MAX_PRS_RESOURCES,
                 "Invalid PRS resource count %u\n", target->num_resources);
-    const nr_ue_prs_resource_config_t *first = &target->resources[0];
     nr_ue_prs_config_t *c = calloc_or_fail(1, sizeof(*c) + target->num_resources * sizeof(c->resource[0]));
     mac->prs_config[g] = c;
-    c->period = first->resource_set_period;
-    c->offset = first->resource_set_offset;
-    c->repetition = first->resource_repetition;
-    c->time_gap = first->resource_time_gap;
+    c->period = target->period;
+    c->offset = target->offset;
+    c->repetition = target->repetition;
+    c->time_gap = target->time_gap;
     c->num_resources = target->num_resources;
-    for (int r = 0; r < c->num_resources; r++) {
-      const nr_ue_prs_resource_config_t *source = &target->resources[r];
-      c->resource[r].slot_offset = source->resource_offset;
-      c->resource[r].pdu = (fapi_nr_dl_config_prs_pdu_rel16_t){.nid_prs = source->nprs_id,
-                                                           .comb_size = source->comb_size,
-                                                           .comb_offset = source->re_offset,
-                                                           .num_symbols = source->num_symbols,
-                                                           .first_symbol = source->symbol_start,
-                                                           .num_rbs = source->num_rbs,
-                                                           .start_rb = source->rb_offset};
-    }
+    memcpy(c->resource, target->resources, c->num_resources * sizeof(*c->resource));
   }
   LOG_I(NR_MAC, "Applied %u PRS target(s) from source %d (generation %u)\n",
         configuration->num_targets, configuration->source, configuration->generation);

@@ -21,6 +21,7 @@
 /* IF */
 #include "NR_UE_PHY_INTERFACE/NR_IF_Module.h"
 #include "fapi_nr_ue_interface.h"
+#include "nr_ue_prs_config.h"
 
 /* MAC */
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
@@ -775,14 +776,6 @@ typedef struct {
 } nr_ue_paging_cfg_t;
 
 /*!\brief Top level UE MAC structure */
-#define NR_UE_MAX_PRS_GNBS 12
-#define NR_UE_MAX_PRS_RESOURCES 64
-
-typedef struct {
-  fapi_nr_dl_config_prs_pdu_rel16_t pdu;
-  uint16_t slot_offset;
-} nr_ue_prs_resource_t;
-
 typedef struct {
   uint32_t period;
   uint32_t offset;

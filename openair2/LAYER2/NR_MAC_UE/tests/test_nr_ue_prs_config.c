@@ -20,19 +20,21 @@ int main(void)
   for (int g = 0; g < 2; g++) {
     nr_ue_prs_target_config_t *target = &configuration->targets[g];
     target->num_resources = 2;
+    target->period = 40960;
+    target->offset = 3;
+    target->repetition = 2;
+    target->time_gap = 4;
     for (int r = 0; r < 2; r++) {
-      target->resources[r] = (nr_ue_prs_resource_config_t){.resource_set_period = 40960,
-                                                        .resource_set_offset = 3,
-                                                        .resource_offset = r + 1,
-                                                        .resource_repetition = 2,
-                                                        .resource_time_gap = 4,
-                                                        .num_rbs = 24,
-                                                        .num_symbols = 6,
-                                                        .symbol_start = 2,
-                                                        .rb_offset = 8,
-                                                        .comb_size = 4,
-                                                        .re_offset = r,
-                                                        .nprs_id = 100 + g * 2 + r};
+      target->resources[r] = (nr_ue_prs_resource_t){
+          .slot_offset = r + 1,
+          .pdu = {.subcarrier_spacing = 2,
+                  .num_rbs = 24,
+                  .num_symbols = 6,
+                  .first_symbol = 2,
+                  .start_rb = 8,
+                  .comb_size = 4,
+                  .comb_offset = r,
+                  .nid_prs = 100 + g * 2 + r}};
     }
   }
   nr_rrc_mac_config_prs(0, configuration);
@@ -47,11 +49,12 @@ int main(void)
       DevAssert(pdu->nid_prs == 100 + g * 2 + r && pdu->comb_offset == r);
       DevAssert(pdu->comb_size == 4 && pdu->num_symbols == 6 && pdu->first_symbol == 2);
       DevAssert(pdu->num_rbs == 24 && pdu->start_rb == 8);
+      DevAssert(pdu->subcarrier_spacing == 2 && pdu->cyclic_prefix == 0);
     }
   }
   configuration->num_targets = 1;
   configuration->targets[0].num_resources = 1;
-  configuration->targets[0].resources[0].nprs_id = 4095;
+  configuration->targets[0].resources[0].pdu.nid_prs = 4095;
   nr_rrc_mac_config_prs(0, configuration);
   DevAssert(mac.prs_num_gnbs == 1 && mac.prs_config[0]->num_resources == 1);
   DevAssert(mac.prs_config[0]->resource[0].pdu.nid_prs == 4095);

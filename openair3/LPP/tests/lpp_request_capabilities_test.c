@@ -160,7 +160,7 @@ static void assert_request_capabilities_message(const LPP_LPP_Message_t *message
     fail("decoded A-GNSS request capability flags mismatch");
 }
 
-static void test_request_capabilities(void)
+int main(void)
 {
   LPP_LPP_Message_t *message = create_request_capabilities_message();
 
@@ -175,11 +175,6 @@ static void test_request_capabilities(void)
 
   ASN_STRUCT_FREE(asn_DEF_LPP_LPP_Message, uper_decoded);
   ASN_STRUCT_FREE(asn_DEF_LPP_LPP_Message, message);
-}
-
-int main(void)
-{
-  test_request_capabilities();
   puts("LPP RequestCapabilities round trips succeeded");
   return EXIT_SUCCESS;
 }

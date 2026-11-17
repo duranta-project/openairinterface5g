@@ -7,7 +7,7 @@
 
 #include <stdbool.h>
 
-#include "openair2/COMMON/nr_ue_prs_config.h"
+#include "openair2/LAYER2/NR_MAC_UE/nr_ue_prs_config.h"
 
 struct LPP_NR_DL_PRS_AssistanceData_r16;
 

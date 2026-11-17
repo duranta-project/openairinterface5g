@@ -15,10 +15,8 @@
 #include "PHY/NR_REFSIG/sl_refsig_defs.h"
 #include "PHY/NR_REFSIG/nr_refsig.h"
 #include "PHY/NR_REFSIG/nr_mod_table.h"
-#include "openair2/COMMON/prs_nr_paramdef.h"
 #include "SCHED_NR_UE/harq_nr.h"
 #include "nr-uesoftmodem.h"
-#include "common/config/config_userapi.h"
 #include "nr_phy_common.h"
 #ifdef LDPC_CUDA
 #include "PHY/gpu_compat.h"
@@ -31,7 +29,7 @@ void init_nr_prs_ue_vars(PHY_VARS_NR_UE *ue)
   NR_DL_FRAME_PARMS *const fp  = &ue->frame_parms;
 
   // PRS vars init
-  for(int idx = 0; idx < NR_MAX_PRS_TARGETS; idx++)
+  for(int idx = 0; idx < sizeofArray(ue->prs_vars); idx++)
   {
     prs_vars[idx] = malloc16_clear(sizeof(NR_UE_PRS));
     // PRS channel estimates
@@ -51,7 +49,6 @@ void init_nr_prs_ue_vars(PHY_VARS_NR_UE *ue)
     }
   }
 
-  // load the config file params
 }
 
 int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)

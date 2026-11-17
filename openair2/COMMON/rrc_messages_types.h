@@ -10,7 +10,7 @@
 #define RRC_MESSAGES_TYPES_H_
 #include "common/utils/mem/oai_memory.h"
 #include "openair1/PHY/defs_common.h"
-#include "openair2/COMMON/nr_ue_prs_config.h"
+#include "openair2/LAYER2/NR_MAC_UE/nr_ue_prs_config.h"
 #include "as_message.h"
 #include "openair2/RRC/LTE/rrc_types.h"
 #include "s1ap_messages_types.h"

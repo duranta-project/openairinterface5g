@@ -47,13 +47,6 @@
 #define LPP_PRS_TRP_INDEX 0
 #define LPP_PRS_DL_PRS_ID 0
 
-static long *new_long(long value)
-{
-  long *ptr;
-  asn1cCallocOne(ptr, value);
-  return ptr;
-}
-
 static bool map_resource_bandwidth(uint16_t num_rb, long *encoded_bandwidth)
 {
   if (num_rb < 24 || num_rb > 272 || (num_rb - 24) % 4 != 0) {
@@ -129,7 +122,7 @@ static bool map_repetition(uint8_t repetition, long **encoded)
             repetition);
       return false;
   }
-  *encoded = new_long(value);
+  asn1cCallocOne(*encoded, value);
   return true;
 }
 
@@ -154,7 +147,7 @@ static bool map_time_gap(uint8_t repetition, uint8_t gap, long **encoded)
             gap);
       return false;
   }
-  *encoded = new_long(value);
+  asn1cCallocOne(*encoded, value);
   return true;
 }
 
@@ -317,7 +310,9 @@ static void add_decimal_digits(void *list, unsigned value, unsigned digits)
   for (unsigned i = 1; i < digits; ++i)
     divisor *= 10;
   for (unsigned i = 0; i < digits; ++i) {
-    asn1cSeqAdd(list, new_long(value / divisor % 10));
+    long *digit;
+    asn1cCallocOne(digit, value / divisor % 10);
+    asn1cSeqAdd(list, digit);
     divisor /= 10;
   }
 }
@@ -374,7 +369,7 @@ static bool add_muting(LPP_NR_DL_PRS_ResourceSet_r16_t *set,
               cfg->MutingBitRepetition);
         return false;
     }
-    set->dl_PRS_MutingOption1_r16->dl_prs_MutingBitRepetitionFactor_r16 = new_long(repetition);
+    asn1cCallocOne(set->dl_PRS_MutingOption1_r16->dl_prs_MutingBitRepetitionFactor_r16, repetition);
     if (!set_muting_pattern(&set->dl_PRS_MutingOption1_r16->nr_option1_muting_r16,
                             cfg->MutingPattern1,
                             pattern1_length))
@@ -500,7 +495,7 @@ bool lpp_prs_from_f1(const f1ap_prs_configuration_t *prs, const f1ap_ng_ran_cgi_
   }
   LPP_NR_DL_PRS_AssistanceDataPerTRP_r16_t *trp = calloc_or_fail(1, sizeof(*trp));
   trp->dl_PRS_ID_r16 = LPP_PRS_DL_PRS_ID;
-  trp->nr_PhysCellID_r16 = new_long(pci);
+  asn1cCallocOne(trp->nr_PhysCellID_r16, pci);
   trp->nr_CellGlobalID_r16 = calloc_or_fail(1, sizeof(*trp->nr_CellGlobalID_r16));
   add_decimal_digits(&trp->nr_CellGlobalID_r16->mcc_r15.list, cgi->plmn.mcc, 3);
   add_decimal_digits(&trp->nr_CellGlobalID_r16->mnc_r15.list, cgi->plmn.mnc, cgi->plmn.mnc_digit_length);
@@ -516,12 +511,14 @@ bool lpp_prs_from_f1(const f1ap_prs_configuration_t *prs, const f1ap_ng_ran_cgi_
   asn1cSeqAdd(&frequency->nr_DL_PRS_AssistanceDataPerFreq_r16.list, trp);
   LPP_NR_DL_PRS_AssistanceData_r16_t *assistance = calloc_or_fail(1, sizeof(*assistance));
   assistance->nr_DL_PRS_ReferenceInfo_r16.dl_PRS_ID_r16 = LPP_PRS_DL_PRS_ID;
-  assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceSetID_r16 = new_long(src->prs_resource_set_id);
+  asn1cCallocOne(assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceSetID_r16, src->prs_resource_set_id);
   assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16 =
       calloc_or_fail(1, sizeof(*assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16));
-  for (int i = 0; i < src->prs_resource_list_length; ++i)
-    asn1cSeqAdd(&assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16->list,
-                new_long(src->prs_resource[i].prs_resource_id));
+  for (int i = 0; i < src->prs_resource_list_length; ++i) {
+    long *resource_id;
+    asn1cCallocOne(resource_id, src->prs_resource[i].prs_resource_id);
+    asn1cSeqAdd(&assistance->nr_DL_PRS_ReferenceInfo_r16.nr_DL_PRS_ResourceID_List_r16->list, resource_id);
+  }
   asn1cSeqAdd(&assistance->nr_DL_PRS_AssistanceDataList_r16.list, frequency);
   LPP_AssistanceDataSIBelement_r15_t element = {0};
   bool ok = check_asn1_constraints(&asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance, "NR-DL-PRS-AssistanceData-r16") &&

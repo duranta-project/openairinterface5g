@@ -2,6 +2,7 @@
 #include "assertions.h"
 #include "common/utils/LOG/log.h"
 #include "openair2/RRC/NR/lpp_prs.h"
+#include "openair2/RRC/NR_UE/lpp_prs_ue.h"
 #include "f1ap_positioning.h"
 #include "F1AP_F1AP-PDU.h"
 #include "LPP_AssistanceDataSIBelement-r15.h"
@@ -83,6 +84,27 @@ int main(void)
                   decoded_set->dl_PRS_MutingOption1_r16->nr_option1_muting_r16.present == LPP_NR_MutingPattern_r16_PR_po4_r16 &&
                   decoded_set->dl_PRS_MutingOption1_r16->nr_option1_muting_r16.choice.po4_r16.buf[0] == 0xa0,
               "period, offset or muting differs from F1\n");
+  nr_ue_prs_configuration_t configuration;
+  AssertFatal(lpp_nr_prs_assistance_to_configuration(assistance, NR_PRS_SOURCE_POS_SIB, &configuration),
+              "UE LPP assistance conversion failed\n");
+  DevAssert(configuration.num_targets == 1 && configuration.source == NR_PRS_SOURCE_POS_SIB);
+  const nr_ue_prs_target_config_t *target = &configuration.targets[0];
+  DevAssert(target->period == 640 && target->offset == 17 && target->repetition == 2 && target->time_gap == 4);
+  DevAssert(target->num_resources == 2 && target->resource_set_id == 3 && target->point_a_arfcn == 640008);
+  DevAssert(target->muting_pattern1_length == 4 && target->muting_bit_repetition == 2);
+  DevAssert(target->muting_pattern1[0] == 1 && target->muting_pattern1[1] == 0 &&
+            target->muting_pattern1[2] == 1 && target->muting_pattern1[3] == 0);
+  for (int i = 0; i < target->num_resources; i++) {
+    const nr_ue_prs_resource_t *resource = &target->resources[i];
+    const fapi_nr_dl_config_prs_pdu_rel16_t *pdu = &resource->pdu;
+    DevAssert(resource->slot_offset == resources[i].resource_slot_offset);
+    DevAssert(pdu->nid_prs == resources[i].sequence_id && pdu->comb_offset == resources[i].re_offset);
+    DevAssert(pdu->num_symbols == 4 && pdu->first_symbol == 2 && pdu->num_rbs == 104 && pdu->start_rb == 12);
+    DevAssert(pdu->subcarrier_spacing == 1 && pdu->cyclic_prefix == 0 && pdu->comb_size == 4);
+  }
+  decoded_set->dl_PRS_ResourceList_r16.list.array[1]->dl_PRS_ResourceSymbolOffset_r16 = 13;
+  AssertFatal(!lpp_nr_prs_assistance_to_configuration(assistance, NR_PRS_SOURCE_POS_SIB, &configuration),
+              "UE accepted a PRS resource extending beyond the slot\n");
   ASN_STRUCT_FREE(asn_DEF_LPP_NR_DL_PRS_AssistanceData_r16, assistance);
   ASN_STRUCT_FREE(asn_DEF_LPP_AssistanceDataSIBelement_r15, sib);
   free(segment);

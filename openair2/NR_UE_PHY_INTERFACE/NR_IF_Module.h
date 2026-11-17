@@ -13,7 +13,6 @@
 #include "fapi_nr_ue_interface.h"
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/sidelink_nr_ue_interface.h"
-#include "openair2/COMMON/nr_ue_prs_config.h"
 
 typedef enum sl_sidelink_slot_type {
 
