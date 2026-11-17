@@ -408,9 +408,9 @@ bool set_ul_ptrs_values(NR_PTRS_UplinkConfig_t *ul_ptrs_config,
 long get_transformPrecoding(const NR_UE_UL_BWP_t *current_UL_BWP, nr_dci_format_t dci_format, uint8_t configuredGrant);
 
 void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report_t *csi_report_template);
-
 uint16_t nr_get_csi_bitlen(nr_csi_report_t *csi_report);
-
+uint8_t configure_csi1_beta_offsets(const NR_UCI_OnPUSCH_t *uci_config, int n_bits);
+uint8_t configure_csi2_beta_offsets(const NR_UCI_OnPUSCH_t *uci_config, int n_bits);
 uint32_t compute_PDU_length(uint32_t num_TLV, uint32_t total_length);
 
 rnti_t nr_get_ra_rnti(uint8_t s_id, uint8_t t_id, uint8_t f_id, uint8_t ul_carrier_id);
