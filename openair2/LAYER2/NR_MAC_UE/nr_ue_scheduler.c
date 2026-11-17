@@ -703,13 +703,16 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     harq = mac->ul_harq_info[pid];
     update_ul_harq = dci_format == NR_UL_DCI_FORMAT_0_0 || dci->ulsch_indicator;
     pusch_config_pdu->pusch_data.new_data_indicator = false;
-    if (dci->ndi != harq.last_ndi) {
+    // TS 38.321 clause 5.4.2.1: ignore NDI in Temporary C-RNTI grants.
+    const bool tc_rnti = rnti_type == TYPE_TC_RNTI_;
+    if (!tc_rnti && dci->ndi != harq.last_ndi) {
       pusch_config_pdu->pusch_data.new_data_indicator = true;
       // if new data reset harq structure
       memset(&harq, 0, sizeof(harq));
     } else
       harq.round++;
-    harq.last_ndi = dci->ndi;
+    if (!tc_rnti)
+      harq.last_ndi = dci->ndi;
     /* RV */
     pusch_config_pdu->pusch_data.rv_index = dci->rv;
     /* HARQ_PROCESS_NUMBER */
