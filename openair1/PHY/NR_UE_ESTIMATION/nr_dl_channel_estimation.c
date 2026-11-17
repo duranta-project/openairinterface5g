@@ -784,6 +784,26 @@ static inline uint32_t estimate_noise_var(const c16_t *dl_ls_est, const c16_t *d
   return (uint32_t)(noise_amp2 / num_dl_ch);
 }
 
+static void freq_linear_interpolation(const c16_t *dl_ls_est, uint ls_est_sz, const delay_t *delay, const c16_t *dl_delay_table, c16_t *dl_ch)
+{
+  for (int pilot_cnt = 0; pilot_cnt < ls_est_sz; pilot_cnt++) {
+    int k = pilot_cnt << 1;
+    c16_t ch = c16mulShift(dl_ls_est[k], dl_delay_table[k], 8);
+    if (pilot_cnt == 0) { // Treat first pilot
+      c16multaddVectRealComplex(filt16_ul_p0, &ch, dl_ch, 16);
+    } else if (pilot_cnt == 1 || pilot_cnt == 2) {
+      c16multaddVectRealComplex(filt16_ul_p1p2, &ch, dl_ch, 16);
+    } else if (pilot_cnt == ls_est_sz - 1) { // Treat last pilot
+      c16multaddVectRealComplex(filt16_ul_last, &ch, dl_ch, 16);
+    } else { // Treat middle pilots
+      c16multaddVectRealComplex(filt16_ul_middle, &ch, dl_ch, 16);
+      if (pilot_cnt % 2 == 0) {
+        dl_ch += 4;
+      }
+    }
+  }
+}
+
 static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_parms,
                                               c16_t *rxF,
                                               int delta,
@@ -829,28 +849,17 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
     }
     last_processed_rb = block_end + 1;
   }
+
+  // Delay estimaion
   c16_t ch_estimates_time[symb_sz] __attribute__((aligned(32)));
   delay_t delay = {0};
   nr_est_delay(symb_sz, dl_ls_est, ch_estimates_time, &delay);
   int delay_idx = get_delay_idx(delay.est_delay, MAX_DELAY_COMP);
+
+  // Linear interpolation
   const c16_t *dl_delay_table = frame_parms->delay_table[delay_idx];
   c16_t *dl_ch = dl_ch0;
-  for (int pilot_cnt = 0; pilot_cnt < idx >> 1; pilot_cnt++) {
-    int k = pilot_cnt << 1;
-    c16_t ch = c16mulShift(dl_ls_est[k], dl_delay_table[k], 8);
-    if (pilot_cnt == 0) { // Treat first pilot
-      c16multaddVectRealComplex(filt16_ul_p0, &ch, dl_ch, 16);
-    } else if (pilot_cnt == 1 || pilot_cnt == 2) {
-      c16multaddVectRealComplex(filt16_ul_p1p2, &ch, dl_ch, 16);
-    } else if (pilot_cnt == (idx >> 1) - 1) { // Treat last pilot
-      c16multaddVectRealComplex(filt16_ul_last, &ch, dl_ch, 16);
-    } else { // Treat middle pilots
-      c16multaddVectRealComplex(filt16_ul_middle, &ch, dl_ch, 16);
-      if (pilot_cnt % 2 == 0) {
-        dl_ch += 4;
-      }
-    }
-  }
+  freq_linear_interpolation(dl_ls_est, idx >> 1, &delay, dl_delay_table, dl_ch);
 
   // Revert delay
   revert_delay(dl_ch0, idx, &delay, frame_parms->delay_table);
@@ -988,29 +997,16 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
     last_processed_rb = block_end + 1;
   }
 
+  // Delay estimation
   c16_t ch_estimates_time[symb_sz] __attribute__((aligned(32)));
   delay_t delay = {0};
   nr_est_delay(symb_sz, dl_ls_est, ch_estimates_time, &delay);
   int delay_idx = get_delay_idx(delay.est_delay, MAX_DELAY_COMP);
+
+  // Linear interpolation
   const c16_t *dl_delay_table = frame_parms->delay_table[delay_idx];
-  // kept the same as before but unclear why  would it be nb_rb_pdsch / 2 and not / 3
   c16_t *dl_ch = dl_ch0;
-  for (int pilot_cnt = 0; pilot_cnt < idx >> 1; pilot_cnt++) {
-    int k = pilot_cnt << 1;
-    c16_t ch = c16mulShift(dl_ls_est[k], dl_delay_table[k], 8);
-    if (pilot_cnt == 0) { // Treat first pilot
-      c16multaddVectRealComplex(filt16_ul_p0, &ch, dl_ch, 16);
-    } else if (pilot_cnt == 1 || pilot_cnt == 2) {
-      c16multaddVectRealComplex(filt16_ul_p1p2, &ch, dl_ch, 16);
-    } else if (pilot_cnt == (idx >> 1) - 1) { // Treat last pilot
-      c16multaddVectRealComplex(filt16_ul_last, &ch, dl_ch, 16);
-    } else { // Treat middle pilots
-      c16multaddVectRealComplex(filt16_ul_middle, &ch, dl_ch, 16);
-      if (pilot_cnt % 2 == 0) {
-        dl_ch += 4;
-      }
-    }
-  }
+  freq_linear_interpolation(dl_ls_est, idx >> 1, &delay, dl_delay_table, dl_ch);
 
   // Revert delay
   revert_delay(dl_ch0, idx, &delay, frame_parms->delay_table);
