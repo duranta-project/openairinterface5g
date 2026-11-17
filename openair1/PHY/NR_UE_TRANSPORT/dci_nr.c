@@ -167,16 +167,16 @@ static void nr_pdcch_demapping_deinterleaving(uint32_t coreset_nbr_rb,
 
 static void nr_pdcch_llr(uint32_t sz, c16_t *rxF, c16_t *llr)
 {
-  for (int i = 0; i < sz; i++) {
-    // We clip the signal
-    c16_t res;
-    res.r = min(rxF->r, 31);
-    res.r = max(-32, res.r);
-    res.i = min(rxF->i, 31);
-    res.i = max(-32, res.i);
-    *llr++ = res;
-    LOG_DDD("llr logs: rb=%d i=%d rxF:%d,%d => pdcch_llr:%d,%d\n", i / 18, i, rxF->r, rxF->i, llr->r, llr->i);
-    rxF++;
+  // We clip the signal to [-32, 31]
+  const simde__m128i lo = simde_mm_set1_epi16(-32), hi = simde_mm_set1_epi16(31);
+  uint32_t i = 0;
+  for (; i + 4 <= sz; i += 4) {
+    const simde__m128i x = simde_mm_loadu_si128((const simde__m128i *)(rxF + i));
+    simde_mm_storeu_si128((simde__m128i *)(llr + i), simde_mm_max_epi16(simde_mm_min_epi16(x, hi), lo));
+  }
+  for (; i < sz; i++) {
+    llr[i].r = max(-32, min(rxF[i].r, 31));
+    llr[i].i = max(-32, min(rxF[i].i, 31));
   }
 }
 
@@ -354,8 +354,8 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
     log2_maxh = log2_maxh < 0 ? 0 : log2_maxh > 24 ? 24 : log2_maxh;
   }
   int rx_comp_sz = ceil_mod(llr_size_symbol, 4);
+  // written entirely by the compensation (rx_comp_sz is a multiple of 4)
   __attribute__((aligned(32))) c16_t rxdataF_comp[fp->nb_antennas_rx][rx_comp_sz];
-  memset(rxdataF_comp, 0, sizeof(rxdataF_comp));
   nr_pdcch_channel_compensation(rx_comp_sz,
                                 rx_size,
                                 rxdataF_ext,
@@ -467,13 +467,18 @@ void nr_pdcch_unscrambling(c16_t *e_rx,
   uint16_t n_id = pdcch_DMRS_scrambling_id;
   uint32_t *seq = gold_cache(((rnti << 16) + n_id) % (1U << 31), length / 32); // this is c_init in 38.211 v15.1.0 Section 7.3.2.3
   LOG_D(NR_PHY_DCI, "PDCCH Unscrambling: scrambling_RNTI %x\n", rnti);
-  int16_t *ptr = &e_rx[0].r;
-  for (int i = 0; i < length; i++) {
-    if (seq[i / 32] & (1UL << (i % 32)))
-      z2[i] = -ptr[i];
-    else
-      z2[i] = ptr[i];
+  const int16_t *ptr = &e_rx[0].r;
+  // 16 values per sequence half word: a set bit negates the value
+  const simde__m256i bit = simde_mm256_setr_epi16(1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, -32768);
+  int i = 0;
+  for (; i + 16 <= length; i += 16) {
+    const simde__m256i w = simde_mm256_set1_epi16(seq[i / 32] >> (i % 32));
+    const simde__m256i neg = simde_mm256_cmpeq_epi16(simde_mm256_and_si256(w, bit), bit); // -1 where the bit is set
+    const simde__m256i x = simde_mm256_loadu_si256((const simde__m256i *)(ptr + i));
+    simde_mm256_storeu_si256((simde__m256i *)(z2 + i), simde_mm256_sub_epi16(simde_mm256_xor_si256(x, neg), neg));
   }
+  for (; i < length; i++)
+    z2[i] = (seq[i / 32] & (1U << (i % 32))) ? -ptr[i] : ptr[i];
 }
 
 /** @brief Unscramble and polar-decode one PDCCH/PSCCH candidate
