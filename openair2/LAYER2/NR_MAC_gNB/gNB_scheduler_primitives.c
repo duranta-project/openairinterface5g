@@ -3998,6 +3998,10 @@ NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, 
     return (NR_beam_alloc_t) {.new_beam = false, .idx = 0};
 
   const int index = get_beam_index(beam_info, frame, slot, slots_per_frame);
+  // Reuse an existing reservation before occupying an earlier free structure.
+  for (int i = 0; i < beam_info->config.beams_per_period; i++)
+    if (beam_info->beam_allocation[i][index] == beam_index)
+      return (NR_beam_alloc_t){.new_beam = false, .idx = i};
   for (int i = 0; i < beam_info->config.beams_per_period; i++) {
     NR_beam_alloc_t beam_struct = {.new_beam = false, .idx = i};
     int16_t *beam = &beam_info->beam_allocation[i][index];

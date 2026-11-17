@@ -846,6 +846,27 @@ static bool check_increase_mcs(const NR_sched_pdsch_t *sched_pdsch, int bytes_in
   return bytes_in_buffer > sched_pdsch->tb_size;
 }
 
+// Release only reservations owned by rejected candidates; another UE may use the same beam.
+static void release_unscheduled_dl_beams(nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n, frame_t frame, slot_t slot)
+{
+  for (int i = 0; i < n; i++) {
+    nr_dl_candidate_t *cand = &candidates[i];
+    if (cand->scheduled || !cand->alloc_new_beam)
+      continue;
+    bool in_use = false;
+    for (int j = 0; j < n; j++)
+      if (candidates[j].scheduled && candidates[j].alloc_beam_dir == cand->alloc_beam_dir)
+        in_use = true;
+    if (in_use)
+      continue;
+    reset_beam_status(&cell->beam_info, frame, slot, cand->alloc_beam_dir, cell->frame_structure.numb_slots_frame, true);
+    // reset_beam_status releases this direction in every beam structure.
+    for (int j = i; j < n; j++)
+      if (candidates[j].alloc_beam_dir == cand->alloc_beam_dir)
+        candidates[j].alloc_new_beam = false;
+  }
+}
+
 static void nr_dl_schedule(gNB_MAC_INST *mac,
                            nr_cell_sched_t *cell,
                            post_process_pdsch_t *pp_pdsch,
@@ -876,15 +897,19 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
   cand->skipped = false;
   if (num_beams > 1) {
     int n_beam_valid = mac->dl_beam_select(&cell->beam_info, cell->beam_index_list, candidates, n, frame, slot, slots_per_frame);
-    if (n_beam_valid == 0)
+    if (n_beam_valid == 0) {
+      release_unscheduled_dl_beams(cell, candidates, n, frame, slot);
       return;
+    }
   }
 
   /* Step 4: Per-UE TDA selection. Resolves tda/tda_info/slbitmap on each
    * candidate, marks invalids with skipped=true. */
   int n_valid = mac->dl_tda_select(mac, cell, candidates, n, frame, slot);
-  if (n_valid == 0)
+  if (n_valid == 0) {
+    release_unscheduled_dl_beams(cell, candidates, n, frame, slot);
     return;
+  }
 
   /* Step 5: MCS adaptation — sets sched_pdsch.mcs from BLER state for all candidates.
    * Placed after beam allocation so a custom dl_mcs_select can factor in alloc_beam_dir
@@ -925,10 +950,7 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
   /* Release beam reservations for candidates the policy rejected (failed
    * CCE/PUCCH validation, no free RBs, max_num_ue reached, etc.).
    * No-op in single-beam mode where alloc_new_beam is always false. */
-  for (int i = 0; i < n; i++) {
-    if (!candidates[i].scheduled && !candidates[i].skipped)
-      reset_beam_status(&cell->beam_info, frame, slot, candidates[i].alloc_beam_dir, slots_per_frame, candidates[i].alloc_new_beam);
-  }
+  release_unscheduled_dl_beams(cell, candidates, n, frame, slot);
 
   /* Step 7: Persist MCS, apply CCE/PUCCH, compute TBS, post_process */
   for (int j = 0; j < n; j++) {
