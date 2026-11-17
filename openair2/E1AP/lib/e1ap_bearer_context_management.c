@@ -467,8 +467,8 @@ static bool e1_decode_pdu_session_to_setup_item(const E1AP_PDU_Session_Resource_
   CHECK_E1AP_DEC(e1_decode_up_tnl_info(&item->nG_UL_UP_TNL_Information, &out->UP_TL_information));
   /* DRB To Setup List ( > 1 item ) */
   const E1AP_DRB_To_Setup_List_NG_RAN_t *drb2SetupList = &item->dRB_To_Setup_List_NG_RAN;
-  EQ_CHECK_GENERIC(drb2SetupList->list.count > 0, "%d", drb2SetupList->list.count, 0);
   out->numDRB2Setup = drb2SetupList->list.count;
+  CHECK_E1AP_DEC(out->numDRB2Setup > 0 && out->numDRB2Setup <= E1AP_MAX_NUM_DRBS);
   for (int j = 0; j < drb2SetupList->list.count; j++) {
     DRB_nGRAN_to_setup_t *drb = out->DRBnGRanList + j;
     E1AP_DRB_To_Setup_Item_NG_RAN_t *drb2Setup = drb2SetupList->list.array[j];
@@ -480,8 +480,8 @@ static bool e1_decode_pdu_session_to_setup_item(const E1AP_PDU_Session_Resource_
     CHECK_E1AP_DEC(e1_decode_pdcp_config(&drb2Setup->pDCP_Configuration, &drb->pdcp_config));
     // Cell Group Information (M)
     E1AP_Cell_Group_Information_t *cellGroupList = &drb2Setup->cell_Group_Information;
-    EQ_CHECK_GENERIC(cellGroupList->list.count > 0, "%d", cellGroupList->list.count, 0);
     drb->numCellGroups = cellGroupList->list.count;
+    CHECK_E1AP_DEC(drb->numCellGroups > 0 && drb->numCellGroups <= E1AP_MAX_NUM_CELL_GROUPS);
     for (int k = 0; k < cellGroupList->list.count; k++) {
       E1AP_Cell_Group_Information_Item_t *cg2Setup = cellGroupList->list.array[k];
       // Cell Group ID
@@ -490,6 +490,7 @@ static bool e1_decode_pdu_session_to_setup_item(const E1AP_PDU_Session_Resource_
     // QoS Flows Information To Be Setup (M)
     E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = &drb2Setup->qos_flow_Information_To_Be_Setup;
     drb->numQosFlow2Setup = qos2SetupList->list.count;
+    CHECK_E1AP_DEC(drb->numQosFlow2Setup > 0 && drb->numQosFlow2Setup <= E1AP_MAX_NUM_QOS_FLOWS);
     for (int k = 0; k < qos2SetupList->list.count; k++) {
       CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(qos2SetupList->list.array[k], drb->qosFlows + k));
     }
@@ -722,7 +723,7 @@ bool decode_E1_bearer_context_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_bea
             // PDU Session Resource To Setup List (9.3.3.2 of 3GPP TS 38.463)
             E1AP_PDU_Session_Resource_To_Setup_List_t *pdu2SetupList = &msgNGRAN->value.choice.PDU_Session_Resource_To_Setup_List;
             out->numPDUSessions = pdu2SetupList->list.count;
-            DevAssert(out->numPDUSessions > 0 && out->numPDUSessions <= NR_MAX_NB_PDU_SESSIONS);
+            CHECK_E1AP_DEC(out->numPDUSessions > 0 && out->numPDUSessions <= NR_MAX_NB_PDU_SESSIONS);
             // Allocate array for PDU sessions
             out->pduSession = calloc_or_fail(out->numPDUSessions, sizeof(*out->pduSession));
             // Loop through all PDU sessions
@@ -879,6 +880,7 @@ static bool e1_decode_pdu_session_setup_item(const E1AP_PDU_Session_Resource_Set
   // PDU Session ID
   pduSetup->id = in->pDU_Session_ID;
   pduSetup->numDRBSetup = in->dRB_Setup_List_NG_RAN.list.count;
+  CHECK_E1AP_DEC(pduSetup->numDRBSetup > 0 && pduSetup->numDRBSetup <= E1AP_MAX_NUM_DRBS);
   // NG DL UP Transport Layer Information (M)
   CHECK_E1AP_DEC(e1_decode_up_tnl_info(&in->nG_DL_UP_TNL_Information, &pduSetup->tl_info));
   // DRB Setup List (1..<maxnoofDRBs>)
@@ -894,6 +896,7 @@ static bool e1_decode_pdu_session_setup_item(const E1AP_PDU_Session_Resource_Set
     }
     // Flow Setup List (M)
     drbSetup->numQosFlowSetup = drb->flow_Setup_List.list.count;
+    CHECK_E1AP_DEC(drbSetup->numQosFlowSetup > 0 && drbSetup->numQosFlowSetup <= E1AP_MAX_NUM_QOS_FLOWS);
     for (int q = 0; q < drb->flow_Setup_List.list.count; q++) {
       qos_flow_list_t *qosflowSetup = &drbSetup->qosFlows[q];
       E1AP_QoS_Flow_Item_t *in_qosflowSetup = drb->flow_Setup_List.list.array[q];
@@ -903,6 +906,7 @@ static bool e1_decode_pdu_session_setup_item(const E1AP_PDU_Session_Resource_Set
   // DRB Failed to Setup List (O)
   if (in->dRB_Failed_List_NG_RAN) {
     pduSetup->numDRBFailed = in->dRB_Failed_List_NG_RAN->list.count;
+    CHECK_E1AP_DEC(pduSetup->numDRBFailed > 0 && pduSetup->numDRBFailed <= E1AP_MAX_NUM_DRBS);
     for (int j = 0; j < in->dRB_Failed_List_NG_RAN->list.count; j++) {
       CHECK_E1AP_DEC(decode_drb_failed_item(in->dRB_Failed_List_NG_RAN->list.array[j], &pduSetup->DRBnGRanFailedList[j]));
     }
@@ -1053,7 +1057,7 @@ bool decode_E1_bearer_context_setup_response(const E1AP_E1AP_PDU_t *pdu, e1ap_be
                           E1AP_NG_RAN_BearerContextSetupResponse__value_PR_PDU_Session_Resource_Setup_List);
             E1AP_PDU_Session_Resource_Setup_List_t *pduSetupList = &msgNGRAN->value.choice.PDU_Session_Resource_Setup_List;
             out->numPDUSessions = pduSetupList->list.count;
-            DevAssert(out->numPDUSessions > 0 && out->numPDUSessions <= NR_MAX_NB_PDU_SESSIONS);
+            CHECK_E1AP_DEC(out->numPDUSessions > 0 && out->numPDUSessions <= NR_MAX_NB_PDU_SESSIONS);
             // Allocate array for PDU sessions
             out->pduSession = calloc_or_fail(out->numPDUSessions, sizeof(*out->pduSession));
             for (int i = 0; i < pduSetupList->list.count; i++) {
@@ -1790,8 +1794,8 @@ static bool e1_decode_pdu_session_to_setup_mod_item(const E1AP_PDU_Session_Resou
   CHECK_E1AP_DEC(e1_decode_up_tnl_info(&item->nG_UL_UP_TNL_Information, &out->UP_TL_information));
   /* DRB To Setup List ( > 1 item ) */
   const E1AP_DRB_To_Setup_Mod_List_NG_RAN_t *drb2SetupList = &item->dRB_To_Setup_Mod_List_NG_RAN;
-  EQ_CHECK_GENERIC(drb2SetupList->list.count > 0, "%d", drb2SetupList->list.count, 0);
   out->numDRB2Setup = drb2SetupList->list.count;
+  CHECK_E1AP_DEC(out->numDRB2Setup > 0 && out->numDRB2Setup <= E1AP_MAX_NUM_DRBS);
   for (int j = 0; j < drb2SetupList->list.count; j++) {
     DRB_nGRAN_to_setup_t *drb = out->DRBnGRanList + j;
     const E1AP_DRB_To_Setup_Mod_Item_NG_RAN_t *drb2Setup = drb2SetupList->list.array[j];
@@ -1803,8 +1807,8 @@ static bool e1_decode_pdu_session_to_setup_mod_item(const E1AP_PDU_Session_Resou
     CHECK_E1AP_DEC(e1_decode_pdcp_config(&drb2Setup->pDCP_Configuration, &drb->pdcp_config));
     // Cell Group Information (M)
     const E1AP_Cell_Group_Information_t *cellGroupList = &drb2Setup->cell_Group_Information;
-    EQ_CHECK_GENERIC(cellGroupList->list.count > 0, "%d", cellGroupList->list.count, 0);
     drb->numCellGroups = cellGroupList->list.count;
+    CHECK_E1AP_DEC(drb->numCellGroups > 0 && drb->numCellGroups <= E1AP_MAX_NUM_CELL_GROUPS);
     for (int k = 0; k < cellGroupList->list.count; k++) {
       const E1AP_Cell_Group_Information_Item_t *cg2Setup = cellGroupList->list.array[k];
       // Cell Group ID
@@ -1813,6 +1817,7 @@ static bool e1_decode_pdu_session_to_setup_mod_item(const E1AP_PDU_Session_Resou
     // QoS Flows Information To Be Setup (M)
     const E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = &drb2Setup->flow_Mapping_Information;
     drb->numQosFlow2Setup = qos2SetupList->list.count;
+    CHECK_E1AP_DEC(drb->numQosFlow2Setup > 0 && drb->numQosFlow2Setup <= E1AP_MAX_NUM_QOS_FLOWS);
     for (int k = 0; k < qos2SetupList->list.count; k++) {
       CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(qos2SetupList->list.array[k], drb->qosFlows + k));
     }
@@ -1829,6 +1834,7 @@ static bool e1_decode_pdu_session_to_mod_item(const E1AP_PDU_Session_Resource_To
   // DRB to modify list
   E1AP_DRB_To_Modify_List_NG_RAN_t *drb2ModList = in->dRB_To_Modify_List_NG_RAN;
   out->numDRB2Modify = drb2ModList->list.count;
+  CHECK_E1AP_DEC(out->numDRB2Modify > 0 && out->numDRB2Modify <= E1AP_MAX_NUM_DRBS);
   for (int j = 0; j < drb2ModList->list.count; j++) {
     DRB_nGRAN_to_mod_t *drb = out->DRBnGRanModList + j;
     // DRB to modify item
@@ -1865,6 +1871,7 @@ static bool e1_decode_pdu_session_to_mod_item(const E1AP_PDU_Session_Resource_To
     if (drb2Mod->flow_Mapping_Information) {
       E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = drb2Mod->flow_Mapping_Information;
       drb->numQosFlowsMod = qos2SetupList->list.count;
+      CHECK_E1AP_DEC(drb->numQosFlowsMod > 0 && drb->numQosFlowsMod <= E1AP_MAX_NUM_QOS_FLOWS);
       for (int k = 0; k < qos2SetupList->list.count; k++) {
         CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(qos2SetupList->list.array[k], drb->qosFlows + k));
       }
@@ -1874,7 +1881,8 @@ static bool e1_decode_pdu_session_to_mod_item(const E1AP_PDU_Session_Resource_To
   if (in->dRB_To_Remove_List_NG_RAN) {
     E1AP_DRB_To_Remove_List_NG_RAN_t *rm = in->dRB_To_Remove_List_NG_RAN;
     out->n_drb_to_remove = rm->list.count;
-    for (int r = 0; r < rm->list.count; r++) {
+    CHECK_E1AP_DEC(out->n_drb_to_remove > 0 && out->n_drb_to_remove <= E1AP_MAX_NUM_DRBS);
+    for (int r = 0; r < out->n_drb_to_remove; r++) {
       E1AP_DRB_To_Remove_Item_NG_RAN_t *item = rm->list.array[r];
       out->drbs_to_remove[r].id = item->dRB_ID;
     }
@@ -1987,7 +1995,7 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
                       &msgNGRAN->value.choice.PDU_Session_Resource_To_Setup_Mod_List;
                   // PDU Session Resource To Modify List
                   out->numPDUSessions = setupList->list.count;
-                  DevAssert(out->numPDUSessions > 0 && out->numPDUSessions <= NR_MAX_NB_PDU_SESSIONS);
+                  CHECK_E1AP_DEC(out->numPDUSessions > 0 && out->numPDUSessions <= NR_MAX_NB_PDU_SESSIONS);
                   out->pduSession = calloc_or_fail(out->numPDUSessions, sizeof(*out->pduSession));
                   // Loop through all PDU sessions
                   for (int i = 0; i < setupList->list.count; i++) {
@@ -2002,7 +2010,7 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
                                 E1AP_NG_RAN_BearerContextModificationRequest__value_PR_PDU_Session_Resource_To_Modify_List);
                   E1AP_PDU_Session_Resource_To_Modify_List_t *modList = &msgNGRAN->value.choice.PDU_Session_Resource_To_Modify_List;
                   out->numPDUSessionsMod = modList->list.count;
-                  DevAssert(out->numPDUSessionsMod > 0 && out->numPDUSessionsMod <= NR_MAX_NB_PDU_SESSIONS);
+                  CHECK_E1AP_DEC(out->numPDUSessionsMod > 0 && out->numPDUSessionsMod <= NR_MAX_NB_PDU_SESSIONS);
                   out->pduSessionMod = calloc_or_fail(out->numPDUSessionsMod, sizeof(*out->pduSessionMod));
                   // Loop through all PDU sessions
                   for (int i = 0; i < modList->list.count; i++) {
@@ -2015,8 +2023,7 @@ bool decode_E1_bearer_context_mod_request(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
                                 E1AP_NG_RAN_BearerContextModificationRequest__value_PR_PDU_Session_Resource_To_Remove_List);
                   E1AP_PDU_Session_Resource_To_Remove_List_t *remList = &msgNGRAN->value.choice.PDU_Session_Resource_To_Remove_List;
                   out->numPDUSessionsRem = remList->list.count;
-                  // Allocate array for PDU sessions to remove
-                  DevAssert(out->numPDUSessionsRem > 0 && out->numPDUSessionsRem <= NR_MAX_NB_PDU_SESSIONS);
+                  CHECK_E1AP_DEC(out->numPDUSessionsRem > 0 && out->numPDUSessionsRem <= NR_MAX_NB_PDU_SESSIONS);
                   out->pduSessionRem = calloc_or_fail(out->numPDUSessionsRem, sizeof(*out->pduSessionRem));
                   for (int i = 0; i < remList->list.count; i++) {
                     CHECK_E1AP_DEC(e1_decode_pdu_session_to_remove_item(remList->list.array[i], &out->pduSessionRem[i]));
@@ -2528,7 +2535,7 @@ bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
         // PDU Session Resource Modified list (O)
         E1AP_PDU_Session_Resource_Modified_List_t *list = &msgNGRAN->value.choice.PDU_Session_Resource_Modified_List;
         out->numPDUSessionsMod = list->list.count;
-        DevAssert(out->numPDUSessionsMod > 0 && out->numPDUSessionsMod <= NR_MAX_NB_PDU_SESSIONS);
+        CHECK_E1AP_DEC(out->numPDUSessionsMod > 0 && out->numPDUSessionsMod <= NR_MAX_NB_PDU_SESSIONS);
         // Allocate array for PDU sessions
         out->pduSessionMod = calloc_or_fail(out->numPDUSessionsMod, sizeof(*out->pduSessionMod));
         for (int i = 0; i < list->list.count; i++) {
@@ -2552,6 +2559,7 @@ bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
           // DRB Setup list
           if (pduIE->dRB_Setup_List_NG_RAN) {
             pduModified->numDRBSetup = pduIE->dRB_Setup_List_NG_RAN->list.count;
+            CHECK_E1AP_DEC(pduModified->numDRBSetup > 0 && pduModified->numDRBSetup <= E1AP_MAX_NUM_DRBS);
             for (int j = 0; j < pduIE->dRB_Setup_List_NG_RAN->list.count; j++) {
               // DRB Setup item
               DRB_nGRAN_setup_t *drbMod = &pduModified->DRBnGRanSetupList[j];
@@ -2561,9 +2569,10 @@ bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
               if (drbIE->uL_UP_Transport_Parameters.list.count) {
                 drbMod->numUpParam = decode_dl_up_parameters(drbMod->UpParamList, &drbIE->uL_UP_Transport_Parameters);
               }
-              // Flow Setup List (O)
+              // Flow Failed List (O)
               if (drbIE->flow_Failed_List) {
                 drbMod->numQosFlowFailed = drbIE->flow_Failed_List->list.count;
+                CHECK_E1AP_DEC(drbMod->numQosFlowFailed > 0 && drbMod->numQosFlowFailed <= E1AP_MAX_NUM_QOS_FLOWS);
                 for (int i = 0; i < drbMod->numQosFlowSetup; i++) {
                   CHECK_E1AP_DEC(decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[i], &drbMod->qosFlowsFailed[i]));
                 }
@@ -2571,6 +2580,7 @@ bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
               // Flow Setup List (M)
               if (drbIE->flow_Setup_List.list.count) {
                 drbMod->numQosFlowSetup = drbIE->flow_Setup_List.list.count;
+                CHECK_E1AP_DEC(drbMod->numQosFlowSetup > 0 && drbMod->numQosFlowSetup <= E1AP_MAX_NUM_QOS_FLOWS);
                 for (int i = 0; i < drbMod->numQosFlowSetup; i++)
                   drbMod->qosFlows[i].qfi = drbIE->flow_Setup_List.list.array[i]->qoS_Flow_Identifier;
               }
@@ -2579,6 +2589,7 @@ bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
           // DRB Failed list
           if (pduIE->dRB_Failed_List_NG_RAN) {
             pduModified->numDRBFailed = pduIE->dRB_Failed_List_NG_RAN->list.count;
+            CHECK_E1AP_DEC(pduModified->numDRBFailed > 0 && pduModified->numDRBFailed <= E1AP_MAX_NUM_DRBS);
             for (int j = 0; j < pduIE->dRB_Failed_List_NG_RAN->list.count; j++) {
               CHECK_E1AP_DEC(
                   decode_drb_failed_item(pduIE->dRB_Failed_List_NG_RAN->list.array[j], &pduModified->DRBnGRanFailedList[j]));
@@ -2587,6 +2598,7 @@ bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
           // DRB Modified list (0..1)
           if (pduIE->dRB_Modified_List_NG_RAN) {
             pduModified->numDRBModified = pduIE->dRB_Modified_List_NG_RAN->list.count;
+            CHECK_E1AP_DEC(pduModified->numDRBModified > 0 && pduModified->numDRBModified <= E1AP_MAX_NUM_DRBS);
             for (int j = 0; j < pduIE->dRB_Modified_List_NG_RAN->list.count; j++) {
               // DRB Modified item
               DRB_nGRAN_modified_t *drbMod = &pduModified->DRBnGRanModList[j];
@@ -2600,12 +2612,14 @@ bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
               // Flow Setup List (O)
               if (drbIE->flow_Setup_List) {
                 drbMod->numQosFlowSetup = drbIE->flow_Setup_List->list.count;
+                CHECK_E1AP_DEC(drbMod->numQosFlowSetup > 0 && drbMod->numQosFlowSetup <= E1AP_MAX_NUM_QOS_FLOWS);
                 for (int i = 0; i < drbMod->numQosFlowSetup; i++)
                   drbMod->qosFlows[i].qfi = drbIE->flow_Setup_List->list.array[i]->qoS_Flow_Identifier;
               }
               // Flow Failed List (O)
               if (drbIE->flow_Failed_List) {
                 drbMod->numQosFlowFailed = drbIE->flow_Failed_List->list.count;
+                CHECK_E1AP_DEC(drbMod->numQosFlowFailed > 0 && drbMod->numQosFlowFailed <= E1AP_MAX_NUM_QOS_FLOWS);
                 for (int i = 0; i < drbMod->numQosFlowFailed; i++) {
                   CHECK_E1AP_DEC(decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[i], &drbMod->qosFlowsFailed[i]));
                 }
@@ -2620,6 +2634,7 @@ bool decode_E1_bearer_context_mod_response(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
           // DRB Failed to Mod list
           if (pduIE->dRB_Failed_To_Modify_List_NG_RAN) {
             pduModified->numDRBFailedToMod = pduIE->dRB_Failed_To_Modify_List_NG_RAN->list.count;
+            CHECK_E1AP_DEC(pduModified->numDRBFailedToMod > 0 && pduModified->numDRBFailedToMod <= E1AP_MAX_NUM_DRBS);
             for (int j = 0; j < pduIE->dRB_Failed_To_Modify_List_NG_RAN->list.count; j++) {
               CHECK_E1AP_DEC(decode_drb_failed_to_mod_item(pduIE->dRB_Failed_To_Modify_List_NG_RAN->list.array[j],
                                                            &pduModified->DRBnGRanFailedModList[j]));
@@ -2915,10 +2930,7 @@ static bool e1_decode_pdu_session_required_to_mod_item(const E1AP_PDU_Session_Re
   if (in->dRB_Required_To_Modify_List_NG_RAN != NULL) {
     const E1AP_DRB_Required_To_Modify_List_NG_RAN_t *drbList = in->dRB_Required_To_Modify_List_NG_RAN;
     out->numDRB2Modify = drbList->list.count;
-    if (out->numDRB2Modify <= 0 || out->numDRB2Modify > E1AP_MAX_NUM_DRBS) {
-      PRINT_ERROR("DRB Required To Modify List count %d out of range (1..%d)\n", out->numDRB2Modify, E1AP_MAX_NUM_DRBS);
-      return false;
-    }
+    CHECK_E1AP_DEC(out->numDRB2Modify > 0 && out->numDRB2Modify <= E1AP_MAX_NUM_DRBS);
     for (int i = 0; i < drbList->list.count; i++)
       CHECK_E1AP_DEC(e1_decode_drb_required_to_mod_item(drbList->list.array[i], &out->DRBnGRanModList[i]));
   }
@@ -3045,12 +3057,7 @@ bool decode_E1_bearer_context_mod_required(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
                   const E1AP_PDU_Session_Resource_Required_To_Modify_List_t *modList =
                       &msgNGRAN->value.choice.PDU_Session_Resource_Required_To_Modify_List;
                   out->numPDUSessionsMod = modList->list.count;
-                  if (out->numPDUSessionsMod <= 0 || out->numPDUSessionsMod > NR_MAX_NB_PDU_SESSIONS) {
-                    PRINT_ERROR("PDU Session Resource Required To Modify List count %d out of range (1..%d)\n",
-                                out->numPDUSessionsMod,
-                                NR_MAX_NB_PDU_SESSIONS);
-                    return false;
-                  }
+                  CHECK_E1AP_DEC(out->numPDUSessionsMod > 0 && out->numPDUSessionsMod <= NR_MAX_NB_PDU_SESSIONS);
                   out->pduSessionMod = calloc_or_fail(out->numPDUSessionsMod, sizeof(*out->pduSessionMod));
                   for (int k = 0; k < modList->list.count; k++)
                     CHECK_E1AP_DEC(e1_decode_pdu_session_required_to_mod_item(modList->list.array[k], &out->pduSessionMod[k]));
@@ -3062,12 +3069,7 @@ bool decode_E1_bearer_context_mod_required(const E1AP_E1AP_PDU_t *pdu, e1ap_bear
                   const E1AP_PDU_Session_Resource_To_Remove_List_t *remList =
                       &msgNGRAN->value.choice.PDU_Session_Resource_To_Remove_List;
                   out->numPDUSessionsRem = remList->list.count;
-                  if (out->numPDUSessionsRem <= 0 || out->numPDUSessionsRem > NR_MAX_NB_PDU_SESSIONS) {
-                    PRINT_ERROR("PDU Session Resource To Remove List count %d out of range (1..%d)\n",
-                                out->numPDUSessionsRem,
-                                NR_MAX_NB_PDU_SESSIONS);
-                    return false;
-                  }
+                  CHECK_E1AP_DEC(out->numPDUSessionsRem > 0 && out->numPDUSessionsRem <= NR_MAX_NB_PDU_SESSIONS);
                   out->pduSessionRem = calloc_or_fail(out->numPDUSessionsRem, sizeof(*out->pduSessionRem));
                   for (int k = 0; k < remList->list.count; k++)
                     CHECK_E1AP_DEC(e1_decode_pdu_session_to_remove_item(remList->list.array[k], &out->pduSessionRem[k]));
