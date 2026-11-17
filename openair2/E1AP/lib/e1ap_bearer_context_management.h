@@ -71,4 +71,13 @@ bool eq_bearer_context_mod_confirm(const e1ap_bearer_mod_confirm_t *a, const e1a
 e1ap_bearer_mod_confirm_t cp_bearer_context_mod_confirm(const e1ap_bearer_mod_confirm_t *msg);
 void free_e1ap_context_mod_confirm(const e1ap_bearer_mod_confirm_t *msg);
 
+struct E1AP_E1AP_PDU *encode_e1_bearer_context_inactivity_notification(const e1ap_bearer_context_inactivity_notification_t *msg);
+bool decode_e1_bearer_context_inactivity_notification(e1ap_bearer_context_inactivity_notification_t *out,
+                                                      const struct E1AP_E1AP_PDU *pdu);
+bool eq_bearer_context_inactivity_notification(const e1ap_bearer_context_inactivity_notification_t *a,
+                                               const e1ap_bearer_context_inactivity_notification_t *b);
+e1ap_bearer_context_inactivity_notification_t cp_bearer_context_inactivity_notification(
+    const e1ap_bearer_context_inactivity_notification_t *msg);
+void free_e1_bearer_context_inactivity_notification(const e1ap_bearer_context_inactivity_notification_t *msg);
+
 #endif /* E1AP_BEARER_CONTEXT_MANAGEMENT_H_ */

@@ -82,5 +82,11 @@
 #include "E1AP_QoS-Flow-Failed-Item.h"
 #include "E1AP_DRB-Failed-To-Modify-Item-NG-RAN.h"
 #include "E1AP_ActivityNotificationLevel.h"
+// E1 Bearer Context Inactivity Notification
+#include "E1AP_BearerContextInactivityNotification.h"
+#include "E1AP_ActivityInformation.h"
+#include "E1AP_PDU-Session-Resource-Activity-List.h"
+#include "E1AP_PDU-Session-Resource-Activity-Item.h"
+#include "E1AP_PDU-Session-Resource-Activity.h"
 
 #endif /* E1AP_LIB_INCLUDES_H_ */
