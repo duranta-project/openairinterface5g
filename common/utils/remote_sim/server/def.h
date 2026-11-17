@@ -7,9 +7,23 @@
 
 #include <stdbool.h>
 
+typedef enum {
+  CARD_TYPE_PL2303, CARD_TYPE_PCSC
+} card_type_t;
+
 typedef struct {
-  char *name;
-  int fd;
+  card_type_t type;
+  union {
+    struct {
+      char *name;
+      int fd;
+    } pl2303;
+    struct {
+      unsigned char atr[256];
+      int atr_length;
+      int next_atr_byte;
+    } pcsc;
+  };
   int mnc_length;      /* 2 or 3 */
   bool pin_needed;
 } card_t;

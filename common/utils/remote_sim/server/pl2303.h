@@ -12,11 +12,11 @@
 
 #include "def.h"
 
-void init_card(card_t *card, char *card_filename);
-void close_card(card_t *card);
-void reset_card(card_t *card);
+void init_card_pl2303(card_t *card, char *card_filename);
+void close_card_pl2303(card_t *card);
+void reset_card_pl2303(card_t *card);
 
-unsigned char get_byte(card_t *card, int timeout_ms);
-void put_bytes(card_t *card, unsigned char *bytes, int count);
+unsigned char get_byte_pl2303(card_t *card, int timeout_ms);
+void put_bytes_pl2303(card_t *card, unsigned char *bytes, int count);
 
 #endif /* _PL2303_H_ */
