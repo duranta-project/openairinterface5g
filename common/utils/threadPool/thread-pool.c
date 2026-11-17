@@ -87,6 +87,8 @@ static void* worker_thread(void* arg)
   not_q_t* q_arr = (not_q_t*)tpool->q_arr;
 
   init_not_q(&q_arr[idx], idx);
+  if (tpool->thread_init)
+    tpool->thread_init();
   // Synchronize all threads
   pthread_barrier_wait(&tpool->barrier);
 
@@ -120,10 +122,16 @@ static void* worker_thread(void* arg)
 
 void initNamedTpool(char* params, tpool_t* tpool, bool performanceMeas, char* name)
 {
+  initNamedTpoolInit(params, tpool, performanceMeas, name, NULL);
+}
+
+void initNamedTpoolInit(char* params, tpool_t* tpool, bool performanceMeas, char* name, void (*thread_init)(void))
+{
   (void)performanceMeas;
 
   DevAssert(tpool != NULL);
   memset(tpool, 0, sizeof(*tpool));
+  tpool->thread_init = thread_init;
 
   char* tname = (name == NULL ? "Tpool" : name);
   char *saveptr, *curptr;

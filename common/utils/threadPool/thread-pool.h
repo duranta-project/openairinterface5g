@@ -34,6 +34,9 @@ typedef struct {
 
   pthread_barrier_t barrier;
   _Atomic(uint64_t) dead_mask;
+
+  /// run by each worker thread when it starts, pinned, before the pool is ready; NULL: none
+  void (*thread_init)(void);
 } tpool_t;
 
 /// @brief Push job to threadpool. May run task inline in case there are no worker threads
@@ -75,6 +78,10 @@ void abortTpool(tpool_t *t);
 /// @param performanceMeas unused
 /// @param name Name of the theadpool, will be used as pthread names for the pool worker threads
 void initNamedTpool(char *params,tpool_t *pool, bool performanceMeas, char *name);
+
+/// @brief As initNamedTpool(), and each worker thread runs thread_init() when it starts (on its core, if pinned)
+///        and before initNamedTpoolInit() returns, e.g. to claim per-thread resources such as core_mem_claim.
+void initNamedTpoolInit(char *params, tpool_t *pool, bool performanceMeas, char *name, void (*thread_init)(void));
 
 /// @brief Initialize a threadpool with floating core worker threads only
 /// @param nbThreads number of floating core worker threads
