@@ -1681,6 +1681,12 @@ static NR_SetupRelease_PUSCH_Config_t *config_pusch(const nr_mac_config_t *confi
   *pusch_Config->maxRank = set_ul_max_layers(configuration, uecap, ul_id);
   pusch_Config->rbg_Size = NULL;
   pusch_Config->uci_OnPUSCH = NULL;
+  if (configuration->do_aperiodic_CSI_report) {
+    pusch_Config->uci_OnPUSCH = calloc(1, sizeof(*pusch_Config->uci_OnPUSCH));
+    pusch_Config->uci_OnPUSCH->present = NR_SetupRelease_UCI_OnPUSCH_PR_setup;
+    pusch_Config->uci_OnPUSCH->choice.setup = calloc(1, sizeof(*pusch_Config->uci_OnPUSCH->choice.setup));
+    pusch_Config->uci_OnPUSCH->choice.setup->scaling = NR_UCI_OnPUSCH__scaling_f1;
+  }
   pusch_Config->tp_pi2BPSK = NULL;
 
   return setup_puschconfig;
@@ -1971,6 +1977,52 @@ static void set_phr_config(NR_MAC_CellGroupConfig_t *mac_CellGroupConfig)
   mac_CellGroupConfig->phr_Config->choice.setup->phr_Tx_PowerFactorChange = NR_PHR_Config__phr_Tx_PowerFactorChange_dB1;
 }
 
+static const NR_CSI_ResourceConfig_t *find_csi_resource_config(const NR_CSI_MeasConfig_t *measConfig, NR_CSI_ResourceConfigId_t id)
+{
+  const struct NR_CSI_MeasConfig__csi_ResourceConfigToAddModList *l = measConfig->csi_ResourceConfigToAddModList;
+  if (!l)
+    return NULL;
+  for (int i = 0; i < l->list.count; i++) {
+    if (l->list.array[i]->csi_ResourceConfigId == id)
+      return l->list.array[i];
+  }
+  return NULL;
+}
+
+static void configure_trigstate(NR_CSI_MeasConfig_t *csi_MeasConfig, const NR_CSI_ReportConfig_t *csirep, bool is_ssb)
+{
+  NR_CSI_AssociatedReportConfigInfo_t *info = calloc(1, sizeof(*info));
+  info->reportConfigId = csirep->reportConfigId;
+  const NR_CSI_ResourceConfig_t *res = find_csi_resource_config(csi_MeasConfig, csirep->resourcesForChannelMeasurement);
+  AssertFatal(res,
+              "CSI-ResourceConfig %ld for channel measurement of report %ld not found\n",
+              csirep->resourcesForChannelMeasurement, csirep->reportConfigId);
+  AssertFatal(res->csi_RS_ResourceSetList.present == NR_CSI_ResourceConfig__csi_RS_ResourceSetList_PR_nzp_CSI_RS_SSB,
+              "CSI-ResourceConfig %ld for channel measurement is not nzp-CSI-RS-SSB\n",
+              res->csi_ResourceConfigId);
+  const struct NR_CSI_ResourceConfig__csi_RS_ResourceSetList__nzp_CSI_RS_SSB *rs = res->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB;
+
+  if (is_ssb) {
+    AssertFatal(rs->csi_SSB_ResourceSetList, "no csi-SSB-ResourceSetList in CSI-ResourceConfig %ld\n", res->csi_ResourceConfigId);
+    info->resourcesForChannel.present = NR_CSI_AssociatedReportConfigInfo__resourcesForChannel_PR_csi_SSB_ResourceSet;
+    // csi-SSB-ResourceSetList is SIZE(1..maxNrofCSI-SSB-ResourceSetsPerConfig) with maxNrofCSI-SSB-ResourceSetsPerConfig = 1
+    info->resourcesForChannel.choice.csi_SSB_ResourceSet = 1;
+  } else {
+    AssertFatal(rs->nzp_CSI_RS_ResourceSetList, "no nzp-CSI-RS-ResourceSetList in CSI-ResourceConfig %ld\n", res->csi_ResourceConfigId);
+    AssertFatal(rs->nzp_CSI_RS_ResourceSetList->list.count == 1, "only one NZP-CSI-RS-ResourceSet per CSI-ResourceConfig supported\n");
+    info->resourcesForChannel.present = NR_CSI_AssociatedReportConfigInfo__resourcesForChannel_PR_nzp_CSI_RS;
+    struct NR_CSI_AssociatedReportConfigInfo__resourcesForChannel__nzp_CSI_RS *nzp = calloc(1, sizeof(*nzp));
+    nzp->resourceSet = 1;
+    // TODO add qcl-info
+    info->resourcesForChannel.choice.nzp_CSI_RS = nzp;
+  }
+  if (csirep->csi_IM_ResourcesForInterference)
+    asn1cCallocOne(info->csi_IM_ResourcesForInterference, 1); // TODO Entry number in csi-IM-ResourceSetList which currently has 1 only element
+  if (csirep->nzp_CSI_RS_ResourcesForInterference)
+    asn1cCallocOne(info->nzp_CSI_RS_ResourcesForInterference, 1); // TODO Entry number in Entry number in nzp-CSI-RS-ResourceSetList
+  asn1cSeqAdd(&csi_MeasConfig->aperiodicTriggerStateList->choice.setup->list.array[0]->associatedReportConfigInfoList, info);
+}
+
 static void set_csi_meas_periodicity(const nr_cell_sched_t *cell,
                                      const NR_ServingCellConfigCommon_t *scc,
                                      NR_CSI_ReportConfig_t *csirep,
@@ -2129,12 +2181,26 @@ static NR_CodebookConfig_t *config_csi_codebook(const nr_pdsch_AntennaPorts_t *a
   return codebookConfig;
 }
 
+static void fill_report_slot_offsets(struct NR_CSI_ReportConfig__reportConfigType__aperiodic *ap,
+                                     const NR_ServingCellConfigCommon_t *scc)
+{
+  const NR_PUSCH_TimeDomainResourceAllocationList_t *tda_list =
+      scc->uplinkConfigCommon->initialUplinkBWP->pusch_ConfigCommon->choice.setup->pusch_TimeDomainAllocationList;
+  // This list must have the same number of entries as the pusch-TimeDomainAllocationList in PUSCH-Config
+  for (int i = 0; i < tda_list->list.count; i++) {
+    long *k2 = calloc_or_fail(1, sizeof(*k2));
+    *k2 = *tda_list->list.array[i]->k2;
+    asn1cSeqAdd(&ap->reportSlotOffsetList.list, k2);
+  }
+}
+
 static void config_csi_meas_report(const nr_cell_sched_t *cell,
                                    NR_CSI_MeasConfig_t *csi_MeasConfig,
                                    const NR_ServingCellConfigCommon_t *servingcellconfigcommon,
                                    NR_PUCCH_CSI_Resource_t *pucchcsires,
                                    struct NR_SetupRelease_PDSCH_Config *pdsch_Config,
                                    const nr_pdsch_AntennaPorts_t *antennaports,
+                                   bool aperiodic_csi,
                                    const int max_layers,
                                    int rep_id,
                                    int uid,
@@ -2165,10 +2231,17 @@ static void config_csi_meas_report(const nr_cell_sched_t *cell,
   csirep->csi_IM_ResourcesForInterference = calloc(1, sizeof(*csirep->csi_IM_ResourcesForInterference));
   *csirep->csi_IM_ResourcesForInterference = im_id;
   csirep->nzp_CSI_RS_ResourcesForInterference = NULL;
-  csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_periodic;
-  csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
-  set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, antennaports, false);
-  asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
+  if (aperiodic_csi) {
+    configure_trigstate(csi_MeasConfig, csirep, false);
+    csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_aperiodic;
+    csirep->reportConfigType.choice.aperiodic = calloc(1, sizeof(*csirep->reportConfigType.choice.aperiodic));
+    fill_report_slot_offsets(csirep->reportConfigType.choice.aperiodic, servingcellconfigcommon);
+  } else {
+    csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_periodic;
+    csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
+    set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, antennaports, false);
+    asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
+  }
   csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI;
   csirep->reportQuantity.choice.cri_RI_PMI_CQI = (NULL_t)0;
   csirep->reportFreqConfiguration = calloc(1, sizeof(*csirep->reportFreqConfiguration));
@@ -2260,10 +2333,18 @@ static void config_rsrp_meas_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   csirep->resourcesForChannelMeasurement = resource_id;
   csirep->csi_IM_ResourcesForInterference = NULL;
   csirep->nzp_CSI_RS_ResourcesForInterference = NULL;
-  csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_periodic;
-  csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
-  set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, pdschap, true);
-  asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
+  bool cri_rsrp = configuration->report_type == CRI_RSRP && configuration->do_CSIRS && num_antenna_ports < 4;
+  if (configuration->do_aperiodic_CSI_report) {
+    configure_trigstate(csi_MeasConfig, csirep, !cri_rsrp);
+    csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_aperiodic;
+    csirep->reportConfigType.choice.aperiodic = calloc(1, sizeof(*csirep->reportConfigType.choice.aperiodic));
+    fill_report_slot_offsets(csirep->reportConfigType.choice.aperiodic, servingcellconfigcommon);
+  } else {
+    csirep->reportConfigType.present = NR_CSI_ReportConfig__reportConfigType_PR_periodic;
+    csirep->reportConfigType.choice.periodic = calloc(1, sizeof(*csirep->reportConfigType.choice.periodic));
+    set_csi_meas_periodicity(cell, servingcellconfigcommon, csirep, uid, curr_bwp, pdschap, true);
+    asn1cSeqAdd(&csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list, pucchcsires);
+  }
   if (configuration->report_type == SSB_SINR) {
     csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_none;
     csirep->reportQuantity.choice.none = (NULL_t)0;
@@ -2271,7 +2352,7 @@ static void config_rsrp_meas_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     csirep->ext2->reportQuantity_r16 = calloc(1, sizeof(*csirep->ext2->reportQuantity_r16));
     csirep->ext2->reportQuantity_r16->present = NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16;
     csirep->ext2->reportQuantity_r16->choice.ssb_Index_SINR_r16 = (NULL_t)0;
-  } else if (configuration->report_type == CRI_RSRP && configuration->do_CSIRS && num_antenna_ports < 4) {
+  } else if (cri_rsrp) {
     csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP;
     csirep->reportQuantity.choice.cri_RSRP = (NULL_t)0;
   } else {
@@ -3555,6 +3636,17 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
     asn1cSeqAdd(&csi_MeasConfig->csi_ResourceConfigToAddModList->list, csires0);
   }
 
+  if (config->do_aperiodic_CSI_report) {
+    csi_MeasConfig->reportTriggerSize = calloc(1, sizeof(*csi_MeasConfig->reportTriggerSize));
+    *csi_MeasConfig->reportTriggerSize = 1;
+    csi_MeasConfig->aperiodicTriggerStateList = calloc(1, sizeof(*csi_MeasConfig->aperiodicTriggerStateList));
+    csi_MeasConfig->aperiodicTriggerStateList->present = NR_SetupRelease_CSI_AperiodicTriggerStateList_PR_setup;
+    NR_CSI_AperiodicTriggerStateList_t *trig_list = calloc(1, sizeof(*trig_list));
+    NR_CSI_AperiodicTriggerState_t *state = calloc(1, sizeof(*state));
+    asn1cSeqAdd(&trig_list->list, state);
+    csi_MeasConfig->aperiodicTriggerStateList->choice.setup = trig_list;
+  }
+
   if (config->do_CSIRS) {
     NR_CSI_ResourceConfig_t *csires2 = calloc(1, sizeof(*csires2));
     csires2->csi_ResourceConfigId = bwp_id + 10;
@@ -3577,6 +3669,7 @@ static NR_CSI_MeasConfig_t *get_csiMeasConfig(const NR_ServingCellConfig_t *conf
                            pucchcsi,
                            pdsch_Config,
                            &config->pdsch_AntennaPorts,
+                           config->do_aperiodic_CSI_report,
                            *configDedicated->pdsch_ServingCellConfig->choice.setup->ext1->maxMIMO_Layers,
                            bwp_id,
                            uid,

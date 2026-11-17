@@ -319,41 +319,6 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
   }
 }
 
-static NR_BetaOffsets_t *get_beta_offset_config(const NR_UCI_OnPUSCH_t *uci_config)
-{
-  if (!uci_config->betaOffsets)
-    return NULL;
-  AssertFatal(uci_config->betaOffsets->present == NR_UCI_OnPUSCH__betaOffsets_PR_semiStatic,
-              "Only semistatic beta for UCI on PUSCH supported\n");
-  return uci_config->betaOffsets->choice.semiStatic;
-}
-
-static uint8_t configure_csi1_beta_offsets(const NR_UCI_OnPUSCH_t *uci_config, int n_bits)
-{
-  NR_BetaOffsets_t *betaoffsets = get_beta_offset_config(uci_config);
-  if (betaoffsets) {
-    if (n_bits <= 11 && betaoffsets->betaOffsetCSI_Part1_Index1)
-      return *betaoffsets->betaOffsetCSI_Part1_Index1;
-    if (n_bits > 11 && betaoffsets->betaOffsetCSI_Part1_Index2)
-      return *betaoffsets->betaOffsetCSI_Part1_Index2;
-  }
-  // When the field is absent the UE applies the value 13 for CSI
-  return 13;
-}
-
-static uint8_t configure_csi2_beta_offsets(const NR_UCI_OnPUSCH_t *uci_config, int n_bits)
-{
-  NR_BetaOffsets_t *betaoffsets = get_beta_offset_config(uci_config);
-  if (betaoffsets) {
-    if (n_bits <= 11 && betaoffsets->betaOffsetCSI_Part2_Index1)
-      return *betaoffsets->betaOffsetCSI_Part2_Index1;
-    if (n_bits > 11 && betaoffsets->betaOffsetCSI_Part2_Index2)
-      return *betaoffsets->betaOffsetCSI_Part2_Index2;
-  }
-  // When the field is absent the UE applies the value 13 for CSI
-  return 13;
-}
-
 static void compute_csi_on_pusch_bitlen(nfapi_nr_pusch_uci_t *uci_pdu, const nr_csi_report_t *csi_report)
 {
   // CRI/RSRP or SSBRI/RSRP into CSI part 1 (same for SINR)
