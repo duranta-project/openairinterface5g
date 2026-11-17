@@ -101,16 +101,17 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
                            const UE_nr_rxtx_proc_t *proc,
                            void *typeSpecific);
 
-void nr_pdcch_generate_llr(PHY_VARS_NR_UE *ue,
-                           const UE_nr_rxtx_proc_t *proc,
-                           int symbol,
-                           nr_phy_data_t *phy_data,
-                           int llr_size_symbol,
-                           int num_monitoring_occ,
-                           int max_symb,
-                           c16_t rxdataF[ue->frame_parms.nb_antennas_rx][ue->frame_parms.ofdm_symbol_size],
-                           c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol],
-			   int pscch_processing);
+void nr_pdcch_generate_llr(
+    PHY_VARS_NR_UE *ue,
+    const UE_nr_rxtx_proc_t *proc,
+    int symbol,
+    nr_phy_data_t *phy_data,
+    int llr_size_symbol,
+    int num_monitoring_occ,
+    int max_symb,
+    c16_t *const rxdataF[ue->frame_parms.nb_antennas_rx],
+    c16_t pdcch_llr[phy_data->phy_pdcch_config.nb_search_space][num_monitoring_occ][max_symb * llr_size_symbol],
+    int pscch_processing);
 
 void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
                              int llr_size,
