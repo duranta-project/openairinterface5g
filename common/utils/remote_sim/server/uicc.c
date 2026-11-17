@@ -130,7 +130,8 @@ void status(card_t *card)
   debug("resp size %d\n", resp_size);
   for (int i = 0; i < resp_size; i++) debug(" %2.2x", resp[i]);
   debug("\n");
-  if (!expected_status(resp_size, resp, 0x90, 0x00)) { error("STATUS failed\n"); exit(1); }
+  if (!expected_status(resp_size, resp, 0x90, 0x00))
+    error("error: STATUS failed, expect strange behavior\n");
 }
 
 /* return number of tries remaining (-1 if error) */

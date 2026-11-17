@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 #include "pl2303.h"
+#include "pcsc.h"
 #include "log.h"
 
 int send_apdu(card_t *card, unsigned char *apdu, int length,
@@ -43,6 +44,13 @@ int send_apdu(card_t *card, unsigned char *apdu, int length,
 
   debug("TPDU case %d\n", tpdu_case);
 
+  /* check that we have a valid type (in case of potential future extensions) */
+  if (card->type != CARD_TYPE_PL2303
+      && card->type != CARD_TYPE_PCSC) {
+    error("unsupported card type\n");
+    exit(1);
+  }
+
   int Le = 0;
   int Lc = 0;
 
@@ -70,14 +78,29 @@ int send_apdu(card_t *card, unsigned char *apdu, int length,
    * accept), so it's not fully standard
    * (but no commercial simcard will ever do that, right?)
    */
-try_again:
-  put_bytes(card, first_tpdu, 5);
-
-  /* receive procedure byte (ISO 7816-3 10.3.3 and Table 11) */
+try_again:;
   unsigned char ins = first_tpdu[1];
   unsigned char sw1, sw2;
+
+  /* when talking to PC/SC we don't deal with TPDU */
+  if (card->type == CARD_TYPE_PCSC) {
+    debug("send apdu to PC/SC");
+    for (int i = 0; i < length; i++) debug(" %2.2x", apdu[i]);
+    debug("\n");
+    int apdu_response_length = send_apdu_pcsc(card, apdu, length, resp, resp_size);
+    if (resp_size < 2) { error("bad response APDU\n"); exit(1); }
+    sw1 = resp[apdu_response_length - 2];
+    sw2 = resp[apdu_response_length - 1];
+    out_pos = apdu_response_length - 2;
+    Lc = 0;
+    goto after_tpdu_processing;
+  }
+
+  put_bytes_pl2303(card, first_tpdu, 5);
+
+  /* receive procedure byte (ISO 7816-3 10.3.3 and Table 11) */
   while (1) {
-    unsigned char procedure_byte = get_byte(card, DEFAULT_TIMEOUT);
+    unsigned char procedure_byte = get_byte_pl2303(card, DEFAULT_TIMEOUT);
     if (procedure_byte == 0x60) continue;
     if ((procedure_byte & 0xf0) == 0x60
         || (procedure_byte & 0xf0) == 0x90) {
@@ -87,14 +110,14 @@ try_again:
     if (procedure_byte == ins) {
       /* send data if we have to */
       if (Lc) {
-        put_bytes(card, data_to_send, Lc);
+        put_bytes_pl2303(card, data_to_send, Lc);
         Lc = 0;
         continue;
       }
       /* receive data if we have to */
       if (Le) {
         for (int i = 0; i < Le; i++) {
-          unsigned char byte = get_byte(card, DEFAULT_TIMEOUT);
+          unsigned char byte = get_byte_pl2303(card, DEFAULT_TIMEOUT);
           PUT(byte);
         }
         Le = 0;
@@ -104,14 +127,14 @@ try_again:
     if (procedure_byte == (ins ^ 0xff)) {
       /* send data if we have to */
       if (Lc) {
-        put_bytes(card, data_to_send, 1);
+        put_bytes_pl2303(card, data_to_send, 1);
         Lc--;
         data_to_send++;
         continue;
       }
       /* receive one byte if we have to */
       if (Le) {
-        unsigned char byte = get_byte(card, DEFAULT_TIMEOUT);
+        unsigned char byte = get_byte_pl2303(card, DEFAULT_TIMEOUT);
         PUT(byte);
         Le--;
       }
@@ -122,7 +145,9 @@ try_again:
     exit(1);
   }
 
-  sw2 = get_byte(card, DEFAULT_TIMEOUT);
+  sw2 = get_byte_pl2303(card, DEFAULT_TIMEOUT);
+
+after_tpdu_processing:
 
   if (sw1 == 0x90 && sw2 == 0x00) {
     if (warn_byte != -1) {
@@ -150,6 +175,11 @@ try_again:
     if (Lc) { error("Lc not 0??\n"); exit(1); }
     /* instruction changed, now it's GET_RESPONSE */
     for (int i = 0; i < 5; i++) first_tpdu[i] = get_response_tpdu[i];
+    /* for pcsc, replace the whole APDU */
+    if (card->type == CARD_TYPE_PCSC) {
+      for (int i = 0; i < 5; i++) apdu[i] = get_response_tpdu[i];
+      length = 5;
+    }
     goto try_again;
   }
 
@@ -157,6 +187,8 @@ try_again:
     /* start over with Le == sw2 */
     Le = sw2; if (Le == 0) Le = 256;
     first_tpdu[4] = sw2;
+    /* for pcsc, replace directly in APDU */
+    if (card->type == CARD_TYPE_PCSC) apdu[4] = sw2;
     goto try_again;
   }
 
@@ -183,6 +215,11 @@ try_again:
       if (Lc) { error("Lc not 0?? (line %d)\n", __LINE__); exit(1); }
       /* instruction changed, now it's GET_RESPONSE */
       for (int i = 0; i < 5; i++) first_tpdu[i] = get_response_tpdu[i];
+       /* for pcsc, replace the whole APDU */
+      if (card->type == CARD_TYPE_PCSC) {
+        for (int i = 0; i < 5; i++) apdu[i] = get_response_tpdu[i];
+        length = 5;
+      }
       goto try_again;
     }
   }

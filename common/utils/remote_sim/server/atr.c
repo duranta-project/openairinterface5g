@@ -10,13 +10,39 @@
 #include "pl2303.h"
 #include "log.h"
 
+static void reset_atr_reading(card_t *card)
+{
+  switch (card->type) {
+  case CARD_TYPE_PL2303: /* nothing */ break;
+  case CARD_TYPE_PCSC: card->pcsc.next_atr_byte = 0; break;
+  }
+}
+
+static unsigned char get_atr_byte(card_t *card)
+{
+  switch (card->type) {
+  case CARD_TYPE_PL2303: return get_byte_pl2303(card, DEFAULT_TIMEOUT);
+  case CARD_TYPE_PCSC:
+    if (card->pcsc.next_atr_byte >= card->pcsc.atr_length)
+      { error("bad ATR\n"); exit(1); }
+    unsigned char ret = card->pcsc.atr[card->pcsc.next_atr_byte];
+    card->pcsc.next_atr_byte++;
+    debug("pcsc atr byte %2.2x\n", ret);
+    return ret;
+  }
+  /* unreachable,let's put something to silent the compiler */
+  exit(1);
+}
+
 void get_atr(card_t *card)
 {
+  reset_atr_reading(card);
+
   /* ISO 7816-3 8.1 */
-  unsigned char ts = get_byte(card, DEFAULT_TIMEOUT);
+  unsigned char ts = get_atr_byte(card);
   if (ts != 0x3b) { error("only direct convention supported\n"); exit(1); }
   /* ISO 7816-3 8.2 */
-  unsigned char t0 = get_byte(card, DEFAULT_TIMEOUT);
+  unsigned char t0 = get_atr_byte(card);
   int y1 = t0 >> 4;
   int k = t0 & 0x0f;
 
@@ -35,14 +61,14 @@ void get_atr(card_t *card)
 
   do {
     /* get ta, if there */
-    if (y & 0x01) ta[y_pos] = get_byte(card, DEFAULT_TIMEOUT);
+    if (y & 0x01) ta[y_pos] = get_atr_byte(card);
     /* get tb, if there */
-    if (y & 0x02) tb[y_pos] = get_byte(card, DEFAULT_TIMEOUT);
+    if (y & 0x02) tb[y_pos] = get_atr_byte(card);
     /* get tc, if there */
-    if (y & 0x04) tc[y_pos] = get_byte(card, DEFAULT_TIMEOUT);
+    if (y & 0x04) tc[y_pos] = get_atr_byte(card);
     /* get td, if there (if not, y for next turn = 0) */
     if (y & 0x08) {
-      td[y_pos] = get_byte(card, DEFAULT_TIMEOUT);
+      td[y_pos] = get_atr_byte(card);
       y = td[y_pos] >> 4;
     } else
       y = 0;
@@ -62,7 +88,7 @@ void get_atr(card_t *card)
 
   /* get the historical bytes (if any), max 15 bytes ISO 7816-3 8.2.4 */
   int historical_bytes[15];
-  for (int i = 0; i < k; i++) historical_bytes[i] = get_byte(card, DEFAULT_TIMEOUT);
+  for (int i = 0; i < k; i++) historical_bytes[i] = get_atr_byte(card);
 
   /* get TCK if it is there
    * it is absent if t==0 is sent and t==15 is not sent, present otherwise */
@@ -70,7 +96,7 @@ void get_atr(card_t *card)
   int no_tck = last == -1 || (first == 0 && last < 15);
   debug("TCK present? %s\n", no_tck ? "no" : "yes");
   if (!no_tck) {
-    tck = get_byte(card, DEFAULT_TIMEOUT);
+    tck = get_atr_byte(card);
     /* check tck */
     unsigned char xor = t0;
     for (int i = 0; i < 32; i++) {
