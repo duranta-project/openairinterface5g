@@ -338,17 +338,35 @@ bool phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
   T(T_UE_PHY_UL_TICK, T_INT(ue->Mod_id), T_INT(frame_tx % 1024), T_INT(slot_tx));
 #endif
 
-  const int samplesF_per_slot = ue->frame_parms.symbols_per_slot * ue->frame_parms.ofdm_symbol_size;
+  const int symb_sz = ue->frame_parms.ofdm_symbol_size;
+  const int samplesF_per_slot = ue->frame_parms.symbols_per_slot * symb_sz;
   c16_t txdataF_buf[ue->frame_parms.nb_antennas_tx * samplesF_per_slot] __attribute__((aligned(32)));
-  /* the RE mapping below writes only the REs of the channels: zero the slot only when there is one. Else no symbol is used
-     and nr_tx_rotation_and_ofdm_mod() zeroes the time samples without reading txdataF */
-  const bool ul_channel = phy_data->ulsch.status == NR_ACTIVE || phy_data->pucch_vars.active[0] || phy_data->pucch_vars.active[1]
-                          || phy_data->srs_vars.active;
-  if (ul_channel)
-    memset(txdataF_buf, 0, sizeof(txdataF_buf));
+  /* the RE mapping below writes only the REs of the channels: zero only the symbols they occupy (a PUCCH of one symbol does
+     not need the 14 symbols of all the antennas cleared, and with many UEs per host this buffer is out of the caches). The
+     symbols no channel uses are not read: nr_tx_rotation_and_ofdm_mod() writes zero time samples for them */
+  bool zeroed[NR_SYMBOLS_PER_SLOT] = {0};
+  if (phy_data->ulsch.status == NR_ACTIVE) {
+    const nfapi_nr_ue_pusch_pdu_t *p = &phy_data->ulsch.pusch_pdu;
+    for (int s = p->start_symbol_index; s < p->start_symbol_index + p->nr_of_symbols && s < NR_SYMBOLS_PER_SLOT; s++)
+      zeroed[s] = true;
+  }
+  for (int i = 0; i < 2; i++) {
+    if (!phy_data->pucch_vars.active[i])
+      continue;
+    const fapi_nr_ul_config_pucch_pdu *p = &phy_data->pucch_vars.pucch_pdu[i];
+    for (int s = p->start_symbol_index; s < p->start_symbol_index + p->nr_of_symbols && s < NR_SYMBOLS_PER_SLOT; s++)
+      zeroed[s] = true;
+  }
+  if (phy_data->srs_vars.active) // up to 4 symbols from l_0, repetitions included: up to the end of the slot
+    for (int s = phy_data->srs_vars.srs_config_pdu.time_start_position; s < NR_SYMBOLS_PER_SLOT; s++)
+      zeroed[s] = true;
   c16_t *txdataF[ue->frame_parms.nb_antennas_tx]; /* workaround to be compatible with current txdataF usage in all tx procedures. */
-  for(int i=0; i< ue->frame_parms.nb_antennas_tx; ++i)
+  for (int i = 0; i < ue->frame_parms.nb_antennas_tx; ++i) {
     txdataF[i] = &txdataF_buf[i * samplesF_per_slot];
+    for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
+      if (zeroed[s])
+        memset(txdataF[i] + s * symb_sz, 0, symb_sz * sizeof(c16_t));
+  }
 
   LOG_D(PHY,"****** start TX-Chain for AbsSubframe %d.%d ******\n", frame_tx, slot_tx);
   bool was_symbol_used[NR_SYMBOLS_PER_SLOT] = {0};
@@ -368,8 +386,11 @@ bool phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
   const NR_UE_PRACH *prach_var = ue->prach_vars[proc->gNB_id];
   const bool prach = prach_var->active; // nr_ue_prach_procedures() clears it in the last PRACH slot
   bool symbol_used = false;
-  for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
+  for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++) {
     symbol_used |= was_symbol_used[s];
+    if (was_symbol_used[s] && !zeroed[s])
+      LOG_E(PHY, "%d.%d: TX symbol %d written but not zeroed before the RE mapping\n", frame_tx, slot_tx, s);
+  }
   // the FD device is written in every slot
   if (!ue->fd_ifdevice && !prach && !symbol_used) {
     stop_meas_nr_ue_phy(ue, PHY_PROC_TX);
