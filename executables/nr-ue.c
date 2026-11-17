@@ -1383,7 +1383,11 @@ void *UE_thread(void *arg)
     // in current code, DURATION_RX_TO_TX constant is the limit to get UL data to encode from a RX slot
     notifiedFIFO_elt_t *newTx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), 0, 0, process_slot_tx_job);
     nr_rxtx_thread_data_t *curMsgTx = NotifiedFifoData(newTx);
-    memset(curMsgTx, 0, sizeof(*curMsgTx));
+    /* as for RX, not zeroing the 10 KB of search space configurations of the message (the TX job has its own
+       nr_phy_data_tx_t and does not read phy_data) */
+    curMsgTx->next_barrier = NULL;
+    curMsgTx->phy_data.phy_pdcch_config.nb_search_space = 0;
+    memset(&curMsgTx->phy_data.dlsch_config, 0, sizeof(curMsgTx->phy_data) - offsetof(nr_phy_data_t, dlsch_config));
     curMsgTx->proc = curMsg.proc;
     curMsgTx->writeBlockSize = writeBlockSize;
     curMsgTx->proc.timestamp_tx = writeTimestamp;

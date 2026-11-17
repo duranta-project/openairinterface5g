@@ -687,8 +687,6 @@ void nr_pdcch_channel_estimation(const NR_DL_FRAME_PARMS *frame_parms,
                                  c16_t rxdataF[frame_parms->nb_antennas_rx][frame_parms->ofdm_symbol_size],
                                  c16_t *pilot)
 {
-  const int symb_sz = frame_parms->ofdm_symbol_size;
-
 #ifdef DEBUG_PDCCH
   printf("pdcch_channel_estimation: BWPStart %d, coreset_start_rb %d, coreset_nb_rb %d\n",
          BWPStart, coreset_start_rb, nb_rb_coreset);
@@ -708,7 +706,10 @@ void nr_pdcch_channel_estimation(const NR_DL_FRAME_PARMS *frame_parms,
     c16_t *rxF = rxdataF[aarx];
     c16_t *dl_ch = pdcch_dl_ch_estimates[aarx];
 
-    memset(dl_ch, 0, sizeof(c16_t) * symb_sz);
+#if CH_INTERP
+    // the interpolation accumulates; the RB average below writes all the REs of the CORESET RBs, the only ones read
+    memset(dl_ch, 0, sizeof(c16_t) * frame_parms->ofdm_symbol_size);
+#endif
 
 #ifdef DEBUG_PDCCH
     printf("pdcch ch est pilot addr %p RB_DL %d\n", &pilot[dmrs_ref * 3], frame_parms->N_RB_DL);
