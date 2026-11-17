@@ -270,6 +270,10 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
                           fp->nb_prefix_samples,
                           fp->ofdm_offset_divisor,
                           fp->timeshift_symbol_rotation);
+  fp->timeshift_rotation_shared = nr_shared_timeshift_rotation(fp->ofdm_symbol_size,
+                                                               fp->N_RB_DL * NR_NB_SC_PER_RB,
+                                                               fp->nb_prefix_samples,
+                                                               fp->ofdm_offset_divisor);
 
   // initialize to false only for SA since in do-ra and phy-test it is already set to true before getting here
   if (IS_SA_MODE(get_softmodem_params()))

@@ -38,14 +38,15 @@ void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
     fftshift_inplace(rxdataF[aa], nb_rb * NR_NB_SC_PER_RB, frame_parms->ofdm_symbol_size);
 
     // Phase compensation
-    apply_nr_rotation_symbol_fftshifted_RX(frame_parms->symbols_per_slot,
-                                           frame_parms->slots_per_subframe,
-                                           frame_parms->timeshift_symbol_rotation,
-                                           rxdataF[aa],
-                                           frame_parms->symbol_rotation[link_type],
-                                           nb_rb,
-                                           slot,
-                                           symbol);
+    apply_nr_rotation_symbol_fftshifted_RX(
+        frame_parms->symbols_per_slot,
+        frame_parms->slots_per_subframe,
+        frame_parms->timeshift_rotation_shared ? frame_parms->timeshift_rotation_shared : frame_parms->timeshift_symbol_rotation,
+        rxdataF[aa],
+        frame_parms->symbol_rotation[link_type],
+        nb_rb,
+        slot,
+        symbol);
   }
 }
 
