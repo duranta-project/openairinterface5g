@@ -914,7 +914,8 @@ void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_actors)
 
 void *UE_thread(void *arg)
 {
-  //this thread should be over the processing thread to keep in real time
+  nr_rxtx_thread_data_t rx_inline; // the RX slot message when there is no DL actor
+  // this thread should be over the processing thread to keep in real time
   PHY_VARS_NR_UE *UE = (PHY_VARS_NR_UE *)arg;
   const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
   //  int tx_enabled = 0;
@@ -1200,8 +1201,12 @@ void *UE_thread(void *arg)
     TracyCFrameMark;
 
     int slot_nr = absolute_slot % nb_slot_frame;
-    nr_rxtx_thread_data_t curMsg = {0};
-    curMsg.UE=UE;
+    /* the proc of the slot only: a whole nr_rxtx_thread_data_t (10 KB, mostly search space configurations) was zeroed here
+       in every slot */
+    struct {
+      UE_nr_rxtx_proc_t proc;
+      PHY_VARS_NR_UE *UE;
+    } curMsg = {.UE = UE};
     // update thread index for received subframe
     curMsg.proc.nr_slot_rx  = slot_nr;
     curMsg.proc.nr_slot_tx  = (absolute_slot + duration_rx_to_tx) % nb_slot_frame;
@@ -1339,9 +1344,12 @@ void *UE_thread(void *arg)
     if (curMsg.proc.nr_slot_rx == 0)
       nr_ue_rrc_timer_trigger(UE->Mod_id, curMsg.proc.hfn_rx, curMsg.proc.frame_rx, curMsg.proc.gNB_id);
 
-    // RX slot processing. We launch and forget.
-    notifiedFIFO_elt_t *newRx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), curMsg.proc.nr_slot_tx, NULL, UE_dl_processing);
-    nr_rxtx_thread_data_t *curMsgRx = (nr_rxtx_thread_data_t *)NotifiedFifoData(newRx);
+    // RX slot processing. We launch and forget. Without DL actor it runs here, in a message of this thread's stack, the same
+    // memory in every slot (a new allocation per slot is out of the caches with many UE threads)
+    notifiedFIFO_elt_t *newRx =
+        num_dl_actors > 0 ? newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), curMsg.proc.nr_slot_tx, NULL, UE_dl_processing)
+                          : NULL;
+    nr_rxtx_thread_data_t *curMsgRx = newRx ? (nr_rxtx_thread_data_t *)NotifiedFifoData(newRx) : &rx_inline;
     /* not zeroing the whole message: 10 KB per slot and per UE are the search space configurations, that the scheduled
        response writes entirely, up to nb_search_space */
     curMsgRx->proc = curMsg.proc;
@@ -1367,9 +1375,7 @@ void *UE_thread(void *arg)
     if (num_dl_actors > 0) {
       pushNotifiedFIFO(&dl_actors[curMsg.proc.nr_slot_rx % num_dl_actors].fifo, newRx);
     } else {
-      // inline: the actor thread is not there to free the message
-      newRx->processingFunc(curMsgRx);
-      delNotifiedFIFO_elt(newRx);
+      UE_dl_processing(curMsgRx);
     }
 
     // apply new NTN timing information
@@ -1385,13 +1391,11 @@ void *UE_thread(void *arg)
 
     // Start TX slot processing here. It runs in parallel with RX slot processing
     // in current code, DURATION_RX_TO_TX constant is the limit to get UL data to encode from a RX slot
+    /* the TX job has its own nr_phy_data_tx_t and does not read phy_data: it is not initialized, the message memory beyond
+       the first fields is not touched */
     notifiedFIFO_elt_t *newTx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), 0, 0, process_slot_tx_job);
     nr_rxtx_thread_data_t *curMsgTx = NotifiedFifoData(newTx);
-    /* as for RX, not zeroing the 10 KB of search space configurations of the message (the TX job has its own
-       nr_phy_data_tx_t and does not read phy_data) */
     curMsgTx->next_barrier = NULL;
-    curMsgTx->phy_data.phy_pdcch_config.nb_search_space = 0;
-    memset(&curMsgTx->phy_data.dlsch_config, 0, sizeof(curMsgTx->phy_data) - offsetof(nr_phy_data_t, dlsch_config));
     curMsgTx->proc = curMsg.proc;
     curMsgTx->writeBlockSize = writeBlockSize;
     curMsgTx->proc.timestamp_tx = writeTimestamp;
