@@ -314,6 +314,12 @@ typedef struct {
   bool *writer_absent;
   int nb_absent;
   openair0_timestamp_t nextTS; // first sample not sent yet
+  /* what reorder_flush() already knows about the samples from nextTS on, so that the flushes of the other writers do not
+     scan them again: scan_ready samples are written by scan_nb_writers writers (the counts only grow until the samples
+     are sent), and the first scan_chunk of them have no burst boundary (the flags of a sample that all wrote are final) */
+  int scan_ready;
+  int scan_nb_writers;
+  int scan_chunk;
   openair0_timestamp_t maxTS; // end of the most recent write
   int sz;
   int grain;
