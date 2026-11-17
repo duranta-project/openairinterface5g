@@ -62,7 +62,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   int harq_pid = dlsch_config->harq_process_nbr;
   AssertFatal(dmrs_Type == 0 || dmrs_Type == 1, "Illegal dmrs_type %d\n", dmrs_Type);
   fapi_nr_dl_cw_info_t *cw_info = &dlsch->cw_info;
-  NR_DL_UE_HARQ_t *harq_process = &phy_vars_ue->dl_harq_processes[cw_idx][dlsch_config->harq_process_nbr];
+  NR_DL_UE_HARQ_t *harq_process = &phy_vars_ue->dl_harq_processes[cw_info->tb_idx][dlsch_config->harq_process_nbr];
   if (harq_process->activated_frame != proc->frame_rx || harq_process->activated_slot != proc->nr_slot_rx) {
     LOG_W(PHY, "%d.%d DLSCH harq %d late decode aborted, re-armed %d.%d\n",
           proc->frame_rx, proc->nr_slot_rx, harq_pid, harq_process->activated_frame, harq_process->activated_slot);
@@ -76,7 +76,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     nb_re_dmrs = 4 * dlsch_config->n_dmrs_cdm_groups;
   uint16_t dmrs_length = get_num_dmrs(dlsch_config->dlDmrsSymbPos);
 
-  TB_parameters.harq_unique_pid = 2 * harq_pid + cw_idx;
+  TB_parameters.harq_unique_pid = 2 * harq_pid + cw_info->tb_idx;
   TB_parameters.G = G;
   TB_parameters.nb_rb = number_rbs;
   TB_parameters.Qm = cw_info->qamModOrder;
