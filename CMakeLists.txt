@@ -1823,7 +1823,7 @@ target_link_libraries(nr-softmodem PRIVATE
   -Wl,--start-group
   UTIL SCTP_CLIENT SCHED_LIB SCHED_NR_LIB PHY_NR PHY PHY_NR_COMMON NR_PHY_RU GTPV1U SECURITY
   ITTI ${NAS_UE_LIB} nr_rrc
-  ngap s1ap L2_LTE_NR L2_NR MAC_NR_COMMON nfapi_nr_vnf_lib nfapi_nr_pnf_lib nfapi_user_lib nfapi_lte_user_lib nfapi_nr_user_lib SIMU
+  ngap s1ap L2_LTE_NR L2_NR MAC_NR_COMMON nfapi_nr_vnf_lib nfapi_nr_pnf_lib nfapi_user_lib  nfapi_nr_user_lib SIMU
   x2ap f1ap m2ap m3ap e1ap radio_common
   time_management softmodem_common nrppa
   -Wl,--end-group dl)
