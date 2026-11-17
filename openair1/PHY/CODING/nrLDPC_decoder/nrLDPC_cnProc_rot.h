@@ -149,6 +149,148 @@ static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
   return 0;
 }
 #define NR_LDPC_ROT 1
+
+#elif defined(__riscv_vector)
+#include <riscv_vector.h>
+
+// Edge Z-vectors rotated by p: elements [0, n1 = Z - p) come from v + p and the rest from v - n1 (a masked access
+// with mask vid >= n1, whose masked-off elements are not accessed), so a strip that wraps costs one compare and
+// a second memory access, no slide. Strips are at most 256 elements, the range of the 8-bit vid.
+#define NRLDPC_ROT_DEF(LM, MB)                                                                                                    \
+  static inline vint8##LM##_t nrLDPC_rvv_load_rot_##LM(const int8_t *v, uint32_t p, uint32_t Z, vuint8##LM##_t vid, size_t vl)    \
+  {                                                                                                                               \
+    const uint32_t n1 = Z - p;                                                                                                    \
+    if (n1 >= vl)                                                                                                                 \
+      return __riscv_vle8_v_i8##LM(v + p, vl);                                                                                    \
+    const vint8##LM##_t a = __riscv_vle8_v_i8##LM(v + p, n1);                                                                     \
+    return __riscv_vle8_v_i8##LM##_mu(__riscv_vmsgeu_vx_u8##LM##_b##MB(vid, n1, vl), a, v - n1, vl);                              \
+  }                                                                                                                               \
+                                                                                                                                  \
+  static inline void nrLDPC_rvv_store_rot_##LM(int8_t *v, uint32_t p, uint32_t Z, vint8##LM##_t x, vuint8##LM##_t vid, size_t vl) \
+  {                                                                                                                               \
+    const uint32_t n1 = Z - p;                                                                                                    \
+    if (n1 >= vl) {                                                                                                               \
+      __riscv_vse8_v_i8##LM(v + p, x, vl);                                                                                        \
+      return;                                                                                                                     \
+    }                                                                                                                             \
+    __riscv_vse8_v_i8##LM(v + p, x, n1);                                                                                          \
+    __riscv_vse8_v_i8##LM##_m(__riscv_vmsgeu_vx_u8##LM##_b##MB(vid, n1, vl), v - n1, x, vl);                                      \
+  }                                                                                                                               \
+                                                                                                                                  \
+  /* Two-pass min-sum over all CNs: edge n read at src[srcOff[n]] rotated, its CN-to-BN message written at                        \
+     bnProcBuf[bnOff[n]] rotated the same way */                                                                                  \
+  static inline void nrLDPC_cnProc_rot_##LM(const nrLDPC_cnEdges_t *e,                                                            \
+                                            const int8_t *src,                                                                    \
+                                            const uint32_t *srcOff,                                                               \
+                                            int8_t *bnProcBuf,                                                                    \
+                                            uint16_t Z)                                                                           \
+  {                                                                                                                               \
+    const uint32_t *bnOff = e->bnOff;                                                                                             \
+    const uint16_t *sh = e->shift;                                                                                                \
+    const vuint8##LM##_t vid = __riscv_vid_v_u8##LM(__riscv_vsetvlmax_e8##LM());                                                  \
+    for (int c = 0, n0 = 0; c < e->numCn; n0 += e->deg[c++]) {                                                                    \
+      const int n1 = n0 + e->deg[c];                                                                                              \
+      for (uint32_t t = 0; t < Z;) {                                                                                              \
+        const size_t vl = __riscv_vsetvl_e8##LM(Z - t < 256 ? Z - t : 256);                                                       \
+        vuint8##LM##_t min1 = __riscv_vmv_v_x_u8##LM(127, vl);                                                                    \
+        vuint8##LM##_t min2 = min1;                                                                                               \
+        vint8##LM##_t sgn = __riscv_vmv_v_x_i8##LM(0, vl);                                                                        \
+        for (int k = n0; k < n1; k++) {                                                                                           \
+          const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;                                                           \
+          const vint8##LM##_t x = nrLDPC_rvv_load_rot_##LM(src + srcOff[k], p, Z, vid, vl);                                       \
+          const vuint8##LM##_t a =                                                                                                \
+              __riscv_vreinterpret_v_i8##LM##_u8##LM(__riscv_vmax_vv_i8##LM(x, __riscv_vneg_v_i8##LM(x, vl), vl));                \
+          sgn = __riscv_vxor_vv_i8##LM(sgn, x, vl);                                                                               \
+          min2 = __riscv_vminu_vv_u8##LM(min2, __riscv_vmaxu_vv_u8##LM(min1, a, vl), vl);                                         \
+          min1 = __riscv_vminu_vv_u8##LM(min1, a, vl);                                                                            \
+        }                                                                                                                         \
+        for (int k = n0; k < n1; k++) {                                                                                           \
+          const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;                                                           \
+          const vint8##LM##_t x = nrLDPC_rvv_load_rot_##LM(src + srcOff[k], p, Z, vid, vl);                                       \
+          const vuint8##LM##_t a =                                                                                                \
+              __riscv_vreinterpret_v_i8##LM##_u8##LM(__riscv_vmax_vv_i8##LM(x, __riscv_vneg_v_i8##LM(x, vl), vl));                \
+          const vint8##LM##_t mag = __riscv_vreinterpret_v_u8##LM##_i8##LM(                                                       \
+              __riscv_vmerge_vvm_u8##LM(min1, min2, __riscv_vmseq_vv_u8##LM##_b##MB(a, min1, vl), vl));                           \
+          const vbool##MB##_t neg = __riscv_vmslt_vx_i8##LM##_b##MB(__riscv_vxor_vv_i8##LM(sgn, x, vl), 0, vl);                   \
+          nrLDPC_rvv_store_rot_##LM(bnProcBuf + bnOff[k], p, Z, __riscv_vneg_v_i8##LM##_mu(neg, mag, mag, vl), vid, vl);          \
+        }                                                                                                                         \
+        t += vl;                                                                                                                  \
+      }                                                                                                                           \
+    }                                                                                                                             \
+  }                                                                                                                               \
+                                                                                                                                  \
+  /* Parity check on the rotated BN-to-CN (bnProcBufRes) plus CN-to-BN (bnProcBuf) messages, as nrLDPC_cnProcPc_BG*               \
+     on cnProcBuf + cnProcBufRes: 1 at the first unsatisfied check */                                                             \
+  static inline uint32_t nrLDPC_cnProcPc_rot_##LM(const nrLDPC_cnEdges_t *e,                                                      \
+                                                  const int8_t *bnProcBufRes,                                                     \
+                                                  const int8_t *bnProcBuf,                                                        \
+                                                  uint16_t Z)                                                                     \
+  {                                                                                                                               \
+    const uint32_t *bnOff = e->bnOff;                                                                                             \
+    const uint16_t *sh = e->shift;                                                                                                \
+    const vuint8##LM##_t vid = __riscv_vid_v_u8##LM(__riscv_vsetvlmax_e8##LM());                                                  \
+    for (int c = 0, n0 = 0; c < e->numCn; n0 += e->deg[c++]) {                                                                    \
+      for (uint32_t t = 0; t < Z;) {                                                                                              \
+        const size_t vl = __riscv_vsetvl_e8##LM(Z - t < 256 ? Z - t : 256);                                                       \
+        vint8##LM##_t par = __riscv_vmv_v_x_i8##LM(0, vl);                                                                        \
+        for (int k = n0; k < n0 + e->deg[c]; k++) {                                                                               \
+          const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;                                                           \
+          const vint8##LM##_t in = nrLDPC_rvv_load_rot_##LM(bnProcBufRes + bnOff[k], p, Z, vid, vl);                              \
+          const vint8##LM##_t res = nrLDPC_rvv_load_rot_##LM(bnProcBuf + bnOff[k], p, Z, vid, vl);                                \
+          par = __riscv_vxor_vv_i8##LM(par, __riscv_vsadd_vv_i8##LM(in, res, vl), vl);                                            \
+        }                                                                                                                         \
+        if (__riscv_vcpop_m_b##MB(__riscv_vmslt_vx_i8##LM##_b##MB(par, 0, vl), vl) != 0)                                          \
+          return 1;                                                                                                               \
+        t += vl;                                                                                                                  \
+      }                                                                                                                           \
+    }                                                                                                                             \
+    return 0;                                                                                                                     \
+  }
+
+NRLDPC_ROT_DEF(m1, 8)
+NRLDPC_ROT_DEF(m2, 4)
+NRLDPC_ROT_DEF(m4, 2)
+
+// LMUL giving 128-byte vectors: m4 on VLEN 256 (SpacemiT X100), m1 on VLEN 1024 (A100). Unaligned vector accesses
+// cost about twice as much on the A100, which the rotated accesses mostly are, but the copies still cost more.
+static inline int nrLDPC_rot_lmul(void)
+{
+  static int lmul = 0;
+  if (!lmul) {
+    const size_t vlenb = __riscv_vsetvlmax_e8m1();
+    lmul = vlenb >= 128 ? 1 : vlenb >= 64 ? 2 : 4;
+  }
+  return lmul;
+}
+
+static inline void nrLDPC_cnProc_rot(const nrLDPC_cnEdges_t *e,
+                                     const int8_t *src,
+                                     const uint32_t *srcOff,
+                                     int8_t *bnProcBuf,
+                                     uint16_t Z)
+{
+  const int lmul = nrLDPC_rot_lmul();
+  if (lmul == 1)
+    nrLDPC_cnProc_rot_m1(e, src, srcOff, bnProcBuf, Z);
+  else if (lmul == 2)
+    nrLDPC_cnProc_rot_m2(e, src, srcOff, bnProcBuf, Z);
+  else
+    nrLDPC_cnProc_rot_m4(e, src, srcOff, bnProcBuf, Z);
+}
+
+static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
+                                           const int8_t *bnProcBufRes,
+                                           const int8_t *bnProcBuf,
+                                           uint16_t Z)
+{
+  const int lmul = nrLDPC_rot_lmul();
+  if (lmul == 1)
+    return nrLDPC_cnProcPc_rot_m1(e, bnProcBufRes, bnProcBuf, Z);
+  if (lmul == 2)
+    return nrLDPC_cnProcPc_rot_m2(e, bnProcBufRes, bnProcBuf, Z);
+  return nrLDPC_cnProcPc_rot_m4(e, bnProcBufRes, bnProcBuf, Z);
+}
+#define NR_LDPC_ROT 1
 #else
 // Without byte-masked loads and stores (AVX2, NEON), the wrapped and partial strips cost more than the copies save.
 #define NR_LDPC_ROT 0
