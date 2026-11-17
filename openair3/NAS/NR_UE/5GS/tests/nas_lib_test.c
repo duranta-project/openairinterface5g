@@ -17,6 +17,7 @@
 #include "FGSNASSecurityModeReject.h"
 #include "fgmm_authentication_reject.h"
 #include "nr_nas_msg.h"
+#include "PduSessionEstablishmentAccept.h"
 
 configmodule_interface_t *uniqCfg = NULL;
 
@@ -486,6 +487,50 @@ static void test_msg_headers(void)
   AssertFatal(decode_5gsm_msg_header(&sm_header, sm, sizeof(sm) - 1) < 0, "decode_5gsm_msg_header() accepted a truncated header\n");
 }
 
+static void test_initial_qos_rules(void)
+{
+  // TS 24.501 §8.3.2: synthetic Establishment Accept bodies, without the 5GSM header.
+  uint8_t dedicated[] = {7, 0, 8, 0x21, 0x31, 3, 0x40, 0xc3, 0x50, 7, 5};
+  uint8_t fallback[] = {3, 0, 6, 0x31, 0x21, 1, 1, 10, 9};
+  uint8_t ambr[] = {6, 6, 0, 100, 6, 0, 100};
+  pdu_session_establishment_accept_msg_t *msg = calloc_or_fail(1, sizeof(*msg));
+  for (int test = 0; test < 3; test++) {
+    uint8_t body[3 + sizeof(dedicated) + sizeof(fallback) + sizeof(ambr)] = {0x11};
+    bool default_first = test != 0;
+    bool single = test == 2;
+    body[2] = sizeof(fallback) + (single ? 0 : sizeof(dedicated));
+    if (default_first)
+      memcpy(body + 3, fallback, sizeof(fallback));
+    if (!single)
+      memcpy(body + 3 + (default_first ? sizeof(fallback) : 0), dedicated, sizeof(dedicated));
+    if (!default_first)
+      memcpy(body + 3 + sizeof(dedicated), fallback, sizeof(fallback));
+    memcpy(body + 3 + body[2], ambr, sizeof(ambr));
+
+    memset(msg, 0, sizeof(*msg));
+    int length = 3 + body[2] + sizeof(ambr);
+    int decoded = decode_pdu_session_establishment_accept_msg(msg, body, length);
+    AssertFatal(decoded == length, "Initial Accept body length mismatch\n");
+    AssertFatal(msg->qos_rules.num_rules == (single ? 1 : 2),
+                "Initial Accept decoded %d QoS rules, expected %d\n",
+                msg->qos_rules.num_rules,
+                single ? 1 : 2);
+    const qos_rule_t *default_rule = &msg->qos_rules.rule[default_first ? 0 : 1];
+    AssertFatal(default_rule->id == 3 && default_rule->dqr && default_rule->qfi == 9,
+                "Default QoS rule was not preserved\n");
+    if (!single) {
+      const qos_rule_t *port_rule = &msg->qos_rules.rule[default_first ? 1 : 0];
+      AssertFatal(port_rule->id == 7 && !port_rule->dqr && port_rule->qfi == 5 && port_rule->precedence == 7,
+                  "Dedicated QoS rule was not preserved\n");
+      AssertFatal(port_rule->num_packet_filters == 1 && port_rule->packet_filters[0].num_components == 1
+                      && port_rule->packet_filters[0].components[0].type == PF_COMP_SINGLE_LOCAL_PORT
+                      && port_rule->packet_filters[0].components[0].value.single_port == 50000,
+                  "Dedicated QoS rule lost its local port filter\n");
+    }
+  }
+  free(msg);
+}
+
 int main()
 {
   // Initialize logging system
@@ -502,5 +547,6 @@ int main()
   test_auth_reject();
   test_security_mode_reject();
   test_msg_headers();
+  test_initial_qos_rules();
   return 0;
 }
