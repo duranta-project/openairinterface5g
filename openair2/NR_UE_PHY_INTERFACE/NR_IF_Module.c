@@ -193,14 +193,14 @@ static int8_t handle_dlsch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_i
 {
   fapi_nr_rx_indication_body_t *rx = &dl_info->rx_ind->rx_indication_body[pdu_id];
   if (mac->ra.ra_state != nrRA_WAIT_RAR) // no HARQ for MSG2
-    update_harq_status(mac, rx->pdsch_pdu.harq_pid, rx->pdsch_pdu.cw_idx, rx->pdsch_pdu.ack_nack);
+    update_harq_status(mac, rx->pdsch_pdu.harq_pid, rx->pdsch_pdu.tb_idx, rx->pdsch_pdu.ack_nack);
   if (!rx->pdsch_pdu.ack_nack)
     return 0;
   // TS 38.321 5.3.2.2: a retransmission of a TB already successfully decoded is acknowledged
   // but not delivered again (e.g. Msg4 retransmitted because the gNB missed its HARQ-ACK)
   // During contention resolution always deliver: the NDI of the first TC-RNTI assignment is toggled
   if (rx->pdu_type == FAPI_NR_RX_PDU_TYPE_DLSCH) {
-    NR_UE_DL_HARQ_STATUS_t *harq = &mac->dl_harq_info[rx->pdsch_pdu.harq_pid][rx->pdsch_pdu.cw_idx];
+    NR_UE_DL_HARQ_STATUS_t *harq = &mac->dl_harq_info[rx->pdsch_pdu.harq_pid][rx->pdsch_pdu.tb_idx];
     bool contention_resolution = mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION || mac->ra.ra_state == nrRA_WAIT_MSGB;
     // with HARQ feedback disabled for this process (TS 38.321 5.3.2.1, NTN), there is no retransmission: the gNB sends
     // a new TB without toggling the NDI
@@ -231,9 +231,9 @@ static int8_t handle_l1_measurements(NR_UE_MAC_INST_t *mac, frame_t frame, int s
   return 0;
 }
 
-void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, int cw_idx, uint8_t ack_nack)
+void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, int tb_idx, uint8_t ack_nack)
 {
-  NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[harq_pid][cw_idx];
+  NR_UE_DL_HARQ_STATUS_t *current_harq = &mac->dl_harq_info[harq_pid][tb_idx];
 
   if (current_harq->active) {
     LOG_D(PHY,"Updating harq_status for harq_id %d, ack/nak %d\n", harq_pid, current_harq->ack);

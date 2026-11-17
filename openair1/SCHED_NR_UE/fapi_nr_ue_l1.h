@@ -28,6 +28,6 @@ void nr_ue_sl_phy_config_request(nr_sl_phy_config_t *phy_config);
    \param synch_request including target_Nid_cell*/
 void nr_ue_synch_request(nr_synch_request_t *synch_request);
 
-void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, int cw_idx, uint8_t ack_nack);
+void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, int tb_idx, uint8_t ack_nack);
 
 #endif
