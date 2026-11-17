@@ -787,6 +787,36 @@ void init_timeshift_rotation(const int ofdm_symbol_size,
   fftshift_inplace(timeshift_symbol_rotation, nbins, ofdm_symbol_size);
 }
 
+/* the UEs of a process with the same numerology share one table: one copy per UE thread (32 KB each, read for every
+   demodulated symbol) is out of the caches with many UEs per host */
+const c16_t *nr_shared_timeshift_rotation(const int ofdm_symbol_size,
+                                          const int nbins,
+                                          const int nb_prefix_samples,
+                                          const uint ofdm_offset_divisor)
+{
+  static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+  static struct {
+    int ofdm_symbol_size, nbins, nb_prefix_samples;
+    uint ofdm_offset_divisor;
+    c16_t *table;
+  } tables[8];
+  static int nb_tables;
+  c16_t *table = NULL;
+  pthread_mutex_lock(&lock);
+  for (int i = 0; i < nb_tables && !table; i++)
+    if (tables[i].ofdm_symbol_size == ofdm_symbol_size && tables[i].nbins == nbins
+        && tables[i].nb_prefix_samples == nb_prefix_samples && tables[i].ofdm_offset_divisor == ofdm_offset_divisor)
+      table = tables[i].table;
+  if (!table && nb_tables < sizeofArray(tables)) {
+    table = malloc16(ofdm_symbol_size * sizeof(*table));
+    AssertFatal(table, "out of memory\n");
+    init_timeshift_rotation(ofdm_symbol_size, nbins, nb_prefix_samples, ofdm_offset_divisor, table);
+    tables[nb_tables++] = (typeof(tables[0])){ofdm_symbol_size, nbins, nb_prefix_samples, ofdm_offset_divisor, table};
+  }
+  pthread_mutex_unlock(&lock);
+  return table; // NULL when the table list is full: the caller keeps its own table
+}
+
 c16_t nr_layer_precoder(int sz, c16_t datatx_F_precoding[][sz], const char *prec_matrix, uint8_t n_layers, int32_t re_offset)
 {
   c16_t precodatatx_F = {0};

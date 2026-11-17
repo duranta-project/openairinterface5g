@@ -148,6 +148,11 @@ void init_timeshift_rotation(const int ofdm_symbol_size,
                              const int nb_prefix_samples,
                              const uint ofdm_offset_divisor,
                              c16_t *timeshift_symbol_rotation);
+/// a timeshift rotation table built once per parameter set for the whole process, read-only
+const c16_t *nr_shared_timeshift_rotation(const int ofdm_symbol_size,
+                                          const int nbins,
+                                          const int nb_prefix_samples,
+                                          const uint ofdm_offset_divisor);
 
 void apply_nr_rotation_symbol_fftshifted_RX(const int symbols_per_slot,
                                             const int slots_per_subframe,
