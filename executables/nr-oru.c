@@ -663,6 +663,7 @@ void oru_init_frame_parms(ORU_t *oru)
   }
 }
 
+// txdataF: one symbol in the fftshifted layout of the N_RB_DL carrier (contiguous PRBs), guard bins zero
 void fft_and_cp_insertion(NR_DL_FRAME_PARMS *fp, c16_t *txdataF, c16_t *txdata, int slot, int symbol)
 {
   int nb_prefix_samples = fp->nb_prefix_samples;
@@ -677,7 +678,13 @@ void fft_and_cp_insertion(NR_DL_FRAME_PARMS *fp, c16_t *txdataF, c16_t *txdata, 
       }
     }
   }
-  PHY_ofdm_mod((int *)txdataF, (int *)txdata, fp->ofdm_symbol_size, 1, nb_prefix_samples, CYCLIC_PREFIX);
+  PHY_ofdm_mod_shifted((int *)txdataF,
+                       (int *)txdata,
+                       fp->ofdm_symbol_size,
+                       1,
+                       nb_prefix_samples,
+                       CYCLIC_PREFIX,
+                       fp->N_RB_DL * NR_NB_SC_PER_RB);
 }
 
 static void dl_symbol_completed(ORU_t *oru, uint64_t abs_symbol)
@@ -698,14 +705,11 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
   uint32_t slot_offset = get_samples_slot_timestamp(fp, slot);
   uint32_t symbol_offset = get_samples_symbol_timestamp(fp, slot, symbol);
 
-  __attribute__((aligned(64))) c16_t txdataF_shifted[fp->ofdm_symbol_size];
-  memset(txdataF_shifted, 0, sizeof(txdataF_shifted));
   for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
     // txDataF is already phase-rotated by combine_dl_streams() - don't rotate again.
-    // Inverse FFT shift: contiguous PRB format received from the DU -> layout expected by the IDFT
-    fftshift_inverse(txDataF[aatx], txdataF_shifted, fp->N_RB_DL * NR_NB_SC_PER_RB, fp->ofdm_symbol_size);
+    // Contiguous PRB format received from the DU: the band-limited IDFT reads it directly
     fft_and_cp_insertion(ru->nr_frame_parms,
-                         txdataF_shifted,
+                         txDataF[aatx],
                          (c16_t *)&ru->common.txdata[aatx][slot_offset + symbol_offset],
                          slot,
                          symbol);
@@ -787,7 +791,9 @@ void *oru_north_read_worker(void *arg)
   RU_t *ru = (RU_t *)oru->ru;
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
 
-  __attribute__((aligned(64))) c16_t txDataF[ru->nb_tx][fp->N_RB_DL * NR_NB_SC_PER_RB];
+  // One symbol per antenna: the band at [0, N_RB_DL * 12) written by combine_dl_streams(), the guard bins after it
+  // stay zero (input of the band-limited IDFT)
+  __attribute__((aligned(64))) c16_t txDataF[ru->nb_tx][fp->ofdm_symbol_size];
   memset(txDataF, 0, sizeof(txDataF));
   c16_t *txDataF_ptr[ru->nb_tx];
   for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
@@ -964,50 +970,29 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
     return;
   }
 
-  // The job's PRBs as at most two runs of the unshifted FFT window
+  // The job's PRBs [re0, re1) of the band: contiguous in the fftshifted FFT windows
   const int nbins = fp->N_RB_UL * NR_NB_SC_PER_RB;
-  oru_fft_run_t runs[2];
-  const int nruns = oru_prb_fft_runs(fp->ofdm_symbol_size, nbins, job->start_prb, job->num_prb, runs);
+  const int re0 = min(job->start_prb * NR_NB_SC_PER_RB, nbins);
+  const int re1 = min((job->start_prb + job->num_prb) * NR_NB_SC_PER_RB, nbins);
 
-  const c16_t *fft;
-  c16_t combined[fp->ofdm_symbol_size] __attribute__((aligned(32)));
+  c16_t rxdataF[nbins] __attribute__((aligned(32)));
   if (beamforming) {
     // UL Rx beamforming: combine the per-antenna FFTs via the codebook over this job's PRBs only
-    for (int r = 0; r < nruns; r++)
-      memset(&combined[runs[r].bin], 0, runs[r].len * sizeof(c16_t));
-    combine_ul_beam_prbs(ant_fft,
-                         ru->nb_rx,
-                         fp->ofdm_symbol_size,
-                         nbins,
-                         job->start_prb,
-                         job->num_prb,
-                         cb,
-                         job->beam_id,
-                         aarx,
-                         combined);
-    fft = combined;
-  } else {
-    // No beamforming: the received antenna's FFT, shared by every section of that antenna in this symbol
-    fft = ant_fft[aarx];
-  }
-
-  // FFT shift: FFT output layout -> contiguous PRB format sent to the DU
-  c16_t rxdataF[nbins] __attribute__((aligned(32)));
-  int nre = 0;
-  for (int r = 0; r < nruns; r++) {
-    memcpy(&rxdataF[runs[r].re], &fft[runs[r].bin], runs[r].len * sizeof(c16_t));
-    nre += runs[r].len;
+    combine_ul_beam_prbs(ant_fft, ru->nb_rx, nbins, job->start_prb, job->num_prb, cb, job->beam_id, aarx, rxdataF);
+  } else if (re1 > re0) {
+    // No beamforming: the received antenna's FFT is shared by every section of that antenna in this symbol, so
+    // the job's PRBs are copied before the rotation
+    memcpy(&rxdataF[re0], &ant_fft[aarx][re0], (re1 - re0) * sizeof(c16_t));
   }
 
   // Phase decompensation (conjugate rotation for UL); PRB offsets keep the 16-byte alignment it needs
-  if (nre > 0) {
-    const int re0 = runs[0].re;
+  if (re1 > re0) {
     apply_nr_rotation_symbol_fftshifted_RX(fp->symbols_per_slot,
                                            fp->slots_per_subframe,
                                            fp->timeshift_symbol_rotation + re0,
                                            rxdataF + re0,
                                            fp->symbol_rotation[link_type_ul],
-                                           nre / NR_NB_SC_PER_RB,
+                                           (re1 - re0) / NR_NB_SC_PER_RB,
                                            slot,
                                            symbol);
   }
@@ -1108,12 +1093,12 @@ static void ul_fft_pool_task(void *args)
     if (a >= 0 && a < nb_rx)
       used[a] = true;
   }
-  // Window offset, N_TA and frame-boundary wrap all inside nr_symbol_fep_ul().
+  // Window offset, N_TA and frame-boundary wrap all inside nr_symbol_fep_ul_shifted(); its output is the band in
+  // PRB order at [0, N_RB_UL * 12) of each window.
   for (int a = 0; a < nb_rx; a++) {
     if (!used[a])
       continue;
-    nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[a], &item->ant_fft[a * n], item->symbol, item->slot,
-                     ru->N_TA_offset);
+    nr_symbol_fep_ul_shifted(fp, (c16_t *)ru->common.rxdata[a], &item->ant_fft[a * n], item->symbol, item->slot, ru->N_TA_offset);
   }
 
   item->refs = item->nb_jobs; // plain store: readers only exist after the pushes below

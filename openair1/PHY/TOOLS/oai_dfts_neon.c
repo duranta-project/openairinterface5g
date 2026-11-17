@@ -7172,4 +7172,48 @@ void idft_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, unsig
   dft_mixed_radix_c16_scaled((const c16_t *)input, (c16_t *)output, idft_ftab[sizeidx].size, DFT_DIR_INVERSE);
 }
 
+/* Pruned entry points (see tools_defs.h). No pruned kernels here: the full transform runs on a
+ * natural-order work buffer and the band is copied in or out, as in the x86 fallback. */
+void dft_pruned_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout)
+{
+  AssertFatal(sizeidx < DFT_SIZE_IDXTABLESIZE, "Invalid dft size index %i\n", sizeidx);
+  const int N = dft_ftab[sizeidx].size;
+  AssertFatal(first_used >= 0 && first_used < N && num_used > 0 && num_used <= N, "Invalid pruned DFT band\n");
+  if (layout != DFT_PRUNE_PACKED && input != output) {
+    dft_mixed_radix_c16_scaled((const c16_t *)input, (c16_t *)output, N, DFT_DIR_FORWARD);
+    return;
+  }
+  /* all N bins, like the x86 version: PACKED is the rotation of the dft() output; in-place goes through nat */
+  c16_t nat[N] __attribute__((aligned(32)));
+  dft_mixed_radix_c16_scaled((const c16_t *)input, nat, N, DFT_DIR_FORWARD);
+  if (layout != DFT_PRUNE_PACKED) {
+    memcpy(output, nat, sizeof(c16_t) * N);
+    return;
+  }
+  memcpy(output, nat + first_used, sizeof(c16_t) * (N - first_used));
+  memcpy((c16_t *)output + N - first_used, nat, sizeof(c16_t) * first_used);
+}
+
+void idft_pruned_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout)
+{
+  AssertFatal(sizeidx < IDFT_SIZE_IDXTABLESIZE, "Invalid idft size index %i\n", sizeidx);
+  const int N = idft_ftab[sizeidx].size;
+  AssertFatal(first_used >= 0 && first_used < N && num_used > 0 && num_used <= N, "Invalid pruned IDFT band\n");
+  /* gather the band into a natural-order buffer with zero guard bins */
+  const int packed = layout == DFT_PRUNE_PACKED;
+  c16_t nat[N] __attribute__((aligned(32)));
+  const c16_t *in = (const c16_t *)input;
+  const int n1 = first_used + num_used <= N ? num_used : N - first_used; /* bins first_used .. */
+  const int n2 = num_used - n1; /* bins 0 .. n2-1 */
+  memcpy(nat + first_used, in + (packed ? 0 : first_used), sizeof(c16_t) * n1);
+  memcpy(nat, in + (packed ? n1 : 0), sizeof(c16_t) * n2);
+  if (n2) /* guard = [n2, first_used) */
+    memset(nat + n2, 0, sizeof(c16_t) * (first_used - n2));
+  else { /* guard = [first_used + num_used, N) and [0, first_used) */
+    memset(nat + first_used + num_used, 0, sizeof(c16_t) * (N - first_used - num_used));
+    memset(nat, 0, sizeof(c16_t) * first_used);
+  }
+  dft_mixed_radix_c16_scaled(nat, (c16_t *)output, N, DFT_DIR_INVERSE);
+}
+
 #endif /* __arm__ || __aarch64__ */

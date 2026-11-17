@@ -691,12 +691,12 @@ int main(int argc, char **argv){
 
         for (l = 0; l < frame_parms->symbols_per_slot; l++) {
           for (aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
-            nr_symbol_fep_ul(frame_parms,
-                             (c16_t *)ru->common.rxdata[aa],
-                             (c16_t *)&ru->common.rxdataF[aa][frame_parms->ofdm_symbol_size * l],
-                             l,
-                             slot,
-                             ru->N_TA_offset);
+            nr_symbol_fep_ul_shifted(frame_parms,
+                                     (c16_t *)ru->common.rxdata[aa],
+                                     (c16_t *)&ru->common.rxdataF[aa][frame_parms->ofdm_symbol_size * l],
+                                     l,
+                                     slot,
+                                     ru->N_TA_offset);
           }
         }
 

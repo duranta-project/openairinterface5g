@@ -33,6 +33,7 @@
 
 #define OAI_DFTS_INTERNAL
 #include "oai_dfts_common.h"
+#include "oai_dfts_prune.h"
 #include "oai_dfts_pow2.h"
 #include "oai_dfts_radix9.h"
 #include "oai_dfts_mixed.h"
@@ -318,6 +319,323 @@ void idft_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, unsig
   idft_ftab[sizeidx].func(input, output, scale_flag);
 }
 
+/* Pruned interface (see tools_defs.h): only the band of num_used bins starting at first_used
+ * (natural order, modulo N) is used. layout DFT_PRUNE_NATURAL keeps bin k at index k,
+ * DFT_PRUNE_PACKED puts bin (first_used + j) mod N at index j.
+ * NR band (packed, first_used = N - num_used / 2): the kernels of the full transform with the halves of the
+ * spectrum swapped and the band offset applied in their output stores (DFT) or input loads (IDFT), see
+ * oai_dfts_prune.h. Other bands and sizes without a kernel: full transform and a copy. */
+static __attribute__((noinline)) void dft384_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  c16_t b[24 * 16] __attribute__((aligned(64)));
+  radix24_pfa_stage_384(src, NULL, b, DFT_DIR_FORWARD);
+  for (int first = 0; first < 24; first += 8)
+    dft16x8_twiddle_scaled_store_body(b, 16, pout->out, 24, first, 8, pout, DFT_DIR_FORWARD);
+}
+
+static __attribute__((noinline)) void dft512_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  simde__m256i leaf[64] __attribute__((aligned(64)));
+  dft512_radix8_leaf_inputs(src, NULL, leaf, DFT_DIR_FORWARD);
+  dft64x8_store_body(leaf, pout->out, 8, 0, pout, DFT_DIR_FORWARD);
+}
+
+static __attribute__((noinline)) void dft768_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  c16_t b[24 * 32] __attribute__((aligned(64)));
+  radix24_pfa_stage_768(src, NULL, b, DFT_DIR_FORWARD);
+  for (int first = 0; first < 24; first += 8)
+    dft32x8_twiddle_scaled_store_body(b, 32, pout->out, 24, first, 8, pout, DFT_DIR_FORWARD);
+}
+
+static __attribute__((noinline)) void dft1024_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  simde__m256i leaf[2][64] __attribute__((aligned(64)));
+  dft1024_radix16_leaf_inputs(src, NULL, leaf, DFT_DIR_FORWARD);
+  dft64x8_store_body(leaf[0], pout->out, 16, 0, pout, DFT_DIR_FORWARD);
+  dft64x8_store_body(leaf[1], pout->out, 16, 8, pout, DFT_DIR_FORWARD);
+}
+
+static __attribute__((noinline)) void dft1536_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  c16_t b[24 * 64] __attribute__((aligned(64)));
+  radix24_stage_1536(src, b, DFT_DIR_FORWARD);
+  for (int first = 0; first < 24; first += 8)
+    dft64x8_branch_major_store_band(b, 64, pout, 24, first);
+}
+
+static __attribute__((noinline)) void dft2048_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  simde__m256i child_in[16][16] __attribute__((aligned(64)));
+  dft2048_radix8x16_leaf_inputs(src, NULL, child_in, DFT_DIR_FORWARD);
+  for (int r16 = 0; r16 < 16; r16++) {
+    simde__m256i y[16];
+    dft16x8_w16folded(child_in[r16], y, DFT_DIR_FORWARD);
+    for (int k = 0; k < 16; k++) /* natural bin 128 k + 8 r16 is at swapped index 128 (k ^ 8) + 8 r16 */
+      dft_band_store8(pout, 2048, 128 * (k ^ 8) + 8 * r16, k < 8, y[k]);
+  }
+}
+
+static __attribute__((noinline)) void dft3072_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  simde__m256i work[3][2][64] __attribute__((aligned(64)));
+  dft3072_r24_r2_to_batches(src, NULL, work, DFT_DIR_FORWARD);
+  for (int group = 0; group < 3; group++) {
+    dft64x8_store_with_dc_band_body(work[group][0], pout->out, 48, 8 * group, pout, DFT_DIR_FORWARD);
+    dft64x8_store_with_dc_band_body(work[group][1], pout->out, 48, 24 + 8 * group, pout, DFT_DIR_FORWARD);
+  }
+}
+
+static __attribute__((noinline)) void dft4096_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  simde__m256i leaf_in[8][64] __attribute__((aligned(64)));
+  dft4096_radix8x8_leaf_inputs(src, NULL, leaf_in, DFT_DIR_FORWARD);
+  for (int r = 0; r < 8; r++)
+    dft64x8_store_body(leaf_in[r], pout->out, 64, 8 * r, pout, DFT_DIR_FORWARD);
+}
+
+static __attribute__((noinline)) void dft6144_band_forward(const c16_t *src, c16_t *out, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(NULL, out, d, edge_buf);
+  const dft_band_t *pout = &band;
+  simde__m256i work[3][16][16] __attribute__((aligned(64)));
+  dft6144_r24_parent_to_batches(src, NULL, work, DFT_DIR_FORWARD);
+  for (int group = 0; group < 3; group++)
+    dft6144_dft256x8_store(work[group], pout->out, 8 * group, pout, DFT_DIR_FORWARD);
+}
+
+static __attribute__((noinline)) void dft384_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  c16_t b[24 * 16] __attribute__((aligned(64)));
+  radix24_pfa_stage_384(NULL, &band, b, DFT_DIR_INVERSE);
+  for (int first = 0; first < 24; first += 8)
+    dft16x8_twiddle_scaled_store(b, 16, dst, 24, first, 8, DFT_DIR_INVERSE);
+}
+
+static __attribute__((noinline)) void dft512_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  const dft_band_t *pin = &band;
+  simde__m256i leaf[64] __attribute__((aligned(64)));
+  dft512_radix8_leaf_inputs(NULL, pin, leaf, DFT_DIR_INVERSE);
+  dft64x8_store(leaf, dst, 8, 0, DFT_DIR_INVERSE);
+}
+
+static __attribute__((noinline)) void dft1024_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  const dft_band_t *pin = &band;
+  simde__m256i leaf[2][64] __attribute__((aligned(64)));
+  dft1024_radix16_leaf_inputs(NULL, pin, leaf, DFT_DIR_INVERSE);
+  dft64x8_store(leaf[0], dst, 16, 0, DFT_DIR_INVERSE);
+  dft64x8_store(leaf[1], dst, 16, 8, DFT_DIR_INVERSE);
+}
+
+static __attribute__((noinline)) void dft2048_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  const dft_band_t *pin = &band;
+  simde__m256i child_in[16][16] __attribute__((aligned(64)));
+  dft2048_radix8x16_leaf_inputs(NULL, pin, child_in, DFT_DIR_INVERSE);
+  for (int r16 = 0; r16 < 16; r16++) {
+    simde__m256i y[16];
+    dft16x8_w16folded(child_in[r16], y, DFT_DIR_INVERSE);
+    for (int k = 0; k < 16; k++)
+      simde_mm256_storeu_si256((simde__m256i *)(dst + 128 * k + 8 * r16), y[k]);
+  }
+}
+
+static __attribute__((noinline)) void dft4096_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  const dft_band_t *pin = &band;
+  simde__m256i leaf_in[8][64] __attribute__((aligned(64)));
+  dft4096_radix8x8_leaf_inputs(NULL, pin, leaf_in, DFT_DIR_INVERSE);
+  for (int r = 0; r < 8; r++)
+    dft64x8_store(leaf_in[r], dst, 64, 8 * r, DFT_DIR_INVERSE);
+}
+
+static __attribute__((noinline)) void dft768_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  c16_t b[24 * 32] __attribute__((aligned(64)));
+  radix24_pfa_stage_768(NULL, &band, b, DFT_DIR_INVERSE);
+  for (int first = 0; first < 24; first += 8)
+    dft32x8_twiddle_scaled_store(b, 32, dst, 24, first, 8, DFT_DIR_INVERSE);
+}
+
+static __attribute__((noinline)) void dft1536_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  c16_t b[24 * 64] __attribute__((aligned(64)));
+  radix24_stage_1536_band(&band, b, DFT_DIR_INVERSE);
+  for (int first = 0; first < 24; first += 8)
+    dft64x8_branch_major_store(b, 64, dst, 24, first, DFT_DIR_INVERSE);
+}
+
+static __attribute__((noinline)) void dft3072_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  simde__m256i work[3][2][64] __attribute__((aligned(64)));
+  dft3072_r24_r2_to_batches(NULL, &band, work, DFT_DIR_INVERSE);
+  for (int group = 0; group < 3; group++)
+    dft3072_dft64x8_pair_store(work[group], dst, 8 * group, DFT_DIR_INVERSE);
+}
+
+static __attribute__((noinline)) void dft6144_band_inverse(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf)
+{
+  const dft_band_t band = dft_band_make(in, NULL, d, edge_buf);
+  simde__m256i work[3][16][16] __attribute__((aligned(64)));
+  dft6144_r24_parent_to_batches(NULL, &band, work, DFT_DIR_INVERSE);
+  for (int group = 0; group < 3; group++)
+    dft6144_dft256x8_store(work[group], dst, 8 * group, NULL, DFT_DIR_INVERSE);
+}
+
+/* The band is passed as scalars (registers) and rebuilt in the kernel: a struct argument is copied through the
+ * stack, and reading it back as wide loads from narrower stores stalls store forwarding. */
+typedef void (*dft_band_forward_t)(const c16_t *src, c16_t *out, int d, c16_t *edge_buf);
+typedef void (*dft_band_inverse_t)(const c16_t *in, c16_t *dst, int d, c16_t *edge_buf);
+
+/* Kernel of a size for an NR band, or NULL. */
+static dft_band_forward_t dft_band_forward_kernel(int N)
+{
+  switch (N) {
+    case 384:
+      return dft384_band_forward;
+    case 512:
+      return dft512_band_forward;
+    case 768:
+      return dft768_band_forward;
+    case 1024:
+      return dft1024_band_forward;
+    case 1536:
+      return dft1536_band_forward;
+    case 2048:
+      return dft2048_band_forward;
+    case 3072:
+      return dft3072_band_forward;
+    case 4096:
+      return dft4096_band_forward;
+    case 6144:
+      return dft6144_band_forward;
+    default:
+      return NULL;
+  }
+}
+
+static dft_band_inverse_t dft_band_inverse_kernel(int N)
+{
+  switch (N) {
+    case 384:
+      return dft384_band_inverse;
+    case 512:
+      return dft512_band_inverse;
+    case 768:
+      return dft768_band_inverse;
+    case 1024:
+      return dft1024_band_inverse;
+    case 1536:
+      return dft1536_band_inverse;
+    case 2048:
+      return dft2048_band_inverse;
+    case 3072:
+      return dft3072_band_inverse;
+    case 4096:
+      return dft4096_band_inverse;
+    case 6144:
+      return dft6144_band_inverse;
+    default:
+      return NULL;
+  }
+}
+
+static void dft_prune_check(int N, int first_used, int num_used, int layout)
+{
+  AssertFatal(first_used >= 0 && first_used < N && num_used > 0 && num_used <= N,
+              "Invalid pruned DFT band: N %d first %d num %d\n",
+              N,
+              first_used,
+              num_used);
+  AssertFatal(layout == DFT_PRUNE_NATURAL || layout == DFT_PRUNE_PACKED, "Invalid pruned DFT layout %d\n", layout);
+}
+
+/* The NR band of the kernels: packed, centred on bin 0. */
+static int dft_prune_is_nr_band(int N, int first_used, int num_used, int layout)
+{
+  return layout == DFT_PRUNE_PACKED && !(num_used & 1) && first_used == N - num_used / 2;
+}
+
+void dft_pruned_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout)
+{
+  AssertFatal(sizeidx < DFT_SIZE_IDXTABLESIZE, "Invalid dft size index %i\n", sizeidx);
+  const int N = dft_ftab[sizeidx].size;
+  dft_prune_check(N, first_used, num_used, layout);
+  if (layout == DFT_PRUNE_NATURAL) {
+    dft_implementation(sizeidx, input, output, 1);
+    return;
+  }
+  const dft_band_forward_t kernel = dft_prune_is_nr_band(N, first_used, num_used, layout) ? dft_band_forward_kernel(N) : NULL;
+  if (kernel) {
+    c16_t edge[8] __attribute__((aligned(32)));
+    const int d = (N - num_used) / 2;
+    kernel((const c16_t *)input, (c16_t *)output, d, edge);
+    dft_band_finish((c16_t *)output, N, d, edge);
+    return;
+  }
+  /* No kernel: full transform into a work buffer, then rotate it into the output. */
+  c16_t nat[N] __attribute__((aligned(32)));
+  dft_implementation(sizeidx, input, (int16_t *)nat, 1);
+  memcpy(output, nat + first_used, sizeof(c16_t) * (N - first_used));
+  memcpy((c16_t *)output + N - first_used, nat, sizeof(c16_t) * first_used);
+}
+
+void idft_pruned_implementation(uint8_t sizeidx, int16_t *input, int16_t *output, int first_used, int num_used, int layout)
+{
+  AssertFatal(sizeidx < IDFT_SIZE_IDXTABLESIZE, "Invalid idft size index %i\n", sizeidx);
+  const int N = idft_ftab[sizeidx].size;
+  dft_prune_check(N, first_used, num_used, layout);
+  AssertFatal(((intptr_t)output & 0x1F) == 0, "Buffers should be 32-byte aligned %p", (void *)output);
+  const dft_band_inverse_t kernel = dft_prune_is_nr_band(N, first_used, num_used, layout) ? dft_band_inverse_kernel(N) : NULL;
+  if (kernel) {
+    c16_t edge[8] __attribute__((aligned(32)));
+    const int d = (N - num_used) / 2;
+    dft_band_edge_load((const c16_t *)input, d, edge);
+    kernel((const c16_t *)input, (c16_t *)output, d, edge);
+    return;
+  }
+  /* No kernel: gather the band into a natural-order buffer with zero guard bins. */
+  const int packed = layout == DFT_PRUNE_PACKED;
+  c16_t nat[N] __attribute__((aligned(32)));
+  const c16_t *in = (const c16_t *)input;
+  const int n1 = first_used + num_used <= N ? num_used : N - first_used; /* bins first_used .. */
+  const int n2 = num_used - n1; /* bins 0 .. n2-1 */
+  memcpy(nat + first_used, in + (packed ? 0 : first_used), sizeof(c16_t) * n1);
+  memcpy(nat, in + (packed ? n1 : 0), sizeof(c16_t) * n2);
+  if (n2) /* guard = [n2, first_used) */
+    memset(nat + n2, 0, sizeof(c16_t) * (first_used - n2));
+  else { /* guard = [first_used + num_used, N) and [0, first_used) */
+    memset(nat + first_used + num_used, 0, sizeof(c16_t) * (N - first_used - num_used));
+    memset(nat, 0, sizeof(c16_t) * first_used);
+  }
+  idft_ftab[sizeidx].func((int16_t *)nat, output, 1);
+}
 #undef DFT_BIND_R3_TWIDDLES
 #undef DFT_BIND_R5_TWIDDLES
 #undef DFT_R3_COEFFICIENTS_128
