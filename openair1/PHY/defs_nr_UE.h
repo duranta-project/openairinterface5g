@@ -666,10 +666,11 @@ typedef struct nr_rxtx_thread_data_s {
   UE_nr_rxtx_proc_t proc;
   PHY_VARS_NR_UE *UE;
   int writeBlockSize;
-  nr_phy_data_t phy_data;
   dynamic_barrier_t* next_barrier;
   uint64_t absolute_deadline_us;
   Actor_t *ul_actors;
+  /// RX only (not initialized in the TX messages)
+  nr_phy_data_t phy_data;
 } nr_rxtx_thread_data_t;
 
 typedef struct LDPCDecode_ue_s {
