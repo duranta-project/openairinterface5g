@@ -66,7 +66,9 @@ extern int sync_var;
 
 static nfapi_nr_pnf_p7_config_t *p7_config_g = NULL;
 static pnf_info pnf;
+#ifndef ENABLE_AERIAL
 static pthread_t pnf_p5_init_and_receive_pthread;
+#endif
 static bool has_sent_stop_ind = false;
 
 static void *pnf_allocate(size_t size)
