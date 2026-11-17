@@ -312,7 +312,7 @@ int config_check_intrange(configmodule_interface_t *cfg, paramdef_t *param)
   return -1;
 }
 
-int config_check_dblrange(configmodule_interface_t *cfg, paramdef_t *param)
+int config_check_dblrange(const configmodule_interface_t *cfg, const paramdef_t *param)
 {
   UNUSED(cfg);
   if (*param->dblptr >= param->chkPptr->s2a.okdblrange[0] && *param->dblptr <= param->chkPptr->s2a.okdblrange[1])
