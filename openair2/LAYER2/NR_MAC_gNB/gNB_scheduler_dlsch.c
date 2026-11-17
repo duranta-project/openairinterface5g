@@ -592,20 +592,73 @@ static int compare_beam_idx(const void *a, const void *b)
   return ((const nr_dl_candidate_t *)a)->alloc_beam_idx - ((const nr_dl_candidate_t *)b)->alloc_beam_idx;
 }
 
-/* Check retx feasibility against a new TDA.
- * Refits rbSize via nr_find_nb_rb so the new TDA preserves TBS.
- * Returns the new rbSize needed (>0), or 0 if infeasible. */
+/* Recompute TBS with the current MCS interpretation and DMRS configuration.
+ * Keep the original RB count when it still fits, otherwise require an exact refit. */
 uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,
                                    int tda,
                                    const NR_tda_info_t *tda_info,
                                    const NR_ServingCellConfigCommon_t *scc,
                                    uint16_t max_rbSize)
 {
-  NR_UE_sched_ctrl_t *sched_ctrl = &cand->UE->UE_sched_ctrl;
-  NR_UE_DL_BWP_t *dl_bwp = &cand->UE->current_DL_BWP;
-  const NR_sched_pdsch_t *orig = &sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
+  const NR_UE_DL_BWP_t *dl_bwp = &cand->UE->current_DL_BWP;
+  const NR_sched_pdsch_t *orig = &cand->UE->UE_sched_ctrl.harq_processes[cand->retx_harq_pid].sched_pdsch;
+  const int max_mcs = dl_bwp->mcsTableIdx == 1 ? 27 : 28;
+  if (cand->bwp_size <= 0 || max_rbSize == 0 || orig->tb_size == 0 || orig->nrOfLayers < 1 || orig->nrOfLayers > 4
+      || (dl_bwp->dci_format != NR_DL_DCI_FORMAT_1_0 && dl_bwp->dci_format != NR_DL_DCI_FORMAT_1_1)
+      || (dl_bwp->dci_format == NR_DL_DCI_FORMAT_1_0 && orig->nrOfLayers != 1) || dl_bwp->mcsTableIdx > 2 || orig->mcs > max_mcs
+      || nr_get_Qm_dl(orig->mcs, dl_bwp->mcsTableIdx) != orig->Qm || nr_get_code_rate_dl(orig->mcs, dl_bwp->mcsTableIdx) != orig->R)
+    return 0;
+  max_rbSize = min(max_rbSize, cand->bwp_size);
+
+  const int end_symbol = tda_info->startSymbolIndex + tda_info->nrOfSymbols;
+  const int symbols_per_slot = dl_bwp->cyclicprefix ? 12 : 14;
+  if (!tda_info->valid_tda || tda_info->startSymbolIndex < 0 || end_symbol > symbols_per_slot
+      || (tda_info->mapping_type != typeA && tda_info->mapping_type != typeB)
+      || tda_info->nrOfSymbols < (tda_info->mapping_type == typeA ? 3 : 2)
+      || (tda_info->mapping_type == typeB && tda_info->nrOfSymbols > 13))
+    return 0;
+
+  // get_dl_dmrs_params requires the current mapping's setup when PDSCH is configured.
+  const NR_DMRS_DownlinkConfig_t *dmrs_config = NULL;
+  const NR_PDSCH_Config_t *pdsch = dl_bwp->pdsch_Config;
+  if (pdsch) {
+    if (tda_info->mapping_type == typeA) {
+      if (!pdsch->dmrs_DownlinkForPDSCH_MappingTypeA
+          || pdsch->dmrs_DownlinkForPDSCH_MappingTypeA->present != NR_SetupRelease_DMRS_DownlinkConfig_PR_setup)
+        return 0;
+      dmrs_config = pdsch->dmrs_DownlinkForPDSCH_MappingTypeA->choice.setup;
+    } else {
+      if (!pdsch->dmrs_DownlinkForPDSCH_MappingTypeB
+          || pdsch->dmrs_DownlinkForPDSCH_MappingTypeB->present != NR_SetupRelease_DMRS_DownlinkConfig_PR_setup)
+        return 0;
+      dmrs_config = pdsch->dmrs_DownlinkForPDSCH_MappingTypeB->choice.setup;
+    }
+    if (!dmrs_config)
+      return 0;
+  }
+  const long *additional_position = NULL;
+  if (dmrs_config && (tda_info->mapping_type == typeB || dl_bwp->dci_format != NR_DL_DCI_FORMAT_1_0))
+    additional_position = dmrs_config->dmrs_AdditionalPosition;
+  if (additional_position
+      && (*additional_position < NR_DMRS_DownlinkConfig__dmrs_AdditionalPosition_pos0
+          || *additional_position > NR_DMRS_DownlinkConfig__dmrs_AdditionalPosition_pos3))
+    return 0;
+  if (tda_info->mapping_type == typeA) {
+    const int l0 = scc->dmrs_TypeA_Position == NR_ServingCellConfigCommon__dmrs_TypeA_Position_pos2 ? 2 : 3;
+    if (tda_info->startSymbolIndex > l0 || end_symbol <= l0
+        || (l0 == 3
+            && (end_symbol < 5
+                || (additional_position && *additional_position == NR_DMRS_DownlinkConfig__dmrs_AdditionalPosition_pos3))))
+      return 0;
+  }
 
   NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, tda_info, orig->nrOfLayers);
+  const int dmrs_re = dmrs.N_PRB_DMRS * dmrs.N_DMRS_SLOT;
+  if (orig->rbSize > 0 && orig->rbSize <= max_rbSize
+      && (nr_compute_tbs(orig->Qm, orig->R, orig->rbSize, tda_info->nrOfSymbols, dmrs_re, 0, 0, orig->nrOfLayers) >> 3)
+             == orig->tb_size)
+    return orig->rbSize;
+
   uint32_t new_tbs;
   uint16_t new_rbSize;
   bool ok = nr_find_nb_rb(orig->Qm,
@@ -613,24 +666,106 @@ uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,
                           1,
                           orig->nrOfLayers,
                           tda_info->nrOfSymbols,
-                          dmrs.N_PRB_DMRS * dmrs.N_DMRS_SLOT,
+                          dmrs_re,
                           orig->tb_size,
                           1,
                           max_rbSize,
                           &new_tbs,
                           &new_rbSize);
-  if (!ok || new_tbs != orig->tb_size) {
-    LOG_D(NR_MAC, "[UE %04x] retx TDA change infeasible: new TBS %d != old TBS %d\n", cand->rnti, new_tbs, orig->tb_size);
+  if (!ok || new_tbs != orig->tb_size)
     return 0;
-  }
   LOG_D(NR_MAC,
-        "retx TDA change %d->%d feasible: rbSize %d->%d (TBS %d preserved)\n",
+        "retx current TDA %d->%d: rbSize %d->%d (TBS %d preserved)\n",
         orig->time_domain_allocation,
         tda,
         orig->rbSize,
         new_rbSize,
         orig->tb_size);
   return new_rbSize;
+}
+
+/* Search the current DCI-addressable list, preferring the requested TDA.
+ * A NULL map tests structural feasibility without temporary slot occupancy. */
+bool select_dl_retx_tda(nr_dl_candidate_t *cand,
+                        const NR_ServingCellConfigCommon_t *scc,
+                        int max_dl_symbols,
+                        const uint16_t *vrb_map,
+                        int preferred_tda)
+{
+  const NR_UE_sched_ctrl_t *sched_ctrl = &cand->UE->UE_sched_ctrl;
+  const NR_UE_DL_BWP_t *dl_bwp = &cand->UE->current_DL_BWP;
+  const int coresetid = sched_ctrl->coreset->controlResourceSetId;
+  const int ss_type = sched_ctrl->search_space->searchSpaceType->present;
+  NR_PDSCH_TimeDomainResourceAllocationList_t *list = get_dl_tdalist(dl_bwp, coresetid, ss_type, TYPE_C_RNTI_);
+  const int n_tda = list ? min(list->list.count, 16) : 16;
+  if (n_tda <= 0 || cand->bwp_size <= 0 || max_dl_symbols <= 0)
+    return false;
+
+  const NR_sched_pdsch_t *orig = &sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
+  // Preserve an already admitted overlap, but do not introduce an earlier PDSCH.
+  const int earliest_start =
+      min(sched_ctrl->sched_pdcch.StartSymbolIndex + sched_ctrl->sched_pdcch.DurationSymbols, orig->tda_info.startSymbolIndex);
+  for (int i = -1; i < n_tda; i++) {
+    const int tda = i < 0 ? preferred_tda : i;
+    if (tda < 0 || tda >= n_tda || (i >= 0 && tda == preferred_tda))
+      continue;
+    // This scheduler dispatches PDSCH in the DCI slot only.
+    if (list && (!list->list.array[tda] || (list->list.array[tda]->k0 && *list->list.array[tda]->k0 != 0)))
+      continue;
+    NR_tda_info_t info = get_dl_tda_info(dl_bwp, ss_type, tda, scc->dmrs_TypeA_Position, 1, TYPE_C_RNTI_, coresetid, false);
+    if (!info.valid_tda || info.startSymbolIndex < earliest_start || info.nrOfSymbols < 1
+        || info.startSymbolIndex + info.nrOfSymbols > min(max_dl_symbols, dl_bwp->cyclicprefix ? 12 : 14))
+      continue;
+    const uint16_t slbitmap = SL_to_bitmap(info.startSymbolIndex, info.nrOfSymbols);
+    int max_rbs = cand->bwp_size;
+    if (vrb_map) {
+      int start;
+      max_rbs = find_largest_free_block(vrb_map, slbitmap, cand->bwp_start, cand->bwp_size, &start);
+    }
+    const int needed_rbs = check_dl_retx_feasibility(cand, tda, &info, scc, max_rbs);
+    if (needed_rbs == 0)
+      continue;
+    if (vrb_map) {
+      int start, size;
+      if (!get_rb_alloc(needed_rbs, needed_rbs, cand->bwp_start, cand->bwp_size, vrb_map, slbitmap, &start, &size))
+        continue;
+    }
+    cand->sched_pdsch.time_domain_allocation = tda;
+    cand->sched_pdsch.tda_info = info;
+    cand->alloc_slbitmap = slbitmap;
+    cand->retx_rbSize = needed_rbs;
+    return true;
+  }
+  return false;
+}
+
+/* Retire incompatible HARQs before policy callbacks can reserve slot resources.
+ * Use the longest physical DL prefix in the period, not this slot's occupancy. */
+static int remove_incompatible_dl_retx(nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n)
+{
+  const frame_structure_t *fs = &cell->frame_structure;
+  int max_dl_symbols = fs->frame_type == FDD ? 14 : 0;
+  for (int s = 0; fs->frame_type == TDD && s < fs->numb_slots_period; s++) {
+    const tdd_bitmap_t *b = &fs->period_cfg.tdd_slot_bitmap[s];
+    const int symbols = b->slot_type == TDD_NR_DOWNLINK_SLOT ? 14 : b->slot_type == TDD_NR_MIXED_SLOT ? b->num_dl_symbols : 0;
+    max_dl_symbols = max(max_dl_symbols, symbols);
+  }
+  int remaining = 0;
+  for (int i = 0; i < n; i++) {
+    nr_dl_candidate_t *cand = &candidates[i];
+    if (cand->is_retx) {
+      nr_dl_candidate_t trial = *cand;
+      const NR_UE_sched_ctrl_t *sched_ctrl = &cand->UE->UE_sched_ctrl;
+      const int old_tda = sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch.time_domain_allocation;
+      if (!select_dl_retx_tda(&trial, cell->common_channels.ServingCellConfigCommon, max_dl_symbols, NULL, old_tda)) {
+        id_list_remove(&cand->UE->UE_sched_ctrl.retrans_dl_harq, cand->retx_harq_pid);
+        abort_nr_dl_harq(cand->UE, cand->retx_harq_pid);
+        continue;
+      }
+    }
+    candidates[remaining++] = *cand;
+  }
+  return remaining;
 }
 
 /* ---- CCE/PUCCH validation, called from inside the scheduling policy ---- */
@@ -711,7 +846,6 @@ static bool check_increase_mcs(const NR_sched_pdsch_t *sched_pdsch, int bytes_in
   return bytes_in_buffer > sched_pdsch->tb_size;
 }
 
-
 static void nr_dl_schedule(gNB_MAC_INST *mac,
                            nr_cell_sched_t *cell,
                            post_process_pdsch_t *pp_pdsch,
@@ -728,6 +862,7 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
   /* Step 1: Collect candidates */
   nr_dl_candidate_t candidates[MAX_MOBILES_PER_GNB] = {0};
   int n = collect_dl_candidates(cell, UEs, candidates, MAX_MOBILES_PER_GNB, frame, slot);
+  n = remove_incompatible_dl_retx(cell, candidates, n);
   if (n == 0)
     return;
 
@@ -820,21 +955,14 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
     sched_pdsch.bwp_info = bwp_info;
 
     if (cand->is_retx) {
-      /* Retransmission: merge HARQ state (R, Qm, tb_size) with policy placement.
-       * DMRS must match the current TDA (recomputed by dl_tda_select when TDA
-       * changed; original otherwise). */
+      /* Preserve HARQ payload and coding while using the current placement and DMRS. */
       NR_sched_pdsch_t harq_pdsch = sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
       sched_pdsch.R = harq_pdsch.R;
       sched_pdsch.Qm = harq_pdsch.Qm;
       sched_pdsch.tb_size = harq_pdsch.tb_size;
       sched_pdsch.dl_harq_pid = cand->retx_harq_pid;
       sched_pdsch.ant_port_idx = harq_pdsch.ant_port_idx;
-      bool tda_changed = sched_pdsch.tda_info.startSymbolIndex != harq_pdsch.tda_info.startSymbolIndex
-                         || sched_pdsch.tda_info.nrOfSymbols != harq_pdsch.tda_info.nrOfSymbols;
-      if (tda_changed)
-        sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers);
-      else
-        sched_pdsch.dmrs_parms = harq_pdsch.dmrs_parms;
+      sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers);
     } else {
       /* New transmission: compute TBS-related fields */
       int l = sched_pdsch.nrOfLayers;

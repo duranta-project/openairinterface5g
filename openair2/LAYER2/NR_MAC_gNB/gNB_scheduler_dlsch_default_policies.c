@@ -62,6 +62,37 @@ int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cel
     NR_UE_info_t *UE = cand->UE;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
+    if (cand->is_retx) {
+      const frame_structure_t *fs = &cell->frame_structure;
+      int max_dl_symbols = dl_bwp->cyclicprefix ? 12 : 14;
+      if (fs->frame_type == TDD) {
+        const tdd_bitmap_t *b = &fs->period_cfg.tdd_slot_bitmap[get_slot_idx_in_period(slot, fs)];
+        if (b->slot_type != TDD_NR_DOWNLINK_SLOT)
+          max_dl_symbols = b->slot_type == TDD_NR_MIXED_SLOT ? b->num_dl_symbols : 0;
+      }
+      if (mac->UE_info.sched_csirs > 0) {
+        const NR_tda_info_t csi_tda = get_dl_tda_info(dl_bwp,
+                                                      sched_ctrl->search_space->searchSpaceType->present,
+                                                      tda,
+                                                      scc->dmrs_TypeA_Position,
+                                                      1,
+                                                      TYPE_C_RNTI_,
+                                                      sched_ctrl->coreset->controlResourceSetId,
+                                                      false);
+        // Preserve the slot's CSI exclusion even when another beam map is empty.
+        if (!csi_tda.valid_tda) {
+          cand->skipped = true;
+          continue;
+        }
+        max_dl_symbols = min(max_dl_symbols, csi_tda.startSymbolIndex + csi_tda.nrOfSymbols);
+      }
+      if (!select_dl_retx_tda(cand, scc, max_dl_symbols, cell->common_channels.vrb_map[cand->alloc_beam_idx], tda)) {
+        cand->skipped = true;
+        continue;
+      }
+      n_valid++;
+      continue;
+    }
     int coresetid = sched_ctrl->coreset->controlResourceSetId;
     NR_tda_info_t tda_info = get_dl_tda_info(dl_bwp,
                                              sched_ctrl->search_space->searchSpaceType->present,
@@ -74,21 +105,6 @@ int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cel
     if (!tda_info.valid_tda) {
       cand->skipped = true;
       continue;
-    }
-
-    /* For retransmissions with a changed TDA, refit rbSize to preserve TBS */
-    if (cand->is_retx) {
-      const NR_sched_pdsch_t *orig = &sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
-      bool tda_changed =
-          tda_info.startSymbolIndex != orig->tda_info.startSymbolIndex || tda_info.nrOfSymbols != orig->tda_info.nrOfSymbols;
-      if (tda_changed) {
-        uint16_t new_rbSize = check_dl_retx_feasibility(cand, tda, &tda_info, scc, dl_bwp->BWPSize);
-        if (!new_rbSize) {
-          cand->skipped = true;
-          continue;
-        }
-        cand->retx_rbSize = new_rbSize;
-      }
     }
 
     cand->sched_pdsch.time_domain_allocation = tda;
