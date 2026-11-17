@@ -57,14 +57,3 @@ uint16_t get_dmrs_freq_idx(uint16_t n, uint8_t k_prime, uint8_t delta, uint8_t d
   uint16_t dmrs_idx = (dmrs_type)? (6*n+k_prime+delta):((n<<2)+(k_prime<<1)+delta);
   return dmrs_idx;
 }
-
-uint8_t get_l0(uint16_t dlDmrsSymbPos) {
-
-  uint16_t mask=dlDmrsSymbPos;
-  int l0;
-  for (l0=0;l0<14;l0++) {
-    if ((mask&1) == 1) break;
-    mask>>=1;
-  }
-  return (l0);
-}

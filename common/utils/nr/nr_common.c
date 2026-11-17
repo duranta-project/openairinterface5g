@@ -6,6 +6,7 @@
  * \brief common utility functions for NR (gNB and UE)
  */
 
+#include "utils.h"
 #include <stdint.h>
 #include "assertions.h"
 #include "common/utils/assertions.h"
@@ -614,7 +615,7 @@ int get_dmrs_port(int nl, uint16_t dmrs_ports)
   int p = -1;
   int found = -1;
   for (int i = 0; i < 12; i++) { // loop over dmrs ports
-    if((dmrs_ports >> i) & 0x01) { // check if current bit is 1
+    if (IS_BIT_SET(dmrs_ports, i)) { // check if current bit is 1
       found++;
       if (found == nl) { // found antenna port number corresponding to current layer
         p = i;
@@ -624,6 +625,17 @@ int get_dmrs_port(int nl, uint16_t dmrs_ports)
   }
   AssertFatal(p > -1, "No dmrs port corresponding to layer %d found\n", nl);
   return p;
+}
+
+int get_dmrs_l_prime(uint16_t dmrs_bitmap, uint l)
+{
+  uint32_t lo = dmrs_bitmap & 0x3FFFu;
+
+  if (l > 13 || !IS_BIT_SET(lo, l))
+    return -1;
+
+  /* bit (l-1) of lo, computed as bit l of (lo << 1); this is 0 when l == 0 */
+  return (int)(IS_BIT_SET((lo << 1), l));
 }
 
 frame_type_t get_frame_type(uint16_t current_band, uint8_t scs_index)
