@@ -1481,7 +1481,24 @@ static void c16_scale_adds(const c16_t *in, float gain, c16_t *out, int n)
   }
 }
 
-/* out += in, saturated to int16 */
+/* 8 floats rounded to the nearest int32, clamped to +-65536 before the conversion (out of range, cvtps_epi32 gives
+   INT32_MIN whatever the sign): beyond these values no int16 sample brings a sum back into the int16 range */
+static inline simde__m256i f8_to_i32_sat(simde__m256 x)
+{
+  x = simde_mm256_max_ps(simde_mm256_min_ps(x, simde_mm256_set1_ps(65536)), simde_mm256_set1_ps(-65536));
+  return simde_mm256_cvtps_epi32(x);
+}
+
+/* the same for one value. No libm here: lrintf, fminf and fmaxf are real calls without -ffast-math */
+static inline int32_t f_to_i32_sat(float x)
+{
+  const simde__m128 lo = simde_mm_max_ss(simde_mm_set_ss(x), simde_mm_set_ss(-65536));
+  return simde_mm_cvtss_si32(simde_mm_min_ss(lo, simde_mm_set_ss(65536)));
+}
+
+/* out += in, saturated to int16: the sum is made in int32 and saturated once, so that a contribution beyond the full
+   scale still adds exactly to a sample of the opposite sign. packs_epi32 saturates and interleaves the 128-bit lanes,
+   permute4x64 puts them back in order */
 static void cf_adds(const cf_t *in, c16_t *out, int n)
 {
   int i = 0;
@@ -1489,11 +1506,15 @@ static void cf_adds(const cf_t *in, c16_t *out, int n)
     const simde__m256 lo = simde_mm256_loadu_ps((const float *)(in + i));
     const simde__m256 hi = simde_mm256_loadu_ps((const float *)(in + i + 4));
     simde__m256i *o = (simde__m256i *)(out + i);
-    simde_mm256_storeu_si256(o, simde_mm256_adds_epi16(simde_mm256_loadu_si256(o), f16_to_c16_sat(lo, hi)));
+    const simde__m256i old = simde_mm256_loadu_si256(o);
+    const simde__m256i sum_lo = simde_mm256_add_epi32(simde_mm256_cvtepi16_epi32(simde_mm256_castsi256_si128(old)), f8_to_i32_sat(lo));
+    const simde__m256i sum_hi =
+        simde_mm256_add_epi32(simde_mm256_cvtepi16_epi32(simde_mm256_extracti128_si256(old, 1)), f8_to_i32_sat(hi));
+    simde_mm256_storeu_si256(o, simde_mm256_permute4x64_epi64(simde_mm256_packs_epi32(sum_lo, sum_hi), 0xd8));
   }
-  for (; i < n; i++) {
-    out[i].r = f_to_i16_sat(out[i].r + f_to_i16_sat(in[i].r)); // as the vector part
-    out[i].i = f_to_i16_sat(out[i].i + f_to_i16_sat(in[i].i));
+  for (; i < n; i++) { // as the vector part
+    out[i].r = i32_to_i16_sat(out[i].r + f_to_i32_sat(in[i].r));
+    out[i].i = i32_to_i16_sat(out[i].i + f_to_i32_sat(in[i].i));
   }
 }
 
