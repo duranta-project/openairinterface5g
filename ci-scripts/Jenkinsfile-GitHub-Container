@@ -9,6 +9,7 @@ import groovy.transform.Field
 @Field def gitLocalBranch = ''
 @Field def downstreamResults = [:]
 @Field def downstreamUrls = [:]
+@Field def downstreamReportUrls = [:]
 
 // Location of the executor node
 def nodeExecutor = params.nodeExecutor
@@ -20,44 +21,7 @@ def do5Gtest = false
 def do5GUeTest = false
 def doORUtest = false
 
-// list of failing stages
-def failingStages = ""
 def mrValidationWarning = ""
-
-// Globally scoped status result variables for downstream jobs.
-def ubuntuBuildStatus = ''
-def ubuntuArmBuildStatus = ''
-def ubuntuJetsonBuildStatus = ''
-def rhelBuildStatus = ''
-def armBuildStatus = ''
-
-def physim5GStatus = ''
-def physimGH5GStatus = ''
-def channelSimStatus = ''
-def vrtSim5GStatus = ''
-def rfSim5GStatus = ''
-def flexricRAN5GStatus = ''
-
-def physim4GStatus = ''
-def rfSim4GStatus = ''
-def l2Sim4GStatus = ''
-def lteTDDB200Status = ''
-def lteFDDB200OAIUEStatus = ''
-def lteFDDB200Status = ''
-def lteTDD2x2N3xxStatus = ''
-
-def nsaTDDB200Status = ''
-def saTDDB200Status = ''
-def phytestLDPCoffloadStatus = ''
-def saAW2SStatus = ''
-def saAERIALStatus = ''
-def saMultiAntennaStatus = ''
-def saFHI72Status = ''
-def saFHI72MplaneStatus = ''
-def saORUStatus = ''
-def saHandoverStatus = ''
-def saAERIALOAIUEStatus = ''
-def saOAIUEStatus = ''
 
 pipeline {
   agent {
@@ -180,15 +144,6 @@ pipeline {
           triggerDownstreamJob ('RAN-Internal-Repo-Push')
         }
       }
-      post {
-        failure {
-          script {
-            currentBuild.result = 'FAILURE'
-            def jobUrl = downstreamUrls['RAN-Internal-Repo-Push'] ?: BUILD_URL
-            failingStages += "\n * [Internal-Repo-Push](${jobUrl}) - merge validation failed (merge conflict, git operation failure, or internal CI error)"
-          }
-        }
-      }
     }
     // Build Stages are Mandatory
     stage ("Image Building Processes") {
@@ -203,15 +158,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                ubuntuBuildStatus = finalizeDownstreamJob('RAN-Ubuntu-Image-Builder')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += ubuntuBuildStatus
+                finalizeDownstreamJob('RAN-Ubuntu-Image-Builder')
               }
             }
           }
@@ -225,15 +172,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                ubuntuArmBuildStatus = finalizeDownstreamJob('RAN-Ubuntu-ARM-Image-Builder')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += ubuntuArmBuildStatus
+                finalizeDownstreamJob('RAN-Ubuntu-ARM-Image-Builder')
               }
             }
           }
@@ -247,15 +186,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                ubuntuJetsonBuildStatus = finalizeDownstreamJob('RAN-Ubuntu-Jetson-Image-Builder')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += ubuntuJetsonBuildStatus
+                finalizeDownstreamJob('RAN-Ubuntu-Jetson-Image-Builder')
               }
             }
           }
@@ -269,15 +200,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                rhelBuildStatus = finalizeDownstreamJob('RAN-RHEL-Cluster-Image-Builder')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += rhelBuildStatus
+                finalizeDownstreamJob('RAN-RHEL-Cluster-Image-Builder')
               }
             }
           }
@@ -291,15 +214,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                armBuildStatus = finalizeDownstreamJob('RAN-ARM-Cross-Compile-Builder')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += armBuildStatus
+                finalizeDownstreamJob('RAN-ARM-Cross-Compile-Builder')
               }
             }
           }
@@ -319,7 +234,6 @@ pipeline {
         failure {
           script {
             echo "Push to Docker-Hub KO"
-            failingStages += '\n * RAN-DockerHub-Push'
           }
         }
       }
@@ -337,15 +251,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                physim5GStatus = finalizeDownstreamJob('RAN-PhySim-Cluster-5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += physim5GStatus
+                finalizeDownstreamJob('RAN-PhySim-Cluster-5G')
               }
             }
           }
@@ -360,15 +266,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                physimGH5GStatus = finalizeDownstreamJob('RAN-PhySim-GraceHopper-5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += physimGH5GStatus
+                finalizeDownstreamJob('RAN-PhySim-GraceHopper-5G')
               }
             }
           }
@@ -383,15 +281,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                channelSimStatus = finalizeDownstreamJob('RAN-Channel-Simulation')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += channelSimStatus
+                finalizeDownstreamJob('RAN-Channel-Simulation')
               }
             }
           }
@@ -406,15 +296,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                physim4GStatus = finalizeDownstreamJob('RAN-PhySim-Cluster-4G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += physim4GStatus
+                finalizeDownstreamJob('RAN-PhySim-Cluster-4G')
               }
             }
           }
@@ -429,15 +311,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                rfSim4GStatus = finalizeDownstreamJob('RAN-RF-Sim-Test-4G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += rfSim4GStatus
+                finalizeDownstreamJob('RAN-RF-Sim-Test-4G')
               }
             }
           }
@@ -452,15 +326,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                vrtSim5GStatus = finalizeDownstreamJob('RAN-VRT-Sim-Test-5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += vrtSim5GStatus
+                finalizeDownstreamJob('RAN-VRT-Sim-Test-5G')
               }
             }
           }
@@ -475,15 +341,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                rfSim5GStatus = finalizeDownstreamJob('RAN-RF-Sim-Test-5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += rfSim5GStatus
+                finalizeDownstreamJob('RAN-RF-Sim-Test-5G')
               }
             }
           }
@@ -498,15 +356,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                flexricRAN5GStatus = finalizeDownstreamJob('OAI-FLEXRIC-RAN-Integration-Test')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += flexricRAN5GStatus
+                finalizeDownstreamJob('OAI-FLEXRIC-RAN-Integration-Test')
               }
             }
           }
@@ -521,15 +371,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                l2Sim4GStatus = finalizeDownstreamJob('RAN-L2-Sim-Test-4G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += l2Sim4GStatus
+                finalizeDownstreamJob('RAN-L2-Sim-Test-4G')
               }
             }
           }
@@ -544,15 +386,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                lteFDDB200Status = finalizeDownstreamJob('RAN-LTE-FDD-LTEBOX-Container')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += lteFDDB200Status
+                finalizeDownstreamJob('RAN-LTE-FDD-LTEBOX-Container')
               }
             }
           }
@@ -568,15 +402,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                lteFDDB200OAIUEStatus = finalizeDownstreamJob('RAN-LTE-FDD-OAIUE-OAICN4G-Container')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += lteFDDB200OAIUEStatus
+                finalizeDownstreamJob('RAN-LTE-FDD-OAIUE-OAICN4G-Container')
               }
             }
           }
@@ -591,15 +417,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                lteTDDB200Status = finalizeDownstreamJob('RAN-LTE-TDD-LTEBOX-Container')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += lteTDDB200Status
+                finalizeDownstreamJob('RAN-LTE-TDD-LTEBOX-Container')
               }
             }
           }
@@ -614,15 +432,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                nsaTDDB200Status = finalizeDownstreamJob('RAN-NSA-B200-Module-LTEBOX-Container')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += nsaTDDB200Status
+                finalizeDownstreamJob('RAN-NSA-B200-Module-LTEBOX-Container')
               }
             }
           }
@@ -637,15 +447,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saTDDB200Status = finalizeDownstreamJob('RAN-SA-B200-Module-SABOX-Container')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saTDDB200Status
+                finalizeDownstreamJob('RAN-SA-B200-Module-SABOX-Container')
               }
             }
           }
@@ -660,15 +462,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                phytestLDPCoffloadStatus = finalizeDownstreamJob('RAN-gNB-N300-Timing-Phytest-LDPC')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += phytestLDPCoffloadStatus
+                finalizeDownstreamJob('RAN-gNB-N300-Timing-Phytest-LDPC')
               }
             }
           }
@@ -683,15 +477,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                lteTDD2x2N3xxStatus = finalizeDownstreamJob('RAN-LTE-TDD-2x2-Container')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += lteTDD2x2N3xxStatus
+                finalizeDownstreamJob('RAN-LTE-TDD-2x2-Container')
               }
             }
           }
@@ -706,15 +492,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saAW2SStatus = finalizeDownstreamJob('RAN-SA-AW2S-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saAW2SStatus
+                finalizeDownstreamJob('RAN-SA-AW2S-CN5G')
               }
             }
           }
@@ -729,15 +507,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saAERIALStatus = finalizeDownstreamJob('RAN-SA-AERIAL-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saAERIALStatus
+                finalizeDownstreamJob('RAN-SA-AERIAL-CN5G')
               }
             }
           }
@@ -752,15 +522,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saMultiAntennaStatus = finalizeDownstreamJob('RAN-SA-Multi-Antenna-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saMultiAntennaStatus
+                finalizeDownstreamJob('RAN-SA-Multi-Antenna-CN5G')
               }
             }
           }
@@ -775,15 +537,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saFHI72Status = finalizeDownstreamJob('RAN-SA-FHI72-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saFHI72Status
+                finalizeDownstreamJob('RAN-SA-FHI72-CN5G')
               }
             }
           }
@@ -798,15 +552,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saFHI72MplaneStatus = finalizeDownstreamJob('RAN-SA-FHI72-MPLANE-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saFHI72MplaneStatus
+                finalizeDownstreamJob('RAN-SA-FHI72-MPLANE-CN5G')
               }
             }
           }
@@ -821,15 +567,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saFHI72FR2Status = finalizeDownstreamJob('RAN-SA-FHI72-FR2-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saFHI72FR2Status
+                finalizeDownstreamJob('RAN-SA-FHI72-FR2-CN5G')
               }
             }
           }
@@ -844,15 +582,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saORUStatus = finalizeDownstreamJob('RAN-SA-ORU-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saORUStatus
+                finalizeDownstreamJob('RAN-SA-ORU-CN5G')
               }
             }
           }
@@ -867,15 +597,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saHandoverStatus = finalizeDownstreamJob('RAN-SA-Handover-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saHandoverStatus
+                finalizeDownstreamJob('RAN-SA-Handover-CN5G')
               }
             }
           }
@@ -890,15 +612,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saAERIALOAIUEStatus = finalizeDownstreamJob('RAN-SA-AERIAL-OAIUE-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saAERIALOAIUEStatus
+                finalizeDownstreamJob('RAN-SA-AERIAL-OAIUE-CN5G')
               }
             }
           }
@@ -913,15 +627,7 @@ pipeline {
           post {
             always {
               script {
-                // Using a unique variable name for each test stage to avoid overwriting on a global variable
-                // due to parallel-time concurrency
-                saOAIUEStatus = finalizeDownstreamJob('RAN-SA-OAIUE-CN5G')
-              }
-            }
-            failure {
-              script {
-                currentBuild.result = 'FAILURE'
-                failingStages += saOAIUEStatus
+                finalizeDownstreamJob('RAN-SA-OAIUE-CN5G')
               }
             }
           }
@@ -954,6 +660,21 @@ pipeline {
       script {
         if (env.GITHUB_PR_NUMBER) {
           def message = "**CI Build:** [#${env.BUILD_NUMBER}](${BUILD_URL}) | **Failed** on the following stages:"
+          // Built after all parallel branches joined, from the same per-job results as the GitHub checks:
+          // a stage-level post { failure } also fires on a passing stage once the build result is FAILURE.
+          def failingStages = ''
+          for (def jobName : downstreamResults.keySet().sort()) {
+            if (downstreamResults[jobName] == 'SUCCESS') {
+              continue
+            }
+            def url = downstreamReportUrls[jobName] ?: downstreamUrls[jobName] ?: BUILD_URL
+            if (jobName == 'RAN-Internal-Repo-Push') {
+              failingStages += "\n * [Internal-Repo-Push](${url}) - merge validation failed" +
+                               " (merge conflict, git operation failure, or internal CI error)"
+            } else {
+              failingStages += "\n * [${jobName}](${url})"
+            }
+          }
           if (failingStages) {
             message += failingStages
           } else {
@@ -987,6 +708,8 @@ def triggerDownstreamJob (jobName) {
   // The downstream job is triggered with the propagate false so the following commands are executed
   // Its status is now PASS/SUCCESS from a stage pipeline point of view
   // localStatus variable MUST be analyzed to properly assess the status
+  // Pre-set so the job is still reported as failed if triggering it throws
+  downstreamResults[jobName] = 'FAILURE'
   def localStatus = build job: jobName,
     parameters: [
       string(name: 'targetRepo', value: String.valueOf(env.GIT_URL)),
@@ -1054,6 +777,7 @@ def finalizeDownstreamJob(jobName) {
       // no need to add a prefixed '/'
       artifactUrl += 'artifact/' + fileName
     }
+    downstreamReportUrls[jobName] = artifactUrl
     if (env.GITHUB_PR_NUMBER) {
       githubNotify account: params.gitAccount,
                    repo: params.gitRepo,
@@ -1063,7 +787,5 @@ def finalizeDownstreamJob(jobName) {
                    targetUrl: "${artifactUrl}",
                    context: jobName
     }
-    artifactUrl = "\n * [${jobName}](${artifactUrl})"
-    return artifactUrl
   }
 }
