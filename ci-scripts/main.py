@@ -289,9 +289,6 @@ if __name__ == "__main__":
 		fmt = "[%(asctime)s] %(levelname)s %(message)s"
 	logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format=fmt, datefmt=date_fmt,)
 
-	if g_ctx.repository == '' or g_ctx.branch == '' or g_ctx.workspace == '':
-		sys.exit(f'Insufficient Parameters: {g_ctx.repository=}, {g_ctx.branch=}, {g_ctx.workspace=}')
-
 	logging.info(f"placing all artifacts for this run in {logDir}/")
 	TestXML = namedtuple("TestXML", ["filename", "logPath", "title"])
 	test_xmls = []
