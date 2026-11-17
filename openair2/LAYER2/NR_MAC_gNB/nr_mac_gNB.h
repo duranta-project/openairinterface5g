@@ -756,6 +756,8 @@ typedef struct {
   CSI_report_t CSI_report;
   /// number of SR received for this UE since the last UL grant
   uint8_t sr_cnt;
+  /// C-RNTI recovery awaits a new UL transmission grant
+  bool ul_recovery_grant_pending;
   beam_hysteresis_t beam_hysteresis;
   /// information about every HARQ process
   NR_UE_harq_t harq_processes[NR_MAX_HARQ_PROCESSES];
@@ -1116,6 +1118,7 @@ struct nr_ul_candidate {
   int8_t retx_harq_pid;
   int retx_rbSize;
   bool sched_long_inactivity;
+  bool ul_recovery_grant_pending;
   int sched_srs;
   uint32_t pending_bytes;
   float avg_throughput;

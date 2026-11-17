@@ -136,7 +136,7 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
 /* A helper function to determine if a UE needs a default grant. */
 static bool needs_default_grant(const nr_ul_candidate_t *c)
 {
-  return c->sched_long_inactivity || (c->pending_bytes <= NR_UL_SMALL_BSR_BYTES && c->sr_cnt > 0);
+  return c->sched_long_inactivity || (c->pending_bytes <= NR_UL_SMALL_BSR_BYTES && (c->sr_cnt > 0 || c->ul_recovery_grant_pending));
 }
 
 /* Orders the candidates the way nr_ul_proportional_fair() allocates them:
