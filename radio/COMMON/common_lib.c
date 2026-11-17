@@ -226,9 +226,14 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
 {
   re_order_t *ctx = &device->reOrder;
   int *wr = ctx->nb_writers + ctx->nextTS % ctx->sz;
-  int ready = 0;
+  // resume the scan where the previous flush stopped, unless the number of writers to wait for changed
+  int ready = ctx->scan_nb_writers == nb_writers ? ctx->scan_ready : 0;
+  if (ready == 0)
+    ctx->scan_chunk = 0;
   while (ready < ctx->sz && (wr[ready] & RO_COUNT) >= nb_writers)
     ready++;
+  int written = ready; // samples that all the writers wrote, the others are forced
+  ctx->scan_nb_writers = nb_writers;
   const int forced = force_until > ctx->nextTS ? min(force_until - ctx->nextTS, ctx->sz) : 0;
   ready = max(ready, forced);
   const bool gap = force_until - ctx->nextTS > ctx->sz; // nothing was written beyond the ring end
@@ -236,7 +241,7 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
   for (int consumed = 0; ready > 0;) {
     wr = ctx->nb_writers + ctx->nextTS % ctx->sz;
     const int active = wr[0] & RO_ACTIVE;
-    int len = 0;
+    int len = min(ctx->scan_chunk, min(ready, ctx->grain)); // already checked: no boundary
     bool boundary = false;
     while (len < ready && len < ctx->grain) {
       if (len > 0 && ((wr[len] & RO_ACTIVE) != active || (wr[len] & RO_START))) {
@@ -248,8 +253,11 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
         break;
       }
     }
-    if (len < ctx->grain && !boundary && consumed >= forced)
+    if (len < ctx->grain && !boundary && consumed >= forced) {
+      ctx->scan_chunk = min(len, written); // only the flags of the samples that all wrote are final
       break; // wait for more samples
+    }
+    ctx->scan_chunk = 0;
     int flags = TX_BURST_INVALID;
     if (active) {
       const bool start = wr[0] & RO_START, end = wr[len - 1] & RO_END;
@@ -273,9 +281,14 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
     ctx->nextTS += len;
     consumed += len;
     ready -= len;
+    written = max(written - len, 0);
   }
-  if (gap)
+  ctx->scan_ready = written;
+  if (gap) {
     ctx->nextTS = force_until;
+    ctx->scan_ready = 0;
+    ctx->scan_chunk = 0;
+  }
 }
 
 /* first allocation of the writer states, for a fixed number of writers */
@@ -314,6 +327,8 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   if (!ctx->initDone) {
     ctx->nextTS = timestamp;
     ctx->maxTS = timestamp;
+    ctx->scan_ready = 0;
+    ctx->scan_chunk = 0;
     ctx->initDone = true;
   }
   const openair0_timestamp_t prev_end = ctx->writer_end[writer];
