@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include "PHY/TOOLS/tools_defs.h"
 #include "assertions.h"
 #include "bits.h"
 #include "nr_common.h"
@@ -922,6 +923,7 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
                                               c16_t *rxF,
                                               int delta,
                                               c16_t *pil,
+                                              c16_t *pil1,
                                               c16_t *dl_ch0,
                                               unsigned short bwp_start_subcarrier,
                                               const freq_alloc_bitmap_t *freq_alloc,
@@ -935,6 +937,17 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
   c16_t dl_ls_est[symb_sz] __attribute__((aligned(32)));
   memset(dl_ls_est, 0, sizeof(dl_ls_est));
   int num_ls = type1_ls_estimation(rxF, freq_alloc, pil, dl_ls_est, symb_sz, bwpsize, re_offset);
+
+  // Double-symbol DMRS: estimate second symbol
+  if (pil1) {
+    c16_t dl_ls_est1[symb_sz] __attribute__((aligned(32)));
+    memset(dl_ls_est1, 0, sizeof(dl_ls_est1));
+    type1_ls_estimation(rxF + symb_sz, freq_alloc, pil1, dl_ls_est1, symb_sz, bwpsize, re_offset);
+
+    // Resolve OCC estimates
+    for (uint i = 0; i < num_ls; i++)
+      dl_ls_est[i] = c16addShift(dl_ls_est[i], dl_ls_est1[i], 1);
+  }
 
   // Delay estimaion
   c16_t ch_estimates_time[symb_sz] __attribute__((aligned(32)));
@@ -1041,6 +1054,7 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
                                               c16_t *rxF,
                                               int delta,
                                               c16_t *pil,
+                                              c16_t *pil1,
                                               c16_t *dl_ch0,
                                               unsigned short bwp_start_subcarrier,
                                               const freq_alloc_bitmap_t *freq_alloc,
@@ -1054,6 +1068,17 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
   c16_t dl_ls_est[symb_sz] __attribute__((aligned(32)));
   memset(dl_ls_est, 0, sizeof(dl_ls_est));
   int num_ls = type2_ls_estimation(rxF, freq_alloc, pil, dl_ls_est, symb_sz, bwpsize, re_offset);
+
+  // Double-symbol DMRS: estimate second symbol
+  if (pil1) {
+    c16_t dl_ls_est1[symb_sz] __attribute__((aligned(32)));
+    memset(dl_ls_est1, 0, sizeof(dl_ls_est1));
+    type2_ls_estimation(rxF + symb_sz, freq_alloc, pil1, dl_ls_est1, symb_sz, bwpsize, re_offset);
+
+    // Resolve OCC estimates
+    for (uint i = 0; i < num_ls; i++)
+      dl_ls_est[i] = c16addShift(dl_ls_est[i], dl_ls_est1[i], 1);
+  }
 
   // Delay estimation
   c16_t ch_estimates_time[symb_sz] __attribute__((aligned(32)));
@@ -1167,7 +1192,8 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
                                  int32_t dl_ch_estimates[][pdsch_est_size],
                                  int rxdataFsize,
                                  c16_t rxdataF[][rxdataFsize],
-                                 uint32_t *nvar)
+                                 uint32_t *nvar,
+                                 bool is_dbl_symb_dmrs)
 {
   const int symb_sz = ue->frame_parms.ofdm_symbol_size;
   const int slot = proc->nr_slot_rx;
@@ -1194,13 +1220,18 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
   int rb_offset = freq_alloc->first_rb + (dlsch->refPoint ? 0 : dlsch->BWPStart);
   int nb_rb_pdsch = freq_alloc->last_rb - freq_alloc->first_rb + 1;
   int8_t delta = get_delta(p, config_type);
-  c16_t pilot[3280] __attribute__((aligned(16)));
+  const uint num_pilot_dim = is_dbl_symb_dmrs ? 2 : 1;
+  c16_t pilot[num_pilot_dim][3280] __attribute__((aligned(16)));
   // Note: pilot returned by the following function is already the complex conjugate of the transmitted DMRS
   float beta_dmrs_pdsch = get_beta_dmrs(dlsch->n_dmrs_cdm_groups, config_type == NFAPI_NR_DMRS_TYPE2);
   int16_t dmrs_scaling = (int16_t)((1 / beta_dmrs_pdsch) * (1 << 14));
   const uint32_t *gold =
       nr_gold_pdsch(frame_parms->N_RB_DL, frame_parms->symbols_per_slot, dlsch->dlDmrsScramblingId, dlsch->nscid, slot, symbol);
-  nr_pdsch_dmrs_rx(frame_parms->Ncp, gold, pilot, 1000 + p, 0, nb_rb_pdsch + rb_offset, config_type, dmrs_scaling);
+  nr_pdsch_dmrs_rx(frame_parms->Ncp, gold, pilot[0], 1000 + p, 0, nb_rb_pdsch + rb_offset, config_type, dmrs_scaling);
+  if (is_dbl_symb_dmrs) {
+    gold = nr_gold_pdsch(frame_parms->N_RB_DL, frame_parms->symbols_per_slot, dlsch->dlDmrsScramblingId, dlsch->nscid, slot, symbol + 1);
+    nr_pdsch_dmrs_rx(frame_parms->Ncp, gold, pilot[1], 1000 + p, 1, nb_rb_pdsch + rb_offset, config_type, dmrs_scaling);
+  }
 
   for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
 #ifdef DEBUG_PDSCH
@@ -1217,7 +1248,8 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
       NFAPI_NR_DMRS_TYPE1_linear_interp(frame_parms,
                                         rxF,
                                         delta,
-                                        &pilot[6 * rb_offset],
+                                        &pilot[0][6 * rb_offset],
+                                        is_dbl_symb_dmrs ? &pilot[1][6 * rb_offset] : NULL,
                                         dl_ch,
                                         bwp_start_subcarrier,
                                         freq_alloc,
@@ -1228,7 +1260,8 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
       NFAPI_NR_DMRS_TYPE2_linear_interp(frame_parms,
                                         rxF,
                                         delta,
-                                        &pilot[4 * rb_offset],
+                                        &pilot[0][4 * rb_offset],
+                                        is_dbl_symb_dmrs ? &pilot[1][4 * rb_offset] : NULL,
                                         dl_ch,
                                         bwp_start_subcarrier,
                                         freq_alloc,
@@ -1237,11 +1270,13 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
 
     } else if (config_type == NFAPI_NR_DMRS_TYPE1) {
       AssertFatal(dlsch->resource_alloc == 1, "PRB average in channel estimation not supported for type0 DLSCH\n");
-      NFAPI_NR_DMRS_TYPE1_average_prb(symb_sz, rxF, delta, &pilot[6 * rb_offset], dl_ch, bwp_start_subcarrier, nb_rb_pdsch);
+      AssertFatal(!is_dbl_symb_dmrs, "PRB averaging in channel estimation not supported for double-symbol DMRS\n");
+      NFAPI_NR_DMRS_TYPE1_average_prb(symb_sz, rxF, delta, &pilot[0][6 * rb_offset], dl_ch, bwp_start_subcarrier, nb_rb_pdsch);
 
     } else {
       AssertFatal(dlsch->resource_alloc == 1, "PRB average in channel estimation not supported for type0 DLSCH\n");
-      NFAPI_NR_DMRS_TYPE2_average_prb(symb_sz, rxF, delta, &pilot[4 * rb_offset], dl_ch, bwp_start_subcarrier, nb_rb_pdsch);
+      AssertFatal(!is_dbl_symb_dmrs, "PRB averaging in channel estimation not supported for double-symbol DMRS\n");
+      NFAPI_NR_DMRS_TYPE2_average_prb(symb_sz, rxF, delta, &pilot[0][4 * rb_offset], dl_ch, bwp_start_subcarrier, nb_rb_pdsch);
     }
 
 #ifdef DEBUG_PDSCH

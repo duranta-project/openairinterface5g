@@ -201,10 +201,12 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
   uint32_t dmrs_csi_overlap_even = csi_res_even | dmrs_rb_bitmap;
   uint32_t dmrs_csi_overlap_odd = csi_res_odd | dmrs_rb_bitmap;
   int8_t validDmrsEst;
+  // estimates are contained in the first symbol of double-symbol dmrs.
+  const int dmrs_group_bitmap = get_dmrs_group_bitmap(dlsch_config->dlDmrsSymbPos);
   if (chest_time_type == 0)
-    validDmrsEst = get_valid_dmrs_idx_for_channel_est(dlsch_config->dlDmrsSymbPos, symbol);
+    validDmrsEst = get_valid_dmrs_idx_for_channel_est(dmrs_group_bitmap, symbol);
   else
-    validDmrsEst = get_next_dmrs_symbol_in_slot(dlsch_config->dlDmrsSymbPos, 0, 14); // get first dmrs symbol index
+    validDmrsEst = get_next_dmrs_symbol_in_slot(dmrs_group_bitmap, 0, 14); // get first dmrs symbol index
 
   const uint k_rb_ref = is_ptrs ? get_ptrs_k_RB(freq_alloc->num_rbs, dlsch_config->PTRSFreqDensity, rnti) : 0;
   const uint k_ptrs = dlsch_config->PTRSFreqDensity;

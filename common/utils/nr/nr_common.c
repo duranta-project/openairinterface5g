@@ -638,6 +638,14 @@ int get_dmrs_l_prime(uint16_t dmrs_bitmap, uint l)
   return (int)(IS_BIT_SET((lo << 1), l));
 }
 
+uint32_t get_dmrs_group_bitmap(uint32_t x)
+{
+  uint32_t lo = x & 0x3fffu;
+  // clear any bit in the low 14 whose lower neighbour is also set.
+  // for double symbol dmrs, the second dmrs symbol bit is cleared.
+  return x & ~((lo << 1) & lo);
+}
+
 frame_type_t get_frame_type(uint16_t current_band, uint8_t scs_index)
 {
   int32_t delta_duplex = get_delta_duplex(current_band, scs_index);
