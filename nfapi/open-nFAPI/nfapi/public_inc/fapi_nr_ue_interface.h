@@ -117,7 +117,7 @@ typedef struct {
 
 typedef struct {
   uint8_t harq_pid;
-  uint8_t cw_idx;
+  uint8_t tb_idx;
   uint8_t ack_nack;
   uint32_t pdu_length;
   uint8_t* pdu;
@@ -472,6 +472,7 @@ typedef struct {
   uint32_t TBS;
   uint8_t ldpcBaseGraph;
   uint8_t Nl;
+  uint8_t tb_idx; // HARQ transport block: a lone TB2 is transmitted as codeword 0
 } fapi_nr_dl_cw_info_t;
 
 typedef struct {

@@ -41,7 +41,7 @@ static void configure_dlsch(NR_UE_DLSCH_t *dlsch,
     LOG_E(PHY, "Invalid number of layers %d for DLSCH\n", dlsch->cw_info.Nl);
     // setting NACK for this TB
     dlsch->active = false;
-    update_harq_status(mac, current_harq_pid, cw_idx, 0);
+    update_harq_status(mac, current_harq_pid, dlsch->cw_info.tb_idx, 0);
     return;
   }
 
@@ -60,7 +60,7 @@ static void configure_dlsch(NR_UE_DLSCH_t *dlsch,
     // Reset the following flag to skip PDSCH procedures in that case and retrasmit harq status
     dlsch->active = false;
     LOG_W(NR_MAC, "dlsch0_harq->status not ACTIVE due to false retransmission harq pid: %d\n", current_harq_pid);
-    update_harq_status(mac, current_harq_pid, cw_idx, dlsch_harq->decodeResult);
+    update_harq_status(mac, current_harq_pid, dlsch->cw_info.tb_idx, dlsch_harq->decodeResult);
   }
 }
 
@@ -200,7 +200,8 @@ static void nr_ue_scheduled_response_dl(NR_UE_MAC_INST_t *mac,
         for (int c = 0; c < n_codewords; c++) {
           NR_UE_DLSCH_t *dlsch = &phy_data->dlsch[c];
           dlsch->rnti_type = rnti_type;
-          configure_dlsch(dlsch, phy->dl_harq_processes[c], dlsch_config_pdu, mac, c, pdu->dlsch_config_pdu.rnti, dl_config);
+          const int tb_idx = dlsch_config_pdu->cw_info[c].tb_idx;
+          configure_dlsch(dlsch, phy->dl_harq_processes[tb_idx], dlsch_config_pdu, mac, c, pdu->dlsch_config_pdu.rnti, dl_config);
         }
       } break;
       case FAPI_NR_CONFIG_TA_COMMAND:
