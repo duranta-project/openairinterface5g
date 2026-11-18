@@ -141,6 +141,10 @@ void rx_nr_prach_ru_rep(prach_item_t *p,
                         int prachOccasion,
                         c16_t (*rxsigF)[NR_PRACH_SEQ_LEN_L]);
 
+/// Where rx_nr_prach_ru_rep() takes the sequence from: N_ZC bins from bin k (wrapping) of each
+/// repetition's dftlen-point DFT. For an RU receiving PRACH in frequency domain.
+void nr_prach_ru_bins(prach_item_t *p, NR_DL_FRAME_PARMS *fp, int prachOccasion, int *k, int *dftlen, int *n_zc);
+
 void nr_fill_pucch(PHY_VARS_gNB *gNB,
                    int frame,
                    int slot,
