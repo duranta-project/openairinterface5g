@@ -36,17 +36,6 @@
  */
 #if defined(__riscv) && defined(__riscv_vector)
 #include <riscv_vector.h>
-/* extract bit-plane j (bit j of each of 32 bytes) into a 32-bit word,
- * bit k = byte k's bit j -- RISC-V equivalent of movemask(slli_epi16(.,7-j)) */
-static inline uint32_t wto_bitplane_rvv(const uint8_t *p, int j)
-{
-  size_t vl = __riscv_vsetvl_e8m1(32);
-  vint8m1_t v = __riscv_vsll_vx_i8m1(__riscv_vle8_v_i8m1((const int8_t *)p, vl), 7 - j, vl);
-  vbool8_t m = __riscv_vmslt_vx_i8m1_b8(v, 0, vl);
-  uint32_t out = 0;
-  __riscv_vsm_v_b8((uint8_t *)&out, m, vl); /* pack vl mask bits */
-  return out;
-}
 /* OR a 32-bit word into the output bitstream at bit offset (byte*32 + bit);
  * uint64 form is UB-free and bit-exact with the simde__m64 default path. */
 static inline void wto_or_out(uint32_t *op, uint32_t tmp, uint32_t byte, uint32_t bit)
@@ -155,25 +144,30 @@ static void write_task_output(uint8_t *f,
   }
        
 #elif defined(__riscv) && defined(__riscv_vector)
-  /* RVV: same 32-bit-chunk packing as the default path, but the bit-plane
-   * extraction uses vsll+vmslt+vsm instead of SIMDe-emulated movemask/slli
-   * (which is ~3-6x faster on RISC-V). Bit-exact with the default path;
-   * validated in openair1/PHY/rvv_harness/wto_test.c. */
+  /* RVV, one segment at a time: bit j of every interleaved byte of the segment's E bits becomes one mask, stored
+   * contiguously as the segment's bitstream (bit k = byte k's bit j, as movemask), which is then ORed into the output
+   * at the segment's bit offset. The 32-byte-chunk form reloaded the same bytes for each of the 8 segments and spent
+   * vsetvl + mask store + reload per 32 output bits. Writes exactly E bits per segment: the chunk form also ORed
+   * the zero padding past E. */
   uint32_t *output_p = (uint32_t *)output;
-  for (uint32_t i = 0; i < E2; i += 32) {
-    uint32_t Eoffset2 = Eoffset;
-    if (i < E)
-      for (uint32_t j = 0; j < E2_first_segment; j++) {
-        wto_or_out(output_p, wto_bitplane_rvv(&f[i], j), Eoffset2 >> 5, Eoffset2 & 31);
-        Eoffset2 += E;
-      }
-    else
-      Eoffset2 += E * E2_first_segment;
-    for (uint32_t j = E2_first_segment; j < nb_segments; j++) {
-      wto_or_out(output_p, wto_bitplane_rvv(&f2[i], j), Eoffset2 >> 5, Eoffset2 & 31);
-      Eoffset2 += E2;
+  uint32_t bits[(E2 + 31) / 32 + 1];
+  uint32_t off = Eoffset;
+  for (uint32_t j = 0; j < nb_segments; j++) {
+    const uint8_t *src = j < E2_first_segment ? f : f2;
+    const uint32_t Ej = j < E2_first_segment ? E : E2;
+    const uint32_t nw = (Ej + 31) / 32;
+    bits[nw - 1] = 0;
+    for (size_t i = 0, vl; i < Ej; i += vl) {
+      vl = __riscv_vsetvl_e8m8(Ej - i);
+      const vbool1_t m = __riscv_vmsne_vx_u8m8_b1(__riscv_vand_vx_u8m8(__riscv_vle8_v_u8m8(src + i, vl), 1 << j, vl), 0, vl);
+      __riscv_vsm_v_b1((uint8_t *)bits + i / 8, m, vl); // i is a multiple of VLMAX, so of 8
     }
-    output_p++;
+    if (Ej & 31) // clear what the last mask store left past Ej
+      bits[nw - 1] &= (1u << (Ej & 31)) - 1;
+    const uint32_t w = off >> 5, sh = off & 31;
+    for (uint32_t c = 0; c < nw; c++)
+      wto_or_out(output_p, bits[c], w + c, sh);
+    off += Ej;
   }
 
 #else
