@@ -16,6 +16,7 @@
 #include "PHY/NR_REFSIG/ptrs_nr.h"
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_UE_ESTIMATION/filt16a_32.h"
+#include "nr_ul_chest_interp.h"
 #include "PHY/NR_TRANSPORT/nr_sch_dmrs.h"
 #include "PHY/NR_REFSIG/ul_ref_seq_nr.h"
 #include "executables/softmodem-common.h"
@@ -185,43 +186,7 @@ static void nr_pusch_antenna_processing(void *arg)
       printf("Estimated delay = %i\n", delay->est_delay >> 1);
 #endif
 
-      pilot_cnt = 0;
-      for (int n = 0; n < 3 * nb_rb_pusch; n++) {
-        // Channel interpolation
-        for (int k_line = 0; k_line <= 1; k_line++) {
-          // Apply delay
-          int k = pilot_cnt << 1;
-          c16_t ch16 = c16mulShift(ul_ls_est[k], ul_delay_table[k], 8);
-
-#ifdef DEBUG_PUSCH
-          re_offset = (k0 + (n << 2) + (k_line << 1)) % symbolSize;
-          c16_t *rxF = &rxdataF[re_offset];
-          printf("pilot %4d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d)\n",
-                 pilot_cnt,
-                 pil->r,
-                 pil->i,
-                 rxF->r,
-                 rxF->i,
-                 ch.r,
-                 ch.i);
-#endif
-
-          if (pilot_cnt == 0) {
-            c16multaddVectRealComplex(filt16_ul_p0, &ch16, ul_ch, 16);
-          } else if (pilot_cnt == 1 || pilot_cnt == 2) {
-            c16multaddVectRealComplex(filt16_ul_p1p2, &ch16, ul_ch, 16);
-          } else if (pilot_cnt == (6 * nb_rb_pusch - 1)) {
-            c16multaddVectRealComplex(filt16_ul_last, &ch16, ul_ch, 16);
-          } else {
-            c16multaddVectRealComplex(filt16_ul_middle, &ch16, ul_ch, 16);
-            if (pilot_cnt % 2 == 0) {
-              ul_ch += 4;
-            }
-          }
-
-          pilot_cnt++;
-        }
-      }
+      nr_pusch_dmrs_type1_interp(ul_ls_est, ul_delay_table, nb_rb_pusch, ul_ch);
 
       // Revert delay
       pilot_cnt = 0;
