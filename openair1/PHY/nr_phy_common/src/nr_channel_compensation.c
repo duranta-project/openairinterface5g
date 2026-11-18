@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "PHY/sse_intrin.h"
+#include "PHY/TOOLS/tools_defs.h"
 #include "PHY/impl_defs_top.h"
 #include <simde/x86/avx2.h>
 #ifdef __aarch64__
@@ -47,13 +48,15 @@ static inline simde__m256i nr_cpe_id_256(simde__m256i x)
  * wrapping int16 negation in the conjugate (sign_epi16: -(-32768) = -32768).
  * Validated byte-for-byte in openair1/PHY/rvv_harness/rvv_chcomp_test.c. */
 
-#define RVV_LD2(ptr, vl) __riscv_vlseg2e16_v_i16m1x2((const int16_t *)(ptr), (vl))
-#define RVV_RE(t) __riscv_vget_v_i16m1x2_i16m1((t), 0)
-#define RVV_IM(t) __riscv_vget_v_i16m1x2_i16m1((t), 1)
+/* c16_t vectors as e32 elements: unit-stride loads/stores with re/im split by narrowing shifts (rvv_c16_*), instead of
+ * vlseg2/vsseg2, which the A100 runs one element at a time. RVV_RE/RVV_IM take vl from the enclosing scope. */
+#define RVV_LD2(ptr, vl) __riscv_vle32_v_i32m2((const int32_t *)(ptr), (vl))
+#define RVV_RE(t) rvv_c16_re((t), vl)
+#define RVV_IM(t) rvv_c16_im((t), vl)
 
 static inline void rvv_store_c16(c16_t *p, vint16m1_t re, vint16m1_t im, size_t vl)
 {
-  __riscv_vsseg2e16_v_i16m1x2((int16_t *)p, __riscv_vcreate_v_i16m1x2(re, im), vl);
+  __riscv_vse32_v_i32m2((int32_t *)p, rvv_c16_pack(re, im, vl), vl);
 }
 
 /* (re,im) = conj(a) * b >> shift, saturated to int16 */
@@ -143,7 +146,7 @@ void nr_channel_compensation(uint32_t buffer_length,
       const c16_t *chF = chFext[aatx][0];
       for (uint32_t k = 0; k < buffer_length;) {
         size_t vl = __riscv_vsetvl_e16m1(buffer_length - k);
-        vint16m1x2_t sc = RVV_LD2(&chF[k], vl), sx = RVV_LD2(&rxF[k], vl);
+        vint32m2_t sc = RVV_LD2(&chF[k], vl), sx = RVV_LD2(&rxF[k], vl);
         vint16m1_t cr = RVV_RE(sc), ci = RVV_IM(sc), rr = cr, ri = ci;
         rvv_cpe_rot(&rr, &ri, cpe, rot, vl);
         vint16m1_t re, im;
@@ -169,7 +172,7 @@ void nr_channel_compensation(uint32_t buffer_length,
           const c16_t *chF2 = chFext[atx][0];
           for (uint32_t k = 0; k < buffer_length;) {
             size_t vl = __riscv_vsetvl_e16m1(buffer_length - k);
-            vint16m1x2_t sc = RVV_LD2(&chF[k], vl), s2 = RVV_LD2(&chF2[k], vl);
+            vint32m2_t sc = RVV_LD2(&chF[k], vl), s2 = RVV_LD2(&chF2[k], vl);
             vint16m1_t re, im;
             rvv_conj_mult(RVV_RE(sc), RVV_IM(sc), RVV_RE(s2), RVV_IM(s2), shift, vl, &re, &im);
             rvv_store_c16(&rho_l[k], re, im, vl);
@@ -185,12 +188,12 @@ void nr_channel_compensation(uint32_t buffer_length,
       const c16_t *chF = chFext[aatx][aarx];
       for (uint32_t k = 0; k < buffer_length;) {
         size_t vl = __riscv_vsetvl_e16m1(buffer_length - k);
-        vint16m1x2_t sc = RVV_LD2(&chF[k], vl), sx = RVV_LD2(&rxF[k], vl);
+        vint32m2_t sc = RVV_LD2(&chF[k], vl), sx = RVV_LD2(&rxF[k], vl);
         vint16m1_t cr = RVV_RE(sc), ci = RVV_IM(sc), rr = cr, ri = ci;
         rvv_cpe_rot(&rr, &ri, cpe, rot, vl);
         vint16m1_t re, im;
         rvv_conj_mult(rr, ri, RVV_RE(sx), RVV_IM(sx), shift, vl, &re, &im);
-        vint16m1x2_t oc = RVV_LD2(&rxComp_l[k], vl); // add_epi16 (wrapping) accumulate
+        vint32m2_t oc = RVV_LD2(&rxComp_l[k], vl); // add_epi16 (wrapping) accumulate
         re = __riscv_vadd_vv_i16m1(RVV_RE(oc), re, vl);
         im = __riscv_vadd_vv_i16m1(RVV_IM(oc), im, vl);
         rvv_store_c16(&rxComp_l[k], re, im, vl);
@@ -214,10 +217,10 @@ void nr_channel_compensation(uint32_t buffer_length,
           const c16_t *chF2 = chFext[atx][aarx];
           for (uint32_t k = 0; k < buffer_length;) {
             size_t vl = __riscv_vsetvl_e16m1(buffer_length - k);
-            vint16m1x2_t sc = RVV_LD2(&chF[k], vl), s2 = RVV_LD2(&chF2[k], vl);
+            vint32m2_t sc = RVV_LD2(&chF[k], vl), s2 = RVV_LD2(&chF2[k], vl);
             vint16m1_t re, im;
             rvv_conj_mult(RVV_RE(sc), RVV_IM(sc), RVV_RE(s2), RVV_IM(s2), shift, vl, &re, &im);
-            vint16m1x2_t old = RVV_LD2(&rho_l[k], vl); // adds_epi16 (saturating) accumulate
+            vint32m2_t old = RVV_LD2(&rho_l[k], vl); // adds_epi16 (saturating) accumulate
             re = __riscv_vsadd_vv_i16m1(RVV_RE(old), re, vl);
             im = __riscv_vsadd_vv_i16m1(RVV_IM(old), im, vl);
             rvv_store_c16(&rho_l[k], re, im, vl);
