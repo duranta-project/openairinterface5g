@@ -191,6 +191,7 @@ bool decode_e1ap_cuup_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_req_t
       case E1AP_ProtocolIE_ID_id_SupportedPLMNs:
         _EQ_CHECK_INT(ie->value.present, E1AP_GNB_CU_UP_E1SetupRequestIEs__value_PR_SupportedPLMNs_List);
         out->supported_plmns = ie->value.choice.SupportedPLMNs_List.list.count;
+        CHECK_E1AP_DEC(out->supported_plmns > 0 && out->supported_plmns <= E1AP_MAX_NUM_PLMNS);
 
         for (int i = 0; i < out->supported_plmns; i++) {
           E1AP_SupportedPLMNs_Item_t *supported_plmn_item =
