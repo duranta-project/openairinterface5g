@@ -8,7 +8,6 @@
 
 #define PolarKey (((uint64_t)messageType << 48) | ((uint64_t)messageLength << 32) | (uint32_t)aggregation_level)
 static t_nrPolar_params *PolarList = NULL;
-pthread_mutex_t PolarListMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int intcmp(const void *p1, const void *p2)
 {
@@ -40,41 +39,31 @@ static void nr_polar_delete_list(t_nrPolar_params *polarParams)
 
 static void nr_polar_delete(void)
 {
-  pthread_mutex_lock(&PolarListMutex);
-  nr_polar_delete_list(PolarList);
-  PolarList = NULL;
-  pthread_mutex_unlock(&PolarListMutex);
+  nr_polar_delete_list(__atomic_exchange_n(&PolarList, NULL, __ATOMIC_ACQUIRE));
+}
+
+static pthread_once_t polar_atexit_once = PTHREAD_ONCE_INIT;
+static void polar_register_atexit(void)
+{
+  atexit(nr_polar_delete);
 }
 
 t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, int aggregation_level)
 {
-  // The lock is weak, because we never delete in the list, only at exit time
-  // therefore, returning t_nrPolar_params * from the list is safe for future usage
-  pthread_mutex_lock(&PolarListMutex);
-  if (!PolarList)
-    atexit(nr_polar_delete);
+  // Without lock: the nodes are never deleted before exit and are inserted at the head of the list fully initialised;
+  // a node is taken by setting its busy flag (polarReturn() clears it). The list mutex was taken by every UE thread for
+  // every DCI candidate, a futex convoy with many UEs per process
+  pthread_once(&polar_atexit_once, polar_register_atexit);
+  for (t_nrPolar_params *p = __atomic_load_n(&PolarList, __ATOMIC_ACQUIRE); p; p = p->nextPtr)
+    if (p->idx == PolarKey && !__atomic_load_n(&p->busy, __ATOMIC_RELAXED)
+        && !__atomic_exchange_n(&p->busy, true, __ATOMIC_ACQUIRE))
+      return p;
 
-  t_nrPolar_params *currentPtr = PolarList;
-  // Parse the list. If the node is already created, return without initialization.
-  while (currentPtr != NULL) {
-    // printf("currentPtr->idx %d, (%d,%d)\n",currentPtr->idx,currentPtr->payloadBits,currentPtr->encoderLength);
-    // LOG_D(PHY,"Looking for index %d\n",(messageType * messageLength * aggregation_prime));
-    if (currentPtr->busy == false && currentPtr->idx == PolarKey) {
-      currentPtr->busy = true;
-      pthread_mutex_unlock(&PolarListMutex);
-      return currentPtr;
-    } else
-      currentPtr = currentPtr->nextPtr;
-  }
-
-  //  printf("currentPtr %p (polarParams %p)\n",currentPtr,polarParams);
-  // Else, initialize and add node to the end of the linked list.
+  // Else, initialize a new node and add it at the head of the list
   t_nrPolar_params *newPolarInitNode = memalign(32, sizeof(t_nrPolar_params));
 
   AssertFatal(newPolarInitNode, "[nr_polar_init] New t_nrPolar_params * could not be created");
-  *newPolarInitNode = (t_nrPolar_params){.busy = true, .nextPtr = PolarList, .tree_linearization.is_initialized = false};
-  PolarList = newPolarInitNode;
-  pthread_mutex_unlock(&PolarListMutex);
+  *newPolarInitNode = (t_nrPolar_params){.busy = true, .tree_linearization.is_initialized = false};
   //   LOG_D(PHY,"Setting new polarParams index %d, messageType %d, messageLength %d, aggregation_prime %d\n",(messageType *
   //   messageLength * aggregation_prime),messageType,messageLength,aggregation_prime);
   newPolarInitNode->idx = PolarKey;
@@ -235,6 +224,14 @@ t_nrPolar_params *nr_polar_params(int8_t messageType, uint16_t messageLength, in
   qsort((void *)newPolarInitNode->Q_I_N, newPolarInitNode->K, sizeof(int16_t), intcmp);
 
   build_polar_tables(newPolarInitNode);
+  newPolarInitNode->nextPtr = __atomic_load_n(&PolarList, __ATOMIC_RELAXED);
+  while (!__atomic_compare_exchange_n(&PolarList,
+                                      &newPolarInitNode->nextPtr,
+                                      newPolarInitNode,
+                                      false,
+                                      __ATOMIC_RELEASE,
+                                      __ATOMIC_RELAXED))
+    ;
   return newPolarInitNode;
 }
 
