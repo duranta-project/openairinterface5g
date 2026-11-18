@@ -30,6 +30,15 @@ int nrue_ru_acquire(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, c16_t 
 void nrue_ru_release(PHY_VARS_NR_UE *UE);
 int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buff, int nsamps, int num_antennas, int flags);
 int nrue_ru_write_reorder(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags);
+/* the same, adding only the samples of [add_from, add_to[ (timestamps), the others of the write being silence */
+int nrue_ru_write_reorder_range(PHY_VARS_NR_UE *UE,
+                                openair0_timestamp_t timestamp,
+                                void **txp,
+                                int nsamps,
+                                int nbAnt,
+                                int flags,
+                                openair0_timestamp_t add_from,
+                                openair0_timestamp_t add_to);
 void nrue_ru_write_reorder_clear_context(PHY_VARS_NR_UE *UE);
 
 #endif

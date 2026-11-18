@@ -661,21 +661,35 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
   return ret;
 }
 
-int nrue_ru_write_reorder(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags)
+int nrue_ru_write_reorder_range(PHY_VARS_NR_UE *UE,
+                                openair0_timestamp_t timestamp,
+                                void **txp,
+                                int nsamps,
+                                int nbAnt,
+                                int flags,
+                                openair0_timestamp_t add_from,
+                                openair0_timestamp_t add_to)
 {
   openair0_device_t *device = &nrue_rus.openair0_dev[UE->rf_map.card];
   const int nb_clients = nrue_rus.cfg[UE->rf_map.card].nb_clients;
   // a UE moved by nrue_ru_set_freq() to an RU without client is its only writer
-  return openair0_write_reorder_common(nrue_ru_write,
-                                       UE,
-                                       device,
-                                       timestamp,
-                                       txp,
-                                       nsamps,
-                                       nb_clients ? UE->ru_client : 0,
-                                       max(nb_clients, 1),
-                                       nbAnt,
-                                       flags);
+  return openair0_write_reorder_common_range(nrue_ru_write,
+                                             UE,
+                                             device,
+                                             timestamp,
+                                             txp,
+                                             nsamps,
+                                             nb_clients ? UE->ru_client : 0,
+                                             max(nb_clients, 1),
+                                             nbAnt,
+                                             flags,
+                                             add_from,
+                                             add_to);
+}
+
+int nrue_ru_write_reorder(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **txp, int nsamps, int nbAnt, int flags)
+{
+  return nrue_ru_write_reorder_range(UE, timestamp, txp, nsamps, nbAnt, flags, 0, INT64_MAX);
 }
 
 void nrue_ru_write_reorder_clear_context(PHY_VARS_NR_UE *UE)
