@@ -50,6 +50,24 @@ int nr_slot_fep_rx(PHY_VARS_NR_UE *ue,
                    unsigned int symbol,
                    c16_t rxdataF[][frame_parms->samples_per_slot_wCP]);
 
+/* cache of the OFDM symbols demodulated from an RU ring shared by several UEs: their samples, so their demodulation, are
+   the same for all the UEs of the RU, one of them computes it and the others copy it */
+struct nr_fep_cache_s *nr_fep_cache_create(int nb_antennas_rx, int ofdm_symbol_size);
+enum { NR_SHARED_SYMB, NR_SHARED_PDCCH_LLR, NR_SHARED_TABLES };
+#define NR_UE_SHARED_PARAMS 4
+/* look for the entry of key and params at idx of a table of the cache: 1 = found and copied in dst (nparts x part_len),
+   0 = absent and reserved for this UE, that computes it and gives it to nr_ue_shared_put(), -1 = neither (compute it
+   without the cache) */
+int nr_ue_shared_get(struct nr_fep_cache_s *c,
+                     int table,
+                     unsigned int idx,
+                     uint64_t key,
+                     const uint64_t params[NR_UE_SHARED_PARAMS],
+                     int nparts,
+                     int part_len,
+                     c16_t *const dst[nparts]);
+void nr_ue_shared_put(struct nr_fep_cache_s *c, int table, unsigned int idx, int nparts, int part_len, c16_t *const src[nparts]);
+
 int slot_fep_mbsfn(PHY_VARS_UE *phy_vars_ue,
                    unsigned char l,
                    int subframe,

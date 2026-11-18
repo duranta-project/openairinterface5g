@@ -182,6 +182,10 @@ typedef struct {
   /// OFDM demodulation reads there (nr_slot_fep_rx()) instead of a copy in rxdata, kept for the initial sync
   c16_t **rx_slot;
   int rx_slot_len;
+  /// ring index of rx_slot[][0] (absolute, it does not wrap) and the demodulated symbol cache of the RU, shared by its UEs
+  /// (nr_slot_fep_rx()): NULL with one UE per RU
+  uint64_t rx_slot_ring_ts;
+  struct nr_fep_cache_s *fep_cache;
 
   /// estimated frequency offset (in radians) for all subcarriers
   int32_t freq_offset;
@@ -282,6 +286,8 @@ typedef struct {
   int sz;
   int grain;
   uint64_t last_ts;
+  /// OFDM symbols already demodulated by one UE of the RU, read by the others (nr_slot_fep_rx())
+  struct nr_fep_cache_s *fep_cache;
 } read_data_t;
 
 typedef struct {
