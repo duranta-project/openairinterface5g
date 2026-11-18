@@ -227,6 +227,12 @@ set(commonOpts "-pipe -fPIC -Wall -fno-strict-aliasing -rdynamic")
 # GNU C/C++ Compiler might throw many warnings without packed-bitfield-compat, see man page
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   set(commonOpts "${commonOpts} -Wno-packed-bitfield-compat")
+  # Ubuntu's gcc enables -fstack-clash-protection by default: every function with
+  # a large stack frame then probes it page by page on each call. On the PHY code
+  # (big local buffers called per symbol and per UE) this costs ~15% of the nrUE
+  # CPU in multi-UE rfsim (3x64 UE on a 7700X: 60% -> 70% real time). Put back
+  # with -DCMAKE_C_FLAGS=-fstack-clash-protection if needed.
+  set(commonOpts "${commonOpts} -fno-stack-clash-protection")
 endif()
 # clang: suppress complaints about unused command line argument (-rdynamic only
 # used during linking) and "const member leaves the object uninitialized"
