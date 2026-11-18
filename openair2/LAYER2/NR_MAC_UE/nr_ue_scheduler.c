@@ -1979,15 +1979,12 @@ static void nr_ue_fill_phr(NR_UE_MAC_INST_t *mac,
   // Value mapping according to 38.133 10.1.18.1
   const int PC_MAX_00 = -29;
   *phr = (NR_SINGLE_ENTRY_PHR_MAC_CE){.PCMAX = max(0, (int)P_CMAX - PC_MAX_00) & 0x3f};
-  // Value mapping according to 38.133 10.1.17.1.1
-  const int POWER_HEADROOM_55 = 22;
-  int headroom = P_CMAX - tx_power;
-  if (headroom < POWER_HEADROOM_55) {
-    const int POWER_HEADROOM_0 = -32;
-    phr->PH = max(0, headroom - POWER_HEADROOM_0);
-  } else {
-    phr->PH = min(0x3f, 55 + (headroom - POWER_HEADROOM_55) / 2);
-  }
+  // TS 38.133 Table 10.1.17.1-1: index 1 starts at -32 dB; index 55 starts at 22 dB.
+  const int headroom = (int)floorf(P_CMAX - tx_power);
+  if (headroom < 22)
+    phr->PH = max(0, headroom + 33);
+  else
+    phr->PH = min(63, 55 + (headroom - 22) / 2);
 
   LOG_D(NR_MAC,
         "PHR Reporting sfn.slot %d.%d reason = %d, P_CMAX = %d (%5.2f dBm), headrom = %d (%d dB) tx_power = %5.2f dBm\n",
