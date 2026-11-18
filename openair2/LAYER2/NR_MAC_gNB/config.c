@@ -911,6 +911,27 @@ static NR_beam_info_t initialize_beam_information(const NR_beam_config_t *beam_c
   return beam_info;
 }
 
+void free_sched_ctrlSIB1(nr_cell_sched_t *cell)
+{
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  for (int i = 0; i < get_max_ssbs(cc->ServingCellConfigCommon); i++) {
+    if (!is_ssb_configured(cc->ServingCellConfigCommon, i))
+      continue;
+    free(cell->sched_ctrlSIB1->search_space[i].controlResourceSetId);
+    free(cell->sched_ctrlSIB1->search_space[i].nrofCandidates);
+    free(cell->sched_ctrlSIB1->search_space[i].monitoringSymbolsWithinSlot->buf);
+    free(cell->sched_ctrlSIB1->search_space[i].monitoringSymbolsWithinSlot);
+    free(cell->sched_ctrlSIB1->search_space[i].monitoringSlotPeriodicityAndOffset);
+    free(cell->sched_ctrlSIB1->search_space[i].duration);
+    free(cell->sched_ctrlSIB1->search_space[i].searchSpaceType->choice.common->dci_Format0_0_AndFormat1_0);
+    free(cell->sched_ctrlSIB1->search_space[i].searchSpaceType->choice.common);
+    free(cell->sched_ctrlSIB1->search_space[i].searchSpaceType);
+  }
+  free(cell->sched_ctrlSIB1->coreset.frequencyDomainResources.buf);
+  free(cell->sched_ctrlSIB1->coreset.cce_REG_MappingType.choice.interleaved);
+  free(cell->sched_ctrlSIB1);
+}
+
 static int config_sched_ctrlSIB1(nr_cell_sched_t *cell)
 {
   const NR_MIB_t *mib = cell->common_channels.mib->message.choice.mib;
@@ -994,6 +1015,15 @@ static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *
     LOG_I(NR_MAC, "TDA index %d: start %d length %d k2 %ld\n", i, tda.startSymbolIndex, tda.nrOfSymbols, tda.k2);
     seq_arr_push_back(sa_tda, &tda, sizeof(tda));
   }
+}
+
+void free_ul_vrb_map(nr_cell_sched_t *cell)
+{
+  int num_beams = 1;
+  if (cell->beam_info.config.bf_method != BF_METHOD_STRAIGHT_WIRE)
+    num_beams = cell->beam_info.config.beams_per_period;
+  for (int i = 0; i < num_beams; i++)
+    free(cell->common_channels.vrb_map_UL[i]);
 }
 
 void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
