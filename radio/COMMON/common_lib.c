@@ -149,7 +149,7 @@ void openair0_write_reorder_init(re_order_t *r, const openair0_config_t *openair
   r->sz = ring_elements(openair0_cfg->sample_rate / 100, sizeof(c16_t)); // 10 ms storage
   r->grain = 2048; // arbitrary write size, chosen to fit in a ethernet jumbo frame
   r->nb_ant = openair0_cfg->tx_num_channels;
-  r->nb_writers = create_ring(r->sz * sizeof(*r->nb_writers));
+  r->state = create_ring(r->sz * sizeof(*r->state));
 
   r->ring = calloc_or_fail(r->nb_ant, sizeof(*r->ring));
   for (int i = 0; i < r->nb_ant; i++)
@@ -162,9 +162,8 @@ void openair0_write_reorder_free(re_order_t *r)
   for (int i = 0; i < r->nb_ant; i++)
     munmap(r->ring[i], 2 * r->sz * sizeof(c16_t));
   free(r->ring);
-  munmap(r->nb_writers, 2 * r->sz * sizeof(*r->nb_writers));
-  free(r->writer_end);
-  free(r->writer_absent);
+  munmap(r->state, 2 * r->sz * sizeof(*r->state));
+  free(r->writers);
   pthread_cond_destroy(&r->written);
   pthread_mutex_destroy(&r->mutex_store);
   *r = (re_order_t){0};
@@ -213,6 +212,62 @@ void *load_transport_shlib(char *fname)
   return shlib_fdesc.fptr;
 }
 
+/* the samples written by w from nextTS on end at w->done: the pending spans that reach it are merged. A gap shorter
+   than a grain after a write is not waited for: a timing advance change moves the writes of a UE later by a few samples
+   (at most 31 TA steps), the samples in between are never written and are silence of this writer. A write out of order
+   (several TX threads) leaves a gap of a whole slot, at least a grain: still waited for */
+static int writer_reach(const re_order_t *ctx, const ro_writer_t *w, openair0_timestamp_t from, openair0_timestamp_t *done)
+{
+  *done = max(w->done, from);
+  const openair0_timestamp_t tolerance = w->end > 0 ? ctx->grain - 1 : 0;
+  int merged = 0;
+  while (merged < w->nb_pending && w->pending[merged].from <= *done + tolerance)
+    *done = max(*done, w->pending[merged++].to);
+  return merged;
+}
+
+static openair0_timestamp_t writer_done(const re_order_t *ctx, ro_writer_t *w)
+{
+  const int merged = writer_reach(ctx, w, ctx->nextTS, &w->done);
+  if (merged) {
+    w->nb_pending -= merged;
+    memmove(w->pending, w->pending + merged, w->nb_pending * sizeof(*w->pending));
+  }
+  return w->done;
+}
+
+static void writer_add(ro_writer_t *w, openair0_timestamp_t from, openair0_timestamp_t to)
+{
+  int i = 0;
+  while (i < w->nb_pending && w->pending[i].to < from)
+    i++;
+  int j = i; // spans i to j-1 overlap or touch [from, to): merged with it
+  while (j < w->nb_pending && w->pending[j].from <= to) {
+    from = min(from, w->pending[j].from);
+    to = max(to, w->pending[j].to);
+    j++;
+  }
+  if (j == i) {
+    AssertFatal(w->nb_pending < RO_PENDING, "more than %d TX writes out of order\n", RO_PENDING);
+    memmove(w->pending + i + 1, w->pending + i, (w->nb_pending - i) * sizeof(*w->pending));
+    w->nb_pending++;
+  } else if (j > i + 1) {
+    memmove(w->pending + i + 1, w->pending + j, (w->nb_pending - j) * sizeof(*w->pending));
+    w->nb_pending -= j - i - 1;
+  }
+  w->pending[i] = (ro_span_t){from, to};
+}
+
+// first sample from nextTS on that a present writer did not write
+static openair0_timestamp_t reorder_written_until(re_order_t *ctx)
+{
+  openair0_timestamp_t until = INT64_MAX;
+  for (int w = 0; w < ctx->max_writers; w++)
+    if (!ctx->writers[w].absent)
+      until = min(until, writer_done(ctx, ctx->writers + w));
+  return until;
+}
+
 /* Send the samples from nextTS on, in chunks of at most one grain cut at burst boundaries, with the
    flags of the burst state stored with the samples. Samples before force_until are sent even if some
    writer has not written them: a writer that stops must not block the others. A chunk that does not
@@ -220,37 +275,32 @@ void *load_transport_shlib(char *fname)
 static void reorder_flush(nrue_ru_write_t nrue_ru_write,
                           PHY_VARS_NR_UE *UE,
                           openair0_device_t *device,
-                          int nb_writers,
                           int nbAnt,
                           openair0_timestamp_t force_until)
 {
   re_order_t *ctx = &device->reOrder;
-  int *wr = ctx->nb_writers + ctx->nextTS % ctx->sz;
-  // resume the scan where the previous flush stopped, unless the number of writers to wait for changed
-  int ready = ctx->scan_nb_writers == nb_writers ? ctx->scan_ready : 0;
-  if (ready == 0)
-    ctx->scan_chunk = 0;
-  while (ready < ctx->sz && (wr[ready] & RO_COUNT) >= nb_writers)
-    ready++;
-  int written = ready; // samples that all the writers wrote, the others are forced
-  ctx->scan_nb_writers = nb_writers;
+  int written = min(reorder_written_until(ctx) - ctx->nextTS, ctx->sz); // samples that all the writers wrote
   const int forced = force_until > ctx->nextTS ? min(force_until - ctx->nextTS, ctx->sz) : 0;
-  ready = max(ready, forced);
+  int ready = max(written, forced); // the others are forced
   const bool gap = force_until - ctx->nextTS > ctx->sz; // nothing was written beyond the ring end
 
   for (int consumed = 0; ready > 0;) {
-    wr = ctx->nb_writers + ctx->nextTS % ctx->sz;
-    const int active = wr[0] & RO_ACTIVE;
-    int len = min(ctx->scan_chunk, min(ready, ctx->grain)); // already checked: no boundary
+    int *wr = ctx->state + ctx->nextTS % ctx->sz;
+    int len = min(ready, ctx->grain);
+    const bool clean = ctx->nextTS >= ctx->dirty_end || ctx->nextTS + len <= ctx->dirty_from;
+    const int active = clean ? 0 : wr[0] & RO_ACTIVE;
     bool boundary = false;
-    while (len < ready && len < ctx->grain) {
-      if (len > 0 && ((wr[len] & RO_ACTIVE) != active || (wr[len] & RO_START))) {
-        boundary = true;
-        break;
-      }
-      if (wr[len++] & RO_END) {
-        boundary = true;
-        break;
+    if (!clean) {
+      len = min(ctx->scan_chunk, len); // already checked: no boundary
+      while (len < ready && len < ctx->grain) {
+        if (len > 0 && ((wr[len] & RO_ACTIVE) != active || (wr[len] & RO_START))) {
+          boundary = true;
+          break;
+        }
+        if (wr[len++] & RO_END) {
+          boundary = true;
+          break;
+        }
       }
     }
     if (len < ctx->grain && !boundary && consumed >= forced) {
@@ -275,18 +325,19 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
       if (wroteSamples != len)
         LOG_W(HW, "Failed to write to RF: wrote %d out of %d samples\n", wroteSamples, len);
     }
-    for (int a = 0; a < ctx->nb_ant; a++)
-      memset(((c16_t *)ctx->ring[a]) + ctx->nextTS % ctx->sz, 0, len * sizeof(c16_t));
-    memset(wr, 0, len * sizeof(*wr));
+    const openair0_timestamp_t z0 = max(ctx->nextTS, ctx->dirty_from), z1 = min(ctx->nextTS + len, ctx->dirty_end);
+    if (z0 < z1) {
+      for (int a = 0; a < ctx->nb_ant; a++)
+        memset(((c16_t *)ctx->ring[a]) + z0 % ctx->sz, 0, (z1 - z0) * sizeof(c16_t));
+      memset(ctx->state + z0 % ctx->sz, 0, (z1 - z0) * sizeof(*ctx->state));
+    }
     ctx->nextTS += len;
     consumed += len;
     ready -= len;
     written = max(written - len, 0);
   }
-  ctx->scan_ready = written;
   if (gap) {
     ctx->nextTS = force_until;
-    ctx->scan_ready = 0;
     ctx->scan_chunk = 0;
   }
 }
@@ -299,8 +350,7 @@ static void reorder_init_writers(re_order_t *ctx, int nb_writers)
     return;
   }
   ctx->max_writers = nb_writers;
-  ctx->writer_end = calloc_or_fail(nb_writers, sizeof(*ctx->writer_end));
-  ctx->writer_absent = calloc_or_fail(nb_writers, sizeof(*ctx->writer_absent));
+  ctx->writers = calloc_or_fail(nb_writers, sizeof(*ctx->writers));
 }
 
 int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
@@ -344,7 +394,7 @@ int openair0_write_reorder_common_range(nrue_ru_write_t nrue_ru_write,
 {
   re_order_t *ctx = &device->reOrder;
   LOG_D(HW, "received write order ts: %lu + %lu, nb samples %d, flags %d\n", timestamp, device->firstTS, nsamps, flags);
-  AssertFatal(nb_writers > 0 && nb_writers <= RO_COUNT, "invalid number of writers %d\n", nb_writers);
+  AssertFatal(nb_writers > 0 && nb_writers <= RO_MAX_WRITERS, "invalid number of writers %d\n", nb_writers);
   AssertFatal(nbAnt > 0 && nbAnt <= ctx->nb_ant, "invalid number of tx antennas %d (max %d)\n", nbAnt, ctx->nb_ant);
   AssertFatal(nsamps <= ctx->sz, "write of %d samples larger than the reorder ring (%d)\n", nsamps, ctx->sz);
 
@@ -354,78 +404,88 @@ int openair0_write_reorder_common_range(nrue_ru_write_t nrue_ru_write,
   if (!ctx->initDone) {
     ctx->nextTS = timestamp;
     ctx->maxTS = timestamp;
-    ctx->scan_ready = 0;
+    ctx->dirty_from = ctx->dirty_end = timestamp;
     ctx->scan_chunk = 0;
     ctx->initDone = true;
   }
-  const openair0_timestamp_t prev_end = ctx->writer_end[writer];
-  ctx->writer_end[writer] = max(ctx->writer_end[writer], timestamp + nsamps);
-  if (ctx->writer_absent[writer]) {
-    ctx->writer_absent[writer] = false;
+  ro_writer_t *w = ctx->writers + writer;
+  if (w->absent) {
+    w->absent = false;
     ctx->nb_absent--;
   }
-  nb_writers -= ctx->nb_absent;
   int skip = 0;
   if (timestamp < ctx->nextTS) {
     skip = min(ctx->nextTS - timestamp, nsamps);
     LOG_W(HW, "late write at %lu: %d of %d samples already sent, dropped\n", timestamp, skip, nsamps);
   }
   // make room: samples more than one ring before the end of this write must be sent first
-  reorder_flush(nrue_ru_write, UE, device, nb_writers, nbAnt, timestamp + nsamps - ctx->sz);
-
-  /* a timing advance change moves the writes of a UE later by a few samples (at most 31 TA steps): the samples between
-     the end of its previous write and this one are never written, and each flush would wait wait_ms for them while all
-     the writers are already past them. They are silence of this writer. A write out of order (several TX threads)
-     leaves a gap of a whole slot, at least a grain: still waited for */
-  if (prev_end > 0 && timestamp > prev_end && timestamp - prev_end < ctx->grain) {
-    for (openair0_timestamp_t t = max(prev_end, ctx->nextTS); t < timestamp; t++)
-      ctx->nb_writers[t % ctx->sz]++;
-  }
+  reorder_flush(nrue_ru_write, UE, device, nbAnt, timestamp + nsamps - ctx->sz);
 
   if (skip < nsamps) {
-    const openair0_timestamp_t ts = timestamp + skip;
-    const int n = nsamps - skip;
+    const openair0_timestamp_t ts = max(timestamp + skip, ctx->nextTS);
+    const int n = timestamp + nsamps - ts;
     // txp NULL: silence, the ring holds zeros where nobody added samples
     const openair0_timestamp_t from = max(ts, add_from), to = min(ts + n, add_to);
+    const int active = flags != TX_BURST_INVALID ? RO_ACTIVE : 0;
+    if (n > 0 && (active || (txp && from < to))) {
+      if (ctx->dirty_end <= ctx->nextTS) {
+        ctx->dirty_from = ts;
+        ctx->dirty_end = ts + n;
+      } else {
+        ctx->dirty_from = min(ctx->dirty_from, ts);
+        ctx->dirty_end = max(ctx->dirty_end, ts + n);
+      }
+    }
     for (int a = 0; txp && from < to && a < nbAnt; a++) {
       c16_t *out = ((c16_t *)ctx->ring[a]) + from % ctx->sz;
       c16adds(((c16_t *)txp[a]) + (from - timestamp), out, out, to - from);
     }
-    const int active = flags != TX_BURST_INVALID ? RO_ACTIVE : 0;
-    int *wr = ctx->nb_writers + ts % ctx->sz;
-    for (int i = 0; i < n; i++)
-      wr[i] = (wr[i] + 1) | active;
-    if (active && !skip && (flags == TX_BURST_START || flags == TX_BURST_START_AND_END))
-      wr[0] |= RO_START;
-    if (active && (flags == TX_BURST_END || flags == TX_BURST_START_AND_END || flags == TX_BURST_END_NO_TIME_SPEC))
-      wr[n - 1] |= RO_END;
+    if (active && n > 0) {
+      int *wr = ctx->state + ts % ctx->sz;
+      for (int i = 0; i < n; i++)
+        wr[i] |= active;
+      if (ts == timestamp && (flags == TX_BURST_START || flags == TX_BURST_START_AND_END))
+        wr[0] |= RO_START;
+      if (flags == TX_BURST_END || flags == TX_BURST_START_AND_END || flags == TX_BURST_END_NO_TIME_SPEC)
+        wr[n - 1] |= RO_END;
+    }
+    if (n > 0)
+      writer_add(w, ts, ts + n);
     ctx->maxTS = max(ctx->maxTS, timestamp + nsamps);
   }
+  w->end = max(w->end, timestamp + nsamps);
   // don't wait more than half the ring for a writer that did not write
-  reorder_flush(nrue_ru_write, UE, device, nb_writers, nbAnt, ctx->maxTS - ctx->sz / 2);
+  reorder_flush(nrue_ru_write, UE, device, nbAnt, ctx->maxTS - ctx->sz / 2);
   pthread_cond_broadcast(&ctx->written);
   pthread_mutex_unlock(&ctx->mutex_store);
   return nsamps;
 }
 
-/* true when all the writers wrote the samples before until, *checked: first sample not checked yet
-   (counts only grow until the samples are sent) */
-static bool reorder_all_written(const re_order_t *ctx, int nb_writers, openair0_timestamp_t until, openair0_timestamp_t *checked)
+/* true when all the writers wrote the samples before until, *checked: first sample not checked yet */
+static bool reorder_all_written(re_order_t *ctx, openair0_timestamp_t until, openair0_timestamp_t *checked)
 {
   /* a writer may leave a few samples unwritten (timing advance change): a sample that all the present writers
      passed by a quarter of the ring will not be written any more */
   openair0_timestamp_t passed = INT64_MAX;
   for (int w = 0; w < ctx->max_writers; w++)
-    if (!ctx->writer_absent[w])
-      passed = min(passed, ctx->writer_end[w]);
+    if (!ctx->writers[w].absent)
+      passed = min(passed, ctx->writers[w].end);
   passed = passed > ctx->sz / 4 ? passed - ctx->sz / 4 : 0;
-  openair0_timestamp_t ts = max(*checked, ctx->nextTS);
   const openair0_timestamp_t end = min(until, ctx->nextTS + ctx->sz);
-  for (; ts < end; ts++)
-    if ((ctx->nb_writers[ts % ctx->sz] & RO_COUNT) < nb_writers && ts >= passed)
-      break;
-  *checked = ts;
-  return ts >= end;
+  openair0_timestamp_t first = reorder_written_until(ctx);
+  if (first < passed) {
+    // the samples before passed count as written, the writers are checked from there on
+    first = INT64_MAX;
+    for (int w = 0; w < ctx->max_writers; w++) {
+      openair0_timestamp_t done;
+      if (!ctx->writers[w].absent) {
+        writer_reach(ctx, ctx->writers + w, passed, &done);
+        first = min(first, done);
+      }
+    }
+  }
+  *checked = min(first, end);
+  return *checked >= end;
 }
 
 /* send everything stored before force_until. Wait up to wait_ms for the writers that did not write these
@@ -449,16 +509,16 @@ void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
       deadline.tv_sec++;
       deadline.tv_nsec -= 1000000000L;
     }
-    openair0_timestamp_t checked = ctx->nextTS;
-    while (!reorder_all_written(ctx, nb_writers - ctx->nb_absent, force_until, &checked))
+    openair0_timestamp_t checked;
+    while (!reorder_all_written(ctx, force_until, &checked))
       if (pthread_cond_timedwait(&ctx->written, &ctx->mutex_store, &deadline) == ETIMEDOUT) {
         /* a writer that does not write a sample range at all (a UE resynchronizing after a radio link failure)
            would make every flush wait wait_ms: the writers that did not reach the missing sample are absent, not
            waited for, until they write again. The others are still waited for: the simulated time does not run
            ahead of their TX */
         for (int w = 0; w < ctx->max_writers; w++)
-          if (!ctx->writer_absent[w] && ctx->writer_end[w] <= checked) {
-            ctx->writer_absent[w] = true;
+          if (!ctx->writers[w].absent && ctx->writers[w].end <= checked) {
+            ctx->writers[w].absent = true;
             ctx->nb_absent++;
             LOG_D(HW, "TX writer %d not written at %lu after %d ms, absent until it writes\n", w, checked, wait_ms);
           }
@@ -466,7 +526,7 @@ void openair0_write_reorder_flush_common(nrue_ru_write_t nrue_ru_write,
       }
   }
   if (ctx->initDone && force_until > ctx->nextTS)
-    reorder_flush(nrue_ru_write, UE, device, nb_writers - ctx->nb_absent, nbAnt, force_until);
+    reorder_flush(nrue_ru_write, UE, device, nbAnt, force_until);
   pthread_mutex_unlock(&ctx->mutex_store);
 }
 
@@ -483,11 +543,9 @@ void openair0_write_reorder_clear_context(openair0_device_t *device)
   if (ctx->initDone) {
     for (int a = 0; a < ctx->nb_ant; a++)
       memset(ctx->ring[a], 0, ctx->sz * sizeof(c16_t));
-    memset(ctx->nb_writers, 0, ctx->sz * sizeof(*ctx->nb_writers));
-    for (int w = 0; w < ctx->max_writers; w++) {
-      ctx->writer_end[w] = 0;
-      ctx->writer_absent[w] = false;
-    }
+    memset(ctx->state, 0, ctx->sz * sizeof(*ctx->state));
+    for (int w = 0; w < ctx->max_writers; w++)
+      ctx->writers[w] = (ro_writer_t){0};
     ctx->nb_absent = 0;
     ctx->initDone = false;
   }
