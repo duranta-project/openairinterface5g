@@ -141,6 +141,18 @@ void rx_nr_prach_ru_rep(prach_item_t *p,
                         int prachOccasion,
                         c16_t (*rxsigF)[NR_PRACH_SEQ_LEN_L]);
 
+typedef struct {
+  int reps;
+  int Ncp;
+  int dftlen;
+  int N_ZC;
+  int k; ///< first bin of the sequence in the dftlen-point DFT
+  dft_size_idx_t dftsize;
+  int sample_offset_slot;
+} prach_ru_params_t;
+
+prach_ru_params_t get_prach_ru_params(prach_item_t *p, int prachStartSymbol, NR_DL_FRAME_PARMS *fp);
+
 void nr_fill_pucch(PHY_VARS_gNB *gNB,
                    int frame,
                    int slot,
