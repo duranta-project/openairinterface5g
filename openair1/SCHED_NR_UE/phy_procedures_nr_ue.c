@@ -416,14 +416,17 @@ bool phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
     phy_data->tx_end_sample = last == NR_SYMBOLS_PER_SLOT - 1 ? get_samples_per_slot(slot_tx, &ue->frame_parms)
                                                               : get_samples_symbol_timestamp(&ue->frame_parms, slot_tx, last + 1);
     start_meas_nr_ue_phy(ue, OFDM_MOD_STATS);
-    nr_tx_rotation_and_ofdm_mod(proc->nr_slot_tx,
-                                &ue->frame_parms,
-                                ue->frame_parms.nb_antennas_tx,
-                                (c16_t **)txdataF,
-                                txp,
-                                link_type_ul,
-                                was_symbol_used,
-                                ue->no_phase_pre_comp);
+    // the RU write reads only the samples of these symbols
+    nr_tx_rotation_and_ofdm_mod_range(proc->nr_slot_tx,
+                                      &ue->frame_parms,
+                                      ue->frame_parms.nb_antennas_tx,
+                                      (c16_t **)txdataF,
+                                      txp,
+                                      link_type_ul,
+                                      was_symbol_used,
+                                      ue->no_phase_pre_comp,
+                                      first,
+                                      last);
     stop_meas_nr_ue_phy(ue, OFDM_MOD_STATS);
   }
 
