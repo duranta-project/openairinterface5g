@@ -1076,6 +1076,26 @@ static int startClient(openair0_device_t *device)
   return 0;
 }
 
+/* option_flag of a block header: its samples are all zero and not sent, only the header and the gains are */
+#define RFSIM_ZERO_SAMPLES 1
+
+static bool samples_all_zero(sample_t *const samples[], int nbAnt, int nsamps)
+{
+  for (int a = 0; a < nbAnt; a++) {
+    const uint32_t *p = (const uint32_t *)samples[a];
+    int i = 0;
+    for (; i + 8 <= nsamps; i += 8) {
+      const simde__m256i v = simde_mm256_loadu_si256((const simde__m256i *)(p + i));
+      if (!simde_mm256_testz_si256(v, v))
+        return false;
+    }
+    for (; i < nsamps; i++)
+      if (p[i])
+        return false;
+  }
+  return true;
+}
+
 static int rfsimulator_write_internal(rfsimulator_state_t *t,
                                       openair0_timestamp_t timestamp,
                                       sample_t **samples,
@@ -1092,8 +1112,14 @@ static int rfsimulator_write_internal(rfsimulator_state_t *t,
   struct iovec iov[2 + nbAnt];
   iov[0] = {&header, sizeof(header)};
   iov[1] = {tx_gains_db.data(), sizeof(float) * nbAnt};
-  for (int a = 0; a < nbAnt; a++)
-    iov[2 + a] = {samples[a], sampleToByte(nsamps, 1)};
+  int niov = 2;
+  /* silence (most of the samples of a UE, the UL slots of a gNB): the receivers neither copy nor add zeros. Not in an IQ
+     file, whose readers expect the samples */
+  if (t->saveIQfile == -1 && samples_all_zero(samples, nbAnt, nsamps))
+    header.option_flag = RFSIM_ZERO_SAMPLES;
+  else
+    for (int a = 0; a < nbAnt; a++)
+      iov[niov++] = {samples[a], sampleToByte(nsamps, 1)};
   int fds[MAX_FD_RFSIMU];
   int nfds = 0;
   for (int i = 0; i < MAX_FD_RFSIMU; i++)
@@ -1106,10 +1132,10 @@ static int rfsimulator_write_internal(rfsimulator_state_t *t,
     t->tx_pool->grow(nfds - 1);
     memcpy(t->tx_pool->fds, fds, sizeof(fds));
     t->tx_pool->nfds = nfds;
-    t->tx_pool->write_all(t, iov, 2 + nbAnt);
+    t->tx_pool->write_all(t, iov, niov);
   } else {
     for (int i = 0; i < nfds; i++)
-      fullwritev(fds[i], iov, 2 + nbAnt, t);
+      fullwritev(fds[i], iov, niov, t);
   }
 
   if (t->lastWroteTS > timestamp)
@@ -1244,7 +1270,7 @@ static void process_recv_header(buffer_t *b, bool first_time)
   }
 
   size_t gains_payload_size = b->th.nbAnt * sizeof(float);
-  size_t payload_sz = sampleToByte(b->th.size, b->th.nbAnt);
+  size_t payload_sz = b->th.option_flag & RFSIM_ZERO_SAMPLES ? 0 : sampleToByte(b->th.size, b->th.nbAnt);
   b->packet_ptr = static_cast<rfsim_packet_t *>(malloc_or_fail(gains_payload_size + payload_sz + sizeof(samplesBlockHeader_t)));
   b->packet_ptr->header = b->th;
   b->transferPtr = b->packet_ptr->payload;
@@ -1292,6 +1318,10 @@ static void combine_received_beams(rfsimulator_state_t *t,
       break;
     }
 
+    if (pkt->header.option_flag & RFSIM_ZERO_SAMPLES) { // silence: nothing to add
+      packets_copy.pop();
+      continue;
+    }
     // The sender already looked up its own beam gain once per antenna and put it on the wire (see
     // rfsimulator_write()) -- it never had to touch a sample to do that. Combine it with our own
     // beam gain (dB values add when the corresponding linear gains multiply) and fold both into
@@ -1585,6 +1615,10 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
             break;
           }
 
+          if (pkt->header.option_flag & RFSIM_ZERO_SAMPLES) { // silence: nothing to add
+            packets_copy.pop();
+            continue;
+          }
           // The sender already looked up its own beam gain once per antenna and put it on the wire
           // (see rfsimulator_write()) -- combine it with our own beam gain below
           uint64_t overlap_start = std::max(read_timestamp, static_cast<int64_t>(pkt->header.timestamp));
