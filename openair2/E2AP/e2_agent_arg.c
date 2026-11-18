@@ -17,7 +17,12 @@ e2_agent_args_t RCconfig_NR_E2agent(void)
 
   bool enabled = config_isparamset(e2agent_params, E2AGENT_CONFIG_SMDIR_IDX)
               && config_isparamset(e2agent_params, E2AGENT_CONFIG_IP_IDX);
-  e2_agent_args_t dst = {.enabled = enabled};
+  // Optional, so it is not part of `enabled`
+  uint16_t port = E2AGENT_CONFIG_PORT_DEFAULT;
+  if (e2agent_params[E2AGENT_CONFIG_PORT_IDX].u16ptr != NULL)
+    port = *e2agent_params[E2AGENT_CONFIG_PORT_IDX].u16ptr;
+
+  e2_agent_args_t dst = {.port = port, .enabled = enabled};
   if (!enabled) {
     printf("E2 agent is DISABLED (for activation, define .%s.{%s,%s} parameters)\n", CONFIG_STRING_E2AGENT, E2AGENT_CONFIG_IP, E2AGENT_CONFIG_SMDIR);
     return dst;
