@@ -80,13 +80,19 @@ void seq_arr_cell_free(void *cell)
 
 void nr_mac_cell_free(nr_cell_sched_t *cell)
 {
+  free_ul_vrb_map(cell);
   free(cell->radio_config.ssb_beams);
-  NR_beam_info_t *beam_info = &cell->beam_info;
-  if (beam_info->beam_allocation) {
-    for (int b = 0; b < beam_info->config.beams_per_period; b++)
-      free(beam_info->beam_allocation[b]);
-    free(beam_info->beam_allocation);
+  free_beam_information(&cell->beam_info);
+  nfapi_nr_config_request_scf_t *cfg = &cell->config;
+  free(cfg->prach_config.num_prach_fd_occasions_list);
+  if (cfg->tdd_table.max_tdd_periodicity_list) {
+    for (int i = 0; i < cell->frame_structure.numb_slots_frame; i++)
+      free(cfg->tdd_table.max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list);
+    free(cfg->tdd_table.max_tdd_periodicity_list);
   }
+  free(cell->UL_tti_req_ahead);
+  free_sched_ctrlSIB1(cell);
+  seq_arr_free(&cell->ul_tda, NULL);
   NR_COMMON_channels_t *cc = &cell->common_channels;
   nr_mac_pcch_queue_free(cc);
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, cc->mib);

@@ -46,6 +46,8 @@ nr_cell_sched_t *nr_mac_get_cell_by_cgi(gNB_MAC_INST *mac, plmn_id_t plmn, uint6
 bool add_new_UE_RA(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 int nr_mac_get_reconfig_delay_slots(NR_SubcarrierSpacing_t scs);
 
+void free_beam_information(NR_beam_info_t *bi);
+
 int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_info);
 
 void clear_nr_nfapi_information(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
@@ -572,7 +574,8 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
                                      const NR_BCCH_DL_SCH_Message_t *sib1);
 
 void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group);
-
+void free_sched_ctrlSIB1(nr_cell_sched_t *cell);
+void free_ul_vrb_map(nr_cell_sched_t *cell);
 void post_process_dlsch(gNB_MAC_INST *nr_mac,
                         nr_cell_sched_t *cell,
                         post_process_pdsch_t *pdsch,
