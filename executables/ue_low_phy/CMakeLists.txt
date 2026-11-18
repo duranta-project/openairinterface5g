@@ -1,8 +1,12 @@
 # SPDX-License-Identifier: LicenseRef-CSSL-1.0
 
-# UE Low-PHY: timebase, client port, device.
-add_library(ue_low_phy STATIC wait.c timebase.c port.c device.c)
-target_link_libraries(ue_low_phy PUBLIC radio_common)
+# UE Low-PHY port (process or shared memory).
+add_library(ue_low_phy_port STATIC wait.c port.c)
+target_link_libraries(ue_low_phy_port PUBLIC log_headers)
+
+# UE Low-PHY device: timebase, radio, OFDM.
+add_library(ue_low_phy STATIC timebase.c device.c)
+target_link_libraries(ue_low_phy PUBLIC ue_low_phy_port radio_common)
 
 # UE anchor service: cell search on the device's RX ring.
 add_library(ue_low_phy_sync STATIC sync.c)

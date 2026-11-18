@@ -4,8 +4,15 @@
 
 #define _GNU_SOURCE
 #include "port.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 #include "common/utils/LOG/log.h"
 #include "PHY/TOOLS/tools_defs.h"
 
@@ -24,7 +31,16 @@ static void layout(ue_low_phy_port_mem_t *hdr, const ue_low_phy_geometry_t *geo)
   hdr->prach_entry_size = sizeof(ue_low_phy_entry_hdr_t) + align_up(geo->prach_max_samples, 16) * sizeof(c16_t);
   uint64_t off = align_up(sizeof(ue_low_phy_port_mem_t), UE_LOW_PHY_ALIGN);
   hdr->rx_off = off;
-  off += align_up((uint64_t)geo->nb_rx * geo->ring_symbols * geo->fft_size * sizeof(c16_t), UE_LOW_PHY_ALIGN);
+  if (geo->dl_per_client) {
+    hdr->rx_ring_symbols = geo->rx_ring_symbols;
+    hdr->rx_stride = align_up(geo->n_rb_dl * 12, 16);
+    off +=
+        align_up((uint64_t)geo->max_clients * geo->nb_rx * hdr->rx_ring_symbols * hdr->rx_stride * sizeof(c16_t), UE_LOW_PHY_ALIGN);
+  } else {
+    hdr->rx_ring_symbols = geo->ring_symbols;
+    hdr->rx_stride = geo->fft_size;
+    off += align_up((uint64_t)geo->nb_rx * geo->ring_symbols * geo->fft_size * sizeof(c16_t), UE_LOW_PHY_ALIGN);
+  }
   hdr->tx_off = off;
   off += (uint64_t)geo->max_clients * geo->ring_symbols * hdr->tx_entry_size;
   hdr->prach_off = off;
@@ -35,31 +51,111 @@ static void layout(ue_low_phy_port_mem_t *hdr, const ue_low_phy_geometry_t *geo)
   hdr->size = align_up(off, UE_LOW_PHY_ALIGN);
 }
 
-ue_low_phy_port_t *ue_low_phy_port_create(const ue_low_phy_geometry_t *geo)
+static ue_low_phy_port_mem_t checked_layout(const ue_low_phy_geometry_t *geo)
 {
   AssertFatal(geo->max_clients >= 1 && geo->max_clients <= UE_LOW_PHY_MAX_CLIENTS,
               "%u client slots, 1 to %d supported\n",
               geo->max_clients,
               UE_LOW_PHY_MAX_CLIENTS);
   AssertFatal(geo->nb_rx <= UE_LOW_PHY_MAX_ANT && geo->nb_tx <= UE_LOW_PHY_MAX_ANT, "too many antennas (%u/%u)\n", geo->nb_rx, geo->nb_tx);
+  AssertFatal(!geo->dl_per_client || (geo->rx_ring_symbols > 0 && geo->rx_ring_symbols % geo->symbols_per_slot == 0),
+              "per-client DL ring of %u symbols, a multiple of %u needed\n",
+              geo->rx_ring_symbols,
+              geo->symbols_per_slot);
   ue_low_phy_port_mem_t hdr = {0};
   layout(&hdr, geo);
+  return hdr;
+}
 
-  ue_low_phy_port_t *port = calloc(1, sizeof(*port));
-  AssertFatal(port, "OOM\n");
-  // Zeroed: every tag empty, every client free.
-  port->mem = malloc16_clear_or_fail(hdr.size);
-  AssertFatal(port->mem, "OOM (%lu bytes)\n", hdr.size);
-  ue_low_phy_port_mem_t *s = port->mem;
-  memcpy(s, &hdr, sizeof(hdr));
+// mem is zeroed: every tag empty, every client free.
+static void init_mem(ue_low_phy_port_mem_t *s, const ue_low_phy_port_mem_t *hdr)
+{
+  memcpy(s, hdr, sizeof(*hdr));
   ue_low_phy_progress_init(&s->rx_published, 0);
   ue_low_phy_progress_init(&s->host_work, 0);
   ue_low_phy_monitor_init(&s->monitor);
   s->timing_master = -1;
   for (int i = 0; i < s->geo.max_clients; i++)
     ue_low_phy_monitor_init(&s->clients[i].monitor);
+  __atomic_store_n(&s->ready, 1, __ATOMIC_RELEASE);
+}
+
+ue_low_phy_port_t *ue_low_phy_port_create(const ue_low_phy_geometry_t *geo)
+{
+  const ue_low_phy_port_mem_t hdr = checked_layout(geo);
+  ue_low_phy_port_t *port = calloc(1, sizeof(*port));
+  AssertFatal(port, "OOM\n");
+  port->kind = UE_LOW_PHY_PORT_PRIVATE;
+  port->mem = malloc16_clear_or_fail(hdr.size);
+  init_mem(port->mem, &hdr);
   LOG_I(PHY, "[ue-low-phy] port: %lu MB\n", hdr.size >> 20);
   return port;
+}
+
+static void set_name(ue_low_phy_port_t *port, const char *name)
+{
+  const int n = snprintf(port->name, sizeof(port->name), "%s%s", name[0] == '/' ? "" : "/", name);
+  AssertFatal(n > 1 && n < (int)sizeof(port->name), "invalid port name \"%s\"\n", name);
+}
+
+ue_low_phy_port_t *ue_low_phy_port_create_shared(const char *name, const ue_low_phy_geometry_t *geo)
+{
+  const ue_low_phy_port_mem_t hdr = checked_layout(geo);
+  ue_low_phy_port_t *port = calloc(1, sizeof(*port));
+  AssertFatal(port, "OOM\n");
+  port->kind = UE_LOW_PHY_PORT_SHARED_OWNER;
+  set_name(port, name);
+  // A previous host that did not exit cleanly leaves its object behind: clients still
+  // mapping it keep their copy, new ones find this one.
+  if (shm_unlink(port->name) == 0)
+    LOG_W(PHY, "[ue-low-phy] replaced stale port %s\n", port->name);
+  const int fd = shm_open(port->name, O_CREAT | O_EXCL | O_RDWR, 0600);
+  AssertFatal(fd >= 0, "shm_open(%s): %s\n", port->name, strerror(errno));
+  AssertFatal(ftruncate(fd, hdr.size) == 0, "ftruncate(%s, %lu): %s\n", port->name, hdr.size, strerror(errno));
+  // Zero-filled by ftruncate()
+  port->mem = mmap(NULL, hdr.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  AssertFatal(port->mem != MAP_FAILED, "mmap(%s): %s\n", port->name, strerror(errno));
+  close(fd);
+  init_mem(port->mem, &hdr);
+  LOG_I(PHY, "[ue-low-phy] port %s: %lu MB\n", port->name, hdr.size >> 20);
+  return port;
+}
+
+ue_low_phy_port_t *ue_low_phy_port_attach(const char *name, int timeout_ms)
+{
+  ue_low_phy_port_t *port = calloc(1, sizeof(*port));
+  AssertFatal(port, "OOM\n");
+  port->kind = UE_LOW_PHY_PORT_SHARED_ATTACHED;
+  set_name(port, name);
+  struct timespec start, now;
+  clock_gettime(CLOCK_MONOTONIC, &start);
+  for (;;) {
+    // The creator sizes the object before it initializes it, and sets ready last.
+    const int fd = shm_open(port->name, O_RDWR, 0);
+    if (fd >= 0) {
+      struct stat st;
+      AssertFatal(fstat(fd, &st) == 0, "fstat(%s): %s\n", port->name, strerror(errno));
+      if (st.st_size >= (off_t)sizeof(ue_low_phy_port_mem_t)) {
+        ue_low_phy_port_mem_t *s = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        AssertFatal(s != MAP_FAILED, "mmap(%s): %s\n", port->name, strerror(errno));
+        if (__atomic_load_n(&s->ready, __ATOMIC_ACQUIRE)) {
+          AssertFatal(s->size == (uint64_t)st.st_size, "port %s: size %lu, object %ld\n", port->name, s->size, st.st_size);
+          close(fd);
+          port->mem = s;
+          LOG_I(PHY, "[ue-low-phy] attached to port %s\n", port->name);
+          return port;
+        }
+        munmap(s, st.st_size);
+      }
+      close(fd);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if ((now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1000000 >= timeout_ms) {
+      free(port);
+      return NULL;
+    }
+    usleep(10000);
+  }
 }
 
 void ue_low_phy_port_destroy(ue_low_phy_port_t *port)
@@ -67,18 +163,38 @@ void ue_low_phy_port_destroy(ue_low_phy_port_t *port)
   if (!port)
     return;
   ue_low_phy_port_mem_t *s = port->mem;
+  if (port->kind == UE_LOW_PHY_PORT_SHARED_ATTACHED) {
+    munmap(s, s->size);
+    free(port);
+    return;
+  }
   for (int i = 0; i < s->geo.max_clients; i++)
     ue_low_phy_monitor_destroy(&s->clients[i].monitor);
   ue_low_phy_monitor_destroy(&s->monitor);
   ue_low_phy_progress_destroy(&s->host_work);
   ue_low_phy_progress_destroy(&s->rx_published);
-  free(s);
+  if (port->kind == UE_LOW_PHY_PORT_SHARED_OWNER) {
+    munmap(s, s->size);
+    shm_unlink(port->name);
+  } else {
+    free(s);
+  }
   free(port);
 }
 
 /* ------------------------------------------------------------------------- */
 /* Host API                                                                  */
 /* ------------------------------------------------------------------------- */
+
+void ue_low_phy_port_set_time(ue_low_phy_port_t *port, uint64_t symbol0)
+{
+  ue_low_phy_port_mem_t *s = port->mem;
+  ue_low_phy_monitor_lock(&s->monitor);
+  s->time_symbol0 = symbol0;
+  s->time_anchored = true;
+  ue_low_phy_monitor_notify(&s->monitor);
+  ue_low_phy_monitor_unlock(&s->monitor);
+}
 
 void ue_low_phy_port_anchor(ue_low_phy_port_t *port, const ue_low_phy_cell_t *cell, uint64_t first_symbol)
 {
@@ -87,6 +203,8 @@ void ue_low_phy_port_anchor(ue_low_phy_port_t *port, const ue_low_phy_cell_t *ce
   ue_low_phy_monitor_lock(&s->monitor);
   s->cell = *cell;
   s->anchored = true;
+  s->time_symbol0 = 0;
+  s->time_anchored = true;
   ue_low_phy_monitor_notify(&s->monitor);
   ue_low_phy_monitor_unlock(&s->monitor);
   ue_low_phy_progress_add(&s->host_work, 1);
@@ -191,7 +309,7 @@ int ue_low_phy_client_open(ue_low_phy_port_t *port, ue_low_phy_client_t *c)
     c->id = i;
     c->mem = cs;
     for (uint32_t a = 0; a < s->geo.nb_rx; a++)
-      c->rx_ring[a] = ue_low_phy_port_rx_ring(port, a);
+      c->rx_ring[a] = s->geo.dl_per_client ? ue_low_phy_port_client_rx_ring(port, i, a) : ue_low_phy_port_rx_ring(port, a);
     return 0;
   }
   return -1;
@@ -256,11 +374,24 @@ int ue_low_phy_client_sync_result(ue_low_phy_client_t *c, uint32_t req, ue_low_p
   return result;
 }
 
+bool ue_low_phy_client_time(ue_low_phy_client_t *c, uint64_t *symbol0, int timeout_us)
+{
+  ue_low_phy_port_mem_t *s = c->port->mem;
+  const ue_low_phy_deadline_t deadline = ue_low_phy_deadline_in(timeout_us);
+  ue_low_phy_monitor_lock(&s->monitor);
+  while (!s->time_anchored && !s->stopped && ue_low_phy_monitor_wait(&s->monitor, &deadline))
+    ;
+  const bool anchored = s->time_anchored;
+  *symbol0 = s->time_symbol0;
+  ue_low_phy_monitor_unlock(&s->monitor);
+  return anchored;
+}
+
 // True when the slot starting at symbol first is still intact, published being the
 // RX progress. Keeps one slot of margin: the host may be overwriting the oldest one.
 static bool rx_slot_in_ring(const ue_low_phy_port_mem_t *s, uint64_t published, uint64_t first)
 {
-  return published - first + s->geo.symbols_per_slot <= s->geo.ring_symbols;
+  return published - first + s->geo.symbols_per_slot <= s->rx_ring_symbols;
 }
 
 uint64_t ue_low_phy_client_next_published_slot(const ue_low_phy_client_t *c)
@@ -291,8 +422,17 @@ bool ue_low_phy_client_rx_symbol(ue_low_phy_client_t *c, uint64_t abs_sym, c16_t
   const uint64_t first = abs_sym - abs_sym % s->geo.symbols_per_slot;
   if (abs_sym >= ue_low_phy_progress_get(&s->rx_published) || !rx_slot_in_ring(s, ue_low_phy_progress_get(&s->rx_published), first))
     return false;
-  for (int a = 0; a < nb_ant; a++)
-    memcpy(dst[a], c->rx_ring[a] + (abs_sym % s->geo.ring_symbols) * s->geo.fft_size, s->geo.fft_size * sizeof(c16_t));
+  const uint64_t pos = (abs_sym % s->rx_ring_symbols) * s->rx_stride;
+  if (s->geo.dl_per_client) {
+    const int n_re = s->geo.n_rb_dl * 12;
+    for (int a = 0; a < nb_ant; a++) {
+      memcpy(dst[a], c->rx_ring[a] + pos, n_re * sizeof(c16_t));
+      memset(dst[a] + n_re, 0, (s->geo.fft_size - n_re) * sizeof(c16_t));
+    }
+  } else {
+    for (int a = 0; a < nb_ant; a++)
+      memcpy(dst[a], c->rx_ring[a] + pos, s->geo.fft_size * sizeof(c16_t));
+  }
   // Checked again after the copy: the host may have started overwriting it meanwhile.
   return rx_slot_in_ring(s, ue_low_phy_progress_get_after_reads(&s->rx_published), first);
 }
