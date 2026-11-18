@@ -522,17 +522,45 @@ static uint32_t nr_pdcch_decode_candidate(c16_t *e_rx,
                                           int payload_size,
                                           int e_size,
                                           int8_t polar_msg_type,
-                                          uint64_t payload[2])
+                                          uint64_t payload[2],
+                                          struct nr_fep_cache_s *cache)
 {
-  int16_t tmp_e[16 * 108];
+  int16_t tmp_e[16 * 108] __attribute__((aligned(32)));
   nr_pdcch_unscrambling(e_rx, rel15->coreset.scrambling_rnti, e_size, rel15->coreset.pdcch_dmrs_scrambling_id, tmp_e);
-  return polar_decoder_int16(tmp_e, payload, 1, polar_msg_type, payload_size, L);
+  // the decoded payload and CRC do not depend on the UE (the RNTI check is the caller's): UEs of a shared RU that get
+  // the same unscrambled LLRs for a candidate (common search spaces, overlapping candidates) decode it once
+  if (!cache || e_size % 4)
+    return polar_decoder_int16(tmp_e, payload, 1, polar_msg_type, payload_size, L);
+  uint64_t h = 0x9E3779B97F4A7C15ULL ^ ((uint64_t)e_size << 32 | (uint64_t)payload_size << 8 | (uint8_t)polar_msg_type);
+  const uint64_t *w = (const uint64_t *)tmp_e;
+  for (int i = 0; i < e_size / 4; i++)
+    h = (h ^ w[i]) * 0x100000001B3ULL ^ (h >> 29);
+  const uint64_t params[NR_UE_SHARED_PARAMS] = {e_size, payload_size, L, polar_msg_type};
+  struct {
+    uint64_t payload[2];
+    uint32_t crc;
+    uint32_t pad;
+  } res;
+  const int res_len = sizeof(res) / sizeof(c16_t);
+  const int got = nr_ue_shared_get_match(cache, NR_SHARED_POLAR, h, params, (c16_t *)tmp_e, e_size / 2, res_len, (c16_t *)&res);
+  if (got == 1) {
+    payload[0] = res.payload[0];
+    payload[1] = res.payload[1];
+    return res.crc;
+  }
+  const uint32_t crc = polar_decoder_int16(tmp_e, payload, 1, polar_msg_type, payload_size, L);
+  if (got == 0) {
+    res = (typeof(res)){.payload = {payload[0], payload[1]}, .crc = crc};
+    nr_ue_shared_put_match(cache, NR_SHARED_POLAR, h, e_size / 2, res_len, (c16_t *)&res);
+  }
+  return crc;
 }
 
 static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
                                       c16_t *pdcch_e_rx,
                                       fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15,
-                                      fapi_nr_dci_indication_t *dci_ind)
+                                      fapi_nr_dci_indication_t *dci_ind,
+                                      struct nr_fep_cache_s *cache)
 {
   int e_rx_cand_idx = 0;
   // if DCI for SIB we don't break after finding 1st DCI with that RNTI
@@ -576,7 +604,8 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
                                                      dci_length,
                                                      L * 108,
                                                      NR_POLAR_DCI_MESSAGE_TYPE,
-                                                     dci_estimation);
+                                                     dci_estimation,
+                                                     cache);
 
       rnti_t n_rnti = rel15->rnti;
       if (crc == n_rnti) {
@@ -657,7 +686,8 @@ static void nr_sci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
                                                      dci_length,
                                                      L * 18,
                                                      NR_POLAR_SCI_MESSAGE_TYPE,
-                                                     dci_estimation);
+                                                     dci_estimation,
+                                                     NULL);
 
       rnti_t n_rnti = rel15->rnti;
       if (crc == n_rnti) {
@@ -742,7 +772,7 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
       if (sci_indication)
         nr_sci_decoding_procedure(proc, pdcch_e_rx, rel15, &sci_ind, ss_idx);
       else
-        nr_dci_decoding_procedure(proc, pdcch_e_rx, rel15, &dci_ind);
+        nr_dci_decoding_procedure(proc, pdcch_e_rx, rel15, &dci_ind, ue->common_vars.fep_cache);
     }
   }
 
