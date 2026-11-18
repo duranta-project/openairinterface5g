@@ -210,20 +210,25 @@ nr_fep_cache_t *nr_fep_cache_create(int nb_antennas_rx, int ofdm_symbol_size)
   shared_table_init(&c->t[NR_SHARED_SYMB], 64, nb_antennas_rx * ofdm_symbol_size);
   // a few CORESETs per PDCCH symbol, the LLRs of one symbol are fewer than its subcarriers
   shared_table_init(&c->t[NR_SHARED_PDCCH_LLR], 256, ofdm_symbol_size);
+  // polar decoding of the PDCCH candidates: input LLRs (up to aggregation level 16) and result
+  shared_table_init(&c->t[NR_SHARED_POLAR], 512, 16 * 108 / 2 + 8);
   return c;
 }
 
-int nr_ue_shared_get(nr_fep_cache_t *c,
-                     int table,
-                     unsigned int idx,
-                     uint64_t key,
-                     const uint64_t params[NR_UE_SHARED_PARAMS],
-                     int nparts,
-                     int part_len,
-                     c16_t *const dst[nparts])
+/* entry lookup: the data of the entry starts with match_len values equal to match (if any), then the result */
+static int shared_get(nr_fep_cache_t *c,
+                      int table,
+                      unsigned int idx,
+                      uint64_t key,
+                      const uint64_t params[NR_UE_SHARED_PARAMS],
+                      const c16_t *match,
+                      int match_len,
+                      int nparts,
+                      int part_len,
+                      c16_t *const dst[nparts])
 {
   nr_ue_shared_table_t *t = c->t + table;
-  if (nparts * part_len > t->capacity)
+  if (match_len + nparts * part_len > t->capacity)
     return -1;
   nr_ue_shared_entry_t *e = t->e + idx % t->nb;
   for (int spin = 0;; spin++) {
@@ -237,10 +242,10 @@ int nr_ue_shared_get(nr_fep_cache_t *c,
         sched_yield();
       continue;
     }
-    if (memcmp(e->params, params, sizeof(e->params)))
+    if (memcmp(e->params, params, sizeof(e->params)) || (match_len && memcmp(e->data, match, match_len * sizeof(c16_t))))
       break;
     for (int p = 0; p < nparts; p++)
-      memcpy(dst[p], e->data + p * part_len, part_len * sizeof(c16_t));
+      memcpy(dst[p], e->data + match_len + p * part_len, part_len * sizeof(c16_t));
     atomic_thread_fence(memory_order_acquire);
     if (atomic_load_explicit(&e->seq, memory_order_relaxed) == s1) // not overwritten during the copy
       return 1;
@@ -251,7 +256,41 @@ int nr_ue_shared_get(nr_fep_cache_t *c,
     return -1; // another UE writes this entry for another key
   atomic_store_explicit(&e->key, key, memory_order_release);
   memcpy(e->params, params, sizeof(e->params));
+  if (match_len)
+    memcpy(e->data, match, match_len * sizeof(c16_t));
   return 0;
+}
+
+int nr_ue_shared_get(nr_fep_cache_t *c,
+                     int table,
+                     unsigned int idx,
+                     uint64_t key,
+                     const uint64_t params[NR_UE_SHARED_PARAMS],
+                     int nparts,
+                     int part_len,
+                     c16_t *const dst[nparts])
+{
+  return shared_get(c, table, idx, key, params, NULL, 0, nparts, part_len, dst);
+}
+
+int nr_ue_shared_get_match(nr_fep_cache_t *c,
+                           int table,
+                           uint64_t key,
+                           const uint64_t params[NR_UE_SHARED_PARAMS],
+                           const c16_t *match,
+                           int match_len,
+                           int len,
+                           c16_t *dst)
+{
+  c16_t *d[1] = {dst};
+  return shared_get(c, table, key, key, params, match, match_len, 1, len, d);
+}
+
+void nr_ue_shared_put_match(nr_fep_cache_t *c, int table, uint64_t key, int match_len, int len, const c16_t *src)
+{
+  nr_ue_shared_entry_t *e = c->t[table].e + key % c->t[table].nb;
+  memcpy(e->data + match_len, src, len * sizeof(c16_t));
+  atomic_store_explicit(&e->seq, atomic_load_explicit(&e->seq, memory_order_relaxed) + 1, memory_order_release);
 }
 
 void nr_ue_shared_put(nr_fep_cache_t *c, int table, unsigned int idx, int nparts, int part_len, c16_t *const src[nparts])
