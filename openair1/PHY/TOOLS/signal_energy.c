@@ -61,21 +61,20 @@ int32_t signal_energy(int32_t *input,uint32_t length)
 uint32_t signal_energy_nodc(const c16_t *input, uint32_t length)
 {
 #if defined(__riscv) && defined(__riscv_vector)
-  /* sum_k(|c_k|^2)/length. The SIMDe path accumulates |c|^2 in float across 4
-   * lanes (loses precision above 2^24, and a VLA float reduction would be
-   * VLEN-dependent). Accumulate in int64 instead: exact, associative, identical
-   * on every VLEN -- strictly more accurate for this power measurement (feeds
-   * dB_fixed/SNR/AGC). vlseg2 (re/im) + vwmul/vwmacc (|c|^2) + widening reduction. */
+  /* sum_k(|c_k|^2)/length. The SIMDe path accumulates |c|^2 in float across 4 lanes (loses precision above 2^24, and
+   * a VLA float reduction would be VLEN-dependent). Accumulate in int64 instead: exact, associative, identical on every
+   * VLEN -- strictly more accurate for this power measurement (feeds dB_fixed/SNR/AGC). Re and im are squared alike,
+   * so square the plain int16 stream (no segment load, which the A100 runs one element at a time) into a 64-bit
+   * vector accumulator and reduce once: 56 calls of 273 PRB, 615 -> 109 us on the A100, 230 -> 129 us on the X100. */
   const int16_t *p = (const int16_t *)input;
-  int64_t acc = 0;
-  for (uint32_t n = 0; n < length;) {
-    size_t vl = __riscv_vsetvl_e16mf2(length - n);
-    vint16mf2x2_t v = __riscv_vlseg2e16_v_i16mf2x2(p + 2 * n, vl);
-    vint16mf2_t cr = __riscv_vget_v_i16mf2x2_i16mf2(v, 0), ci = __riscv_vget_v_i16mf2x2_i16mf2(v, 1);
-    vint32m1_t pw = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(cr, cr, vl), ci, ci, vl);
-    acc += __riscv_vmv_x_s_i64m1_i64(__riscv_vwredsum_vs_i32m1_i64m1(pw, __riscv_vmv_s_x_i64m1(0, 1), vl));
-    n += (uint32_t)vl;
+  const size_t vlmax = __riscv_vsetvlmax_e64m4();
+  vint64m4_t vacc = __riscv_vmv_v_x_i64m4(0, vlmax);
+  for (size_t i = 0, n = 2 * (size_t)length, vl; i < n; i += vl) {
+    vl = __riscv_vsetvl_e16m1(n - i);
+    const vint16m1_t x = __riscv_vle16_v_i16m1(p + i, vl);
+    vacc = __riscv_vwadd_wv_i64m4_tu(vacc, vacc, __riscv_vwmul_vv_i32m2(x, x, vl), vl);
   }
+  const int64_t acc = __riscv_vmv_x_s_i64m1_i64(__riscv_vredsum_vs_i64m4_i64m1(vacc, __riscv_vmv_s_x_i64m1(0, 1), vlmax));
   return (uint32_t)((acc + length / 2) / length);
 #else
   int i = 0;

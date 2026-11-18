@@ -23,6 +23,7 @@
 #define _GNU_SOURCE
 #include <stdint.h>
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <math.h>
 #include <sched.h>
@@ -71,6 +72,34 @@ static uint32_t nodc_rvv(const c16_t *in, uint32_t length){
   return (uint32_t)((double)acc / (double)length);
 }
 
+/* Unit-stride variant: re and im are both squared from the plain int16 stream and summed into a 64-bit vector
+   accumulator, reduced once at the end. Same exact integer sum as nodc_rvv. */
+static int64_t nodc_rvv2_acc(const c16_t *in, uint32_t length){
+  const int16_t *p = (const int16_t *)in;
+  const size_t vlmax = __riscv_vsetvlmax_e64m4();
+  vint64m4_t acc = __riscv_vmv_v_x_i64m4(0, vlmax);
+  for (size_t i = 0, n = 2 * (size_t)length, vl; i < n; i += vl){
+    vl = __riscv_vsetvl_e16m1(n - i);
+    const vint16m1_t x = __riscv_vle16_v_i16m1(p + i, vl);
+    acc = __riscv_vwadd_wv_i64m4_tu(acc, acc, __riscv_vwmul_vv_i32m2(x, x, vl), vl);
+  }
+  return __riscv_vmv_x_s_i64m1_i64(__riscv_vredsum_vs_i64m4_i64m1(acc, __riscv_vmv_s_x_i64m1(0, 1), vlmax));
+}
+static int64_t nodc_rvv_acc(const c16_t *in, uint32_t length){
+  const int16_t *p = (const int16_t *)in;
+  int64_t acc = 0;
+  for (uint32_t n = 0; n < length;){
+    size_t vl = __riscv_vsetvl_e16mf2(length - n);
+    vint16mf2x2_t v = __riscv_vlseg2e16_v_i16mf2x2(p + 2*n, vl);
+    vint16mf2_t cr = __riscv_vget_v_i16mf2x2_i16mf2(v, 0), ci = __riscv_vget_v_i16mf2x2_i16mf2(v, 1);
+    vint32m1_t pw = __riscv_vwmacc_vv_i32m1(__riscv_vwmul_vv_i32m1(cr, cr, vl), ci, ci, vl);
+    acc += __riscv_vmv_x_s_i64m1_i64(__riscv_vwredsum_vs_i32m1_i64m1(pw, __riscv_vmv_s_x_i64m1(0, 1), vl));
+    n += (uint32_t)vl;
+  }
+  return acc;
+}
+static double now_us(void){ struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec*1e6 + t.tv_nsec*1e-3; }
+
 static uint32_t rng = 0xBEEF77u;
 static int16_t rnd_amp(int amp){ rng = rng*1103515245u+12345u; return (int16_t)(((int32_t)(rng>>16) - 32768) * amp / 32768); }
 
@@ -85,7 +114,7 @@ __attribute__((noinline)) static int run_tests(void){
       for (int i = 0; i < len; i++){ in[i].r = rnd_amp(amps[a]); in[i].i = rnd_amp(amps[a]); }
       uint32_t rf = nodc_ref_float(in, len), ri = nodc_ref_int(in, len), rv = nodc_rvv(in, len);
       double rel = rf ? fabs((double)rv - rf) / rf : 0.0;
-      int int_exact = (rv == ri);           /* RVV must exactly equal the integer ref */
+      int int_exact = (rv == ri) && nodc_rvv2_acc(in, len) == nodc_rvv_acc(in, len); /* both RVV sums exact */
       printf("  amp=%5d len=%5d: rvv=%u int_ref=%u float_ref=%u  rel_vs_float=%.2e  %s\n",
              amps[a], len, rv, ri, rf, rel, int_exact ? "OK" : "INT-MISMATCH");
       if (!int_exact || rel > 5e-3) fail = 1;
@@ -99,6 +128,22 @@ int main(int argc, char **argv){
   if (argc > 1){ int c=atoi(argv[1]); if(c>7) use_ai(); pin_cpu(c); }
   printf("VLEN=%zu\n", (size_t)__riscv_vlenb()*8);
   int fail = run_tests();
+  { /* 273 PRB, 14 symbols x 4 antennas per slot as in the PUSCH power measurement */
+    const int len = 273 * 12, reps = 56 * 20;
+    c16_t *in = malloc(sizeof(c16_t) * len);
+    for (int i = 0; i < len; i++){ in[i].r = rnd_amp(3000); in[i].i = rnd_amp(3000); }
+    volatile int64_t sink = 0;
+    for (int v = 0; v < 2; v++){
+      double best = 1e30;
+      for (int r = 0; r < 5; r++){
+        double t0 = now_us();
+        for (int k = 0; k < reps; k++) sink += v ? nodc_rvv2_acc(in, len) : nodc_rvv_acc(in, len);
+        double t = now_us() - t0; best = t < best ? t : best;
+      }
+      printf("%s: %.1f us per slot (56 calls of %d REs)\n", v ? "unit-stride, one reduction" : "current (vlseg2, reduce/strip)", best / 20, len);
+    }
+    free(in);
+  }
   printf("rvv signal_energy_nodc test: %s\n", fail?"FAIL":"PASS");
   return fail;
 }
