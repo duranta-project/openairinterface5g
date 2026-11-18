@@ -13,7 +13,7 @@ services:
       - ./conf/l2_adapter_config_P5G_DGX.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/l2_adapter_config_P5G_DGX.yaml:ro
     build:
       args:
-        AERIAL_BASE_IMAGE: ${AERIAL_BASE_IMAGE:-nvcr.io/nvidia/aerial/aerial-cuda-accelerated-ran:26-2}
+        AERIAL_BASE_IMAGE: ${AERIAL_BASE_IMAGE:-nvcr.io/nvidia/aerial/aerial-cuda-accelerated-ran:26-2-cubb}
         AERIAL_BUILD_FLAGS: ${AERIAL_BUILD_FLAGS:---cuda-archs 121}
 
   nr-oru:
