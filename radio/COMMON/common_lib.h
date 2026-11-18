@@ -297,34 +297,40 @@ typedef struct {
 } openair0_thread_t;
 
 /* TX samples of the writers (TX threads, UEs sharing one RU) summed in a ring and sent in timestamp order.
-   Each nb_writers entry holds the number of writers that wrote the sample (RO_COUNT bits) and the burst
-   state requested by their flags (RO_ACTIVE/RO_START/RO_END). */
-#define RO_COUNT 0xffff
+   Each state entry holds the burst state requested by the flags of the writers (RO_ACTIVE/RO_START/RO_END). Which
+   samples a writer wrote is kept per writer as spans, not per sample: most writes are silence that touches no sample. */
+#define RO_MAX_WRITERS 0xffff
 #define RO_ACTIVE (1 << 16)
 #define RO_START (1 << 17)
 #define RO_END (1 << 18)
+#define RO_PENDING 32
+typedef struct {
+  openair0_timestamp_t from, to;
+} ro_span_t;
+typedef struct {
+  openair0_timestamp_t end; // end of its most recent write in time
+  openair0_timestamp_t done; // it wrote all the samples from nextTS to done
+  int nb_pending;
+  ro_span_t pending[RO_PENDING]; // written after done, out of order: sorted, not touching each other
+  bool absent; // a flush waited in vain for it, until it writes again (a UE resynchronizing after a radio link failure)
+} ro_writer_t;
 typedef struct {
   bool initDone;
   pthread_mutex_t mutex_store;
   pthread_cond_t written; // signaled after each write
-  /* writers (one per UE sharing the RU): end of their last write, and absent when a flush waited in vain for them,
-     until they write again (a UE resynchronizing after a radio link failure does not write) */
-  int max_writers;
-  openair0_timestamp_t *writer_end;
-  bool *writer_absent;
+  int max_writers; // one per UE sharing the RU
+  ro_writer_t *writers;
   int nb_absent;
   openair0_timestamp_t nextTS; // first sample not sent yet
-  /* what reorder_flush() already knows about the samples from nextTS on, so that the flushes of the other writers do not
-     scan them again: scan_ready samples are written by scan_nb_writers writers (the counts only grow until the samples
-     are sent), and the first scan_chunk of them have no burst boundary (the flags of a sample that all wrote are final) */
-  int scan_ready;
-  int scan_nb_writers;
-  int scan_chunk;
+  /* the samples with data or flags are between dirty_from and dirty_end: the others are zero in the rings and are
+     neither scanned nor cleared */
+  openair0_timestamp_t dirty_from, dirty_end;
+  int scan_chunk; // the first scan_chunk samples from nextTS, that all wrote, have no burst boundary
   openair0_timestamp_t maxTS; // end of the most recent write
   int sz;
   int grain;
   int nb_ant;
-  int *nb_writers;
+  int *state;
   void **ring;
 } re_order_t;
 

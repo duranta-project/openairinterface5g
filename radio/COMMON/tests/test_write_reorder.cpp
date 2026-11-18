@@ -151,7 +151,7 @@ TEST_F(WriteReorder, absent_writer)
   EXPECT_GE(flush(2, 4096, 20), 15);
   EXPECT_EQ(sent(0, 4096), 4096);
   EXPECT_EQ(dev.reOrder.nb_absent, 1);
-  EXPECT_TRUE(dev.reOrder.writer_absent[1]);
+  EXPECT_TRUE(dev.reOrder.writers[1].absent);
   // writer 1 absent: the samples of writer 0 alone are complete
   write(4096, 2048, TX_BURST_MIDDLE, 1, 2, 0);
   EXPECT_LT(flush(2, 6144, 1000), 500);
@@ -164,7 +164,7 @@ TEST_F(WriteReorder, absent_writer)
   EXPECT_GE(flush(2, 10240, 20), 15);
   EXPECT_EQ(sent(6144, 8192), 2048);
   EXPECT_EQ(dev.reOrder.nb_absent, 1);
-  EXPECT_TRUE(dev.reOrder.writer_absent[1]);
+  EXPECT_TRUE(dev.reOrder.writers[1].absent);
 }
 
 // a few samples a writer left unwritten (timing advance change) are not waited for once all the writers passed them
