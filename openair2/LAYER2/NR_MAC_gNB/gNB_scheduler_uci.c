@@ -202,6 +202,7 @@ static int find_pucch_resource_index(const NR_PUCCH_Config_t *pucch_Config, int 
   return res_index < n ? res_index : -1;
 }
 
+// to schedule periodic CSI measurement reporting reception
 void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame, slot_t slot)
 {
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
@@ -219,15 +220,13 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
     const NR_CSI_MeasConfig_t *csi_measconfig = UE->sc_info.csi_MeasConfig;
     if (!csi_measconfig)
       continue;
-    AssertFatal(csi_measconfig->csi_ReportConfigToAddModList->list.count > 0,
-                "NO CSI report configuration available");
+    AssertFatal(csi_measconfig->csi_ReportConfigToAddModList->list.count > 0, "NO CSI report configuration available");
     NR_PUCCH_Config_t *pucch_Config = ul_bwp->pucch_Config;
 
     for (int csi_report_id = 0; csi_report_id < csi_measconfig->csi_ReportConfigToAddModList->list.count; csi_report_id++){
       NR_CSI_ReportConfig_t *csirep = csi_measconfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
-
-      AssertFatal(csirep->reportConfigType.choice.periodic,
-                  "Only periodic CSI reporting is implemented currently\n");
+      if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_periodic)
+        continue;
 
       const NR_PUCCH_CSI_Resource_t *pucchcsires = csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.array[0];
       if(pucchcsires->uplinkBandwidthPartId > 1) {
@@ -318,6 +317,70 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
       }
     }
   }
+}
+
+static void compute_csi_on_pusch_bitlen(nfapi_nr_pusch_uci_t *uci_pdu, const nr_csi_report_t *csi_report)
+{
+  // CRI/RSRP or SSBRI/RSRP into CSI part 1 (same for SINR)
+  int idx_len = csi_report->CSI_report_bitlen.cri_ssbri_bitlen * csi_report->CSI_report_bitlen.nb_ssbri_cri;
+  if (csi_report->reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16
+      || csi_report->reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_cri_SINR_r16) {
+    int diff_sinr_len = csi_report->CSI_report_bitlen.diff_sinr_bitlen * (csi_report->CSI_report_bitlen.nb_ssbri_cri - 1);
+    uci_pdu->csi_part1_bit_length += csi_report->CSI_report_bitlen.sinr_bitlen + idx_len + diff_sinr_len;
+  } else if (csi_report->reportQuantity_type == NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP
+             || csi_report->reportQuantity_type == NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP) {
+    int diff_rsrp_len = csi_report->CSI_report_bitlen.diff_rsrp_bitlen * (csi_report->CSI_report_bitlen.nb_ssbri_cri - 1);
+    uci_pdu->csi_part1_bit_length += csi_report->CSI_report_bitlen.rsrp_bitlen + idx_len + diff_rsrp_len;
+  } else
+    AssertFatal(false, "reportQuantity type not supported\n");
+}
+
+bool nr_schedule_aperiodic_csi_report(NR_UE_info_t *UE, nfapi_nr_pusch_pdu_t *pusch_pdu, int trig_id)
+{
+  const NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
+  if (!current_BWP->pusch_Config || !current_BWP->pusch_Config->uci_OnPUSCH) {
+    LOG_E(NR_MAC, "Cannot schedule aperiodic CSI report without uci-OnPUSCH configured\n");
+    return false;
+  }
+  const NR_CSI_MeasConfig_t *csi_measconfig = UE->sc_info.csi_MeasConfig;
+  if (!csi_measconfig || !csi_measconfig->csi_ReportConfigToAddModList) {
+    LOG_E(NR_MAC, "Cannot schedule aperiodic CSI report without CSI-ReportConfig\n");
+    return false;
+  }
+  if (!csi_measconfig->aperiodicTriggerStateList
+      || csi_measconfig->aperiodicTriggerStateList->present != NR_SetupRelease_CSI_AperiodicTriggerStateList_PR_setup) {
+    LOG_E(NR_MAC, "Cannot schedule aperiodic CSI report without aperiodicTriggerStateList\n");
+    return false;
+  }
+  int idx = trig_id - 1;
+  if (idx >= csi_measconfig->aperiodicTriggerStateList->choice.setup->list.count) {
+    LOG_E(NR_MAC, "Trigger idx %d exceeds the number of states in the list. Can't schedule aperiodic CSI report.\n", idx);
+    return false;
+  }
+  bool found = false;
+  NR_CSI_AperiodicTriggerState_t *trig_state = csi_measconfig->aperiodicTriggerStateList->choice.setup->list.array[idx];
+  for (int k = 0; k < trig_state->associatedReportConfigInfoList.list.count; k++) {
+    NR_CSI_ReportConfigId_t reportConfigId = trig_state->associatedReportConfigInfoList.list.array[k]->reportConfigId;
+    for (int i = 0; i < csi_measconfig->csi_ReportConfigToAddModList->list.count; i++) {
+      NR_CSI_ReportConfig_t *csirep = csi_measconfig->csi_ReportConfigToAddModList->list.array[i];
+      if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_aperiodic
+          || csirep->reportConfigId != reportConfigId)
+        continue;
+      found = true;
+      compute_csi_on_pusch_bitlen(&pusch_pdu->pusch_uci, &UE->csi_report_template[i]);
+    }
+  }
+  if (!found) {
+    LOG_E(NR_MAC, "Couldn't find any CSI report associated with trigger state %d\n", trig_id);
+    return false;
+  }
+  NR_UCI_OnPUSCH_t *uci_config = current_BWP->pusch_Config->uci_OnPUSCH->choice.setup;
+  pusch_pdu->pusch_uci.alpha_scaling = uci_config->scaling;
+  pusch_pdu->pusch_uci.beta_offset_csi1 = configure_csi1_beta_offsets(uci_config, pusch_pdu->pusch_uci.csi_part1_bit_length);
+  pusch_pdu->pusch_uci.beta_offset_csi2 = configure_csi2_beta_offsets(uci_config, pusch_pdu->pusch_uci.csi_part2_bit_length);
+  pusch_pdu->pdu_bit_map |= PUSCH_PDU_BITMAP_PUSCH_UCI;
+  nr_timer_start(&UE->UE_sched_ctrl.aperiodic_csirep_trigger);  // restart the timer, we are scheduling aperiodic CSI report
+  return true;
 }
 
 int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_resource)
@@ -429,8 +492,7 @@ static uint8_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t st
 }
 
 static void evaluate_sinr_report(NR_UE_info_t *UE,
-                                 NR_UE_sched_ctrl_t *sched_ctrl,
-                                 uint8_t csi_report_id,
+                                 nr_csi_report_t *csi_report,
                                  uint8_t *payload,
                                  int *cumul_bits,
                                  NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR reportQuantity_type_r16)
@@ -453,8 +515,7 @@ static void evaluate_sinr_report(NR_UE_info_t *UE,
     resources can be received simultaneously by the UE either with a single spatial domain receive filter, or with
     multiple simultaneous spatial domain receive filter
   */
-
-  nr_csi_report_t *csi_report = &UE->csi_report_template[csi_report_id];
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   RSRP_report_list_t *sinr_report;
   long **index_list;
   switch (reportQuantity_type_r16) {
@@ -515,8 +576,7 @@ static void evaluate_sinr_report(NR_UE_info_t *UE,
 }
 
 static void evaluate_rsrp_report(NR_UE_info_t *UE,
-                                 NR_UE_sched_ctrl_t *sched_ctrl,
-                                 uint8_t csi_report_id,
+                                 nr_csi_report_t *csi_report,
                                  frame_t frame,
                                  slot_t slot,
                                  uint8_t *payload,
@@ -540,7 +600,7 @@ static void evaluate_rsrp_report(NR_UE_info_t *UE,
     resources can be received simultaneously by the UE either with a single spatial domain receive filter, or with
     multiple simultaneous spatial domain receive filter
   */
-  nr_csi_report_t *csi_report = &UE->csi_report_template[csi_report_id];
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   RSRP_report_list_t *rsrp_report;
   long **index_list;
   switch (reportQuantity_type) {
@@ -759,14 +819,16 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   int cumul_bits = 0;
   int r_index = 0;
   int new_bf_index = -1;
-  for (int csi_report_id = 0; csi_report_id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; csi_report_id++) {
-    nr_csi_report_t *csi_report = &UE->csi_report_template[csi_report_id];
+  for (int id = 0; id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; id++) {
+    const NR_CSI_ReportConfig_t *csirep = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[id];
+    if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_periodic)
+      continue;
+    nr_csi_report_t *csi_report = &UE->csi_report_template[id];
     csi_report->nb_of_csi_ssb_report = 0;
     uint8_t cri_bitlen = 0;
     uint8_t ri_bitlen = 0;
     uint8_t li_bitlen = 0;
     uint8_t pmi_bitlen = 0;
-    NR_CSI_ReportConfig_t *csirep = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
     uint8_t cqi_table = (dl_bwp->dci_format == NR_DL_DCI_FORMAT_1_1 && csirep->cqi_Table) ? *csirep->cqi_Table : NR_CSI_ReportConfig__cqi_Table_table1;
     const NR_PUCCH_CSI_Resource_t *pucchcsires = csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.array[0];
     if(pucchcsires->uplinkBandwidthPartId > 1) {
@@ -782,7 +844,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
       LOG_D(MAC, "SFN/SF:%d/%d reportQuantity type = %d, type_r16 = %d\n", frame, slot, reportQuantity_type, reportQuantity_type_r16);
       if (reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_cri_SINR_r16
           || reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16) {
-        evaluate_sinr_report(UE, sched_ctrl, csi_report_id, payload, &cumul_bits, reportQuantity_type_r16);
+        evaluate_sinr_report(UE, &UE->csi_report_template[id], payload, &cumul_bits, reportQuantity_type_r16);
       } else {
         // phy-test has hardcoded allocation, so no use to handle CSI reports except RSRP
         if (get_softmodem_params()->phy_test
@@ -791,10 +853,10 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
           continue;
         switch (reportQuantity_type) {
           case NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP:
-            evaluate_rsrp_report(UE, sched_ctrl, csi_report_id, frame, slot, payload, &cumul_bits, reportQuantity_type);
+            evaluate_rsrp_report(UE, &UE->csi_report_template[id], frame, slot, payload, &cumul_bits, reportQuantity_type);
             break;
           case NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP:
-            evaluate_rsrp_report(UE, sched_ctrl, csi_report_id, frame, slot, payload, &cumul_bits, reportQuantity_type);
+            evaluate_rsrp_report(UE, &UE->csi_report_template[id], frame, slot, payload, &cumul_bits, reportQuantity_type);
             new_bf_index = beam_selection_procedures(cell, UE);
             break;
           case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_CQI:
@@ -823,7 +885,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             cumul_bits += ri_bitlen;
             skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
             pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
             break;
@@ -841,7 +903,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
             cumul_bits += li_bitlen;
             skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
             pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
-            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = id;
             cumul_bits += pmi_bitlen;
             evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
             break;
@@ -851,8 +913,119 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
       }
     }
   }
+  // Trigger RRCReconfiguration. Need to be out of the for loop as it may modify csi_MeasConfig
   if (new_bf_index != -1)
-    // Trigger RRCReconfiguration. Need to be out of the for loop as it may modify csi_MeasConfig
+    beam_switching_procedure(nrmac, cell, UE, new_bf_index);
+}
+
+typedef struct {
+  int pri;
+  nr_csi_report_t *rep;
+  NR_CSI_ReportConfig_t *config;
+} csi_report_pri_t;
+
+static int cmp_csi_report_pri(const void *a, const void *b)
+{
+  const csi_report_pri_t *ra = a;
+  const csi_report_pri_t *rb = b;
+  // lower Pri value = higher priority (38.214 5.2.5)
+  return (ra->pri > rb->pri) - (ra->pri < rb->pri);
+}
+
+static void extract_pusch_csi1_report(gNB_MAC_INST *nrmac,
+                                      nr_cell_sched_t *cell,
+                                      nfapi_nr_csi_part1_pdu_t *csi1_pdu,
+                                      NR_UE_info_t *UE,
+                                      int frame,
+                                      int slot)
+{
+  const NR_CSI_MeasConfig_t *csi_MeasConfig = UE->sc_info.csi_MeasConfig;
+  if (!csi_MeasConfig
+      || !csi_MeasConfig->csi_ReportConfigToAddModList
+      || !csi_MeasConfig->aperiodicTriggerStateList
+      || !csi_MeasConfig->aperiodicTriggerStateList->choice.setup) {
+    LOG_E(NR_MAC, "Cannot extract CSI part 1 report, no configuration available\n");
+    return;
+  }
+  const NR_CSI_AperiodicTriggerStateList_t *trig_list = csi_MeasConfig->aperiodicTriggerStateList->choice.setup;
+  // TODO for multiple trigger states configured, the gNB needs to keep track of the one being scheduled
+  AssertFatal(trig_list->list.count == 1, "Cannot handle more than 1 aperiodic trigger state\n");
+  NR_CSI_AperiodicTriggerState_t *trig_state = trig_list->list.array[0];
+  int num = trig_state->associatedReportConfigInfoList.list.count;
+  csi_report_pri_t reps[num];
+  int n_found = 0;
+  for (int j = 0; j < num; j++) {
+    NR_CSI_ReportConfigId_t reportConfigId = trig_state->associatedReportConfigInfoList.list.array[j]->reportConfigId;
+    for (int i = 0; i < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; i++) {
+      NR_CSI_ReportConfig_t *csirep = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[i];
+      if (csirep->reportConfigType.present != NR_CSI_ReportConfig__reportConfigType_PR_aperiodic
+          || csirep->reportConfigId != reportConfigId)
+        continue;
+      nr_csi_report_t *csi_report = &UE->csi_report_template[i];
+      // priority rules for CSI report in 5.2.5 of 214 (only considering aperiodic reports and single serviing cell)
+      int k = (csi_report->reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_cri_SINR_r16
+              || csi_report->reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16
+              || csi_report->reportQuantity_type == NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP
+              || csi_report->reportQuantity_type == NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP)
+              ? 0 : 1;
+      reps[n_found].pri = k * 48 + reportConfigId; // 48 is maxNrofCSI-ReportConfigurations
+      reps[n_found].rep = csi_report;
+      reps[n_found].config = csirep;
+      n_found++;
+    }
+  }
+  qsort(reps, n_found, sizeof(reps[0]), cmp_csi_report_pri);
+
+  int new_bf_index = -1;
+  int cumul_bits = 0;
+  uint8_t *payload = csi1_pdu->csi_part1_payload;
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
+  for (int n = 0; n < n_found; n++) {
+    nr_csi_report_t *csi_report = reps[n].rep;
+    NR_CSI_ReportConfig__reportQuantity_PR type = csi_report->reportQuantity_type;
+    NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR type_r16 = csi_report->reportQuantity_type_r16;
+    if (type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_cri_SINR_r16
+        || type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16) {
+      evaluate_sinr_report(UE, csi_report, payload, &cumul_bits, type_r16);
+    } else {
+      // phy-test has hardcoded allocation, so no use to handle CSI reports except RSRP
+      if (get_softmodem_params()->phy_test
+          && type != NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP
+          && type != NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP)
+        continue;
+      switch (type) {
+        case NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP:
+          evaluate_rsrp_report(UE, csi_report, frame, slot, payload, &cumul_bits, type);
+          break;
+        case NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP:
+          evaluate_rsrp_report(UE, csi_report, frame, slot, payload, &cumul_bits, type);
+          new_bf_index = beam_selection_procedures(cell, UE);
+          break;
+        case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI:
+          // CRI, RI and CQI for the first TB only in part 1
+          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report = true;
+          int cri_bitlen = csi_report->csi_meas_bitlen.cri_bitlen;
+          if (cri_bitlen)
+            evaluate_cri_report(payload, cri_bitlen, cumul_bits, sched_ctrl);
+          cumul_bits += cri_bitlen;
+          int ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
+          int r_index = 0;
+          if (ri_bitlen)
+            r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
+          cumul_bits += ri_bitlen;
+          int cqi_table = (dl_bwp->dci_format == NR_DL_DCI_FORMAT_1_1 && reps[n].config->cqi_Table) ?
+                          *reps[n].config->cqi_Table :
+                          NR_CSI_ReportConfig__cqi_Table_table1;
+          evaluate_cqi_report(cell, payload, csi_report, cumul_bits, r_index, UE, cqi_table);
+          break;
+        default:
+          AssertFatal(false, "Not supported CSI measurement report\n");
+      }
+    }
+  }
+  // Trigger RRCReconfiguration. Need to be out of the for loop as it may modify csi_MeasConfig
+  if (new_bf_index != -1)
     beam_switching_procedure(nrmac, cell, UE, new_bf_index);
 }
 
@@ -1012,7 +1185,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, s
   NR_UE_info_t *UE = find_connected_nr_ue(&nrmac->UE_info, uci_234->rnti);
   if (!UE) {
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
-    LOG_E(NR_MAC, "%s(): unknown RNTI %04x in PUCCH UCI\n", __func__, uci_234->rnti);
+    LOG_E(NR_MAC, "Unknown RNTI %04x in PUCCH UCI\n", uci_234->rnti);
     return;
   }
 
@@ -1079,6 +1252,59 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, s
   if ((uci_234->pduBitmap >> 3) & 0x01) {
     //@TODO:Handle CSI Report 2
     // nothing to free (yet)
+  }
+  NR_SCHED_UNLOCK(&nrmac->sched_lock);
+}
+
+void handle_nr_uci_pusch(module_id_t mod_id, int cell_id, frame_t frame, slot_t slot, nfapi_nr_uci_pusch_pdu_t *pusch_pdu)
+{
+  gNB_MAC_INST *nrmac = RC.nrmac[mod_id];
+  NR_SCHED_LOCK(&nrmac->sched_lock);
+  nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(nrmac, cell_id);
+  NR_UE_info_t *UE = find_connected_nr_ue(&nrmac->UE_info, pusch_pdu->rnti);
+  if (!UE) {
+    NR_SCHED_UNLOCK(&nrmac->sched_lock);
+    LOG_E(NR_MAC, "Unknown RNTI %04x in PUSCH UCI\n", pusch_pdu->rnti);
+    return;
+  }
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  if (((pusch_pdu->pduBitmap >> 1) & 0x01)) {
+    nfapi_nr_harq_pdu_2_3_4_t *harq_pdu = &pusch_pdu->harq;
+    for (int harq_bit = 0; harq_bit < harq_pdu->harq_bit_len; harq_bit++) {
+      NR_UE_harq_t *harq = find_harq(frame, slot, UE, cell->dl_bler.harq_round_max);
+      if (!harq) {
+        LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
+        break;
+      }
+      DevAssert(harq->is_waiting);
+      const int8_t pid = sched_ctrl->feedback_dl_harq.head;
+      id_list_pop_front(&sched_ctrl->feedback_dl_harq);
+      int rev_bit = harq_pdu->harq_bit_len - 1 - harq_bit;
+      const int acknack = ((harq_pdu->harq_payload[rev_bit >> 3]) >> (rev_bit & 7)) & 0x01;
+      LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n", frame, slot, harq_bit, pid, acknack);
+      bool success = harq_pdu->harq_crc != 1 && acknack;
+      if (success && harq->start_tci_timer) {
+        int slots = 3 * cell->frame_structure.numb_slots_frame / 10;
+        nr_timer_setup(&sched_ctrl->tci_beam_switch, slots, 1);
+        nr_timer_start(&sched_ctrl->tci_beam_switch);
+        harq->start_tci_timer = false;
+      }
+      handle_dl_harq(cell, UE, pid, success, cell->dl_bler.harq_round_max);
+    }
+    free(harq_pdu->harq_payload);
+  }
+  if ((pusch_pdu->pduBitmap >> 2) & 0x01) {
+    nfapi_nr_csi_part1_pdu_t *csi1_pdu = &pusch_pdu->csi_part1;
+    LOG_D(NR_MAC, "CSI part 1 CRC %d\n", csi1_pdu->csi_part1_crc);
+    if (csi1_pdu->csi_part1_crc != 1)
+      extract_pusch_csi1_report(nrmac, cell, csi1_pdu, UE, frame, slot);
+    free(csi1_pdu->csi_part1_payload);
+  }
+  if ((pusch_pdu->pduBitmap >> 3) & 0x01) {
+    nfapi_nr_csi_part2_pdu_t *csi2_pdu = &pusch_pdu->csi_part2;
+    LOG_D(NR_MAC, "CSI part 2 CRC %d\n", csi2_pdu->csi_part2_crc);
+    AssertFatal(false, "Handling of CSI part 2 not yet supported\n");
+    free(csi2_pdu->csi_part2_payload);
   }
   NR_SCHED_UNLOCK(&nrmac->sched_lock);
 }
