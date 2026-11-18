@@ -4,8 +4,9 @@ include:
 
 services:
   nv-cubb:
-    # WNC worker cores are 5-10 and 15-16. Core 2 is housekeeping so the
-    # startup script and healthcheck are not stranded on a realtime L1 core.
+    # PHY workers 5-9, FAPI message thread 16, low-priority CUDA/DPDK on 15.
+    # Core 10 is only the slot timer. Core 2 is housekeeping so startup
+    # and the healthcheck are not stranded on a realtime L1 core.
     cpuset: "2,5-10,15-16"
     volumes:
       - ./conf/cuphycontroller_P5G_ASET.dgx-spark.yaml:/opt/nvidia/cuBB/cuPHY-CP/cuphycontroller/config/cuphycontroller_P5G_ASET.yaml:ro
@@ -45,13 +46,14 @@ services:
   nr-ue:
     # ue.sa.gh200.conf pins thread-pool 33-44 and actor-affinity 49-55.
     # These flags override that for the 20-core Spark.
+    # actor-affinity is DL, UL, SYNC. The decode pool stays off the DL actor's core.
     cpuset: "17-19"
     environment:
       DISPLAY: ${DISPLAY:-""}
       USE_ADDITIONAL_OPTIONS: >-
         -r 106 --numerology 1 --band 78 -C 3619200000 --ssb 516
         --num-dl-actors 1 --num-ul-actors 1 --disable-blind-search
-        --thread-pool 17 --actor-affinity 17,18,19
+        --thread-pool 18 --actor-affinity 17,18,19
         --device.name vrtsim
         --vrtsim.connection_descriptor /run/vrtsim/vrtsim_connection
         --ue-nb-ant-tx 2 --ue-nb-ant-rx 2
