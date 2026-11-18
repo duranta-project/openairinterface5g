@@ -164,7 +164,7 @@ bool decode_e1ap_cuup_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_req_t
   // Loop over all IEs
   for (int i = 0; i < in->protocolIEs.list.count; i++) {
     ie = in->protocolIEs.list.array[i];
-    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    CHECK_E1AP_DEC(ie != NULL);
     switch (ie->id) {
       case E1AP_ProtocolIE_ID_id_TransactionID:
         _EQ_CHECK_INT(ie->value.present, E1AP_GNB_CU_UP_E1SetupRequestIEs__value_PR_TransactionID);
@@ -372,7 +372,7 @@ bool decode_e1ap_cuup_setup_response(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_resp
   // Decode TNLA Info (O)
   for (int i = 0; i < in->protocolIEs.list.count; i++) {
     ie = in->protocolIEs.list.array[i];
-    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    CHECK_E1AP_DEC(ie != NULL);
     switch (ie->id) {
       case E1AP_ProtocolIE_ID_id_TransactionID:
         out->transac_id = ie->value.choice.TransactionID;
@@ -567,7 +567,7 @@ bool decode_e1ap_cuup_setup_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_fail_
   E1AP_LIB_FIND_IE(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_Cause, true);
   for (int i = 0; i < in->protocolIEs.list.count; i++) {
     ie = in->protocolIEs.list.array[i];
-    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    CHECK_E1AP_DEC(ie != NULL);
     switch (ie->id) {
       case E1AP_ProtocolIE_ID_id_TransactionID:
         out->transac_id = ie->value.choice.TransactionID;
