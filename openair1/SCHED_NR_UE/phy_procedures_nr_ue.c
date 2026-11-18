@@ -406,6 +406,15 @@ bool phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
                                 (c16_t **)txdataF,
                                 prach ? none : was_symbol_used);
   } else if (!prach) {
+    // only the used symbols have a signal (the others are zero time samples): the RU write adds only them
+    int first = 0, last = NR_SYMBOLS_PER_SLOT - 1;
+    while (!was_symbol_used[first])
+      first++;
+    while (!was_symbol_used[last])
+      last--;
+    phy_data->tx_first_sample = get_samples_symbol_timestamp(&ue->frame_parms, slot_tx, first);
+    phy_data->tx_end_sample = last == NR_SYMBOLS_PER_SLOT - 1 ? get_samples_per_slot(slot_tx, &ue->frame_parms)
+                                                              : get_samples_symbol_timestamp(&ue->frame_parms, slot_tx, last + 1);
     start_meas_nr_ue_phy(ue, OFDM_MOD_STATS);
     nr_tx_rotation_and_ofdm_mod(proc->nr_slot_tx,
                                 &ue->frame_parms,

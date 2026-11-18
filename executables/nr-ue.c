@@ -294,8 +294,9 @@ int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
   return NR_MIXED_SLOT;
 }
 
-/* txp NULL: nothing is transmitted in the slot, the reorder ring counts the write without adding samples */
-static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **txp)
+/* txp NULL: nothing is transmitted in the slot, the reorder ring counts the write without adding samples. Else only the
+   samples [first_sample, end_sample[ of the slot are added (end_sample 0: all) */
+static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **txp, int first_sample, int end_sample)
 {
   int writeBlockSize = rxtxD->writeBlockSize;
   if (writeBlockSize == 0)
@@ -360,11 +361,14 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
   }
 
   openair0_timestamp_t writeTimestamp = proc->timestamp_tx;
+  const openair0_timestamp_t add_from = end_sample ? writeTimestamp + first_sample : 0;
+  const openair0_timestamp_t add_to = end_sample ? writeTimestamp + end_sample : INT64_MAX;
   // if writeBlockSize gets longer that slot size, fill with dummy
   const int maxWriteBlockSize = get_samples_per_slot(proc->nr_slot_tx, fp);
   while (writeBlockSize > maxWriteBlockSize) {
     const int dummyBlockSize = min(writeBlockSize - maxWriteBlockSize, maxWriteBlockSize);
-    int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, dummyBlockSize, fp->nb_antennas_tx, flags);
+    int tmp =
+        nrue_ru_write_reorder_range(UE, writeTimestamp, (void **)txp, dummyBlockSize, fp->nb_antennas_tx, flags, add_from, add_to);
     AssertFatal(tmp == dummyBlockSize, "write samples to reorder function failed %d", tmp);
 
     writeTimestamp += dummyBlockSize;
@@ -375,7 +379,14 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
   if (flags == TX_BURST_START && curr_slot_type == NR_MIXED_SLOT) {
     const uint num_dl_symbols = num_dl_symbols_slot(cfg, slot);
     const uint num_zero_samples = get_samples_symbol_timestamp(fp, slot, num_dl_symbols);
-    int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, num_zero_samples, fp->nb_antennas_tx, TX_BURST_INVALID);
+    int tmp = nrue_ru_write_reorder_range(UE,
+                                          writeTimestamp,
+                                          (void **)txp,
+                                          num_zero_samples,
+                                          fp->nb_antennas_tx,
+                                          TX_BURST_INVALID,
+                                          add_from,
+                                          add_to);
     AssertFatal(tmp == num_zero_samples, "write samples to reorder function failed %d", tmp);
 
     writeTimestamp += num_zero_samples;
@@ -400,7 +411,8 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
                          writeBlockSize);
   }
 
-  int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, writeBlockSize, fp->nb_antennas_tx, flags);
+  int tmp =
+      nrue_ru_write_reorder_range(UE, writeTimestamp, (void **)txp, writeBlockSize, fp->nb_antennas_tx, flags, add_from, add_to);
   AssertFatal(tmp == writeBlockSize, "write to reorder function failed %d", tmp);
 }
 
@@ -480,7 +492,7 @@ void processSlotTX(void *arg)
   // worked around with an explicit memset of txp; it is now handled by always
   // calling phy_procedures_nrUE_SL_TX() above, whose OFDM modulator zeros this
   // slot's txData when no channel is scheduled.
-  RU_write(rxtxD, sl_tx_action, transmit ? txp : NULL);
+  RU_write(rxtxD, sl_tx_action, transmit ? txp : NULL, phy_data.tx_first_sample, phy_data.tx_end_sample);
   if (UE->sl_mode == SL_MODE2_SUPPORTED && proc->tx_slot_type == NR_SIDELINK_SLOT)
     dynamic_barrier_join(rxtxD->next_barrier);
   TracyCZoneEnd(ctx);

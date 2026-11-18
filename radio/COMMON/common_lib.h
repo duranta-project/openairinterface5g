@@ -571,6 +571,19 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   int nb_writers,
                                   int nbAnt,
                                   int flags);
+/// the same, adding only the samples of [add_from, add_to[ (timestamps): the other ones of the write are silence
+int openair0_write_reorder_common_range(nrue_ru_write_t nrue_ru_write,
+                                        PHY_VARS_NR_UE *UE,
+                                        openair0_device_t *device,
+                                        openair0_timestamp_t timestamp,
+                                        void **txp,
+                                        int nsamps,
+                                        int writer,
+                                        int nb_writers,
+                                        int nbAnt,
+                                        int flags,
+                                        openair0_timestamp_t add_from,
+                                        openair0_timestamp_t add_to);
 
 /*! \brief get device name from device type */
 const char *get_devname(int devtype);

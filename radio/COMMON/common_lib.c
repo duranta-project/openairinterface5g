@@ -303,7 +303,6 @@ static void reorder_init_writers(re_order_t *ctx, int nb_writers)
   ctx->writer_absent = calloc_or_fail(nb_writers, sizeof(*ctx->writer_absent));
 }
 
-// several writers (TX threads, UEs sharing one RU) may write out of order and concurrently
 int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   PHY_VARS_NR_UE *UE,
                                   openair0_device_t *device,
@@ -314,6 +313,34 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
                                   int nb_writers,
                                   int nbAnt,
                                   int flags)
+{
+  return openair0_write_reorder_common_range(nrue_ru_write,
+                                             UE,
+                                             device,
+                                             timestamp,
+                                             txp,
+                                             nsamps,
+                                             writer,
+                                             nb_writers,
+                                             nbAnt,
+                                             flags,
+                                             0,
+                                             INT64_MAX);
+}
+
+// several writers (TX threads, UEs sharing one RU) may write out of order and concurrently
+int openair0_write_reorder_common_range(nrue_ru_write_t nrue_ru_write,
+                                        PHY_VARS_NR_UE *UE,
+                                        openair0_device_t *device,
+                                        openair0_timestamp_t timestamp,
+                                        void **txp,
+                                        int nsamps,
+                                        int writer,
+                                        int nb_writers,
+                                        int nbAnt,
+                                        int flags,
+                                        openair0_timestamp_t add_from,
+                                        openair0_timestamp_t add_to)
 {
   re_order_t *ctx = &device->reOrder;
   LOG_D(HW, "received write order ts: %lu + %lu, nb samples %d, flags %d\n", timestamp, device->firstTS, nsamps, flags);
@@ -359,9 +386,10 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
     const openair0_timestamp_t ts = timestamp + skip;
     const int n = nsamps - skip;
     // txp NULL: silence, the ring holds zeros where nobody added samples
-    for (int a = 0; txp && a < nbAnt; a++) {
-      c16_t *out = ((c16_t *)ctx->ring[a]) + ts % ctx->sz;
-      c16adds(((c16_t *)txp[a]) + skip, out, out, n);
+    const openair0_timestamp_t from = max(ts, add_from), to = min(ts + n, add_to);
+    for (int a = 0; txp && from < to && a < nbAnt; a++) {
+      c16_t *out = ((c16_t *)ctx->ring[a]) + from % ctx->sz;
+      c16adds(((c16_t *)txp[a]) + (from - timestamp), out, out, to - from);
     }
     const int active = flags != TX_BURST_INVALID ? RO_ACTIVE : 0;
     int *wr = ctx->nb_writers + ts % ctx->sz;

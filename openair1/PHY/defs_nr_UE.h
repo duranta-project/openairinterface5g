@@ -638,6 +638,10 @@ typedef struct nr_phy_data_tx_s {
   sl_nr_tx_config_psbch_pdu_t psbch_vars;
   sl_nr_tx_config_pscch_pssch_pdu_t nr_sl_pssch_pscch_pdu;
   uint32_t pscch_Nid;
+  /// samples of the slot with a signal, from the start of the slot, set by phy_procedures_nrUE_TX(): the others are zero.
+  /// tx_end_sample 0: the whole slot
+  int tx_first_sample;
+  int tx_end_sample;
 } nr_phy_data_tx_t;
 
 typedef struct nr_phy_data_s {
