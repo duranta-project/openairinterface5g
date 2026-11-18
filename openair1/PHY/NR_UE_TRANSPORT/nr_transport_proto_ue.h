@@ -156,6 +156,17 @@ void nr_tx_rotation_and_ofdm_mod(const uint8_t slot,
                                  uint32_t linktype,
                                  bool was_symbol_used[NR_SYMBOLS_PER_SLOT],
                                  bool no_phase_pre_comp);
+// the same for the symbols first to last only: the time samples of the others are not written
+void nr_tx_rotation_and_ofdm_mod_range(const uint8_t slot,
+                                       const NR_DL_FRAME_PARMS *frame_parms,
+                                       const uint8_t n_antenna_ports,
+                                       c16_t **txdataF,
+                                       c16_t **txdata,
+                                       uint32_t linktype,
+                                       bool was_symbol_used[NR_SYMBOLS_PER_SLOT],
+                                       bool no_phase_pre_comp,
+                                       int first,
+                                       int last);
 
 void ue_srs_procedures_nr(PHY_VARS_NR_UE *ue,
                           const UE_nr_rxtx_proc_t *proc,

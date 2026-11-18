@@ -1282,6 +1282,33 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
   stop_meas_nr_ue_phy(UE, PUSCH_PROC_STATS);
 }
 
+void nr_tx_rotation_and_ofdm_mod_range(const uint8_t slot,
+                                       const NR_DL_FRAME_PARMS *frame_parms,
+                                       const uint8_t n_antenna_ports,
+                                       c16_t **txdataF,
+                                       c16_t **txdata,
+                                       uint32_t linktype,
+                                       bool was_symbol_used[NR_SYMBOLS_PER_SLOT],
+                                       bool no_phase_pre_comp,
+                                       int first,
+                                       int last)
+{
+  const int N_RB = (linktype == link_type_sl) ? frame_parms->N_RB_SL : frame_parms->N_RB_UL;
+  const c16_t *rotation = no_phase_pre_comp ? NULL : frame_parms->symbol_rotation[linktype];
+
+  for (int ap = 0; ap < n_antenna_ports; ap++) {
+    c16_t *out = txdata[ap] + get_samples_symbol_timestamp(frame_parms, slot, first);
+    for (int i = first; i <= last; i++) {
+      const int len = get_samples_symbol_duration(frame_parms, slot, i, 1);
+      if (was_symbol_used[i])
+        nr_ofdm_mod_symbol(frame_parms, rotation, N_RB, slot, i, txdataF[ap] + i * frame_parms->ofdm_symbol_size, out);
+      else
+        memset(out, 0, len * sizeof(c16_t));
+      out += len;
+    }
+  }
+}
+
 void nr_tx_rotation_and_ofdm_mod(const uint8_t slot,
                                  const NR_DL_FRAME_PARMS *frame_parms,
                                  const uint8_t n_antenna_ports,
@@ -1291,20 +1318,16 @@ void nr_tx_rotation_and_ofdm_mod(const uint8_t slot,
                                  bool was_symbol_used[NR_SYMBOLS_PER_SLOT],
                                  bool no_phase_pre_comp)
 {
-  const int N_RB = (linktype == link_type_sl) ? frame_parms->N_RB_SL : frame_parms->N_RB_UL;
-  const c16_t *rotation = no_phase_pre_comp ? NULL : frame_parms->symbol_rotation[linktype];
-
-  for (int ap = 0; ap < n_antenna_ports; ap++) {
-    c16_t *out = txdata[ap];
-    for (int i = 0; i < frame_parms->symbols_per_slot; i++) {
-      const int len = get_samples_symbol_duration(frame_parms, slot, i, 1);
-      if (was_symbol_used[i])
-        nr_ofdm_mod_symbol(frame_parms, rotation, N_RB, slot, i, txdataF[ap] + i * frame_parms->ofdm_symbol_size, out);
-      else
-        memset(out, 0, len * sizeof(c16_t));
-      out += len;
-    }
-  }
+  nr_tx_rotation_and_ofdm_mod_range(slot,
+                                    frame_parms,
+                                    n_antenna_ports,
+                                    txdataF,
+                                    txdata,
+                                    linktype,
+                                    was_symbol_used,
+                                    no_phase_pre_comp,
+                                    0,
+                                    frame_parms->symbols_per_slot - 1);
 }
 
 int nr_ue_ul_amplitude(const PHY_VARS_NR_UE *ue, int power_dBm, int nb_re)
