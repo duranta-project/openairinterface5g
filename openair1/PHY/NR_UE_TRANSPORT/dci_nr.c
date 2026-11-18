@@ -7,6 +7,7 @@
  * compliance V8.6 2009-03.
  */
 
+#include "PHY/MODULATION/modulation_UE.h"
 #include "openair1/PHY/nr_phy_common/inc/nr_rx_norm.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -303,6 +304,33 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
   int dmrs_ref = 0;
   if (coreset->CoreSetType == NFAPI_NR_CSET_CONFIG_PDCCH_CONFIG)
     dmrs_ref = phy_pdcch_config->pdcch_config[ss_idx].BWPStart;
+
+  // the LLRs of a CORESET symbol depend only on the RU samples and the CORESET: the same for the UEs of the RU and for
+  // the search spaces of a UE on one CORESET
+  const NR_UE_COMMON *common_vars = &ue->common_vars;
+  struct nr_fep_cache_s *cache = NULL;
+  uint64_t key = 0;
+  unsigned int idx = 0;
+  if (!pscch_processing && common_vars->fep_cache && common_vars->rx_slot_len > 0 && !ue->fd_ifdevice && !ue->cont_fo_comp) {
+    uint64_t fdr = 0;
+    memcpy(&fdr, coreset->frequency_domain_resource, min(sizeof(fdr), sizeof(coreset->frequency_domain_resource)));
+    const uint64_t params[NR_UE_SHARED_PARAMS] = {
+        proc->nr_slot_rx | (uint64_t)n_rb << 8 | (uint64_t)rb_offset << 24 | (uint64_t)dmrs_ref << 40,
+        phy_pdcch_config->pdcch_config[ss_idx].BWPStart | (uint64_t)scrambling_id << 16 | (uint64_t)coreset->CoreSetType << 32
+            | (uint64_t)llr_size_symbol << 40,
+        fdr,
+        fp->N_RB_DL | (uint64_t)fp->ofdm_symbol_size << 16 | (uint64_t)fp->nb_antennas_rx << 32
+            | (uint64_t)nr_rx_norm_enabled(NR_RX_NORM_PDCCH) << 40};
+    key = (common_vars->rx_slot_ring_ts << 4) | symbol;
+    idx = ((proc->frame_rx * fp->slots_per_frame + proc->nr_slot_rx) * NR_SYMBOLS_PER_SLOT + symbol) * 4
+          + ((params[1] ^ params[2] ^ (params[0] >> 8)) * 0x9E3779B97F4A7C15ULL >> 62);
+    c16_t *dst[1] = {llr};
+    const int got = nr_ue_shared_get(common_vars->fep_cache, NR_SHARED_PDCCH_LLR, idx, key, params, 1, llr_size_symbol, dst);
+    if (got == 1)
+      return;
+    if (got == 0)
+      cache = common_vars->fep_cache;
+  }
   // generate pilot
   c16_t pilot[(n_rb + rb_offset + dmrs_ref) * 3] __attribute__((aligned(16)));
   // Note: pilot returned by the following function is already the complex conjugate of the transmitted DMRS
@@ -367,6 +395,10 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
   }
   UEscopeCopy(ue, pdcchRxdataF_comp, rxdataF_comp[0], sizeof(c16_t), 1, llr_size_symbol, 0);
   nr_pdcch_llr(llr_size_symbol, rxdataF_comp[0], llr);
+  if (cache) {
+    c16_t *src[1] = {llr};
+    nr_ue_shared_put(cache, NR_SHARED_PDCCH_LLR, idx, 1, llr_size_symbol, src);
+  }
 }
 
 static bool is_start_symbol_in_ss(const fapi_nr_dl_config_dci_dl_pdu_rel15_t *ss, const int symbol, const int nb_symb_slot)
