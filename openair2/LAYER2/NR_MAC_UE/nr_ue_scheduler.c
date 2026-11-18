@@ -2662,7 +2662,10 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
 
   // Schedule ULSCH only if the current frame and slot match those in ul_config_req
   // AND if a UL grant (UL DCI or Msg3) has been received (as indicated by num_pdus)
-  uint8_t ulsch_input_buffer_array[FAPI_NR_UL_CONFIG_LIST_NUM][MAX_NUM_NR_ULSCH_SEGMENTS * 1056];
+  // one TB-sized buffer per PUSCH PDU, copied into the HARQ buffer by scheduled_response() below. Not on the stack:
+  // FAPI_NR_UL_CONFIG_LIST_NUM max-size TBs are 1.4 MB, which -fstack-clash-protection (default on Ubuntu) probes page
+  // by page on every call, i.e. every slot of every UE
+  uint8_t *ulsch_input_buffer_array[FAPI_NR_UL_CONFIG_LIST_NUM] = {0};
   int number_of_pdus = 0;
 
   /* Stale ul_config (frame mismatch on a slot-indexed buffer) must not abort the
@@ -2673,10 +2676,13 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
     LOG_D(NR_MAC, "number of UL PDUs: %d with UL transmission in sfn [%d.%d]\n", *ulcfg_pdu->privateNBpdus, frame_tx, slot_tx);
 
     while (ulcfg_pdu->pdu_type != FAPI_NR_END) {
-      uint8_t *ulsch_input_buffer = ulsch_input_buffer_array[number_of_pdus];
       if (ulcfg_pdu->pdu_type == FAPI_NR_UL_CONFIG_TYPE_PUSCH) {
         nfapi_nr_ue_pusch_pdu_t *pdu = &ulcfg_pdu->pusch_config_pdu;
         uint32_t TBS_bytes = pdu->pusch_data.tb_size;
+        // a PDU not sent leaves its buffer to the next one
+        uint8_t *ulsch_input_buffer = realloc(ulsch_input_buffer_array[number_of_pdus], max(TBS_bytes, 1U));
+        AssertFatal(ulsch_input_buffer, "out of memory for a PUSCH TB of %u bytes\n", TBS_bytes);
+        ulsch_input_buffer_array[number_of_pdus] = ulsch_input_buffer;
         LOG_D(NR_MAC,
               "harq_id %d, new_data_indicator %d, TBS_bytes %d (ra_state %d)\n",
               pdu->pusch_data.harq_process_id,
@@ -2706,6 +2712,8 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
               // UL data arrival during RRC_CONNECTED when UL synchronisation status is "non-synchronised"
               release_ul_config(ulcfg_pdu, false);
               trigger_MAC_UE_RA(mac, NULL);
+              for (int i = 0; i < FAPI_NR_UL_CONFIG_LIST_NUM; i++)
+                free(ulsch_input_buffer_array[i]);
               return;
             }
             // Getting IP traffic to be transmitted
@@ -2773,6 +2781,8 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
                                                   .phy_data = ul_info->phy_data};
     mac->if_module->scheduled_response(&scheduled_response);
   }
+  for (int i = 0; i < FAPI_NR_UL_CONFIG_LIST_NUM; i++)
+    free(ulsch_input_buffer_array[i]);
 
   if(mac->state == UE_CONNECTED)
     nr_update_sr(mac, BSRsent);
