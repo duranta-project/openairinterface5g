@@ -100,6 +100,22 @@ void ue_low_phy_test_demod_symbol(NR_DL_FRAME_PARMS *fp, int slot, int symbol, c
   nr_symbol_fep(fp, slot, symbol, link_type_dl, src, dst, NULL);
 }
 
+void ue_low_phy_test_demod_ul_symbol(NR_DL_FRAME_PARMS *fp, int slot, int symbol, const c16_t *in, c16_t *out)
+{
+  const int window =
+      get_samples_symbol_duration(fp, slot, symbol, 1) - fp->ofdm_symbol_size - fp->nb_prefix_samples / fp->ofdm_offset_divisor;
+  c16_t *src[1] = {(c16_t *)in + window}, *dst[1] = {out};
+  nr_symbol_fep(fp, slot, symbol, link_type_ul, src, dst, NULL);
+}
+
+void ue_low_phy_test_prach_round_trip(const c16_t *bins, int dftlen, c16_t *out)
+{
+  c16_t *t = malloc16(dftlen * sizeof(c16_t));
+  idft(get_idft(dftlen), (int16_t *)bins, (int16_t *)t, 1);
+  dft(get_dft(dftlen), (int16_t *)t, (int16_t *)out, 1);
+  free(t);
+}
+
 void ue_low_phy_test_prach_mod(const c16_t *bins, int dftlen, int ncp, int reps, c16_t *out)
 {
   c16_t *scratch = malloc16(dftlen * sizeof(c16_t));
