@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+
+# Variant of 5g_vrtsim_fhi72_oaioru_1x1_ru_ue where the O-RU has no radio: its
+# south side hosts four FD-UEs in frequency domain through a CDL-C channel model. The
+# UEs attach to the O-RU's FD channel in shared memory (ipc: host).
+include:
+    - ../5g_vrtsim_fhi72_oaioru_1x1_ru_ue/docker-compose.yml
+
+services:
+    oai-nr-oru:
+        environment:
+            USE_ADDITIONAL_OPTIONS: --ORUs.[0].ue_south.fd_channel oaioru --ORUs.[0].ue_south.num_ues 4 --ORUs.[0].ue_south.channel_model CDL-C
+    oai-nr-ue:
+        environment:
+            USE_ADDITIONAL_OPTIONS: -r 106 --numerology 1 --band 77 -C 4049760000 --ssb 516 --num-ues 4 --log_config.global_log_options level,nocolor,time --ue-fd --ue-fd-attach oaioru
+        volumes: !override
+            - ../../conf_files/nrue.uicc.4ue.yaml:/opt/oai-nr-ue/etc/nr-ue.yaml
+            - tmp_data:/tmp/
