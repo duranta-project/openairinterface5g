@@ -5,10 +5,11 @@
 /*
  * UE instances with frequency-domain I/O (FD-UE). Each instance runs its
  * own thread, like UE_thread() in nr-ue.c, as one client of a UE Low-PHY port
- * (executables/ue_low_phy/port.h): it reads demodulated DL symbols from the port's
- * shared ring and posts UL symbols/PRACH to its own TX ring. The Low-PHY device
- * serving the port owns the radio, FFT/IFFT, timing and the summing of every
- * client's UL.
+ * (executables/ue_low_phy/port.h): it reads DL symbols from the port and posts UL
+ * symbols/PRACH to its own TX ring. The port's host is either this process's Low-PHY
+ * device (radio, FFT, timing, cell search, UL summing) or, with --ue-fd-attach, another
+ * process simulating the channels (an O-RU); each instance then searches the cell on its
+ * own DL.
  *
  * Each instance's interface device (PHY_VARS_NR_UE.fd_ifdevice) bypasses FFT/IFFT:
  * nr_slot_fep() reads symbols from the ring, phy_procedures_nrUE_TX() and
@@ -38,6 +39,7 @@
 #include "executables/nr-ue-ru.h"
 #include "executables/nr-ue-fd.h"
 #include "executables/ue_low_phy/device.h"
+#include "PHY/NR_REFSIG/sss_nr.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/actor/actor.h"
 #include "common/utils/barrier/barrier.h"
@@ -71,9 +73,19 @@ extern void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_
 #define FD_MAX_TX_LAG (NUM_PROCESS_SLOT_TX_BARRIERS / 4)
 _Static_assert(MAX_FRAME_NUMBER % FD_SLOT_WINDOW == 0, "PRACH slots are found by SFN and slot");
 
+// Cell search of an instance attached to another process's port (see fd_search_slot()).
+typedef struct {
+  bool active;
+  nr_gscn_info_t gscn[MAX_GSCN_BAND];
+  int num_gscn;
+  uint64_t next_slot; // next published slot to search
+  c16_t *rxdataF; // [NR_N_SYMBOLS_SSB][nb_antennas_rx][ofdm_symbol_size]
+} fd_search_t;
+
 typedef struct {
   PHY_VARS_NR_UE *UE;
   nr_ue_fd_ifdevice_t dev;
+  fd_search_t search;
   ue_low_phy_client_t client;
   Actor_t *dl_actors;
   Actor_t *ul_actors;
@@ -88,17 +100,33 @@ typedef struct {
   uint64_t rrc_next_frame; // next frame to tick RRC with: absolute frame in sync, radio frame out of sync
 } fd_ue_t;
 
-// The Low-PHY every instance is a client of.
+// The Low-PHY every instance is a client of: a device of this process, or the port of
+// another process.
 static ue_low_phy_device_t *fd_device;
+static ue_low_phy_port_t *fd_port;
 
-// The IQ-sample time source follows the radio, once for all instances.
+// The IQ-sample time source follows the radio, once for all instances, from the first
+// time it is read.
 static pthread_mutex_t fd_time_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int64_t fd_time_ticked;
+static int64_t fd_time_ticked = -1;
+
+// Samples received so far: the device's radio time, or the symbols the port's host
+// published counted in slots (3GPP time).
+static int64_t fd_rx_time(const NR_DL_FRAME_PARMS *fp)
+{
+  if (fd_device)
+    return ue_low_phy_device_rx_time(fd_device);
+  const ue_low_phy_port_mem_t *s = fd_port->mem;
+  const uint64_t slots = ue_low_phy_progress_get((ue_low_phy_progress_t *)&s->rx_published) / s->geo.symbols_per_slot;
+  return slots / fp->slots_per_frame * fp->samples_per_frame + get_samples_slot_timestamp(fp, slots % fp->slots_per_frame);
+}
 
 static void fd_tick_time(const NR_DL_FRAME_PARMS *fp)
 {
   mutexlock(fd_time_mutex);
-  const int64_t now = ue_low_phy_device_rx_time(fd_device);
+  const int64_t now = fd_rx_time(fp);
+  if (fd_time_ticked < 0)
+    fd_time_ticked = now;
   if (now > fd_time_ticked) {
     time_manager_iq_samples(now - fd_time_ticked, fp->samples_per_subframe * 1000);
     fd_time_ticked = now;
@@ -116,7 +144,7 @@ static void fd_tick_rrc(fd_ue_t *f, uint64_t frame)
 
 static uint64_t fd_radio_frame(const NR_DL_FRAME_PARMS *fp)
 {
-  return ue_low_phy_device_rx_time(fd_device) / fp->samples_per_frame;
+  return fd_rx_time(fp) / fp->samples_per_frame;
 }
 
 static uint64_t abs_slot_of(const NR_DL_FRAME_PARMS *fp, int hfn, int frame, int slot)
@@ -277,6 +305,129 @@ static void fd_apply_cell(PHY_VARS_NR_UE *UE, const ue_low_phy_cell_t *cell, uin
   LOG_A(NR_PHY, "[fd-ue] UE %d synchronized: PCI %u, SFN %d\n", UE->Mod_id, cell->pci, mac->mib_frame);
 }
 
+// SFN of a PBCH payload: 6 MSBs from the MIB (after the BCCH-BCH message-type bit), 4 LSBs
+// bit-reversed in the extra bits, as nr_ue_decode_mib() reads them.
+static int pbch_sfn(const fapiPbch_t *pbch)
+{
+  int lsb = 0;
+  for (int i = 0; i < 4; i++)
+    lsb |= ((pbch->xtra_byte >> i) & 1) << (3 - i);
+  return (((pbch->decoded_output[0] >> 1) & 0x3f) << 4) | lsb;
+}
+
+static void fd_search_start(fd_ue_t *f)
+{
+  PHY_VARS_NR_UE *UE = f->UE;
+  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  fd_search_t *sr = &f->search;
+  // As a monolithic initial sync: the band's GSCNs with --ue-scan-carrier, else the configured SSB.
+  sr->num_gscn = 0;
+  if (get_nrUE_params()->UE_scan_carrier)
+    sr->num_gscn = get_scan_ssb_first_sc(fp->dl_CarrierFreq, fp->N_RB_DL, nrue_get_band(UE), fp->numerology_index, sr->gscn);
+  if (sr->num_gscn <= 0) {
+    sr->gscn[0] = (nr_gscn_info_t){.ssbFirstSC = fp->ssb_start_subcarrier};
+    sr->num_gscn = 1;
+  }
+  if (!sr->rxdataF)
+    sr->rxdataF = malloc16_clear_or_fail(NR_N_SYMBOLS_SSB * fp->nb_antennas_rx * fp->ofdm_symbol_size * sizeof(c16_t));
+  sr->next_slot = ue_low_phy_client_next_published_slot(&f->client);
+  sr->active = true;
+  if (UE->target_Nid_cell >= 0)
+    LOG_I(NR_PHY, "[fd-ue] UE %d: searching PCI %d on %d SSB position(s)\n", UE->Mod_id, UE->target_Nid_cell, sr->num_gscn);
+  else
+    LOG_I(NR_PHY, "[fd-ue] UE %d: searching any PCI on %d SSB position(s)\n", UE->Mod_id, sr->num_gscn);
+}
+
+// Searches the SSB candidates of published slot abs_slot. Port time is 3GPP time, so only the
+// SSB position and cell are searched: SSS (target PCI or all), confirmed by PBCH.
+static bool fd_search_slot(fd_ue_t *f, uint64_t abs_slot, ue_low_phy_cell_t *cell)
+{
+  PHY_VARS_NR_UE *UE = f->UE;
+  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  fd_search_t *sr = &f->search;
+  const int sps = fp->symbols_per_slot;
+  const int nb_rx = fp->nb_antennas_rx;
+  const int fft = fp->ofdm_symbol_size;
+  const int target = UE->target_Nid_cell;
+  const uint64_t half_frame = abs_slot - abs_slot % (fp->slots_per_frame / 2);
+  c16_t(*rxdataF)[nb_rx][fft] = (c16_t(*)[nb_rx][fft])sr->rxdataF;
+  for (int i = 0; i < fp->Lmax; i++) {
+    const uint64_t first = half_frame * sps + nr_get_ssb_start_symbol(fp, i);
+    if (first / sps != abs_slot)
+      continue;
+    for (int sym = 0; sym < NR_N_SYMBOLS_SSB; sym++) {
+      c16_t *dst[nb_rx];
+      for (int a = 0; a < nb_rx; a++)
+        dst[a] = rxdataF[sym][a];
+      if (!ue_low_phy_client_rx_symbol(&f->client, first + sym, dst, nb_rx))
+        return false;
+    }
+    for (int g = 0; g < sr->num_gscn; g++) {
+      const int ssb_sc = sr->gscn[g].ssbFirstSC;
+      for (int nid2 = 0; nid2 < NUMBER_PSS_SEQUENCE; nid2++) {
+        if (target >= 0 && target % NUMBER_PSS_SEQUENCE != nid2)
+          continue;
+        pss_detection_result_t pss = {.success = true, .nid2 = nid2};
+        nr_sss_params_t sss_params = {.nb_antennas_rx = nb_rx,
+                                      .samples_per_slot_wCP = fp->samples_per_slot_wCP,
+                                      .ofdm_symbol_size = fft,
+                                      .ssb_start_subcarrier = ssb_sc,
+                                      .subcarrier_spacing = fp->subcarrier_spacing};
+        const sss_detection_result_t sss = rx_sss_nr(&sss_params, &pss, target, rxdataF);
+        if (!sss.success || sss.nid_cell < 0)
+          continue;
+        const uint64_t abs_frame = abs_slot / fp->slots_per_frame;
+        UE_nr_rxtx_proc_t proc = {.frame_rx = abs_frame % MAX_FRAME_NUMBER, .nr_slot_rx = abs_slot % fp->slots_per_frame};
+        int half_frame_bit, ssb_index, symbol_offset;
+        fapiPbch_t pbch = {0};
+        if (!nr_pbch_detection(&proc, fp, sss.nid_cell, 1, ssb_sc, &half_frame_bit, &ssb_index, &symbol_offset, &pbch, rxdataF))
+          continue;
+        const int sfn = pbch_sfn(&pbch);
+        if (sfn != abs_frame % MAX_FRAME_NUMBER || (fp->Lmax <= 8 && ssb_index != i))
+          LOG_W(NR_PHY,
+                "[fd-ue] UE %d: SSB at frame %lu candidate %d carries SFN %d, index %d: the port's time is not the cell's\n",
+                UE->Mod_id,
+                abs_frame % MAX_FRAME_NUMBER,
+                i,
+                sfn,
+                ssb_index);
+        *cell = (ue_low_phy_cell_t){.pci = sss.nid_cell,
+                                    .ssb_start_subcarrier = ssb_sc,
+                                    .ssb_index = ssb_index,
+                                    .mib = {pbch.decoded_output[0], pbch.decoded_output[1], pbch.decoded_output[2]},
+                                    .mib_xtra = pbch.xtra_byte,
+                                    .half_frame_bit = half_frame_bit,
+                                    .symbol_offset = symbol_offset,
+                                    .mib_abs_frame = abs_frame,
+                                    .first_slot = abs_slot + 1};
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// One step of an attached instance's search: 1 found (cell set), 0 not yet, -1 the host stopped.
+static int fd_search_step(fd_ue_t *f, ue_low_phy_cell_t *cell)
+{
+  fd_search_t *sr = &f->search;
+  if (!sr->active)
+    fd_search_start(f);
+  const int wait = ue_low_phy_client_wait_slot(&f->client, sr->next_slot, 10000);
+  if (wait == -2)
+    return -1;
+  if (wait == 1)
+    return 0;
+  if (wait == -1) {
+    sr->next_slot = ue_low_phy_client_next_published_slot(&f->client);
+    return 0;
+  }
+  const bool found = fd_search_slot(f, sr->next_slot++, cell);
+  if (found)
+    sr->active = false;
+  return found;
+}
+
 static void *UE_fd_thread(void *arg)
 {
   fd_ue_t *f = arg;
@@ -301,6 +452,9 @@ static void *UE_fd_thread(void *arg)
   uint32_t ta_samples = UINT32_MAX;
   uint32_t sync_req = 0;
   uint64_t next_slot = 0;
+  // An attached instance's time is the host's: wait for its first symbols.
+  while (!fd_device && !oai_exit && ue_low_phy_client_wait_slot(c, 0, 100000) == 1)
+    ;
   f->rrc_next_frame = fd_radio_frame(fp);
 
   while (!oai_exit) {
@@ -312,11 +466,18 @@ static void *UE_fd_thread(void *arg)
         UE->target_Nid_cell = UE->synch_request.synch_req.target_Nid_cell;
         UE->synch_request.received_synch_request = 0;
       }
-      if (!sync_req)
-        sync_req = ue_low_phy_client_request_sync(c, UE->target_Nid_cell, get_nrUE_params()->ue_fd_sync_timeout_ms);
       ue_low_phy_cell_t cell;
-      // Short waits: time and RRC timers are ticked between them.
-      const int rc = ue_low_phy_client_sync_result(c, sync_req, &cell, 10000);
+      int rc;
+      if (fd_device) {
+        if (!sync_req)
+          sync_req = ue_low_phy_client_request_sync(c, UE->target_Nid_cell, get_nrUE_params()->ue_fd_sync_timeout_ms);
+        // Short waits: time and RRC timers are ticked between them.
+        rc = ue_low_phy_client_sync_result(c, sync_req, &cell, 10000);
+      } else {
+        rc = fd_search_step(f, &cell);
+        if (rc < 0)
+          break; // the host stopped
+      }
       fd_tick_time(fp);
       if (rc <= 0)
         fd_tick_rrc(f, fd_radio_frame(fp));
@@ -361,6 +522,7 @@ static void *UE_fd_thread(void *arg)
         LOG_E(NR_PHY, "[fd-ue] UE %d: Low-PHY did not confirm leaving\n", UE->Mod_id);
       clean_UE_harq(UE);
       UE->is_synchronized = 0;
+      f->search.active = false;
       f->rrc_next_frame = fd_radio_frame(fp);
       UE->synch_request.received_synch_request = 0;
       continue;
@@ -497,12 +659,56 @@ static void fd_start_lowphy(const PHY_VARS_NR_UE *UE, int num_ues)
   AssertFatal(ue_low_phy_device_start(fd_device) == 0, "[fd-ue] failed to start the UE Low-PHY\n");
 }
 
+// Attaches to the port of another process; its geometry must be this UE's.
+static void fd_attach(const PHY_VARS_NR_UE *UE, const char *name, int num_ues)
+{
+  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  LOG_I(NR_PHY, "[fd-ue] attaching to UE Low-PHY port %s\n", name);
+  fd_port = ue_low_phy_port_attach(name, 60000);
+  AssertFatal(fd_port, "[fd-ue] no UE Low-PHY port %s after 60 s\n", name);
+  const ue_low_phy_geometry_t *g = &fd_port->mem->geo;
+  AssertFatal(g->fft_size == fp->ofdm_symbol_size && g->n_rb_dl == fp->N_RB_DL && g->n_rb_ul == fp->N_RB_UL
+                  && g->symbols_per_slot == fp->symbols_per_slot && g->slots_per_frame == fp->slots_per_frame,
+              "[fd-ue] port %s: fft %u, %u/%u RBs, %u symbols x %u slots; UE: fft %d, %d/%d RBs, %d symbols x %d slots\n",
+              name,
+              g->fft_size,
+              g->n_rb_dl,
+              g->n_rb_ul,
+              g->symbols_per_slot,
+              g->slots_per_frame,
+              fp->ofdm_symbol_size,
+              fp->N_RB_DL,
+              fp->N_RB_UL,
+              fp->symbols_per_slot,
+              fp->slots_per_frame);
+  AssertFatal(g->nb_rx >= fp->nb_antennas_rx && g->nb_tx >= fp->nb_antennas_tx,
+              "[fd-ue] port %s has %u RX / %u TX antennas, the UE %d / %d\n",
+              name,
+              g->nb_rx,
+              g->nb_tx,
+              fp->nb_antennas_rx,
+              fp->nb_antennas_tx);
+  AssertFatal(g->dl_per_client, "[fd-ue] port %s has no per-client DL: its host owns a radio, run the UE with it\n", name);
+  // Absolute symbols are 3GPP time (abs_frame % 1024 is the SFN), as for a Low-PHY device.
+  ue_low_phy_monitor_lock(&fd_port->mem->monitor);
+  const bool timed = fd_port->mem->time_anchored && fd_port->mem->time_symbol0 == 0;
+  ue_low_phy_monitor_unlock(&fd_port->mem->monitor);
+  AssertFatal(timed, "[fd-ue] port %s: absolute symbols are not 3GPP time\n", name);
+  AssertFatal(num_ues <= (int)g->max_clients, "[fd-ue] port %s has %u client slots for %d UEs\n", name, g->max_clients, num_ues);
+}
+
 void init_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
 {
   AssertFatal(UE_list[0]->sl_mode == 0, "[fd-ue] sidelink is not supported in FD-UE mode\n");
   AssertFatal(usrp_tx_thread == 0,
               "[fd-ue] --usrp-tx-thread-config is not supported in FD-UE mode (the Low-PHY has its own TX thread)\n");
-  fd_start_lowphy(UE_list[0], num_ues);
+  const char *attach = get_nrUE_params()->ue_fd_attach;
+  if (attach) {
+    fd_attach(UE_list[0], attach, num_ues);
+  } else {
+    fd_start_lowphy(UE_list[0], num_ues);
+    fd_port = ue_low_phy_device_port(fd_device);
+  }
 
   for (int u = 0; u < num_ues; u++) {
     PHY_VARS_NR_UE *UE = UE_list[u];
@@ -516,9 +722,7 @@ void init_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
     f->ul_actors = calloc(num_ul_actors > 0 ? num_ul_actors : 1, sizeof(*f->ul_actors));
     AssertFatal(f->dl_actors && f->ul_actors, "OOM\n");
     init_ue_actors(NULL, f->dl_actors, f->ul_actors);
-    AssertFatal(ue_low_phy_client_open(ue_low_phy_device_port(fd_device), &f->client) == 0,
-                "[fd-ue] UE Low-PHY port has no free client slot for UE %d\n",
-                u);
+    AssertFatal(ue_low_phy_client_open(fd_port, &f->client) == 0, "[fd-ue] UE Low-PHY port has no free client slot for UE %d\n", u);
     f->dev = (nr_ue_fd_ifdevice_t){
         .read_symbol = fd_read_symbol,
         .write_slot = fd_write_slot,
@@ -570,10 +774,15 @@ void term_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
     ue_low_phy_client_close(&f->client);
     free(f->dl_actors);
     free(f->ul_actors);
+    free(f->search.rxdataF);
     ue_low_phy_progress_destroy(&f->tx_completed);
     ue_low_phy_progress_destroy(&f->tx_jobs);
     free(f);
   }
-  ue_low_phy_device_destroy(fd_device);
+  if (fd_device)
+    ue_low_phy_device_destroy(fd_device);
+  else
+    ue_low_phy_port_destroy(fd_port);
   fd_device = NULL;
+  fd_port = NULL;
 }
