@@ -242,6 +242,16 @@ static inline uint64_t get_packed_bits(const uint8_t *in_bytes, uint32_t length,
   return (packed >> bit_shift) & ((UINT64_C(1) << width) - 1);
 }
 
+#if defined(__riscv) && defined(__riscv_vector)
+// bits 0, 2, 4, 6 of each 16-bit element (a 256QAM symbol byte) compacted into a 4-bit index
+static inline vuint16m1_t qam256_even_bits(vuint16m1_t x, size_t vl)
+{
+  vuint16m1_t e = __riscv_vand_vx_u16m1(x, 0x55, vl);
+  e = __riscv_vand_vx_u16m1(__riscv_vor_vv_u16m1(e, __riscv_vsrl_vx_u16m1(e, 1, vl), vl), 0x33, vl);
+  return __riscv_vand_vx_u16m1(__riscv_vor_vv_u16m1(e, __riscv_vsrl_vx_u16m1(e, 2, vl), vl), 0x0f, vl);
+}
+#endif
+
 bool nr_modulation_layer_mapping(const uint32_t *in,
                                  uint32_t length,
                                  uint16_t mod_order,
@@ -265,6 +275,64 @@ bool nr_modulation_layer_mapping(const uint32_t *in,
   // buffer stays in cache, so the scalar per-symbol modulation (which costs one
   // bit-extract + table lookup per symbol, i.e. scales with symbol count and
   // hurts most at low modulation orders) loses to SIMD modulation.
+#if defined(__riscv) && defined(__riscv_vector)
+  // 256QAM, 1, 2 or 4 layers: symbol k is byte k, so layer l takes byte l of each 8-, 16- or 32-bit word, modulated and
+  // mapped in one pass. The table lookup differs per core (2 layers, 273 PRB, against 115 us on the X100 and 325 us
+  // on the A100 for the scalar table loop and deinterleave):
+  // - VLEN 256 (X100): indexed loads from nr_256qam_mod_table, 85 us.
+  // - VLEN 1024 (A100), where indexed loads are very slow (779 us): TS 38.211 §5.1.5 makes I depend only on bits
+  //   0, 2, 4, 6 of the byte and Q on bits 1, 3, 5, 7, through the same 16 levels, so compact them into 4-bit indices
+  //   and vrgather from those levels held in a register, 144 us.
+  if (mod_order == 8 && n_layers != 3 && __riscv_vlenb() <= 32) {
+    const uint32_t n = n_symbs / n_layers;
+    for (size_t j = 0, vl; j < n; j += vl) {
+      vl = __riscv_vsetvl_e32m2(n - j);
+      vuint32m2_t w;
+      if (n_layers == 1)
+        w = __riscv_vzext_vf4_u32m2(__riscv_vle8_v_u8mf2((const uint8_t *)in + j, vl), vl);
+      else if (n_layers == 2)
+        w = __riscv_vzext_vf2_u32m2(__riscv_vle16_v_u16m1((const uint16_t *)in + j, vl), vl);
+      else
+        w = __riscv_vle32_v_u32m2(in + j, vl);
+      for (int l = 0; l < n_layers; l++) {
+        const vuint32m2_t idx = __riscv_vsll_vx_u32m2(__riscv_vand_vx_u32m2(__riscv_vsrl_vx_u32m2(w, 8 * l, vl), 0xff, vl), 2, vl);
+        __riscv_vse32_v_i32m2((int32_t *)tx_layers[l] + j, __riscv_vluxei32_v_i32m2(nr_256qam_mod_table, idx, vl), vl);
+      }
+    }
+    return true;
+  }
+  if (mod_order == 8 && n_layers != 3 && __riscv_vsetvlmax_e16m1() >= 16) { // the 16 levels fit one register
+    int16_t lvl[16];
+    for (int k = 0; k < 16; k++)
+      lvl[k] = ((const c16_t *)nr_256qam_mod_table)[(k & 1) | (k & 2) << 1 | (k & 4) << 2 | (k & 8) << 3].r;
+    const vint16m1_t lv = __riscv_vle16_v_i16m1(lvl, 16);
+    const uint32_t n = n_symbs / n_layers;
+    for (size_t j = 0, vl; j < n; j += vl) {
+      vl = __riscv_vsetvl_e16m1(n - j);
+      vuint16m1_t v;
+      vuint32m2_t w4;
+      if (n_layers == 4)
+        w4 = __riscv_vle32_v_u32m2(in + j, vl);
+      else if (n_layers == 2)
+        v = __riscv_vle16_v_u16m1((const uint16_t *)in + j, vl);
+      else
+        v = __riscv_vzext_vf2_u16m1(__riscv_vle8_v_u8mf2((const uint8_t *)in + j, vl), vl);
+      for (int l = 0; l < n_layers; l++) {
+        vuint16m1_t sym = n_layers == 1   ? v
+                          : n_layers == 2 ? (l ? __riscv_vsrl_vx_u16m1(v, 8, vl) : __riscv_vand_vx_u16m1(v, 0xff, vl))
+                                          : __riscv_vand_vx_u16m1(__riscv_vnsrl_wx_u16m1(w4, 8 * l, vl), 0xff, vl);
+        const vuint16m1_t re = __riscv_vreinterpret_v_i16m1_u16m1(__riscv_vrgather_vv_i16m1(lv, qam256_even_bits(sym, vl), vl));
+        const vuint16m1_t im = __riscv_vreinterpret_v_i16m1_u16m1(
+            __riscv_vrgather_vv_i16m1(lv, qam256_even_bits(__riscv_vsrl_vx_u16m1(sym, 1, vl), vl), vl));
+        const vuint32m2_t c = __riscv_vor_vv_u32m2(__riscv_vzext_vf2_u32m2(re, vl),
+                                                   __riscv_vsll_vx_u32m2(__riscv_vzext_vf2_u32m2(im, vl), 16, vl),
+                                                   vl);
+        __riscv_vse32_v_u32m2((uint32_t *)tx_layers[l] + j, c, vl);
+      }
+    }
+    return true;
+  }
+#endif
   if (n_layers == 1) {
     nr_modulation(in, length, mod_order, (int16_t *)tx_layers[0]);
     return true;
