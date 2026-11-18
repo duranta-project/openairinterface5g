@@ -504,6 +504,22 @@ static inline void do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
   return;
 }
 
+/* PMI of RB rb of the block and the number of consecutive RBs from rb sharing it (one PRG when prg_size > 0, the
+   whole block otherwise, all identity), precoded in one call: the scheduler sets prg_size = rbSize, so this is
+   usually the whole block, and longer calls amortise the per-call cost of the precoding kernels. */
+static inline int pmi_run(const nfapi_nr_tx_precoding_and_beamforming_t *pb, int rb, int rb_size, int *pmi)
+{
+  if (pb->prg_size == 0) {
+    *pmi = 0;
+    return rb_size - rb;
+  }
+  *pmi = pb->prgs_list[rb / pb->prg_size].pm_idx;
+  int n = 1;
+  while (rb + n < rb_size && pb->prgs_list[(rb + n) / pb->prg_size].pm_idx == *pmi)
+    n++;
+  return n;
+}
+
 static inline void do_txdataF(c16_t **txdataF,
                               int symbol_sz,
                               c16_t txdataF_precoding[][symbol_sz],
@@ -519,16 +535,8 @@ static inline void do_txdataF(c16_t **txdataF,
   uint16_t subCarrier = get_block_start_sc(rb_start, rel15->BWPStart, symbol_sz);
   const nfapi_nr_tx_precoding_and_beamforming_t *pb = &rel15->precodingAndBeamforming;
   while (rb < rb_size) {
-    // get pmi info
-    const int pmi = (pb->prg_size > 0) ? (pb->prgs_list[(int)rb / pb->prg_size].pm_idx) : 0;
-    const int pmi2 = (rb < (rb_size - 1) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 1) / pb->prg_size].pm_idx) : -1;
-    const int pmi3 = (rb < (rb_size - 2) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 2) / pb->prg_size].pm_idx) : -1;
-    const int pmi4 = (rb < (rb_size - 3) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 3) / pb->prg_size].pm_idx) : -1;
-
-    // If pmi of next RB and pmi of current RB are the same, we do 2 RB in a row
-    // if pmi differs, or current rb is the end (rb_size - 1), than we do 1 RB in a row
-    int rb_step0 = pmi == pmi2 ? 2 : 1;
-    const int rb_step = rb_step0 == 2 && pmi3 == pmi && pmi4 == pmi ? 4 : rb_step0;
+    int pmi;
+    const int rb_step = pmi_run(pb, rb, rb_size, &pmi);
     const int re_cnt = NR_NB_SC_PER_RB * rb_step;
     if (pmi == 0) { // unitary Precoding
       if (ant < rel15->nrOfLayers)
@@ -619,13 +627,8 @@ static inline void do_txdataF_2x2(c16_t **txdataF,
   c16_t *out0 = &txdataF[ant0][txdataF_offset_per_symbol];
   c16_t *out1 = &txdataF[ant1][txdataF_offset_per_symbol];
   while (rb < rb_size) {
-    // get pmi info (identical stepping to do_txdataF: coalesce equal-PMI RBs)
-    const int pmi = (pb->prg_size > 0) ? (pb->prgs_list[(int)rb / pb->prg_size].pm_idx) : 0;
-    const int pmi2 = (rb < (rb_size - 1) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 1) / pb->prg_size].pm_idx) : -1;
-    const int pmi3 = (rb < (rb_size - 2) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 2) / pb->prg_size].pm_idx) : -1;
-    const int pmi4 = (rb < (rb_size - 3) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 3) / pb->prg_size].pm_idx) : -1;
-    int rb_step0 = pmi == pmi2 ? 2 : 1;
-    const int rb_step = rb_step0 == 2 && pmi3 == pmi && pmi4 == pmi ? 4 : rb_step0;
+    int pmi;
+    const int rb_step = pmi_run(pb, rb, rb_size, &pmi);
     const int re_cnt = NR_NB_SC_PER_RB * rb_step;
     if (pmi == 0) { // unitary precoding: port i carries layer i
       memcpy(&out0[subCarrier], &txdataF_precoding[0][subCarrier], re_cnt * sizeof(**txdataF));

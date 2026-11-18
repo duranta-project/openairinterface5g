@@ -126,6 +126,31 @@ static void precoder_rvv(int n_layers, const c16_t *const x[4], const c16_t w[4]
     j += vl;
   }
 }
+/* Unit-stride variant: each c16 is one 32-bit element; the real (low) and imaginary (high) halves are split with
+   narrowing shifts and rebuilt with a zero-extend, instead of segment loads/stores, which the K3 cores execute one
+   element at a time. Same arithmetic, so bit-exact with precoder_rvv. */
+static void precoder_rvv_u(int n_layers, const c16_t *const x[4], const c16_t w[4], c16_t *y, uint32_t N)
+{
+  for (uint32_t j = 0; j < N;) {
+    size_t vl = __riscv_vsetvl_e32m2(N - j);
+    vint16m1_t yr = __riscv_vmv_v_x_i16m1(0, vl);
+    vint16m1_t yi = __riscv_vmv_v_x_i16m1(0, vl);
+    for (int L = 0; L < n_layers; L++) {
+      vint32m2_t x32 = __riscv_vle32_v_i32m2((const int32_t *)&x[L][j], vl);
+      vint16m1_t xr = __riscv_vnsra_wx_i16m1(x32, 0, vl);
+      vint16m1_t xi = __riscv_vnsra_wx_i16m1(x32, 16, vl);
+      const int16_t wr = w[L].r, wi = w[L].i;
+      vint32m2_t mr = __riscv_vsub_vv_i32m2(__riscv_vwmul_vx_i32m2(xr, wr, vl), __riscv_vwmul_vx_i32m2(xi, wi, vl), vl);
+      vint32m2_t mi = __riscv_vwmacc_vx_i32m2(__riscv_vwmul_vx_i32m2(xr, wi, vl), wr, xi, vl);
+      yr = __riscv_vsadd_vv_i16m1(yr, __riscv_vnsra_wx_i16m1(mr, 15, vl), vl);
+      yi = __riscv_vsadd_vv_i16m1(yi, __riscv_vnsra_wx_i16m1(__riscv_vsll_vx_i32m2(mi, 1, vl), 16, vl), vl);
+    }
+    vuint32m2_t lo = __riscv_vzext_vf2_u32m2(__riscv_vreinterpret_v_i16m1_u16m1(yr), vl);
+    vuint32m2_t hi = __riscv_vsll_vx_u32m2(__riscv_vzext_vf2_u32m2(__riscv_vreinterpret_v_i16m1_u16m1(yi), vl), 16, vl);
+    __riscv_vse32_v_u32m2((uint32_t *)&y[j], __riscv_vor_vv_u32m2(lo, hi, vl), vl);
+    j += vl;
+  }
+}
 #endif
 
 /* ---- driver ---------------------------------------------------------------- */
@@ -187,6 +212,9 @@ int main(int argc, char **argv)
 #if defined(__riscv) && defined(__riscv_vector)
     precoder_rvv(nl, xp, w, yq, N);
     bad |= cmp(ys, yq, N, "rvv");
+    memset(yq, 0, sizeof(yq));
+    precoder_rvv_u(nl, xp, w, yq, N);
+    bad |= cmp(ys, yq, N, "rvv_u");
 #else
     (void)yq;
 #endif
@@ -215,6 +243,21 @@ int main(int argc, char **argv)
          tv / ((double)iters * N),
          ts / tv,
          tsi / tv);
+  t0 = now_ns();
+  for (int it = 0; it < iters; it++)
+    precoder_rvv_u(nl, xp, w, yq, N);
+  double tu = now_ns() - t0;
+  printf("n_layers=4 rvv unit   : %.2f ns/RE  (%.2fx vs segment rvv)\n", tu / ((double)iters * N), tv / tu);
+  /* as called from do_txdataF: 48-RE chunks (4 RB of one PMI), 2 layers */
+  for (int v = 0; v < 2; v++) {
+    t0 = now_ns();
+    for (int it = 0; it < iters; it++)
+      for (int c = 0; c + 48 <= N; c += 48) {
+        const c16_t *xc[4] = {X[0] + c, X[1] + c, X[2] + c, X[3] + c};
+        (v ? precoder_rvv_u : precoder_rvv)(2, xc, w, yq + c, 48);
+      }
+    printf("n_layers=2, 48-RE calls, %s: %.2f ns/RE\n", v ? "rvv unit   " : "rvv segment", (now_ns() - t0) / ((double)iters * (N / 48 * 48)));
+  }
 #endif
   printf("\nRESULT: %s\n", fails ? "FAIL" : "PASS");
   return fails ? 1 : 0;

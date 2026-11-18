@@ -1599,6 +1599,33 @@ void nr_layer_precoder_simd(const int n_layers,
    * SIMDe emulation of madd/blend is ~30-47x slower than this on RISC-V.
    * VLEN-agnostic, generic over n_layers, bit-exact with cmac0/cmac_prec
    * (rvv_harness/rvv_precoder_test.c). */
+  /* The SpacemiT A100 (VLEN 1024) runs the segment loads/stores below one element at a time: there, load each c16 as
+     one 32-bit element, split it with narrowing shifts and rebuild it with a zero-extend (2.7x faster, 12.1 -> 4.4 ns
+     per RE at 4 layers). The X100 (VLEN 256) runs vlseg2/vsseg2 at full rate and the split costs it more (3.2 vs
+     4.6 ns per RE), so it keeps them. Same arithmetic either way. */
+  if (__riscv_vlenb() > 32) {
+    c16_t *outb = txdataF_precoded + sc_offset;
+    for (int i = 0; i < re_cnt;) {
+      const size_t vl = __riscv_vsetvl_e32m2((size_t)(re_cnt - i));
+      vint16m1_t yr = __riscv_vmv_v_x_i16m1(0, vl);
+      vint16m1_t yi = __riscv_vmv_v_x_i16m1(0, vl);
+      for (int L = 0; L < n_layers; L++) {
+        const vint32m2_t x = __riscv_vle32_v_i32m2((const int32_t *)(txdataF_res_mapped[L] + sc_offset + i), vl);
+        const vint16m1_t xr = __riscv_vnsra_wx_i16m1(x, 0, vl);
+        const vint16m1_t xi = __riscv_vnsra_wx_i16m1(x, 16, vl);
+        const int16_t wr = weights[L][ant].r, wi = weights[L][ant].i;
+        vint32m2_t mr = __riscv_vsub_vv_i32m2(__riscv_vwmul_vx_i32m2(xr, wr, vl), __riscv_vwmul_vx_i32m2(xi, wi, vl), vl);
+        vint32m2_t mi = __riscv_vwmacc_vx_i32m2(__riscv_vwmul_vx_i32m2(xr, wi, vl), wr, xi, vl);
+        yr = __riscv_vsadd_vv_i16m1(yr, __riscv_vnsra_wx_i16m1(mr, 15, vl), vl);
+        yi = __riscv_vsadd_vv_i16m1(yi, __riscv_vnsra_wx_i16m1(__riscv_vsll_vx_i32m2(mi, 1, vl), 16, vl), vl);
+      }
+      const vuint32m2_t lo = __riscv_vzext_vf2_u32m2(__riscv_vreinterpret_v_i16m1_u16m1(yr), vl);
+      const vuint32m2_t hi = __riscv_vsll_vx_u32m2(__riscv_vzext_vf2_u32m2(__riscv_vreinterpret_v_i16m1_u16m1(yi), vl), 16, vl);
+      __riscv_vse32_v_u32m2((uint32_t *)(outb + i), __riscv_vor_vv_u32m2(lo, hi, vl), vl);
+      i += vl;
+    }
+    return;
+  }
   {
     c16_t *outb = txdataF_precoded + sc_offset;
     for (int i = 0; i < re_cnt;) {
