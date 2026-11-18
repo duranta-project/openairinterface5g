@@ -11,6 +11,7 @@
 #include "common/utils/threadPool/thread-pool.h"
 #include "common/utils/ds/work_q.h"
 #include <stdatomic.h>
+#include <errno.h>
 #include <time.h>
 #include <unistd.h>
 #include "openair1/PHY/MODULATION/nr_modulation.h"
@@ -156,6 +157,74 @@
   {CONFIG_STRING_CLOCK_TIMEBASE,             HLP_CLOCK_TIMEBASE,    0,                      .strptr=NULL,     .defstrval="utc",            TYPE_STRING,       0, CLOCK_TIMEBASE_CHECK}  \
 }
 // clang-format on
+
+#define CONFIG_SECTION_ORU_UE "ORUs.[0].ue_south"
+
+#define HLP_UE_PORT                                                                                          \
+  "Simulate FD-UEs instead of driving a radio: shared memory name of the UE Low-PHY port the UEs attach to " \
+  "(nr-uesoftmodem --ue-fd --ue-fd-attach <name>). Unset: radio."
+#define HLP_UE_CHANNEL "FD-UE channel: flat, CDL-A, CDL-B, CDL-C, CDL-D or CDL-E"
+#define HLP_UE_DL_PUBLISH "FD-UE DL: asap (as soon as the DU's symbol is complete) or air (at its air time)"
+
+#define UE_CHANNEL_CHECK                                                                                                    \
+  &(checkedparam_t)                                                                                                         \
+  {                                                                                                                         \
+    .s3a = { config_checkstr_assign_integer, {"flat", "CDL-A", "CDL-B", "CDL-C", "CDL-D", "CDL-E"}, {0, 1, 2, 3, 4, 5}, 6 } \
+  }
+
+#define UE_DL_PUBLISH_CHECK                                               \
+  &(checkedparam_t)                                                       \
+  {                                                                       \
+    .s3a = { config_checkstr_assign_integer, {"asap", "air"}, {0, 1}, 2 } \
+  }
+
+// clang-format off
+#define CMDLINE_PARAMS_DESC_ORU_UE \
+{ \
+  {"port",            HLP_UE_PORT,                                0, .strptr=NULL, .defstrval=NULL,   TYPE_STRING, 0}, \
+  {"max_ues",         "most FD-UEs attached at once",             0, .iptr=NULL,   .defintval=16,     TYPE_INT,    0}, \
+  {"ue_nb_rx",        "RX antennas of each FD-UE",                0, .iptr=NULL,   .defintval=1,      TYPE_INT,    0}, \
+  {"ue_nb_tx",        "TX antennas of each FD-UE",                0, .iptr=NULL,   .defintval=1,      TYPE_INT,    0}, \
+  {"dl_publish",      HLP_UE_DL_PUBLISH,                          0, .strptr=NULL, .defstrval="asap", TYPE_STRING, 0, UE_DL_PUBLISH_CHECK}, \
+  {"channel",         HLP_UE_CHANNEL,                             0, .strptr=NULL, .defstrval="flat", TYPE_STRING, 0, UE_CHANNEL_CHECK}, \
+  {"gain_db",         "mean channel gain (dB)",                   0, .dblptr=NULL, .defdblval=0,      TYPE_DOUBLE, 0}, \
+  {"delay_spread_ns", "CDL RMS delay spread (ns)",                0, .dblptr=NULL, .defdblval=100,    TYPE_DOUBLE, 0}, \
+  {"ue_speed_mps",    "CDL UE speed (m/s)",                       0, .dblptr=NULL, .defdblval=1,      TYPE_DOUBLE, 0}, \
+  {"txru_rows",       "CDL TXRU array rows",                      0, .iptr=NULL,   .defintval=1,      TYPE_INT,    0}, \
+  {"txru_cols",       "CDL TXRU array columns (rows x columns = O-RU antennas)", 0, .iptr=NULL, .defintval=0, TYPE_INT, 0}, \
+  {"txru_spacing_v",  "CDL TXRU vertical spacing (wavelengths)",  0, .dblptr=NULL, .defdblval=0.5,    TYPE_DOUBLE, 0}, \
+  {"txru_spacing_h",  "CDL TXRU horizontal spacing (wavelengths)", 0, .dblptr=NULL, .defdblval=0.5,   TYPE_DOUBLE, 0}, \
+  {"seed",            "channel seed",                             0, .u64ptr=NULL, .defint64val=1,    TYPE_UINT64, 0}, \
+}
+// clang-format on
+
+static void get_oru_ue_options(ORU_t *oru)
+{
+  paramdef_t param[] = CMDLINE_PARAMS_DESC_ORU_UE;
+  const int nump = sizeofArray(param);
+  config_get(config_get_if(), param, nump, CONFIG_SECTION_ORU_UE);
+  oru_ue_config_t *c = &oru->ue_config;
+  // Without the section (radio), the string has no storage
+  char **port = gpd(param, nump, "port")->strptr;
+  c->port_name = port ? *port : NULL;
+  if (!c->port_name)
+    return;
+  c->max_ues = *gpd(param, nump, "max_ues")->iptr;
+  c->ue_nb_rx = *gpd(param, nump, "ue_nb_rx")->iptr;
+  c->ue_nb_tx = *gpd(param, nump, "ue_nb_tx")->iptr;
+  c->dl_publish_air = config_get_processedint(config_get_if(), &param[config_paramidx_fromname(param, nump, "dl_publish")]) == 1;
+  const int channel = config_get_processedint(config_get_if(), &param[config_paramidx_fromname(param, nump, "channel")]);
+  c->channel = channel == 0 ? ORU_UE_CHANNEL_FLAT : ORU_UE_CHANNEL_CDL;
+  c->cdl_model = channel - 1;
+  c->gain_db = *gpd(param, nump, "gain_db")->dblptr;
+  c->delay_spread_ns = *gpd(param, nump, "delay_spread_ns")->dblptr;
+  c->ue_speed_mps = *gpd(param, nump, "ue_speed_mps")->dblptr;
+  c->txru_rows = *gpd(param, nump, "txru_rows")->iptr;
+  c->txru_cols = *gpd(param, nump, "txru_cols")->iptr;
+  c->txru_dv = *gpd(param, nump, "txru_spacing_v")->dblptr;
+  c->txru_dh = *gpd(param, nump, "txru_spacing_h")->dblptr;
+  c->seed = *gpd(param, nump, "seed")->u64ptr;
+}
 
 #define UL_SYMBOL_MISS_LOG_RATELIMIT 10000
 #define UL_CAL_ERR_LOG_RATELIMIT 10000
@@ -486,6 +555,7 @@ int get_oru_options(ORU_t *oru)
   }
 
   oru->tx_write.core = *gpd(param, nump, CONFIG_STRING_ORU_TX_CORE)->iptr;
+  get_oru_ue_options(oru);
 
   paramdef_t fh_param[] = CMDLINE_PARAMS_DESC_ORU_FH;
   nump = sizeofArray(fh_param);
@@ -700,7 +770,11 @@ static void dl_symbol_process(ORU_t *oru, int frame, int slot, int symbol, c16_t
 
   __attribute__((aligned(64))) c16_t txdataF_shifted[fp->ofdm_symbol_size];
   memset(txdataF_shifted, 0, sizeof(txdataF_shifted));
-  for (int aatx = 0; aatx < ru->nb_tx; aatx++) {
+  // FD-UEs: the REs go to the UEs as they are (3GPP symbols count from hyper frame 0)
+  const uint64_t symbols_per_hfn = (uint64_t)1024 * fp->slots_per_frame * fp->symbols_per_slot;
+  if (oru->ues)
+    oru_ue_dl_symbol(oru->ues, oru->tx_write.start_hyper_frame * symbols_per_hfn + abs_symbol, (const c16_t *const *)txDataF);
+  for (int aatx = 0; aatx < ru->nb_tx && !oru->ues; aatx++) {
     // txDataF is already phase-rotated by combine_dl_streams() - don't rotate again.
     // Inverse FFT shift: contiguous PRB format received from the DU -> layout expected by the IDFT
     fftshift_inverse(txDataF[aatx], txdataF_shifted, fp->N_RB_DL * NR_NB_SC_PER_RB, fp->ofdm_symbol_size);
@@ -739,7 +813,9 @@ static void assemble_dl_symbol(ORU_t *oru,
   RU_t *ru = (RU_t *)oru->ru;
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   const int n_sc = n_rb_dl * NR_NB_SC_PER_RB;
-  c16_t rotation = *(fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol);
+  // FD-UEs do not derotate either: no rotation at all
+  c16_t rotation = oru->ues ? (c16_t){INT16_MAX, 0}
+                            : *(fp->symbol_rotation[0] + (slot % fp->slots_per_subframe) * fp->symbols_per_slot + symbol);
 
   combine_dl_streams(txDataF, ru->nb_tx, n_sc, streams, num_streams, &oru->codebook, rotation);
 }
@@ -905,13 +981,20 @@ void receive_prach(ORU_t *oru, int frame, int slot, int symbol, int prach_symbol
   c16_t rxdataF[ru->nb_rx][NR_PRACH_SEQ_LEN_L];
   memset(rxdataF, 0, sizeof(rxdataF));
 
-  rx_nr_prach_ru_rep(&oru->prach_item,
-                     ru->common.rxdata,
-                     fp,
-                     ru->N_TA_offset,
-                     prach_symbol,
-                     0, // prachOccasion
-                     rxdataF);
+  if (oru->ues) {
+    // Every repetition carries the UEs' bins, where rx_nr_prach_ru_rep() would take them from the DFT
+    int k, dftlen, n_zc;
+    nr_prach_ru_bins(&oru->prach_item, fp, 0, &k, &dftlen, &n_zc);
+    oru_ue_prach(oru->ues, frame, slot, k, dftlen, n_zc, ru->nb_rx, rxdataF);
+  } else {
+    rx_nr_prach_ru_rep(&oru->prach_item,
+                       ru->common.rxdata,
+                       fp,
+                       ru->N_TA_offset,
+                       prach_symbol,
+                       0, // prachOccasion
+                       rxdataF);
+  }
 
   c16_t *rxdataF_ptr[ru->nb_rx];
   for (int aarx = 0; aarx < ru->nb_rx; aarx++) {
@@ -999,8 +1082,9 @@ static void receive_pusch(ORU_t *oru, int frame, int slot, int symbol, ul_job_t 
     nre += runs[r].len;
   }
 
-  // Phase decompensation (conjugate rotation for UL); PRB offsets keep the 16-byte alignment it needs
-  if (nre > 0) {
+  // Phase decompensation (conjugate rotation for UL); PRB offsets keep the 16-byte alignment it needs.
+  // FD-UEs do not rotate.
+  if (nre > 0 && !oru->ues) {
     const int re0 = runs[0].re;
     apply_nr_rotation_symbol_fftshifted_RX(fp->symbols_per_slot,
                                            fp->slots_per_subframe,
@@ -1108,12 +1192,22 @@ static void ul_fft_pool_task(void *args)
     if (a >= 0 && a < nb_rx)
       used[a] = true;
   }
-  // Window offset, N_TA and frame-boundary wrap all inside nr_symbol_fep_ul().
-  for (int a = 0; a < nb_rx; a++) {
-    if (!used[a])
-      continue;
-    nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[a], &item->ant_fft[a * n], item->symbol, item->slot,
-                     ru->N_TA_offset);
+  if (oru->ues) {
+    // FD-UEs: each antenna's REs through the UEs' channels, in the layout of the DFT
+    c16_t *ant[nb_rx];
+    for (int a = 0; a < nb_rx; a++)
+      ant[a] = used[a] ? &item->ant_fft[a * n] : NULL;
+    if (!oru_ue_ul_symbol(oru->ues, item->frame, item->slot, item->symbol, ant))
+      for (int a = 0; a < nb_rx; a++)
+        if (ant[a])
+          memset(ant[a], 0, n * sizeof(c16_t));
+  } else {
+    // Window offset, N_TA and frame-boundary wrap all inside nr_symbol_fep_ul().
+    for (int a = 0; a < nb_rx; a++) {
+      if (!used[a])
+        continue;
+      nr_symbol_fep_ul(fp, (c16_t *)ru->common.rxdata[a], &item->ant_fft[a * n], item->symbol, item->slot, ru->N_TA_offset);
+    }
   }
 
   item->refs = item->nb_jobs; // plain store: readers only exist after the pushes below
@@ -1402,6 +1496,99 @@ void *oru_south_read_thread(void *arg)
     }
   }
 
+  return NULL;
+}
+
+// CLOCK_REALTIME start of 3GPP symbol (UE south side), at the FH timer's uniform symbol rate
+static int64_t ue_air_time_ns(const ORU_t *oru, uint64_t symbol)
+{
+  const int64_t symbols_per_sec = (int64_t)(NR_SYMBOLS_PER_SLOT * 1000) << oru->numerology;
+  const int64_t d = (int64_t)(symbol - oru->ue_anchor_symbol);
+  return oru->ue_anchor_ns + d / symbols_per_sec * 1000000000LL + d % symbols_per_sec * 1000000000LL / symbols_per_sec;
+}
+
+static void ue_sleep_until(int64_t ns)
+{
+  const struct timespec ts = {.tv_sec = ns / 1000000000LL, .tv_nsec = ns % 1000000000LL};
+  while (clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &ts, NULL) == EINTR)
+    ;
+}
+
+// FD-UE south side: at the end of each symbol's air time, publish the DL, take the UEs' UL
+// slot at symbol 0, and run the UL calendar and PRACH as oru_south_read_thread() does.
+void *oru_ue_south_thread(void *arg)
+{
+  ORU_t *oru = arg;
+  RU_t *ru = oru->ru;
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  const int sps = fp->symbols_per_slot;
+
+  uint64_t hyper_frame;
+  uint32_t start_frame, start_slot;
+  struct timespec anchor;
+  oru_fh_get_utc_anchor_point(oru->fronthaul, &hyper_frame, &start_frame, &start_slot, &anchor);
+  oru->ue_anchor_symbol = ((hyper_frame * 1024 + start_frame) * fp->slots_per_frame + start_slot) * sps;
+  oru->ue_anchor_ns = (int64_t)anchor.tv_sec * 1000000000LL + anchor.tv_nsec;
+  oru_ue_start(oru->ues, oru->ue_anchor_symbol);
+  // The DL readers anchor on this slot; no radio, so its sample count stands for the timestamp
+  notify_north_read(hyper_frame,
+                    start_frame,
+                    start_slot,
+                    (int64_t)start_frame * fp->samples_per_frame + get_samples_slot_timestamp(fp, start_slot));
+
+  work_q_t beam_queue;
+  AssertFatal(work_q_alloc(&beam_queue, UL_WORK_QUEUE_DEPTH, sizeof(ul_work_item_t)),
+              "[ORU south] failed to allocate UL work queue\n");
+  AssertFatal(ru->nb_rx <= ORU_CODEBOOK_MAX_NB_TX, "nb_rx %d exceeds maximum %d\n", ru->nb_rx, ORU_CODEBOOK_MAX_NB_TX);
+  work_q_t fft_queue;
+  const size_t fft_payload = (size_t)ru->nb_rx * fp->ofdm_symbol_size * sizeof(c16_t);
+  AssertFatal(work_q_alloc(&fft_queue, UL_FFT_QUEUE_DEPTH, ul_fft_item_size(fft_payload)),
+              "[ORU south] failed to allocate UL FFT queue\n");
+  ul_calendar_t ul_cal = {0};
+
+  for (uint64_t s = oru->ue_anchor_symbol; !oai_exit; s++) {
+    ue_sleep_until(ue_air_time_ns(oru, s + 1));
+    oru_ue_dl_publish(oru->ues, s + 1);
+    const uint64_t abs_slot = s / sps;
+    const int symbol = s % sps;
+    const int slot = abs_slot % fp->slots_per_frame;
+    const int frame = (abs_slot / fp->slots_per_frame) % 1024;
+    if (symbol == 0)
+      oru_ue_ul_take_slot(oru->ues, abs_slot);
+
+    const uint64_t reader_abs = ((uint64_t)frame * fp->slots_per_frame + slot) * NR_SYMBOLS_PER_SLOT + symbol;
+    ul_job_t new_job;
+    while (oru_fh_poll_ul_job(oru->fronthaul, &new_job) == 0)
+      ul_calendar_add(&ul_cal, &beam_queue, &fft_queue, oru, reader_abs, &new_job);
+    const int rx_slot_type = nr_slot_select(&ru->config, frame, slot);
+    if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT)
+      ul_calendar_tick(&ul_cal, &beam_queue, &fft_queue, oru, reader_abs);
+    const int prach_symbol = get_prach_symbol(oru, frame, slot, symbol, ru->numerology);
+    if (prach_symbol != -1)
+      receive_prach(oru, frame, slot, symbol, prach_symbol);
+  }
+  oru_ue_stop(oru->ues);
+  return NULL;
+}
+
+// UE south side, DL published as soon as assembled: the DU's DL symbols complete in order (the reorder
+// watermark) are handed to the UEs ahead of their air time.
+void *oru_ue_dl_thread(void *arg)
+{
+  ORU_t *oru = arg;
+  const NR_DL_FRAME_PARMS *fp = oru->ru->nr_frame_parms;
+  pthread_mutex_lock(&oru->tx_write.mutex);
+  while (!oru->tx_write.initialized && !oai_exit)
+    pthread_cond_wait(&oru->tx_write.cond, &oru->tx_write.mutex);
+  pthread_mutex_unlock(&oru->tx_write.mutex);
+  const uint64_t base = oru->tx_write.start_hyper_frame * 1024 * fp->slots_per_frame * fp->symbols_per_slot;
+  for (uint64_t next = oru->tx_write.start_symbol_index; !oai_exit;) {
+    const uint64_t latest = symbol_reorder_wait_at_least(oru->dl_reorder, next, &oai_exit);
+    if (oai_exit)
+      break;
+    oru_ue_dl_publish(oru->ues, base + latest + 1);
+    next = latest + 1;
+  }
   return NULL;
 }
 
