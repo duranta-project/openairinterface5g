@@ -853,7 +853,8 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
                                                      pusch_config_pdu->pusch_data.tb_size << 3,
                                                      delta_pusch,
                                                      is_rar_tx_retx,
-                                                     tp_enabled);
+                                                     tp_enabled,
+                                                     &pusch_config_pdu->phr);
 
   pusch_config_pdu->ldpcBaseGraph = get_BG(pusch_config_pdu->pusch_data.tb_size << 3, pusch_config_pdu->target_code_rate);
 
@@ -1970,35 +1971,33 @@ static void nr_ue_pucch_scheduler(NR_UE_MAC_INST_t *mac, frame_t frame, int slot
 
 static void nr_ue_fill_phr(NR_UE_MAC_INST_t *mac,
                            NR_SINGLE_ENTRY_PHR_MAC_CE *phr,
-                           float P_CMAX,
-                           float tx_power,
+                           int P_CMAX,
+                           float required_power,
                            frame_t frame,
                            slot_t slot)
 {
   nr_phr_info_t *phr_info = &mac->scheduling_info.phr_info;
   // Value mapping according to 38.133 10.1.18.1
   const int PC_MAX_00 = -29;
-  *phr = (NR_SINGLE_ENTRY_PHR_MAC_CE){.PCMAX = max(0, (int)P_CMAX - PC_MAX_00) & 0x3f};
-  // Value mapping according to 38.133 10.1.17.1.1
-  const int POWER_HEADROOM_55 = 22;
-  int headroom = P_CMAX - tx_power;
-  if (headroom < POWER_HEADROOM_55) {
-    const int POWER_HEADROOM_0 = -32;
-    phr->PH = max(0, headroom - POWER_HEADROOM_0);
-  } else {
-    phr->PH = min(0x3f, 55 + (headroom - POWER_HEADROOM_55) / 2);
-  }
+  *phr = (NR_SINGLE_ENTRY_PHR_MAC_CE){.PCMAX = max(0, P_CMAX - PC_MAX_00) & 0x3f};
+  // TS 38.133 Table 10.1.17.1-1: index 1 starts at -32 dB; index 55 starts at 22 dB.
+  // With an integer limit, rounding the requirement up preserves the report interval at its lower edge.
+  const int headroom = min(38.0f, max(-33.0f, P_CMAX - ceilf(required_power)));
+  if (headroom < 22)
+    phr->PH = headroom + 33;
+  else
+    phr->PH = 55 + (headroom - 22) / 2;
 
   LOG_D(NR_MAC,
-        "PHR Reporting sfn.slot %d.%d reason = %d, P_CMAX = %d (%5.2f dBm), headrom = %d (%d dB) tx_power = %5.2f dBm\n",
+        "PHR Reporting sfn.slot %d.%d reason = %d, P_CMAX = %d (%d dBm), PH = %d (%.2f dB) required_power = %.2f dBm\n",
         frame,
         slot,
         phr_info->phr_reporting,
         phr->PCMAX,
         P_CMAX,
         phr->PH,
-        headroom,
-        tx_power);
+        (double)P_CMAX - required_power,
+        required_power);
 
   phr_info->PathlossLastValue = compute_nr_SSB_PL(mac);
   // Restart both timers according to 38.321
@@ -2046,14 +2045,14 @@ static uint8_t nr_locate_BsrIndexByBufferSize(int size, int value)
 }
 
 void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
-                                     frame_t frame,
-                                     slot_t slot,
-                                     uint8_t *ulsch_buffer,
-                                     uint32_t buflen,
-                                     uint32_t *LCG_bytes,
-                                     NR_UE_MAC_CE_INFO *mac_ce_p,
-                                     int tx_power,
-                                     int P_CMAX)
+                              frame_t frame,
+                              slot_t slot,
+                              uint8_t *ulsch_buffer,
+                              uint32_t buflen,
+                              uint32_t *LCG_bytes,
+                              NR_UE_MAC_CE_INFO *mac_ce_p,
+                              float required_power,
+                              int P_CMAX)
 {
   // Preparing the MAC CEs sub-PDUs and get the total size
   *mac_ce_p = (NR_UE_MAC_CE_INFO){.pdu_end = ulsch_buffer + buflen, .cur_ptr = ulsch_buffer};
@@ -2081,12 +2080,12 @@ void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
       bsr_len = size_for_short;
   }
   nr_phr_info_t *phr_info = &mac->scheduling_info.phr_info;
-  if (phr_info->is_configured && phr_info->phr_reporting > 0) {
+  if (phr_info->is_configured && phr_info->phr_reporting > 0 && isfinite(required_power)) {
     int needed = sizeof(NR_MAC_SUBHEADER_FIXED) + sizeof(NR_SINGLE_ENTRY_PHR_MAC_CE);
     if (buflen >= bsr_len + needed) {
       if (mac->scheduling_info.phr_info.phr_reporting) {
         mac_ce_p->phr_len = needed;
-        nr_ue_fill_phr(mac, &mac_ce_p->phr, P_CMAX, tx_power, frame, slot);
+        nr_ue_fill_phr(mac, &mac_ce_p->phr, P_CMAX, required_power, frame, slot);
       }
     }
   }
@@ -2471,7 +2470,7 @@ static bool nr_ue_get_sdu(NR_UE_MAC_INST_t *mac,
                           slot_t slot,
                           uint8_t *ulsch_buffer,
                           const uint32_t buflen,
-                          int tx_power,
+                          float required_power,
                           int P_CMAX,
                           bool *BSRsent)
 {
@@ -2487,7 +2486,7 @@ static bool nr_ue_get_sdu(NR_UE_MAC_INST_t *mac,
   uint32_t LCG_bytes[NR_MAX_NUM_LCGID] = {0};
   nr_update_bsr(mac, LCG_bytes);
 
-  nr_ue_get_sdu_mac_ce_pre(mac, frame, slot, ulsch_buffer, buflen, LCG_bytes, &mac_ce_info, tx_power, P_CMAX);
+  nr_ue_get_sdu_mac_ce_pre(mac, frame, slot, ulsch_buffer, buflen, LCG_bytes, &mac_ce_info, required_power, P_CMAX);
 
   LOG_D(NR_MAC,
         "[UE %d] [%d.%d] process UL transport block with size TBS = %d bytes, number of existing LCids %d \n",
@@ -2679,21 +2678,14 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
               return;
             }
             // Getting IP traffic to be transmitted
-            int tx_power = pdu->tx_power;
-            bool tp_enabled = pdu->transform_precoding == NR_PUSCH_Config__transformPrecoder_enabled;
-            int P_CMAX = nr_get_Pcmax(mac->p_Max,
-                                      mac->nr_band,
-                                      mac->frame_structure.frame_type,
-                                      mac->frequency_range,
-                                      mac->current_UL_BWP->channel_bandwidth,
-                                      pdu->qam_mod_order,
-                                      false,
-                                      mac->current_UL_BWP->scs,
-                                      mac->current_UL_BWP->BWPSize,
-                                      tp_enabled,
-                                      pdu->rb_size,
-                                      pdu->rb_start);
-            if (nr_ue_get_sdu(mac, frame_tx, slot_tx, ulsch_input_buffer, TBS_bytes, tx_power, P_CMAX, &BSRsent)) {
+            if (nr_ue_get_sdu(mac,
+                              frame_tx,
+                              slot_tx,
+                              ulsch_input_buffer,
+                              TBS_bytes,
+                              pdu->phr.required_power,
+                              pdu->phr.pcmax,
+                              &BSRsent)) {
               pdu->tx_request_body.fapiTxPdu = ulsch_input_buffer;
               pdu->tx_request_body.pdu_length = TBS_bytes;
               number_of_pdus++;

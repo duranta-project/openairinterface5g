@@ -201,20 +201,20 @@ int16_t get_pucch_tx_power_ue(NR_UE_MAC_INST_t *mac,
                               int subframe_number,
                               int O_uci,
                               uint16_t start_prb);
-int get_pusch_tx_power_ue(
-  NR_UE_MAC_INST_t *mac,
-  int num_rb,
-  int start_prb,
-  uint16_t nb_symb_sch,
-  uint16_t nb_dmrs_prb,
-  uint16_t nb_ptrs_prb,
-  uint16_t qm,
-  uint16_t R,
-  uint16_t beta_offset_csi1,
-  uint32_t sum_bits_in_codeblocks,
-  int delta_pusch,
-  bool is_rar_tx_retx,
-  bool transform_precoding);
+int get_pusch_tx_power_ue(NR_UE_MAC_INST_t *mac,
+                          int num_rb,
+                          int start_prb,
+                          uint16_t nb_symb_sch,
+                          uint16_t nb_dmrs_prb,
+                          uint16_t nb_ptrs_prb,
+                          uint16_t qm,
+                          uint16_t R,
+                          uint16_t beta_offset_csi1,
+                          uint32_t sum_bits_in_codeblocks,
+                          int delta_pusch,
+                          bool is_rar_tx_retx,
+                          bool transform_precoding,
+                          nr_ue_pusch_phr_t *phr);
 
 int get_srs_tx_power_ue(NR_UE_MAC_INST_t *mac,
                         NR_SRS_Resource_t *srs_resource,
@@ -632,14 +632,14 @@ uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
 void nr_update_bsr(NR_UE_MAC_INST_t *mac, uint32_t *LCG_bytes);
 
 void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
-                                     frame_t frame,
-                                     slot_t slot,
-                                     uint8_t *ulsch_buffer,
-                                     uint32_t buflen,
-                                     uint32_t *LCG_bytes,
-                                     NR_UE_MAC_CE_INFO *mac_ce_p,
-                                     int tx_power,
-                                     int P_CMAX);
+                              frame_t frame,
+                              slot_t slot,
+                              uint8_t *ulsch_buffer,
+                              uint32_t buflen,
+                              uint32_t *LCG_bytes,
+                              NR_UE_MAC_CE_INFO *mac_ce_p,
+                              float required_power,
+                              int P_CMAX);
 
 #endif
 /** @}*/
