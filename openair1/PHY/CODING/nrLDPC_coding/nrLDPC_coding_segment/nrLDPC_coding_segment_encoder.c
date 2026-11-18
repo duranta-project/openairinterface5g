@@ -36,6 +36,7 @@
  */
 #if defined(__riscv) && defined(__riscv_vector)
 #include <riscv_vector.h>
+#endif
 /* OR a 32-bit word into the output bitstream at bit offset (byte*32 + bit);
  * uint64 form is UB-free and bit-exact with the simde__m64 default path. */
 static inline void wto_or_out(uint32_t *op, uint32_t tmp, uint32_t byte, uint32_t bit)
@@ -44,7 +45,6 @@ static inline void wto_or_out(uint32_t *op, uint32_t tmp, uint32_t byte, uint32_
   op[byte] |= (uint32_t)v;
   op[byte + 1] |= (uint32_t)(v >> 32);
 }
-#endif
 
 static void write_task_output(uint8_t *f,
                               uint32_t E,
@@ -95,54 +95,42 @@ static void write_task_output(uint8_t *f,
     output_p++;
   }
 
-#elif defined(__aarch64__) 
-  uint16_t *output_p = (uint16_t*)output;
-  const int8_t __attribute__ ((aligned (16))) ucShift[8][16] = {
-    {0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7},     // segment 0
-    {-1,0,1,2,3,4,5,6,-1,0,1,2,3,4,5,6},   // segment 1
-    {-2,-1,0,1,2,3,4,5,-2,-1,0,1,2,3,4,5}, // segment 2
-    {-3,-2,-1,0,1,2,3,4,-3,-2,-1,0,1,2,3,4}, // segment 3
-    {-4,-3,-2,-1,0,1,2,3,-4,-3,-2,-1,0,1,2,3}, // segment 4
-    {-5,-4,-3,-2,-1,0,1,2,-5,-4,-3,-2,-1,0,1,2}, // segment 5
-    {-6,-5,-4,-3,-2,-1,0,1,-6,-5,-4,-3,-2,-1,0,1}, // segment 6
-    {-7,-6,-5,-4,-3,-2,-1,0,-7,-6,-5,-4,-3,-2,-1,0}}; // segment 7
-  const uint8_t __attribute__ ((aligned (16))) masks[16] = 
-      {0x1,0x2,0x4,0x8,0x10,0x20,0x40,0x80,0x1,0x2,0x4,0x8,0x10,0x20,0x40,0x80};
-  int8x16_t vshift[8];
-  for (int n=0;n<8;n++) vshift[n] = vld1q_s8(ucShift[n]);
-  uint8x16_t vmask  = vld1q_u8(masks);
-
-  for (int i=0;i<E2;i+=16) {
-    uint32_t Eoffset2 = Eoffset;
-    if (i<E) {	
-      for (int j=0; j < E2_first_segment; j++) {
-        uint32_t Eoffset2_byte = Eoffset2 >> 4;
-        uint32_t Eoffset2_bit = Eoffset2 & 15;
-        uint8x16_t cshift = vandq_u8(vshlq_u8(((uint8x16_t*)f)[i >> 4],vshift[j]),vmask);
-        int32_t tmp = (int)vaddv_u8(vget_low_u8(cshift));
-        tmp += (int)(vaddv_u8(vget_high_u8(cshift))<<8);
-        *(output_p + Eoffset2_byte)   |= (uint16_t)(tmp<<Eoffset2_bit);
-        *(output_p + Eoffset2_byte+1) |= (uint16_t)(tmp>>(16-Eoffset2_bit));
-        Eoffset2 += E;
+#elif defined(__aarch64__)
+  /* NEON, one segment at a time (as the RVV path below): 64 interleaved bytes give 64 bits of the segment's bitstream
+   * -- bit j of each byte, weighted 1..128 by its position in each group of 8 and summed pairwise three times -- which
+   * is then ORed into the output at the segment's bit offset. The 16-byte form reloaded the same bytes for each of the
+   * 8 segments. The tail goes through a zeroed buffer, so exactly E bits are written per segment. */
+  uint32_t *output_p = (uint32_t *)output;
+  const int8x16_t wsh = {0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7};
+  const uint8x16_t one = vdupq_n_u8(1);
+  uint64_t bits[(E2 + 63) / 64 + 1];
+  uint32_t off = Eoffset;
+  for (uint32_t j = 0; j < nb_segments; j++) {
+    const uint8_t *src = j < E2_first_segment ? f : f2;
+    const uint32_t Ej = j < E2_first_segment ? E : E2;
+    const int8x16_t sh = vdupq_n_s8(-(int8_t)j);
+    uint64_t *bp = bits;
+    uint8_t tail[64] __attribute__((aligned(16)));
+    for (uint32_t i = 0; i < Ej; i += 64) {
+      const uint8_t *p = src + i;
+      if (Ej - i < 64) {
+        memset(tail, 0, sizeof(tail));
+        memcpy(tail, p, Ej - i);
+        p = tail;
       }
-    } else {
-      for (int j=0; j < E2_first_segment; j++) {
-        Eoffset2 += E;
-      }
+      uint8x16_t c[4];
+      for (int k = 0; k < 4; k++)
+        c[k] = vshlq_u8(vandq_u8(vshlq_u8(vld1q_u8(p + 16 * k), sh), one), wsh);
+      const uint8x16_t q = vpaddq_u8(vpaddq_u8(c[0], c[1]), vpaddq_u8(c[2], c[3]));
+      *bp++ = vgetq_lane_u64(vreinterpretq_u64_u8(vpaddq_u8(q, q)), 0);
     }
-    for (int j=E2_first_segment; j < nb_segments; j++) {
-      uint32_t Eoffset2_byte = Eoffset2 >> 4;
-      uint32_t Eoffset2_bit = Eoffset2 & 15;
-      uint8x16_t cshift = vandq_u8(vshlq_u8(((uint8x16_t*)f2)[i >> 4],vshift[j]),vmask);
-      int32_t tmp = (int)vaddv_u8(vget_low_u8(cshift));
-      tmp += (int)(vaddv_u8(vget_high_u8(cshift))<<8);
-      *(output_p + Eoffset2_byte)   |= (uint16_t)(tmp<<Eoffset2_bit);
-      *(output_p + Eoffset2_byte+1) |= (uint16_t)(tmp>>(16-Eoffset2_bit));
-      Eoffset2 += E2;
-    }
-    output_p++;
+    const uint32_t *bw = (const uint32_t *)bits;
+    const uint32_t w = off >> 5, shb = off & 31;
+    for (uint32_t k = 0; k < (Ej + 31) / 32; k++)
+      wto_or_out(output_p, bw[k], w + k, shb);
+    off += Ej;
   }
-       
+
 #elif defined(__riscv) && defined(__riscv_vector)
   /* RVV, one segment at a time: bit j of every interleaved byte of the segment's E bits becomes one mask, stored
    * contiguously as the segment's bitstream (bit k = byte k's bit j, as movemask), which is then ORed into the output
