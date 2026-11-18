@@ -545,6 +545,20 @@ void nr_inner_rx_2layer_ml(uint32_t length,
 // descramble it in place (+-1 int16 multiply, bit-exact with the codeword unscrambling pass).
 static void nr_demap_descramble(int nb_layer, int mod_order, uint32_t length, int16_t *layers[], const int16_t *scramble, int16_t *llr_cw)
 {
+#if defined(__riscv) && defined(__riscv_vector)
+  // same products as mullo_epi16 (low 16 bits); a single layer is copied and descrambled in one pass
+  if (scramble) {
+    const int16_t *src = nb_layer > 1 ? llr_cw : layers[0];
+    if (nb_layer > 1)
+      nr_layer_demapping((uint8_t)nb_layer, (uint8_t)mod_order, (int)length, layers, llr_cw);
+    const size_t n = (size_t)length * nb_layer * mod_order;
+    for (size_t k = 0, vl; k < n; k += vl) {
+      vl = __riscv_vsetvl_e16m4(n - k);
+      __riscv_vse16_v_i16m4(&llr_cw[k], __riscv_vmul_vv_i16m4(__riscv_vle16_v_i16m4(&src[k], vl), __riscv_vle16_v_i16m4(&scramble[k], vl), vl), vl);
+    }
+    return;
+  }
+#endif
   if (nb_layer > 1)
     nr_layer_demapping((uint8_t)nb_layer, (uint8_t)mod_order, (int)length, layers, llr_cw);
   else if (layers[0] != llr_cw)
