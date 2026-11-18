@@ -3,6 +3,7 @@
  */
 
 #include "assertions.h"
+#include "bits.h"
 #include "nr_common.h"
 #include "platform_types.h"
 #include <stdint.h>
@@ -784,6 +785,119 @@ static inline uint32_t estimate_noise_var(const c16_t *dl_ls_est, const c16_t *d
   return (uint32_t)(noise_amp2 / num_dl_ch);
 }
 
+static int type1_ls_estimation(const c16_t *rxF,
+                               const freq_alloc_bitmap_t *freq_alloc,
+                               const c16_t *pil,
+                               c16_t *dl_ls_est,
+                               uint symb_sz,
+                               uint bwpsize,
+                               uint re_offset)
+{
+  int idx = 0;
+  int pos = freq_alloc->first_rb;
+  int last_processed_rb = freq_alloc->first_rb;
+  int block_start, block_end;
+  while (find_next_rb_block(freq_alloc->bitmap, bwpsize, &pos, &block_start, &block_end)) {
+    int skipped_rbs = block_start - last_processed_rb;
+    pil += skipped_rbs * 6;
+    re_offset += skipped_rbs * NR_NB_SC_PER_RB;
+    for (int rb = block_start; rb <= block_end; rb++) {
+      for (int pilot_cnt = 0; pilot_cnt < 6; pilot_cnt += 2) {
+        c16_t ch_l = c16mulShift(*pil, rxF[re_offset], 15);
+#ifdef DEBUG_PDSCH
+        printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n",
+               pilot_cnt,
+               pil->r,
+               pil->i,
+               rxF[re_offset].r,
+               rxF[re_offset].i,
+               ch_l.r,
+               ch_l.i);
+#endif
+        pil++;
+        re_offset += 2;
+        c16_t ch_r = c16mulShift(*pil, rxF[re_offset], 15);
+#ifdef DEBUG_PDSCH
+        printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n",
+               pilot_cnt + 1,
+               pil->r,
+               pil->i,
+               rxF[re_offset].r,
+               rxF[re_offset].i,
+               ch_r.r,
+               ch_r.i);
+#endif
+        c16_t ch = c16addShift(ch_l, ch_r, 1);
+        pil++;
+        re_offset += 2;
+        for (int k = 0; k < 4; k++) {
+          dl_ls_est[idx] = ch;
+          idx++;
+        }
+      }
+    }
+    last_processed_rb = block_end + 1;
+  }
+  return idx;
+}
+
+static int type2_ls_estimation(const c16_t *rxF,
+                               const freq_alloc_bitmap_t *freq_alloc,
+                               const c16_t *pil,
+                               c16_t *dl_ls_est,
+                               uint symb_sz,
+                               uint bwpsize,
+                               uint re_offset)
+{
+  int idx = 0;
+  int pos = freq_alloc->first_rb;
+  int last_processed_rb = freq_alloc->first_rb;
+  int block_start, block_end;
+  while (find_next_rb_block(freq_alloc->bitmap, bwpsize, &pos, &block_start, &block_end)) {
+    int skipped_rbs = block_start - last_processed_rb;
+    pil += skipped_rbs * 4;
+    re_offset += skipped_rbs * NR_NB_SC_PER_RB;
+    for (int rb = block_start; rb <= block_end; rb++) {
+      for (int pilot_cnt = 0; pilot_cnt < 4; pilot_cnt += 2) {
+        c16_t ch_l = c16mulShift(*pil, rxF[re_offset], 15);
+#ifdef DEBUG_PDSCH
+        printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n",
+               pilot_cnt,
+               pil->r,
+               pil->i,
+               rxF[re_offset].r,
+               rxF[re_offset].i,
+               ch_l.r,
+               ch_l.i);
+#endif
+        pil++;
+        re_offset++;
+        c16_t ch_r = c16mulShift(*pil, rxF[re_offset], 15);
+#ifdef DEBUG_PDSCH
+        printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n",
+               pilot_cnt + 1,
+               pil->r,
+               pil->i,
+               rxF[re_offset].r,
+               rxF[re_offset].i,
+               ch_r.r,
+               ch_r.i);
+#endif
+        c16_t ch = c16addShift(ch_l, ch_r, 1);
+        pil++;
+        re_offset += 5;
+        for (int k = 0; k < 6; k++) {
+          dl_ls_est[idx] = ch;
+          idx++;
+        }
+      }
+    }
+    last_processed_rb = block_end + 1;
+  }
+
+  return idx;
+}
+
 static void freq_linear_interpolation(const c16_t *dl_ls_est, uint ls_est_sz, const delay_t *delay, const c16_t *dl_delay_table, c16_t *dl_ch)
 {
   for (int pilot_cnt = 0; pilot_cnt < ls_est_sz; pilot_cnt++) {
@@ -816,39 +930,11 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
 {
   const int symb_sz = frame_parms->ofdm_symbol_size;
   int re_offset = delta + bwp_start_subcarrier;
+
+  // LS estimation
   c16_t dl_ls_est[symb_sz] __attribute__((aligned(32)));
   memset(dl_ls_est, 0, sizeof(dl_ls_est));
-  int idx = 0;
-  int pos = freq_alloc->first_rb;
-  int last_processed_rb = freq_alloc->first_rb;
-  int block_start, block_end;
-  while (find_next_rb_block(freq_alloc->bitmap, bwpsize, &pos, &block_start, &block_end)) {
-    int skipped_rbs = block_start - last_processed_rb;
-    pil += skipped_rbs * 6;
-    re_offset += skipped_rbs * NR_NB_SC_PER_RB;
-    for (int rb = block_start; rb <= block_end; rb++) {
-      for (int pilot_cnt = 0; pilot_cnt < 6; pilot_cnt += 2) {
-        c16_t ch_l = c16mulShift(*pil, rxF[re_offset], 15);
-#ifdef DEBUG_PDSCH
-        printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n", pilot_cnt, pil->r, pil->i, rxF[re_offset].r, rxF[re_offset].i, ch_l.r, ch_l.i);
-#endif
-        pil++;
-        re_offset += 2;
-        c16_t ch_r = c16mulShift(*pil, rxF[re_offset], 15);
-#ifdef DEBUG_PDSCH
-        printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n", pilot_cnt + 1, pil->r, pil->i, rxF[re_offset].r, rxF[re_offset].i, ch_r.r, ch_r.i);
-#endif
-        c16_t ch = c16addShift(ch_l, ch_r, 1);
-        pil++;
-        re_offset += 2;
-        for (int k = 0; k < 4; k++) {
-          dl_ls_est[idx] = ch;
-          idx++;
-        }
-      }
-    }
-    last_processed_rb = block_end + 1;
-  }
+  int num_ls = type1_ls_estimation(rxF, freq_alloc, pil, dl_ls_est, symb_sz, bwpsize, re_offset);
 
   // Delay estimaion
   c16_t ch_estimates_time[symb_sz] __attribute__((aligned(32)));
@@ -859,14 +945,14 @@ static void NFAPI_NR_DMRS_TYPE1_linear_interp(const NR_DL_FRAME_PARMS *frame_par
   // Linear interpolation
   const c16_t *dl_delay_table = frame_parms->delay_table[delay_idx];
   c16_t *dl_ch = dl_ch0;
-  freq_linear_interpolation(dl_ls_est, idx >> 1, &delay, dl_delay_table, dl_ch);
+  freq_linear_interpolation(dl_ls_est, num_ls >> 1, &delay, dl_delay_table, dl_ch);
 
   // Revert delay
-  revert_delay(dl_ch0, idx, &delay, frame_parms->delay_table);
+  revert_delay(dl_ch0, num_ls, &delay, frame_parms->delay_table);
 
   // Estimate noise var
   if (nvar)
-    *nvar += estimate_noise_var(dl_ls_est, dl_ch0, idx);
+    *nvar += estimate_noise_var(dl_ls_est, dl_ch0, num_ls);
 }
 
 static void NFAPI_NR_DMRS_TYPE1_average_prb(const int symb_sz,
@@ -963,39 +1049,11 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
 {
   const int symb_sz = frame_parms->ofdm_symbol_size;
   int re_offset = delta + bwp_start_subcarrier;
+
+  // LS estimation
   c16_t dl_ls_est[symb_sz] __attribute__((aligned(32)));
   memset(dl_ls_est, 0, sizeof(dl_ls_est));
-  int idx = 0;
-  int pos = freq_alloc->first_rb;
-  int last_processed_rb = freq_alloc->first_rb;
-  int block_start, block_end;
-  while (find_next_rb_block(freq_alloc->bitmap, bwpsize, &pos, &block_start, &block_end)) {
-    int skipped_rbs = block_start - last_processed_rb;
-    pil += skipped_rbs * 4;
-    re_offset += skipped_rbs * NR_NB_SC_PER_RB;
-    for (int rb = block_start; rb <= block_end; rb++) {
-      for (int pilot_cnt = 0; pilot_cnt < 4; pilot_cnt += 2) {
-        c16_t ch_l = c16mulShift(*pil, rxF[re_offset], 15);
-#ifdef DEBUG_PDSCH
-        printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n", pilot_cnt, pil->r, pil->i, rxF[re_offset].r, rxF[re_offset].i, ch_l.r, ch_l.i);
-#endif
-        pil++;
-        re_offset++;
-        c16_t ch_r = c16mulShift(*pil, rxF[re_offset], 15);
-#ifdef DEBUG_PDSCH
-        printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n", pilot_cnt + 1, pil->r, pil->i, rxF[re_offset].r, rxF[re_offset].i, ch_r.r, ch_r.i);
-#endif
-        c16_t ch = c16addShift(ch_l, ch_r, 1);
-        pil++;
-        re_offset += 5;
-        for (int k = 0; k < 6; k++) {
-          dl_ls_est[idx] = ch;
-          idx++;
-        }
-      }
-    }
-    last_processed_rb = block_end + 1;
-  }
+  int num_ls = type2_ls_estimation(rxF, freq_alloc, pil, dl_ls_est, symb_sz, bwpsize, re_offset);
 
   // Delay estimation
   c16_t ch_estimates_time[symb_sz] __attribute__((aligned(32)));
@@ -1006,14 +1064,14 @@ static void NFAPI_NR_DMRS_TYPE2_linear_interp(const NR_DL_FRAME_PARMS *frame_par
   // Linear interpolation
   const c16_t *dl_delay_table = frame_parms->delay_table[delay_idx];
   c16_t *dl_ch = dl_ch0;
-  freq_linear_interpolation(dl_ls_est, idx >> 1, &delay, dl_delay_table, dl_ch);
+  freq_linear_interpolation(dl_ls_est, num_ls >> 1, &delay, dl_delay_table, dl_ch);
 
   // Revert delay
-  revert_delay(dl_ch0, idx, &delay, frame_parms->delay_table);
+  revert_delay(dl_ch0, num_ls, &delay, frame_parms->delay_table);
 
   // Estimate noise var
   if (nvar)
-    *nvar += estimate_noise_var(dl_ls_est, dl_ch0, idx);
+    *nvar += estimate_noise_var(dl_ls_est, dl_ch0, num_ls);
 }
 
 static void NFAPI_NR_DMRS_TYPE2_average_prb(const int symb_sz,
