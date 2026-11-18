@@ -9,6 +9,7 @@
 #include "common/config/config_userapi.h"
 #include "openair1/PHY/phy_extern_nr_ue.h"
 #include "common/utils/time_manager/time_manager.h"
+#include "PHY/MODULATION/modulation_UE.h"
 
 /* NR UE RU configuration section name */
 #define CONFIG_STRING_NRUE_RU_LIST "RUs"
@@ -331,6 +332,7 @@ void nrue_init_openair0(void)
       rd->rxbuf = calloc_or_fail(ru->nb_rx, sizeof(*rd->rxbuf));
       for (int i = 0; i < ru->nb_rx; i++)
         rd->rxbuf[i] = create_ring(rd->sz * sizeof(c16_t));
+      rd->fep_cache = nr_fep_cache_create(ru->nb_rx, frame_parms->ofdm_symbol_size);
     }
   }
 }
@@ -595,6 +597,7 @@ int nrue_ru_acquire(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, c16_t 
     const int ret = nrue_ru_read(UE, ptimestamp, (void **)own_buf, nsamps, nb_ant);
     for (int i = 0; i < nb_ant; i++)
       samples[i] = own_buf[i];
+    UE->common_vars.fep_cache = NULL;
     return ret;
   }
   pthread_mutex_lock(&rd->mread);
@@ -606,6 +609,8 @@ int nrue_ru_acquire(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, c16_t 
   // the ring is mapped twice in a row (create_ring()): the samples are contiguous from their index
   for (int i = 0; i < nb_ant; i++)
     samples[i] = rd->rxbuf[i] + (ts % rd->sz);
+  UE->common_vars.rx_slot_ring_ts = ts;
+  UE->common_vars.fep_cache = nb_ant == (int)ru->nb_rx ? rd->fep_cache : NULL;
   *ptimestamp = ts - dev->firstTS;
   return nsamps;
 }

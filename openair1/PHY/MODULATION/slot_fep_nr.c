@@ -10,6 +10,8 @@
 #include "PHY/NR_UE_ESTIMATION/nr_estimation.h"
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include <common/utils/LOG/log.h>
+#include <stdatomic.h>
+#include <sched.h>
 
 /* rxdataF should be 16 bytes aligned */
 void nr_symbol_fep(const NR_DL_FRAME_PARMS *frame_parms,
@@ -165,6 +167,101 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
   return 0;
 }
 
+/* results computed from the RU ring samples, the same for all the UEs of the RU: one UE computes an entry, the others
+   copy it. An entry is identified by key (the ring index of its samples) and params (what else its computation depends
+   on); seq is odd while the entry is written */
+typedef struct {
+  _Atomic uint32_t seq;
+  _Atomic uint64_t key;
+  uint64_t params[NR_UE_SHARED_PARAMS];
+  c16_t *data;
+} __attribute__((aligned(64))) nr_ue_shared_entry_t;
+
+typedef struct {
+  int nb; // entries
+  int capacity; // c16_t per entry
+  nr_ue_shared_entry_t *e;
+} nr_ue_shared_table_t;
+
+typedef struct nr_fep_cache_s {
+  int nb_ant;
+  int sz;
+  nr_ue_shared_table_t t[NR_SHARED_TABLES];
+} nr_fep_cache_t;
+
+static void shared_table_init(nr_ue_shared_table_t *t, int nb, int capacity)
+{
+  t->nb = nb;
+  t->capacity = capacity;
+  t->e = malloc16_clear(nb * sizeof(*t->e));
+  for (int i = 0; i < nb; i++) {
+    t->e[i].data = malloc16(capacity * sizeof(c16_t));
+    atomic_init(&t->e[i].seq, 0);
+    atomic_init(&t->e[i].key, UINT64_MAX);
+  }
+}
+
+nr_fep_cache_t *nr_fep_cache_create(int nb_antennas_rx, int ofdm_symbol_size)
+{
+  nr_fep_cache_t *c = malloc16_clear(sizeof(*c));
+  c->nb_ant = nb_antennas_rx;
+  c->sz = ofdm_symbol_size;
+  // several slots of symbols: the UEs of an RU process the same slot within a few slots
+  shared_table_init(&c->t[NR_SHARED_SYMB], 64, nb_antennas_rx * ofdm_symbol_size);
+  // a few CORESETs per PDCCH symbol, the LLRs of one symbol are fewer than its subcarriers
+  shared_table_init(&c->t[NR_SHARED_PDCCH_LLR], 256, ofdm_symbol_size);
+  return c;
+}
+
+int nr_ue_shared_get(nr_fep_cache_t *c,
+                     int table,
+                     unsigned int idx,
+                     uint64_t key,
+                     const uint64_t params[NR_UE_SHARED_PARAMS],
+                     int nparts,
+                     int part_len,
+                     c16_t *const dst[nparts])
+{
+  nr_ue_shared_table_t *t = c->t + table;
+  if (nparts * part_len > t->capacity)
+    return -1;
+  nr_ue_shared_entry_t *e = t->e + idx % t->nb;
+  for (int spin = 0;; spin++) {
+    const uint32_t s1 = atomic_load_explicit(&e->seq, memory_order_acquire);
+    if (atomic_load_explicit(&e->key, memory_order_acquire) != key)
+      break;
+    if (s1 & 1) { // being computed by another UE
+      if (spin < 200)
+        simde_mm_pause();
+      else
+        sched_yield();
+      continue;
+    }
+    if (memcmp(e->params, params, sizeof(e->params)))
+      break;
+    for (int p = 0; p < nparts; p++)
+      memcpy(dst[p], e->data + p * part_len, part_len * sizeof(c16_t));
+    atomic_thread_fence(memory_order_acquire);
+    if (atomic_load_explicit(&e->seq, memory_order_relaxed) == s1) // not overwritten during the copy
+      return 1;
+    break;
+  }
+  uint32_t s = atomic_load_explicit(&e->seq, memory_order_relaxed);
+  if ((s & 1) || !atomic_compare_exchange_strong(&e->seq, &s, s + 1))
+    return -1; // another UE writes this entry for another key
+  atomic_store_explicit(&e->key, key, memory_order_release);
+  memcpy(e->params, params, sizeof(e->params));
+  return 0;
+}
+
+void nr_ue_shared_put(nr_fep_cache_t *c, int table, unsigned int idx, int nparts, int part_len, c16_t *const src[nparts])
+{
+  nr_ue_shared_entry_t *e = c->t[table].e + idx % c->t[table].nb;
+  for (int p = 0; p < nparts; p++)
+    memcpy(e->data + p * part_len, src[p], part_len * sizeof(c16_t));
+  atomic_store_explicit(&e->seq, atomic_load_explicit(&e->seq, memory_order_relaxed) + 1, memory_order_release);
+}
+
 int nr_slot_fep_rx(PHY_VARS_NR_UE *ue,
                    const NR_DL_FRAME_PARMS *frame_parms,
                    unsigned int frame,
@@ -189,15 +286,27 @@ int nr_slot_fep_rx(PHY_VARS_NR_UE *ue,
   c16_t *rxdata_symb_ptr[frame_parms->nb_antennas_rx];
   for (int aa = 0; aa < frame_parms->nb_antennas_rx; aa++)
     rxdata_symb_ptr[aa] = common_vars->rx_slot[aa] + offset;
-  symbol_fo_fep(ue,
-                frame_parms,
-                slot,
-                symbol,
-                rxdataF,
-                link_type_dl,
-                get_samples_slot_timestamp(frame_parms, slot) + offset,
-                rxdata_symb_ptr,
-                tmp_dft_in);
+  const unsigned int rx_offset = get_samples_slot_timestamp(frame_parms, slot) + offset;
+
+  // the same samples give the same symbol to all the UEs of the RU (no UE specific frequency offset compensation)
+  nr_fep_cache_t *c = common_vars->fep_cache;
+  if (c && !ue->cont_fo_comp && c->nb_ant == frame_parms->nb_antennas_rx && c->sz == frame_parms->ofdm_symbol_size) {
+    const uint64_t key = ((common_vars->rx_slot_ring_ts + offset) << 4) | symbol;
+    const uint64_t params[NR_UE_SHARED_PARAMS] = {slot, frame_parms->N_RB_DL, frame_parms->dl_CarrierFreq, 0};
+    const unsigned int idx = (frame * frame_parms->slots_per_frame + slot) * NR_SYMBOLS_PER_SLOT + symbol;
+    c16_t *dst[c->nb_ant];
+    for (int aa = 0; aa < c->nb_ant; aa++)
+      dst[aa] = &rxdataF[aa][frame_parms->ofdm_symbol_size * symbol];
+    const int got = nr_ue_shared_get(c, NR_SHARED_SYMB, idx, key, params, c->nb_ant, c->sz, dst);
+    if (got == 1)
+      return 0;
+    if (got == 0) {
+      nr_symbol_fep(frame_parms, slot, symbol, link_type_dl, rxdata_symb_ptr, dst, &ue->phy_cpu_stats.cpu_time_stats[RX_DFT_STATS]);
+      nr_ue_shared_put(c, NR_SHARED_SYMB, idx, c->nb_ant, c->sz, dst);
+      return 0;
+    }
+  }
+  symbol_fo_fep(ue, frame_parms, slot, symbol, rxdataF, link_type_dl, rx_offset, rxdata_symb_ptr, tmp_dft_in);
   return 0;
 }
 
