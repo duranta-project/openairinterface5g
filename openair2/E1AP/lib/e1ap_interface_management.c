@@ -63,9 +63,12 @@ static bool decode_criticality_diagnostics(const E1AP_CriticalityDiagnostics_t *
   }
   // Criticality Diagnostics IE list
   if (in->iEsCriticalityDiagnostics) {
-    for (int i = 0; i < in->iEsCriticalityDiagnostics->list.count; i++) {
+    CHECK_E1AP_DEC(in->iEsCriticalityDiagnostics->list.count > 0
+                   && in->iEsCriticalityDiagnostics->list.count <= E1AP_MAX_NUM_ERRORS);
+    out->num_errors = in->iEsCriticalityDiagnostics->list.count;
+    for (int i = 0; i < out->num_errors; i++) {
       struct E1AP_CriticalityDiagnostics_IE_List__Member *ie = in->iEsCriticalityDiagnostics->list.array[i];
-      out->num_errors++;
+      CHECK_E1AP_DEC(ie != NULL);
       out->errors[i].ie_id = ie->iE_ID;
       out->errors[i].error_type = ie->typeOfError;
       out->errors[i].criticality = ie->iECriticality;
@@ -587,7 +590,7 @@ bool decode_e1ap_cuup_setup_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_fail_
         // Criticality Diagnostics (O)
         E1AP_LIB_FIND_IE(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_CriticalityDiagnostics, false);
         out->crit_diag = calloc_or_fail(1, sizeof(*out->crit_diag));
-        decode_criticality_diagnostics(&ie->value.choice.CriticalityDiagnostics, out->crit_diag);
+        CHECK_E1AP_DEC(decode_criticality_diagnostics(&ie->value.choice.CriticalityDiagnostics, out->crit_diag));
         break;
       default:
         PRINT_ERROR("Handle for this IE %ld is not implemented (or) invalid IE detected\n", ie->id);
