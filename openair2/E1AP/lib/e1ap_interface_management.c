@@ -394,33 +394,43 @@ bool decode_e1ap_cuup_setup_response(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_resp
         // Transport UP Layer Addresses Info to Add List
         const E1AP_Transport_UP_Layer_Addresses_Info_To_Add_List_t *a =
             ie->value.choice.Transport_Layer_Address_Info.transport_UP_Layer_Addresses_Info_To_Add_List;
-        out->tnla_info->num_addresses_to_add = a->list.count;
-        for (int i = 0; i < a->list.count; i++) {
-          const E1AP_Transport_UP_Layer_Addresses_Info_To_Add_Item_t *item = a->list.array[i];
-          tnl_address_info_item_t *to_add = &out->tnla_info->addresses_to_add[i];
-          BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&item->iP_SecTransportLayerAddress, to_add->ipsec_tl_address);
-          const E1AP_GTPTLAs_t *gtp_list = item->gTPTransportLayerAddressesToAdd;
-          to_add->num_gtp_tl_addresses = gtp_list->list.count;
-          for (int j = 0; j < gtp_list->list.count; j++) {
-            const E1AP_GTPTLA_Item_t *gtp_item = gtp_list->list.array[j];
-            BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&gtp_item->gTPTransportLayerAddresses, to_add->gtp_tl_addresses[j]);
+        if (a != NULL) {
+          CHECK_E1AP_DEC(a->list.count > 0 && a->list.count <= E1AP_MAX_TL_ADDRESSES);
+          out->tnla_info->num_addresses_to_add = a->list.count;
+          for (int i = 0; i < a->list.count; i++) {
+            const E1AP_Transport_UP_Layer_Addresses_Info_To_Add_Item_t *item = a->list.array[i];
+            tnl_address_info_item_t *to_add = &out->tnla_info->addresses_to_add[i];
+            BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&item->iP_SecTransportLayerAddress, to_add->ipsec_tl_address);
+            const E1AP_GTPTLAs_t *gtp_list = item->gTPTransportLayerAddressesToAdd;
+            if (gtp_list != NULL) {
+              CHECK_E1AP_DEC(gtp_list->list.count > 0 && gtp_list->list.count <= E1AP_MAX_GTP_TL_ADDRESSES);
+              to_add->num_gtp_tl_addresses = gtp_list->list.count;
+              for (int j = 0; j < gtp_list->list.count; j++) {
+                const E1AP_GTPTLA_Item_t *gtp_item = gtp_list->list.array[j];
+                BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&gtp_item->gTPTransportLayerAddresses, to_add->gtp_tl_addresses[j]);
+              }
+            }
           }
         }
         // Transport UP Layer Addresses Info to Remove List
         const E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_List_t *r =
             ie->value.choice.Transport_Layer_Address_Info.transport_UP_Layer_Addresses_Info_To_Remove_List;
-        out->tnla_info->num_addresses_to_remove = r->list.count;
-
-        for (int i = 0; i < r->list.count; i++) {
-          const E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_Item_t *item = r->list.array[i];
-          tnl_address_info_item_t *to_remove = &out->tnla_info->addresses_to_remove[i];
-          BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&item->iP_SecTransportLayerAddress, to_remove->ipsec_tl_address);
-
-          const E1AP_GTPTLAs_t *gtp_list = item->gTPTransportLayerAddressesToRemove;
-          to_remove->num_gtp_tl_addresses = gtp_list->list.count;
-          for (int j = 0; j < gtp_list->list.count; j++) {
-            const E1AP_GTPTLA_Item_t *gtp_item = gtp_list->list.array[j];
-            BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&gtp_item->gTPTransportLayerAddresses, to_remove->gtp_tl_addresses[j]);
+        if (r != NULL) {
+          CHECK_E1AP_DEC(r->list.count > 0 && r->list.count <= E1AP_MAX_TL_ADDRESSES);
+          out->tnla_info->num_addresses_to_remove = r->list.count;
+          for (int i = 0; i < r->list.count; i++) {
+            const E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_Item_t *item = r->list.array[i];
+            tnl_address_info_item_t *to_remove = &out->tnla_info->addresses_to_remove[i];
+            BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&item->iP_SecTransportLayerAddress, to_remove->ipsec_tl_address);
+            const E1AP_GTPTLAs_t *gtp_list = item->gTPTransportLayerAddressesToRemove;
+            if (gtp_list != NULL) {
+              CHECK_E1AP_DEC(gtp_list->list.count > 0 && gtp_list->list.count <= E1AP_MAX_GTP_TL_ADDRESSES);
+              to_remove->num_gtp_tl_addresses = gtp_list->list.count;
+              for (int j = 0; j < gtp_list->list.count; j++) {
+                const E1AP_GTPTLA_Item_t *gtp_item = gtp_list->list.array[j];
+                BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&gtp_item->gTPTransportLayerAddresses, to_remove->gtp_tl_addresses[j]);
+              }
+            }
           }
         }
         break;
