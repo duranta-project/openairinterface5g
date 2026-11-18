@@ -49,6 +49,27 @@
 
 #if defined(__riscv) && defined(__riscv_vector)
 #include <riscv_vector.h>
+// c16_t vectors handled as e32 elements: unit-stride access, as segment loads/stores are element-serial on some cores
+// (SpacemiT X100)
+static inline vint16m1_t rvv_c16_re(vint32m2_t v, size_t vl)
+{
+  return __riscv_vnsra_wx_i16m1(v, 0, vl);
+}
+static inline vint16m1_t rvv_c16_im(vint32m2_t v, size_t vl)
+{
+  return __riscv_vnsra_wx_i16m1(v, 16, vl);
+}
+static inline vint32m2_t rvv_c16_pack(vint16m1_t re, vint16m1_t im, size_t vl)
+{
+  const vuint32m2_t r = __riscv_vzext_vf2_u32m2(__riscv_vreinterpret_v_i16m1_u16m1(re), vl);
+  const vuint32m2_t i = __riscv_vzext_vf2_u32m2(__riscv_vreinterpret_v_i16m1_u16m1(im), vl);
+  return __riscv_vreinterpret_v_u32m2_i32m2(__riscv_vor_vv_u32m2(r, __riscv_vsll_vx_u32m2(i, 16, vl), vl));
+}
+// sat16(v >> shift): the srai + packs_epi32 of the SSE paths
+static inline vint16m1_t rvv_sra_sat16(vint32m2_t v, int shift, size_t vl)
+{
+  return __riscv_vnclip_wx_i16m1(v, shift, __RISCV_VXRM_RDN, vl);
+}
 #endif
 
 #define ALIGNARRAYSIZE(a, b) (((a + b - 1) / b) * b)
@@ -592,6 +613,20 @@ static inline void mult_cpx_vector(const c16_t *x1, // Q15
                                    const uint32_t N,
                                    const int output_shift)
 {
+#if defined(__riscv) && defined(__riscv_vector)
+  // same as oai_mm_cpx_mult(), including its wrapping conj (-(-32768) = -32768) and N rounded down to 4
+  const int32_t *a = (const int32_t *)x1, *b = (const int32_t *)x2;
+  for (size_t j = 0, n = N & ~3u, vl; j < n; j += vl) {
+    vl = __riscv_vsetvl_e32m2(n - j);
+    const vint32m2_t va = __riscv_vle32_v_i32m2(a + j, vl), vb = __riscv_vle32_v_i32m2(b + j, vl);
+    const vint16m1_t ar = rvv_c16_re(va, vl), ai = rvv_c16_im(va, vl);
+    const vint16m1_t br = rvv_c16_re(vb, vl), bi = rvv_c16_im(vb, vl);
+    const vint32m2_t re = __riscv_vwmacc_vv_i32m2(__riscv_vwmul_vv_i32m2(ar, br, vl), __riscv_vneg_v_i16m1(ai, vl), bi, vl);
+    const vint32m2_t im = __riscv_vwmacc_vv_i32m2(__riscv_vwmul_vv_i32m2(ai, br, vl), ar, bi, vl);
+    __riscv_vse32_v_i32m2((int32_t *)y + j, rvv_c16_pack(rvv_sra_sat16(re, output_shift, vl), rvv_sra_sat16(im, output_shift, vl), vl), vl);
+  }
+  return;
+#endif
   const simde__m128i *x1_128 = (simde__m128i *)x1;
   const simde__m128i *x2_128 = (simde__m128i *)x2;
   simde__m128i *y_128 = (simde__m128i *)y;
@@ -941,6 +976,22 @@ static inline void rotate_cpx_vector(const c16_t *const x, const c16_t alpha, c1
   // N is the number of complex numbers
   // output_shift reduces the result of the multiplication by this number of bits
   uint32_t i = 0;
+
+#if defined(__riscv) && defined(__riscv_vector)
+  // same as the madd/srai/packs SSE tier, including its wrapping -alpha.i, over the same N & ~3 samples: the scalar
+  // tail below handles the rest without that wrap, as on x86, which differs when alpha.i == -32768
+  {
+    const int16_t ar = alpha.r, ai = alpha.i, nai = (int16_t)-alpha.i;
+    for (size_t vl; i < (N & ~3u); i += vl) {
+      vl = __riscv_vsetvl_e32m2((N & ~3u) - i);
+      const vint32m2_t v = __riscv_vle32_v_i32m2((const int32_t *)x + i, vl);
+      const vint16m1_t xr = rvv_c16_re(v, vl), xi = rvv_c16_im(v, vl);
+      const vint32m2_t re = __riscv_vwmacc_vx_i32m2(__riscv_vwmul_vx_i32m2(xr, ar, vl), nai, xi, vl);
+      const vint32m2_t im = __riscv_vwmacc_vx_i32m2(__riscv_vwmul_vx_i32m2(xr, ai, vl), ar, xi, vl);
+      __riscv_vse32_v_i32m2((int32_t *)y + i, rvv_c16_pack(rvv_sra_sat16(re, output_shift, vl), rvv_sra_sat16(im, output_shift, vl), vl), vl);
+    }
+  }
+#endif
 
 #if defined(__x86_64__) || defined(__i386__)
 #if defined(__AVX512F__) && defined(__AVX512BW__)
