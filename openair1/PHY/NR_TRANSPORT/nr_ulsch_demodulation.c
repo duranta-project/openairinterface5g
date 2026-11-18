@@ -1057,6 +1057,24 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
   return irx->run(ctx, sym, n, &p);
 }
 
+// sum over the PUSCH symbols of the per-symbol signal_energy_nodc() of one antenna
+typedef struct {
+  const c16_t *rxdataF;
+  int offset, symbol_size, start_symbol, end_symbol, len;
+  int64_t energy;
+  task_ans_t *ans;
+} puschPowerJob_t;
+
+static void pusch_power_job(void *arg)
+{
+  puschPowerJob_t *d = arg;
+  int64_t e = 0;
+  for (int symbol = d->start_symbol; symbol < d->end_symbol; symbol++)
+    e += signal_energy_nodc(d->rxdataF + d->offset + symbol * d->symbol_size, d->len);
+  d->energy = e;
+  completed_task_ans(d->ans);
+}
+
 int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
                          NR_gNB_PUSCH **pusch_vars_group,
                          const nfapi_nr_pusch_pdu_t **rel15_ul_group,
@@ -1167,6 +1185,30 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
   int max_ch = 0;
   uint32_t nvar = 0;
   int end_symbol = rel15_ul_ref->start_symbol_index + rel15_ul_ref->nr_of_symbols;
+
+  // ULSCH signal power per antenna: reads only rxdataF, so it runs in the pool alongside the channel estimation
+  const uint8_t num_sp_streams = rel15_ul_ref->param_v4.numSpatialStreamIndices;
+  const int start_sc = (rel15_ul_ref->bwp_start + rel15_ul_ref->rb_start) * NR_NB_SC_PER_RB;
+  puschPowerJob_t pow_jobs[num_sp_streams];
+  task_ans_t pow_ans;
+  init_task_ans(&pow_ans, num_sp_streams);
+  for (int aa_pusch = 0; aa_pusch < num_sp_streams; aa_pusch++) {
+    const int aarx = ant_port_start + aa_pusch;
+    DevAssert(aarx < sizeofArray(joint_pv->ulsch_power));
+    pow_jobs[aa_pusch] = (puschPowerJob_t){
+        .rxdataF = gNB->common_vars.rxdataF[aarx],
+        .offset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size + start_sc,
+        .symbol_size = frame_parms->ofdm_symbol_size,
+        .start_symbol = rel15_ul_ref->start_symbol_index,
+        .end_symbol = end_symbol,
+        .len = rel15_ul_ref->rb_size * NR_NB_SC_PER_RB,
+        .ans = &pow_ans};
+    pushTpool(&gNB->threadPool, (task_t){.func = pusch_power_job, .args = &pow_jobs[aa_pusch]});
+  }
+
+  // all (layer, DMRS symbol) pairs at once, so their antenna jobs share the pool
+  nr_pusch_chest_job_t chest_jobs[NR_SYMBOLS_PER_SLOT * NR_MAX_NB_LAYERS];
+  int n_chest = 0;
   uint8_t dmrs_symb_idx = 0;
   for (uint8_t symbol = rel15_ul_ref->start_symbol_index; symbol < end_symbol; symbol++) {
     uint8_t dmrs_symbol_flag = (rel15_ul_ref->ul_dmrs_symb_pos >> symbol) & 0x01;
@@ -1175,28 +1217,29 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       for (int u = 0; u < group_size; u++) {
         const nfapi_nr_pusch_pdu_t *p = rel15_ul_group[u];
         for (int nl = 0; nl < p->nrOfLayers; nl++) {
-          int global_layer = layer_offset[u] + nl;
-          uint32_t nvar_tmp = 0;
-          nr_pusch_channel_estimation(gNB,
-                                      slot,
-                                      global_layer,
-                                      get_dmrs_port(nl, p->dmrs_ports),
-                                      dmrs_symb_idx,
-                                      symbol,
-                                      joint_pv,
-                                      ant_port_start,
-                                      bwp_start_subcarrier,
-                                      &joint_pdu,
-                                      &max_ch,
-                                      &nvar_tmp,
-                                      pusch_dmrs_slot_mem,
-                                      pusch_ch_est_dmrs_pos_slot_mem);
-          nvar += nvar_tmp;
+          AssertFatal(n_chest < sizeofArray(chest_jobs), "too many PUSCH layers x DMRS symbols\n");
+          chest_jobs[n_chest++] = (nr_pusch_chest_job_t){.nl = layer_offset[u] + nl,
+                                                         .p = get_dmrs_port(nl, p->dmrs_ports),
+                                                         .lp = dmrs_symb_idx,
+                                                         .symbol = symbol};
         }
       }
       dmrs_symb_idx++;
     }
   }
+  nr_pusch_channel_estimation_batch(gNB,
+                                    slot,
+                                    n_chest,
+                                    chest_jobs,
+                                    joint_pv,
+                                    ant_port_start,
+                                    bwp_start_subcarrier,
+                                    &joint_pdu,
+                                    &max_ch,
+                                    pusch_dmrs_slot_mem,
+                                    pusch_ch_est_dmrs_pos_slot_mem);
+  for (int j = 0; j < n_chest; j++)
+    nvar += chest_jobs[j].nvar;
 
   // PTRS processing.
   const bool is_ptrs = rel15_ul_ref->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS;
@@ -1236,7 +1279,6 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
 
   // averaging time domain channel estimates
   // Change to joint processing
-  const uint8_t num_sp_streams = rel15_ul_ref->param_v4.numSpatialStreamIndices;
   if (gNB->chest_time == 1) {
     AssertFatal(!is_ptrs, "Time domain averaging of DMRS estimates not allowed with PTRS\n");
     nr_chest_time_domain_avg(frame_parms,
@@ -1258,21 +1300,12 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
               frame_parms->N_RB_UL,
               false);
 
-  int start_sc = (rel15_ul_ref->bwp_start + rel15_ul_ref->rb_start) * NR_NB_SC_PER_RB;
+  join_task_ans(&pow_ans);
   for (int aa_pusch = 0; aa_pusch < num_sp_streams; aa_pusch++) {
     const int aarx = ant_port_start + aa_pusch;
-    DevAssert(aarx < sizeofArray(joint_pv->ulsch_power));
     joint_pv->ulsch_power[aa_pusch] = 0;
     joint_pv->ulsch_noise_power[aa_pusch] = 0;
-    int64_t symb_energy = 0;
-
-    for (uint8_t symbol = rel15_ul_ref->start_symbol_index; symbol < end_symbol; symbol++) {
-      int offset0 = ((slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot + symbol) * frame_parms->ofdm_symbol_size;
-      int offset = offset0 + start_sc;
-      c16_t *ul_ch = &gNB->common_vars.rxdataF[aarx][offset];
-      symb_energy += signal_energy_nodc(ul_ch, rel15_ul_ref->rb_size * NR_NB_SC_PER_RB);
-    }
-    joint_pv->ulsch_power[aa_pusch] += (symb_energy / rel15_ul_ref->nr_of_symbols);
+    joint_pv->ulsch_power[aa_pusch] += (pow_jobs[aa_pusch].energy / rel15_ul_ref->nr_of_symbols);
 
     joint_pv->ulsch_noise_power[aa_pusch] +=
         average_u32(&n0_subband_power[aarx][rel15_ul_ref->bwp_start + rel15_ul_ref->rb_start], rel15_ul_ref->rb_size);

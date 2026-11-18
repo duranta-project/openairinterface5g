@@ -24,6 +24,28 @@
 \param nvar
 */
 
+/// one (layer, DMRS symbol) pair of nr_pusch_channel_estimation_batch()
+typedef struct {
+  int nl; ///< layer
+  unsigned short p; ///< DMRS port
+  uint8_t lp; ///< DMRS symbol index
+  unsigned char symbol; ///< DMRS symbol
+  uint32_t nvar; ///< out: noise estimate, 0 if none
+} nr_pusch_chest_job_t;
+
+/// nr_pusch_channel_estimation() of n pairs, their antenna jobs dispatched to the thread pool together
+void nr_pusch_channel_estimation_batch(PHY_VARS_gNB *gNB,
+                                       unsigned char Ns,
+                                       int n,
+                                       nr_pusch_chest_job_t *jobs,
+                                       NR_gNB_PUSCH *pusch_vars,
+                                       uint16_t ant_port_start,
+                                       unsigned short bwp_start_subcarrier,
+                                       const nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                       int *max_ch,
+                                       c16_t *pusch_dmrs_slot_mem,
+                                       c16_t *pusch_ch_est_dmrs_pos_slot_mem);
+
 int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
                                 unsigned char Ns,
                                 int nl,

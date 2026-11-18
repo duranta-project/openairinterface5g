@@ -425,30 +425,16 @@ static void nr_pusch_antenna_processing(void *arg)
   completed_task_ans(rdata->ans);
 }
 
-int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
-                                unsigned char Ns,
-                                int nl,
-                                unsigned short p,
-                                uint8_t lp,
-                                unsigned char symbol,
-                                NR_gNB_PUSCH *pusch_vars,
-                                uint16_t ant_port_start,
-                                unsigned short bwp_start_subcarrier,
-                                const nfapi_nr_pusch_pdu_t *pusch_pdu,
-                                int *max_ch,
-                                uint32_t *nvar,
-                                c16_t *pusch_dmrs_slot_mem,
-                                c16_t *pusch_ch_est_dmrs_pos_slot_mem)
+// DMRS of layer port p on DMRS symbol `symbol` (index lp), conjugated, into pilot[]
+static void nr_pusch_chest_pilot(PHY_VARS_gNB *gNB,
+                                 unsigned char Ns,
+                                 unsigned short p,
+                                 uint8_t lp,
+                                 unsigned char symbol,
+                                 const nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                 c16_t *pilot)
 {
-  c16_t pilot[3280] __attribute__((aligned(32)));
-
-#ifdef DEBUG_CH
-  FILE *debug_ch_est;
-  debug_ch_est = fopen("debug_ch_est.txt", "w");
-#endif
-
   const int nb_rb_pusch = pusch_pdu->rb_size;
-
   //------------------generate DMRS------------------//
   NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
   if (pusch_pdu->transform_precoding == transformPrecoder_disabled) {
@@ -488,111 +474,144 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
 #endif
   }
   //------------------------------------------------//
+}
 
-#ifdef DEBUG_PUSCH
+/* Channel estimates of n (layer, DMRS symbol) pairs: the DMRS of each is generated here, then the antenna jobs of all of
+   them go to the thread pool together and are joined once, so that with several layers or DMRS symbols the pool is not
+   limited to one pair's antenna jobs at a time. The pairs are independent (each writes its own layer x antenna x symbol
+   slice of ul_ch_estimates); max_ch is the maximum over all, jobs[j].nvar the noise estimate of pair j, and
+   pusch_vars->delay the delay of the last pair, as when the pairs are estimated one after the other. */
+void nr_pusch_channel_estimation_batch(PHY_VARS_gNB *gNB,
+                                       unsigned char Ns,
+                                       int n,
+                                       nr_pusch_chest_job_t *jobs,
+                                       NR_gNB_PUSCH *pusch_vars,
+                                       uint16_t ant_port_start,
+                                       unsigned short bwp_start_subcarrier,
+                                       const nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                       int *max_ch,
+                                       c16_t *pusch_dmrs_slot_mem,
+                                       c16_t *pusch_ch_est_dmrs_pos_slot_mem)
+{
+  NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
+  const int nb_rb_pusch = pusch_pdu->rb_size;
+  const int nb_antennas_rx = pusch_pdu->param_v4.numSpatialStreamIndices;
+  const int numAntennas = gNB->dmrs_num_antennas_per_thread;
+  const int jobs_per_pair = CEILIDIV(nb_antennas_rx, numAntennas);
+  const int num_jobs = n * jobs_per_pair;
 
-  for (int i = 0; i < (6 * nb_rb_pusch); i++) {
-    LOG_I(PHY, "In %s: %d + j*(%d)\n", __FUNCTION__, pilot[i].r, pilot[i].i);
-  }
+  c16_t *pilots = malloc16(n * 3280 * sizeof(c16_t));
+  AssertFatal(pilots, "out of memory\n");
+  int max_ch_arr[n][nb_antennas_rx];
+  int nest_count_arr[n][nb_antennas_rx];
+  uint64_t noise_amp2_arr[n][nb_antennas_rx];
+  delay_t delay_arr[n][nb_antennas_rx];
+  memset(max_ch_arr, 0, sizeof(max_ch_arr));
+  memset(nest_count_arr, 0, sizeof(nest_count_arr));
+  memset(noise_amp2_arr, 0, sizeof(noise_amp2_arr));
+  memset(delay_arr, 0, sizeof(delay_arr));
 
-#endif
-
-  //------------------Write DMRS to Memory for Data Recording ------------------//
-  int dmrs_symbol_start_idx = symbol * pusch_pdu->nrOfLayers * nb_rb_pusch * NR_NB_SC_PER_RB + nl * nb_rb_pusch * NR_NB_SC_PER_RB;
+  for (int j = 0; j < n; j++) {
+    c16_t *pilot = pilots + j * 3280;
+    nr_pusch_chest_pilot(gNB, Ns, jobs[j].p, jobs[j].lp, jobs[j].symbol, pusch_pdu, pilot);
 #if T_TRACER
-  if (T_ACTIVE(T_GNB_PHY_UL_FD_DMRS) && nl == 0) {
-    // used by T-Tracer to trace DMRS slot grid
-    int dmrs_delta = 0; // intialize it to zero currently, derive it later from above functions
-    for (int i = 0; i < (6 * nb_rb_pusch); i++) {
-      // the generated DMRs is a complex conjugate of mod table, so flip the sign of imag. part
-      pusch_dmrs_slot_mem[dmrs_symbol_start_idx + dmrs_delta + i * 2].r = pilot[i].r; // 0, 2, 4, 6, 8, location of REs
-      pusch_dmrs_slot_mem[dmrs_symbol_start_idx + dmrs_delta + i * 2].i = -pilot[i].i; // 0, 2, 4, 6, 8, location of REs
+    const int dmrs_symbol_start_idx =
+        jobs[j].symbol * pusch_pdu->nrOfLayers * nb_rb_pusch * NR_NB_SC_PER_RB + jobs[j].nl * nb_rb_pusch * NR_NB_SC_PER_RB;
+    if (T_ACTIVE(T_GNB_PHY_UL_FD_DMRS) && jobs[j].nl == 0) {
+      // used by T-Tracer to trace DMRS slot grid; the generated DMRS is the complex conjugate of the mod table
+      for (int i = 0; i < (6 * nb_rb_pusch); i++) {
+        pusch_dmrs_slot_mem[dmrs_symbol_start_idx + i * 2].r = pilot[i].r;
+        pusch_dmrs_slot_mem[dmrs_symbol_start_idx + i * 2].i = -pilot[i].i;
+      }
     }
-  }
 #endif
-
-  int nest_count = 0;
-  uint64_t noise_amp2 = 0;
-  delay_t *delay = &pusch_vars->delay;
-  memset(delay, 0, sizeof(*delay));
-
-  int nb_antennas_rx = pusch_pdu->param_v4.numSpatialStreamIndices;
-  delay_t delay_arr[nb_antennas_rx];
-  uint64_t noise_amp2_arr[nb_antennas_rx];
-  int max_ch_arr[nb_antennas_rx];
-  int nest_count_arr[nb_antennas_rx];
-
-  for (int i = 0; i < nb_antennas_rx; ++i) {
-    max_ch_arr[i] = *max_ch;
-    nest_count_arr[i] = nest_count;
-    noise_amp2_arr[i] = noise_amp2;
-    delay_arr[i] = *delay;
   }
 
-  notifiedFIFO_t respPuschAarx;
-  initNotifiedFIFO(&respPuschAarx);
   start_meas(&gNB->pusch_channel_estimation_antenna_processing_stats);
-  int numAntennas = gNB->dmrs_num_antennas_per_thread;
-  int num_jobs = CEILIDIV(nb_antennas_rx, numAntennas);
   puschAntennaProc_t rdatas[num_jobs];
   memset(rdatas, 0, sizeof(rdatas));
   task_ans_t ans;
   init_task_ans(&ans, num_jobs);
-  for (int job_id = 0; job_id < num_jobs; job_id++) {
-    puschAntennaProc_t *rdata = &rdatas[job_id];
-    task_t task = {.func = nr_pusch_antenna_processing, .args = rdata};
-
-    // Local init in the current loop
-    rdata->Ns = Ns;
-    rdata->nl = nl;
-    rdata->p = p;
-    rdata->symbol = symbol;
-    rdata->aarx = job_id * numAntennas;
-    rdata->numAntennas = numAntennas;
-    rdata->bwp_start_subcarrier = bwp_start_subcarrier;
-    rdata->pusch_pdu = pusch_pdu;
-    rdata->max_ch = &max_ch_arr[rdata->aarx];
-    rdata->pilot = pilot;
-    rdata->nest_count = &nest_count_arr[rdata->aarx];
-    rdata->noise_amp2 = &noise_amp2_arr[rdata->aarx];
-    rdata->delay = &delay_arr[rdata->aarx];
-    rdata->ant_port_start = ant_port_start;
-    rdata->frame_parms = fp;
-    rdata->pusch_vars = pusch_vars;
-    rdata->chest_freq = gNB->chest_freq;
-    rdata->rxdataF = gNB->common_vars.rxdataF;
-    rdata->scope = gNB->scopeData;
-    rdata->ans = &ans;
-    rdata->pusch_ch_est_dmrs_pos_slot_mem = pusch_ch_est_dmrs_pos_slot_mem;
-    rdata->dmrs_symbol_start_idx = dmrs_symbol_start_idx;
-    // Call the nr_pusch_antenna_processing function. The last job runs on this thread,
-    // which would otherwise just block in join_task_ans() below.
-    pushTpool_batch(&gNB->threadPool, task, job_id == num_jobs - 1);
-  } // Antenna Loop
-
+  for (int k = 0; k < num_jobs; k++) {
+    const int j = k / jobs_per_pair, aarx = (k % jobs_per_pair) * numAntennas;
+    puschAntennaProc_t *rdata = &rdatas[k];
+    *rdata = (puschAntennaProc_t){
+        .Ns = Ns,
+        .nl = jobs[j].nl,
+        .p = jobs[j].p,
+        .symbol = jobs[j].symbol,
+        .aarx = aarx,
+        .numAntennas = numAntennas,
+        .bwp_start_subcarrier = bwp_start_subcarrier,
+        .pusch_pdu = pusch_pdu,
+        .max_ch = &max_ch_arr[j][aarx],
+        .pilot = pilots + j * 3280,
+        .nest_count = &nest_count_arr[j][aarx],
+        .noise_amp2 = &noise_amp2_arr[j][aarx],
+        .delay = &delay_arr[j][aarx],
+        .ant_port_start = ant_port_start,
+        .frame_parms = fp,
+        .pusch_vars = pusch_vars,
+        .chest_freq = gNB->chest_freq,
+        .rxdataF = gNB->common_vars.rxdataF,
+        .scope = gNB->scopeData,
+        .ans = &ans,
+        .pusch_ch_est_dmrs_pos_slot_mem = pusch_ch_est_dmrs_pos_slot_mem,
+        .dmrs_symbol_start_idx =
+            jobs[j].symbol * pusch_pdu->nrOfLayers * nb_rb_pusch * NR_NB_SC_PER_RB + jobs[j].nl * nb_rb_pusch * NR_NB_SC_PER_RB,
+    };
+    // the last job runs on this thread, which would otherwise just block in join_task_ans() below
+    pushTpool_batch(&gNB->threadPool, (task_t){.func = nr_pusch_antenna_processing, .args = rdata}, k == num_jobs - 1);
+  }
   join_task_ans(&ans);
-
   stop_meas(&gNB->pusch_channel_estimation_antenna_processing_stats);
-  for (int aarx = 0; aarx < nb_antennas_rx; aarx++) {
-    *max_ch = max(*max_ch, max_ch_arr[aarx]);
-    noise_amp2 += noise_amp2_arr[aarx];
-    nest_count += nest_count_arr[aarx];
-  }
-  // get the maximum delay
-  for (int aarx = 0; aarx < nb_antennas_rx; aarx++) {
-    if (delay_arr[aarx].valid && delay_arr[aarx].delay_max_val > delay->delay_max_val) {
-      *delay = delay_arr[aarx];
+
+  delay_t *delay = &pusch_vars->delay;
+  for (int j = 0; j < n; j++) {
+    int nest_count = 0;
+    uint64_t noise_amp2 = 0;
+    memset(delay, 0, sizeof(*delay));
+    for (int aarx = 0; aarx < nb_antennas_rx; aarx++) {
+      *max_ch = max(*max_ch, max_ch_arr[j][aarx]);
+      noise_amp2 += noise_amp2_arr[j][aarx];
+      nest_count += nest_count_arr[j][aarx];
+      if (delay_arr[j][aarx].valid && delay_arr[j][aarx].delay_max_val > delay->delay_max_val)
+        *delay = delay_arr[j][aarx];
     }
+    jobs[j].nvar = nest_count > 0 ? (uint32_t)(noise_amp2 / nest_count) : 0;
   }
+  free(pilots);
+}
 
-#ifdef DEBUG_CH
-  fclose(debug_ch_est);
-#endif
-
-  if (nvar && nest_count > 0) {
-    *nvar = (uint32_t)(noise_amp2 / nest_count);
-  }
-
+int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
+                                unsigned char Ns,
+                                int nl,
+                                unsigned short p,
+                                uint8_t lp,
+                                unsigned char symbol,
+                                NR_gNB_PUSCH *pusch_vars,
+                                uint16_t ant_port_start,
+                                unsigned short bwp_start_subcarrier,
+                                const nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                int *max_ch,
+                                uint32_t *nvar,
+                                c16_t *pusch_dmrs_slot_mem,
+                                c16_t *pusch_ch_est_dmrs_pos_slot_mem)
+{
+  nr_pusch_chest_job_t job = {.nl = nl, .p = p, .lp = lp, .symbol = symbol};
+  nr_pusch_channel_estimation_batch(gNB,
+                                    Ns,
+                                    1,
+                                    &job,
+                                    pusch_vars,
+                                    ant_port_start,
+                                    bwp_start_subcarrier,
+                                    pusch_pdu,
+                                    max_ch,
+                                    pusch_dmrs_slot_mem,
+                                    pusch_ch_est_dmrs_pos_slot_mem);
+  if (nvar && job.nvar)
+    *nvar = job.nvar;
   return 0;
 }
 
