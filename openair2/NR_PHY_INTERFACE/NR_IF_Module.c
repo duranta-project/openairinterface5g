@@ -479,6 +479,7 @@ NR_IF_Module_t *NR_IF_Module_init(int Mod_id) {
 
     nr_if_inst[Mod_id]->CC_mask=0;
     nr_if_inst[Mod_id]->NR_UL_indication = NR_UL_indication;
+    nr_if_inst[Mod_id]->NR_rach_indication = handle_nr_rach;
     if (NFAPI_MODE == NFAPI_MONOLITHIC) {
       nr_if_inst[Mod_id]->NR_slot_indication = run_scheduler_monolithic;
     } else if (NFAPI_MODE == NFAPI_MODE_PNF) {
