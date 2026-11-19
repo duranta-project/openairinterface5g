@@ -16,3 +16,7 @@ target_link_libraries(test_periodic_occasion PRIVATE
 add_dependencies(tests test_periodic_occasion)
 add_test(NAME test_periodic_occasion COMMAND test_periodic_occasion)
 
+add_executable(test_ue_capability_bandwidth test_ue_capability_bandwidth.c)
+target_link_libraries(test_ue_capability_bandwidth PRIVATE MAC_NR_COMMON nr_common asn1_nr_rrc LOG minimal_lib m)
+add_dependencies(tests test_ue_capability_bandwidth)
+add_test(NAME test_ue_capability_bandwidth COMMAND test_ue_capability_bandwidth)
