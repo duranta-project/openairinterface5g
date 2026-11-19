@@ -254,7 +254,8 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
   } else if (g_retx_rbSize > 0) {
     AssertFatal(alloc_type == PDSCH_TYPE1, "-K only supported with resource allocation type 1\n");
     sched_pdsch.rbSize = g_retx_rbSize;
-    const int first_reserved = current_BWP->mcsTableIdx == 1 ? 28 : 29; // 256QAM table: 28..31 = Qm 2..8
+    // 256QAM table: 28..31 = Qm 2..8, 1024QAM table: 27..31 = Qm 2..10
+    const int first_reserved = current_BWP->mcsTableIdx == 1 ? 28 : current_BWP->mcsTableIdx == 3 ? 27 : 29;
     sched_pdsch.mcs = first_reserved + sched_pdsch.Qm / 2 - 1;
     AssertFatal(nr_get_code_rate_dl(sched_pdsch.mcs, current_BWP->mcsTableIdx) == 0, "MCS %d is not reserved\n", sched_pdsch.mcs);
     sched_pdsch.tb_size = first_tb_size[pid];
@@ -284,7 +285,7 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
   AssertFatal(sched_pdsch.rbStart >= 0, "invalid rbStart %d\n", sched_pdsch.rbStart);
   AssertFatal(sched_pdsch.rbSize > 0, "invalid rbSize %d\n", sched_pdsch.rbSize);
   AssertFatal(sched_pdsch.mcs >= 0, "invalid mcs %d\n", sched_pdsch.mcs);
-  AssertFatal(current_BWP->mcsTableIdx >= 0 && current_BWP->mcsTableIdx <= 2, "invalid mcsTableIdx %d\n", current_BWP->mcsTableIdx);
+  AssertFatal(current_BWP->mcsTableIdx >= 0 && current_BWP->mcsTableIdx <= 3, "invalid mcsTableIdx %d\n", current_BWP->mcsTableIdx);
 
   nr_dl_candidate_t candidate = {
       .UE = UE_info,
@@ -665,7 +666,7 @@ int main(int argc, char **argv)
       printf("-O oversampling factor (1,2,4,8,16)\n");
       printf("-p Precoding matrix index\n");
       printf("-P Print DLSCH performances\n");
-      printf("-q MCS Table index\n");
+      printf("-q MCS Table index (0: 64QAM, 1: 256QAM, 2: 64QAM low SE, 3: 1024QAM)\n");
       printf("-Q Backoff in dB of the gNB modulation amplitude from full scale (default 36)\n");
       printf("-R N_RB_DL\n");
       printf("-s Starting SNR, runs from SNR0 to SNR0 + 5 dB.  If n_frames is 1 then just SNR is simulated\n");
@@ -768,6 +769,7 @@ int main(int argc, char **argv)
                                 .num_ulharq = 16,
                                 .maxMIMO_layers = g_nrOfLayers,
                                 .force_256qam_off = false,
+                                .enable_1024qam = g_mcsTableIdx == 3,
                                 .timer_config.sr_ProhibitTimer = 0,
                                 .timer_config.sr_TransMax = 64,
                                 .timer_config.sr_ProhibitTimer_v1700 = 0,
@@ -997,7 +999,7 @@ int main(int argc, char **argv)
   int rx_size = (((14 * UE->frame_parms.N_RB_DL * 12 * sizeof(int32_t)) + 15) >> 4) << 4;
   UE->phy_sim_rxdataF = calloc_or_fail(sizeof(int32_t *) * UE->frame_parms.nb_antennas_rx * g_nrOfLayers,
                                        UE->frame_parms.samples_per_slot_wCP * sizeof(int32_t));
-  UE->phy_sim_pdsch_llr = calloc_or_fail(1, (8 * (3 * 8 * 8448)) * sizeof(int16_t)); // Max length
+  UE->phy_sim_pdsch_llr = calloc_or_fail(1, (10 * (3 * 8 * 8448)) * sizeof(int16_t)); // Max length, up to 1024QAM
   UE->phy_sim_pdsch_rxdataF_ext = calloc_or_fail(sizeof(int32_t *) * UE->frame_parms.nb_antennas_rx * g_nrOfLayers, rx_size);
   UE->phy_sim_pdsch_rxdataF_comp = calloc_or_fail(sizeof(int32_t *) * UE->frame_parms.nb_antennas_rx * g_nrOfLayers, rx_size);
   UE->phy_sim_pdsch_dl_ch_estimates = calloc_or_fail(sizeof(int32_t *) * UE->frame_parms.nb_antennas_rx * g_nrOfLayers, rx_size);

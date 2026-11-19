@@ -688,6 +688,40 @@ static void nr_interleaving_ldpc32(uint32_t E, uint8_t Qm, uint32_t *e, uint32_t
         *f++ = *e7++;
       }
     } break;
+    case 10: {
+      // 1024QAM, TS 38.212 5.4.2.2: word j of each 10-word group comes from row j of the E/10 x 10 matrix
+      uint32_t i = 0;
+      // 4 columns at a time: rows 0..7 through two 4x4 transposes, rows 8 and 9 as 64-bit pairs
+      for (; i + 4 <= EQm; i += 4) {
+        simde__m128i r[10];
+#pragma GCC unroll 16
+        for (int j = 0; j < 10; j++)
+          r[j] = simde_mm_loadu_si128((simde__m128i *)(e + j * EQm + i));
+        simde__m128i t[8];
+#pragma GCC unroll 16
+        for (int j = 0; j < 4; j++) {
+          t[2 * j] = simde_mm_unpacklo_epi32(r[2 * j], r[2 * j + 1]); // rows 2j, 2j+1 of columns 0, 1
+          t[2 * j + 1] = simde_mm_unpackhi_epi32(r[2 * j], r[2 * j + 1]); // columns 2, 3
+        }
+        const simde__m128i p01 = simde_mm_unpacklo_epi32(r[8], r[9]); // rows 8, 9 of columns 0, 1
+        const simde__m128i p23 = simde_mm_unpackhi_epi32(r[8], r[9]); // columns 2, 3
+        uint32_t *fc = f + 10 * i;
+#pragma GCC unroll 16
+        for (int c = 0; c < 4; c++, fc += 10) {
+          const int h = c >> 1; // t[] index of the column pair
+          const simde__m128i lo = (c & 1) ? simde_mm_unpackhi_epi64(t[h], t[h + 2]) : simde_mm_unpacklo_epi64(t[h], t[h + 2]);
+          const simde__m128i hi =
+              (c & 1) ? simde_mm_unpackhi_epi64(t[h + 4], t[h + 6]) : simde_mm_unpacklo_epi64(t[h + 4], t[h + 6]);
+          const simde__m128i p = h ? p23 : p01;
+          simde_mm_storeu_si128((simde__m128i *)fc, lo); // rows 0..3
+          simde_mm_storeu_si128((simde__m128i *)(fc + 4), hi); // rows 4..7
+          simde_mm_storel_epi64((simde__m128i *)(fc + 8), (c & 1) ? simde_mm_unpackhi_epi64(p, p) : p); // rows 8, 9
+        }
+      }
+      for (f += 10 * i; i < EQm; i++)
+        for (int j = 0; j < 10; j++)
+          *f++ = e[j * EQm + i];
+    } break;
     default:
       AssertFatal(false, "Should be here!\n");
   }
