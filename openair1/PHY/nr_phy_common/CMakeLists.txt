@@ -15,6 +15,10 @@ target_link_libraries(nr_phy_common_no_avx_256 PRIVATE UTIL PHY_COMMON)
 target_include_directories(nr_phy_common_no_avx_256 PUBLIC inc/)
 target_compile_definitions(nr_phy_common_no_avx_256 PRIVATE USE_128BIT)
 
+add_library(nr_csi_pmi src/nr_csi_pmi.c)
+target_include_directories(nr_csi_pmi PUBLIC inc/)
+target_link_libraries(nr_csi_pmi PRIVATE m)
+
 add_library(nr_ue_phy_meas src/nr_ue_phy_meas.c)
 target_include_directories(nr_ue_phy_meas PUBLIC inc/)
 target_link_libraries(nr_ue_phy_meas PUBLIC utils)

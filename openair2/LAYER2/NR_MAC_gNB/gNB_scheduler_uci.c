@@ -420,9 +420,9 @@ static int get_diff_rsrp(uint8_t index, int strongest_rsrp)
   return strongest_rsrp + diff_rsrp_ssb_csi_meas_10_1_6_1_2[index];
 }
 
-static uint8_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t start_bit)
+static uint16_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t start_bit)
 {
-  uint8_t rev_bits = 0;
+  uint16_t rev_bits = 0;
   for (int i = 0; i < bitlen; i++)
     rev_bits |= ((payload[(start_bit + i) / 8] >> ((start_bit + i) % 8)) & 0x01) << (bitlen - i - 1);
   return rev_bits;
