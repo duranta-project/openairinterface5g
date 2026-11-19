@@ -538,7 +538,7 @@ void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
                             ue->frame_parms.N_RB_DL,
                             min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS));
   nr_init_ul_harq_processes(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_UL, ue->frame_parms.nb_antennas_tx);
-  ue->pdsch_num_scratch = max(get_nrUE_params()->num_dl_actors, 1);
+  ue->pdsch_num_scratch = max(get_nrUE_params()->num_parallel_dl_slots, 1);
   ue->pdsch_scratch = calloc_or_fail(ue->pdsch_num_scratch, sizeof(*ue->pdsch_scratch));
   nr_init_pdsch_buffers(ue->pdsch_scratch, ue->pdsch_num_scratch, &ue->frame_parms, ue->do_ml);
 }
@@ -649,7 +649,7 @@ void sl_ue_phy_init(PHY_VARS_NR_UE *UE)
   int nb_re_pusch2 = nb_re_pusch + (nb_re_pusch & 7);
   UE->pssch_thres = 10;
   // one per DL slot in flight
-  UE->pssch_num_scratch = max(get_nrUE_params()->num_dl_actors, 1);
+  UE->pssch_num_scratch = max(get_nrUE_params()->num_parallel_dl_slots, 1);
   UE->pssch_vars = (NR_gNB_PUSCH *)malloc16_clear(UE->pssch_num_scratch * sizeof(NR_gNB_PUSCH));
   for (int s = 0; s < UE->pssch_num_scratch; s++) {
     NR_gNB_PUSCH *pssch = &UE->pssch_vars[s];
