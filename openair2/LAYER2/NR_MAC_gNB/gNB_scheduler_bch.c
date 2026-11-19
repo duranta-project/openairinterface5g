@@ -487,6 +487,9 @@ void schedule_nr_sib1(nr_cell_sched_t *cell,
       memcpy(tx_req->TLVs[0].value.direct, cc->sib1_bcch_pdu, tb_size);
 
       tx_req->PDU_index  = pdu_index;
+#ifdef ENABLE_AERIAL
+      tx_req->cw_index = 0;
+#endif
       tx_req->num_TLV = 1;
       tx_req->TLVs[0].tag = 0;
       tx_req->TLVs[0].length = tb_size;
@@ -625,6 +628,9 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
   memcpy(tx_req->TLVs[0].value.direct, sib_bcch_pdu, sched_pdsch_otherSI.tb_size);
 
   tx_req->PDU_index = pdu_index;
+#ifdef ENABLE_AERIAL
+  tx_req->cw_index = 0;
+#endif
   tx_req->num_TLV = 1;
   tx_req->TLVs[0].tag = 0;
   tx_req->TLVs[0].length = sched_pdsch_otherSI.tb_size;

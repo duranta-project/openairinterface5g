@@ -12,6 +12,13 @@ FAPI works. The currently used version is SCF 222.10.02, with some messages
 upgraded to SCF 222.10.04 due to bugfixes in the spec. Further information
 about nFAPI can be found in SCF 225.2.0.
 
+The NVIDIA Aerial integration (`OAI_AERIAL` build, `ENABLE_AERIAL`) instead
+speaks the FAPI 10.04 dialect of cuBB 26-2 built with `SCF_FAPI_10_04`, which
+mixes SCF 222.10.02 and 222.10.04 messages. Its differences from OAI's own
+(n)FAPI live in the NR FAPI codec under `ENABLE_AERIAL`; the (n)FAPI between
+OAI's VNF and PNF is unchanged. See the [Aerial
+tutorial](./Aerial_FAPI_Split_Tutorial.md) for building cuBB.
+
 [[_TOC_]]
 
 ## Quickstart

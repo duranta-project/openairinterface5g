@@ -33,6 +33,9 @@ uint8_t unpack_nr_srs_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *
 uint8_t pack_nr_srs_toa_vendor_ext_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end);
 uint8_t unpack_nr_srs_toa_vendor_ext_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg);
 uint8_t unpack_nr_srs_report_tlv_value(nfapi_srs_report_tlv_t *report_tlv, uint8_t **ppReadPackedMsg, uint8_t *end);
+#ifdef ENABLE_AERIAL
+uint8_t aerial_unpack_nr_srs_indication(uint8_t **ppReadPackedMsg, uint8_t *end, uint8_t **pDataMsg, uint8_t *data_end, void *msg);
+#endif
 uint8_t pack_nr_rach_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end);
 uint8_t unpack_nr_rach_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg);
 #endif // OPENAIRINTERFACE_NR_FAPI_P7_H

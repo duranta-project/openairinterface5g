@@ -33,6 +33,5 @@ uint8_t aerial_unpack_nr_rx_data_indication(uint8_t **ppReadPackedMsg,
                                             nfapi_nr_rx_data_indication_t *msg,
                                             nfapi_p7_codec_config_t *config);
 
-uint8_t aerial_unpack_nr_srs_indication(uint8_t **ppReadPackedMsg, uint8_t *end, uint8_t **pDataMsg, uint8_t *data_end, void *msg);
 bool aerial_nr_send_p7_message(vnf_p7_t *vnf_p7, nfapi_nr_p7_message_header_t *header);
 #endif // OPENAIRINTERFACE_FAPI_VNF_P7_H

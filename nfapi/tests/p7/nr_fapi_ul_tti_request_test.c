@@ -15,7 +15,7 @@ static void fill_ul_tti_request_beamforming(nfapi_nr_ul_beamforming_t *beamformi
 
   for (int prg = 0; prg < beamforming_pdu->num_prgs; ++prg) {
     for (int dbf_if = 0; dbf_if < beamforming_pdu->dig_bf_interface; ++dbf_if) {
-      beamforming_pdu->prgs_list[prg].dig_bf_interface_list[dbf_if].beam_idx = rand16();
+      beamforming_pdu->prgs_list[prg].dig_bf_interface_list[dbf_if].beam_idx = rand16_range(0, 0x7fff);
     }
   }
 }
@@ -136,6 +136,13 @@ static void fill_ul_tti_request_pusch_pdu(nfapi_nr_pusch_pdu_t *pdu)
   fill_ul_tti_request_beamforming(&pdu->beamforming);
   pdu->maintenance_parms_v3.ldpcBaseGraph = rand8();
   pdu->maintenance_parms_v3.tbSizeLbrmBytes = rand32();
+#ifdef ENABLE_AERIAL
+  pdu->maintenance_parms_v3.puschTransType = rand8_range(0, 2);
+  pdu->maintenance_parms_v3.deltaBwp0StartFromActiveBwp = rand16_range(0, 274);
+  pdu->maintenance_parms_v3.initialUlBwpSize = rand16_range(0, 275);
+  pdu->maintenance_parms_v3.groupOrSequenceHopping = rand8_range(0, 2);
+  pdu->maintenance_parms_v3.puschSecondHopPRB = rand16_range(0, 274);
+#endif
   pdu->param_v4.numSpatialStreamIndices = get_num_spatial_streams();
   fill_spatial_streams(pdu->param_v4.numSpatialStreamIndices, pdu->param_v4.spatialStreamIndices);
 }
@@ -266,13 +273,9 @@ static void fill_ul_tti_request_srs_parameters(nfapi_v4_srs_parameters_t *params
   }
 
 #ifdef ENABLE_AERIAL
-  // For Aerial, we always process the 4 reported symbols, not only the ones indicated by num_symbols
-  for (int symbol_idx = num_symbols; symbol_idx < 4; ++symbol_idx) {
-    nfapi_v4_srs_parameters_symbols_t *symbol = &params->symbol_list[idx];
-    symbol->srs_bandwidth_start = rand16_range(0,268);
-    symbol->sequence_group = rand8_range(0,29);
-    symbol->sequence_number = rand8_range(0,1);
-  }
+  // For Aerial, the 4 reported symbols are always sent, the unused ones as zeros
+  for (int symbol_idx = num_symbols; symbol_idx < 4; ++symbol_idx)
+    params->symbol_list[symbol_idx] = (nfapi_v4_srs_parameters_symbols_t){0};
 #endif // ENABLE_AERIAL
 
   params->usage = rand32_range(0, 0b1111);
