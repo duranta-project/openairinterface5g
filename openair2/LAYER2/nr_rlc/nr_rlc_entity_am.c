@@ -2041,6 +2041,7 @@ void nr_rlc_entity_am_discard_sdu(nr_rlc_entity_t *_entity, int sdu_id)
 
 static void clear_entity(nr_rlc_entity_am_t *entity)
 {
+  entity->common.sdu_delivery = (nr_rlc_sdu_delivery_t){0};
   entity->rx_next                = 0;
   entity->rx_next_status_trigger = 0;
   entity->rx_highest_status      = 0;
