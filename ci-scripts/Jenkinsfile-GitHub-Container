@@ -673,6 +673,29 @@ pipeline {
             }
           }
         }
+        stage ("gNB-UE-HIP-LDPC") {
+          when { expression {do5Gtest || do5GUeTest} }
+          steps {
+            script {
+              triggerDownstreamJob ('RAN-gNB-UE-HIP-LDPC')
+            }
+          }
+          post {
+            always {
+              script {
+                // Using a unique variable name for each test stage to avoid overwriting on a global variable
+                // due to parallel-time concurrency
+                phytestLDPCoffloadStatus = finalizeDownstreamJob('RAN-gNB-UE-HIP-LDPC')
+              }
+            }
+            failure {
+              script {
+                currentBuild.result = 'FAILURE'
+                failingStages += phytestLDPCoffloadStatus
+              }
+            }
+          }
+        }
         stage ("LTE-TDD-2x2-Container") {
           when { expression {do4Gtest} }
           steps {
