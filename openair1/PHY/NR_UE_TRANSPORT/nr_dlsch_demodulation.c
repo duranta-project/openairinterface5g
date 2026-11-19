@@ -704,6 +704,39 @@ static int nr_dlsch_llr(const NR_UE_DLSCH_t *dlsch,
 }
 //==============================================================================================
 
+// Precision cap for single-RX QPSK. Its first-symbol peak is not a bound on every
+// later symbol; multi-RX retains legacy scaling to preserve MRC headroom.
+static int32_t nr_pdsch_qpsk_output_shift(uint32_t rx_size,
+                                          const c16_t rxdataF_ext[][rx_size],
+                                          const c16_t dl_ch_estimates_ext[][rx_size],
+                                          int nb_rx,
+                                          uint32_t n_re,
+                                          int32_t legacy_shift)
+{
+  uint64_t peak = 0;
+  for (uint32_t i = 0; i < n_re; i++) {
+    uint64_t real_bound = 0;
+    uint64_t imag_bound = 0;
+    for (int a = 0; a < nb_rx; a++) {
+      const c16_t h = dl_ch_estimates_ext[a][i];
+      const c16_t r = rxdataF_ext[a][i];
+      const int64_t real = (int64_t)h.r * r.r + (int64_t)h.i * r.i;
+      const int64_t imag = (int64_t)h.r * r.i - (int64_t)h.i * r.r;
+      real_bound += real < 0 ? -real : real;
+      imag_bound += imag < 0 ? -imag : imag;
+    }
+    // Sum magnitudes before MRC so opposing antenna contributions cannot hide a peak.
+    peak = max(peak, max(real_bound, imag_bound));
+  }
+  if (peak == 0)
+    return legacy_shift;
+
+  // Preserve soft precision through QPSK's final four-bit LLR shift. Nearest log2
+  // targets the unrotated first-symbol product components near 2^8.
+  const int precision_shift = max(0, (int)log2_approx64(peak) - 8);
+  return min(legacy_shift, precision_shift);
+}
+
 /* Main Function */
 
 uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
@@ -890,6 +923,8 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
       *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
     else
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
+    if (nbRx == 1 && nl == 1 && dlsch->cw_info.qamModOrder == 2)
+      *log2_maxh = nr_pdsch_qpsk_output_shift(rx_size_symbol, rxdataF_ext, dl_ch_estimates_ext, nbRx, nb_re_pdsch, *log2_maxh);
     LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
     T(T_UE_PHY_PDSCH_ENERGY,
