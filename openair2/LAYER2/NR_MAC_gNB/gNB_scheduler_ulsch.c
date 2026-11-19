@@ -689,12 +689,15 @@ static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
 
 static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rnti, int crc_harq_id, bool crc_status)
 {
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   if (cell->radio_config.disable_harq) {
     LOG_D(NR_MAC, "skipping UL feedback handling as HARQ is disabled\n");
+    // account result for link adaptation
+    void (*ack_nack)(const NR_bler_options_t *, olla_stats_t *) = !crc_status ? olla_ack : olla_nack;
+    ack_nack(&cell->ul_bler, &sched_ctrl->ul_olla_stats);
     return;
   }
 
-  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   int8_t harq_pid = sched_ctrl->feedback_ul_harq.head;
   LOG_D(NR_MAC, "Comparing crc harq_id vs feedback harq_pid = %d %d\n", crc_harq_id, harq_pid);
   if (crc_harq_id != harq_pid) {
@@ -718,23 +721,17 @@ static void handle_nr_ul_harq(nr_cell_sched_t *cell, NR_UE_info_t *UE, rnti_t rn
   harq->is_waiting = false;
   if (!crc_status) {
     finish_nr_ul_harq(sched_ctrl, harq_pid);
-    LOG_D(NR_MAC,
-          "Ulharq id %d crc passed for RNTI %04x\n",
-          harq_pid,
-          rnti);
-  } else if (harq->round >= cell->ul_bler.harq_round_max - 1) {
+    LOG_D(NR_MAC, "Ulharq id %d crc passed for RNTI %04x\n", harq_pid, rnti);
+    olla_ack(&cell->ul_bler, &sched_ctrl->ul_olla_stats);
+  } else if (harq->round >= cell->ul_bler.harq_round_max  - 1) {
     abort_nr_ul_harq(UE, harq_pid);
-    LOG_D(NR_MAC,
-          "RNTI %04x: Ulharq id %d crc failed in all rounds\n",
-          rnti,
-          harq_pid);
+    LOG_D(NR_MAC, "RNTI %04x: Ulharq id %d crc failed in all rounds\n", rnti, harq_pid);
+    olla_nack(&cell->ul_bler, &sched_ctrl->ul_olla_stats);
   } else {
     harq->round++;
-    LOG_D(NR_MAC,
-          "Ulharq id %d crc failed for RNTI %04x\n",
-          harq_pid,
-          rnti);
+    LOG_D(NR_MAC, "Ulharq id %d crc failed for RNTI %04x\n", harq_pid, rnti);
     id_list_push_back(&sched_ctrl->retrans_ul_harq, harq_pid);
+    olla_nack(&cell->ul_bler, &sched_ctrl->ul_olla_stats);
   }
 }
 
@@ -818,7 +815,13 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
   if (ul_cqi != 0xff) {
     // Msg3: reset average with first measurement. If this fails (e.g., ul_cqi == 0xff)
     // everything starts from predetermined value
-    nr_mac_pc_reset_snr(&UE->UE_sched_ctrl.pusch_pc, ul_cqi * 5 - 640, rssi);
+    int snrx10 = ul_cqi * 5 - 640;
+    NR_UE_sched_ctrl_t *sc = &UE->UE_sched_ctrl;
+    nr_mac_pc_reset_snr(&sc->pusch_pc, snrx10, rssi);
+    // use the same target SNR for UL/DL assuming that if a UE reaches SNR X,
+    // it should be similar in DL
+    sc->dl_olla_stats = olla_init(snrx10, mac->frame);
+    sc->ul_olla_stats = olla_init(snrx10, mac->frame);
   }
 
   if (!sdu) { // NACK
@@ -2175,6 +2178,9 @@ static int apply_ul_new_transmission(gNB_MAC_INST *nrmac,
     sched.ant_port_idx.spatialStreamIndices[i] = cell->radio_config.spatial_stream_index[start_stream_idx + i];
   sched.dci_ant_idx = cand->alloc_dci_beam_idx;
 
+  /* override selected MCS to enforce global policy for min/max MCS */
+  sched.mcs = max(cell->ul_bler.min_mcs, min(cell->ul_bler.max_mcs, sched.mcs));
+
   update_ul_ue_R_Qm(sched.mcs, current_BWP->mcs_table, current_BWP->pusch_Config, &sched.R, &sched.Qm);
   sched.tb_size = nr_compute_tbs(sched.Qm,
                                  sched.R,
@@ -2277,8 +2283,6 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
       .max_num_ue = max_num_ue,
       .min_rb = min_rb,
       .min_mcs = cell->ul_bler.min_mcs,
-      .bler_lower = cell->ul_bler.lower,
-      .bler_upper = cell->ul_bler.upper,
       .bler_opts = &cell->ul_bler,
       .scc = scc,
   };
@@ -2541,6 +2545,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
   }
   UE->mac_stats.ul.current_bytes += sched_pusch->tb_size;
   UE->mac_stats.ul.current_rbs = sched_pusch->rbSize;
+  UE->mac_stats.ul.mcs = sched_pusch->mcs;
   nr_mac->mac_stats.ul.used_prb_aggregate += sched_pusch->rbSize;
   sched_ctrl->last_ul_frame = sched_pusch->frame;
   sched_ctrl->last_ul_slot = sched_pusch->slot;
@@ -2812,7 +2817,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
       cand.retx_harq_pid = ul_harq_pid;
       cand.retx_rbSize = retInfo->rbSize;
       cand.current_mcs = retInfo->mcs;
-      cand.bler = sched_ctrl->ul_bler_stats.bler;
+      cand.bler = olla_get_current_bler(&sched_ctrl->ul_olla_stats);
       candidates[numUE++] = cand;
       continue;
     }
@@ -2839,7 +2844,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     /* Update BLER stats; MCS adaptation is done by ul_mcs_select pipeline stage */
     const int max_mcs_table = (current_BWP->mcs_table == 0 || current_BWP->mcs_table == 2) ? 28 : 27;
     const int max_mcs = min(cell->ul_bler.max_mcs, max_mcs_table);
-    bool bler_updated = update_bler_stats(&cell->ul_bler, stats, &sched_ctrl->ul_bler_stats, frame);
+    olla_update(NULL, &sched_ctrl->ul_olla_stats, frame);
 
     cand.is_retx = false;
     if (!aperiodic_srs_scheduled) {
@@ -2850,13 +2855,13 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     cand.retx_harq_pid = -1;
     cand.sched_long_inactivity = long_inactivity;
     cand.pending_bytes = B;
-    cand.bler = sched_ctrl->ul_bler_stats.bler;
-    cand.bler_updated = bler_updated;
-    cand.current_mcs = sched_ctrl->ul_bler_stats.mcs;
+    cand.bler = olla_get_current_bler(&sched_ctrl->ul_olla_stats);
+    cand.current_mcs = UE->mac_stats.ul.mcs;
     cand.max_mcs = max_mcs;
-    cand.last_num_sched = sched_ctrl->ul_bler_stats.last_num_sched;
-    cand.snrx10 = (int)(sched_ctrl->pusch_pc.avg_snr * 10);
+    cand.delta_olla = sched_ctrl->ul_olla_stats.delta_olla;
+    cand.snrx10 = sched_ctrl->ul_olla_stats.snrx10_equiv;
     cand.sr_cnt = sched_ctrl->sr_cnt;
+
     LOG_D(NR_MAC,
           "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, mcs %d, SR count %d, UL inactivity %d/%d slots, sched_long_inactivity %d sched_srs %d\n",
           UE->rnti,

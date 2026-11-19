@@ -376,13 +376,16 @@ static void handle_dl_harq(nr_cell_sched_t *cell, NR_UE_info_t * UE, int8_t harq
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(cell, UE);
     finish_nr_dl_harq(sched_ctrl, harq_pid);
+    olla_ack(&cell->dl_bler, &sched_ctrl->dl_olla_stats);
   } else if (harq->round >= harq_round_max - 1) {
     abort_nr_dl_harq(UE, harq_pid);
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
+    olla_nack(&cell->dl_bler, &sched_ctrl->dl_olla_stats);
   } else {
     LOG_D(PHY,"NACK for: pid %d, ue %04x\n",harq_pid, UE->rnti);
     id_list_push_back(&sched_ctrl->retrans_dl_harq, harq_pid);
     harq->round++;
+    olla_nack(&cell->dl_bler, &sched_ctrl->dl_olla_stats);
   }
 }
 
@@ -503,11 +506,9 @@ static void evaluate_sinr_report(NR_UE_info_t *UE,
   stats->cumul_sinrx10 += sinr_report->r[0].SINRx10;
   stats->num_sinr_meas++;
 
-  const int mcs_table = UE->current_DL_BWP.mcsTableIdx;
-  const int nrOfLayers = get_dl_nrOfLayers(sched_ctrl, UE->current_DL_BWP.dci_format);
-  sched_ctrl->dl_max_mcs = get_mcs_from_SINRx10(mcs_table, sinr_report->r[0].SINRx10, nrOfLayers);
-
-  LOG_D(MAC, "Reported SSB-SINR = %01f, dl_max_mcs %d\n", sinr_report->r[0].SINRx10 / 10.0, sched_ctrl->dl_max_mcs);
+  LOG_D(MAC, "Reported SSB-SINRx10 = %d\n", sinr_report->r[0].SINRx10);
+  UE->UE_sched_ctrl.est_snrx10 = sinr_report->r[0].SINRx10;
+  UE->UE_sched_ctrl.new_est_snrx10 = true;
 
   for (RSRP_report_t *r = sinr_report->r; r < sinr_report->r + sinr_report->nb; r++)
     if (r->resource_id < MAX_NUM_OF_SSB)
@@ -681,9 +682,12 @@ static void evaluate_cqi_report(nr_cell_sched_t *cell,
   // TODO for wideband case and multiple TB
   const int cqi_idx = sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb;
   const int mcs_table = UE->current_DL_BWP.mcsTableIdx;
-  sched_ctrl->dl_max_mcs = get_mcs_from_cqi(mcs_table, cqi_Table, cqi_idx);
+  const int mcs = get_mcs_from_cqi(mcs_table, cqi_Table, cqi_idx);
+  const int snrx10 = get_snrx10_from_mcs(mcs_table, mcs, ri+1); // assume all layers were used
+  UE->UE_sched_ctrl.est_snrx10 = snrx10;
+  UE->UE_sched_ctrl.new_est_snrx10 = true;
 
-  LOG_D(MAC, "Reported CQI = %d, dl_max_mcs %d\n", temp_cqi, sched_ctrl->dl_max_mcs);
+  LOG_D(MAC, "Reported CQI %d => MCS %d, SNRx10 %d\n", temp_cqi, mcs, snrx10);
 }
 
 static uint8_t evaluate_pmi_report(uint8_t *payload,
@@ -856,7 +860,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     beam_switching_procedure(nrmac, cell, UE, new_bf_index);
 }
 
-static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, int harq_round_max)
+static NR_UE_harq_t *find_harq(nr_cell_sched_t *cell, frame_t frame, slot_t slot, NR_UE_info_t *UE, int harq_round_max)
 {
   /* In case of realtime problems: we can only identify a HARQ process by
    * timing. If the HARQ process's feedback_frame/feedback_slot is not the one we
@@ -881,7 +885,7 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
           frame,
           slot);
     id_list_pop_front(&sched_ctrl->feedback_dl_harq);
-    handle_dl_harq(NULL, UE, pid, false, harq_round_max);
+    handle_dl_harq(cell, UE, pid, false, harq_round_max);
     pid = sched_ctrl->feedback_dl_harq.head;
     if (pid < 0)
       return NULL;
@@ -940,7 +944,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, int cell_id, frame_t frame, slo
     for (int harq_bit = 0; harq_bit < uci_01->harq.num_harq; harq_bit++) {
       const uint8_t harq_value = uci_01->harq.harq_list[harq_bit].harq_value;
       const uint8_t harq_confidence = uci_01->harq.harq_confidence_level;
-      NR_UE_harq_t *harq = find_harq(frame, slot, UE, cell->dl_bler.harq_round_max);
+      NR_UE_harq_t *harq = find_harq(cell, frame, slot, UE, cell->dl_bler.harq_round_max);
       if (!harq) {
         LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
         break;
@@ -1044,7 +1048,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, int cell_id, frame_t frame, s
     for (int harq_bit = 0; harq_bit < uci_234->harq.harq_bit_len; harq_bit++) {
       int rev_bit = uci_234->harq.harq_bit_len - 1 - harq_bit;
       const int acknack = ((uci_234->harq.harq_payload[rev_bit >> 3]) >> (rev_bit & 7)) & 0x01;
-      NR_UE_harq_t *harq = find_harq(frame, slot, UE, cell->dl_bler.harq_round_max);
+      NR_UE_harq_t *harq = find_harq(cell, frame, slot, UE, cell->dl_bler.harq_round_max);
       if (!harq) {
         LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
         break;

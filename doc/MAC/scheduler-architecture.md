@@ -184,7 +184,7 @@ candidates get `cand->retx_rbSize` set.
 
 Runs for **all surviving candidates** — including those that may ultimately not be
 scheduled due to CCE failure. Sets `sched_p{d,u}sch.mcs` from BLER stats or SINR, and persists
-the decision to `{ul,dl}_bler_stats.mcs` so continuity is maintained across slots even
+the decision to `{ul,dl}_olla_stats.mcs` so continuity is maintained across slots even
 for unscheduled UEs.
 
 Placed after beam selection so custom implementations can use `alloc_beam_idx` and
@@ -267,10 +267,10 @@ beam and a PUSCH beam. Candidates that fail beam allocation are compacted out.
 
 ### `nr_dl_mcs_select_default`, `nr_ul_mcs_select_default`
 
-BLER-based (when `harq_round_max > 1`): calls `nr_adapt_mcs_from_bler` for candidates
-with a fresh BLER estimate; holds current MCS otherwise. SINR-based (when
+BLER-based (when `harq_round_max > 1`): calls `get_mcs_from_SINRx10()` for candidates
+to get an MCS following an SNR estimate based on HARQ feedback. SINR-based (when
 `harq_round_max == 1`): maps measured PUSCH SINR to MCS via lookup table. In both
-cases, persists to `{dl,ul}_bler_stats.mcs`.
+cases, persists to `{dl,ul}_olla_stats.mcs`.
 
 ### `nr_dl_proportional_fair`, `nr_ul_proportional_fair`
 
