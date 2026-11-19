@@ -320,6 +320,26 @@ typedef struct nr_ue_dlsch_decoding_s {
   uint8_t *b;
 } nr_ue_dlsch_decoding_t;
 
+/// SLSCH decoding, completed in the task of its last segment
+typedef struct nr_ue_slsch_decoding_s {
+  struct PHY_VARS_NR_UE_s *ue;
+  const UE_nr_rxtx_proc_t *proc;
+  struct nr_phy_data_s *phy_data;
+  nr_ue_dl_job_t *job;
+  /// called once decoded
+  void (*done)(struct nr_ue_slsch_decoding_s *dec);
+  int SLSCH_id;
+  bool previously_decoded;
+  bool dtx;
+  /// decoded segments, or the error of the decoding preparation
+  int nb_decoded;
+  /// PSFCH of the slot, reported with the SLSCH, its results freed after
+  bool has_psfch;
+  sl_nr_psfch_pdu_t psfch;
+  nrLDPC_TB_decoding_parameters_t TB;
+  nrLDPC_slot_decoding_parameters_t slot;
+} nr_ue_slsch_decoding_t;
+
 /// Buffers of a DL slot in flight
 typedef struct pdsch_scratch_s {
   // 1-symbol-wide: channel compensation writes into these and LLR+demapping consumes
@@ -336,6 +356,7 @@ typedef struct pdsch_scratch_s {
   int16_t *llr_dev[2];
 #endif
   nr_ue_dlsch_decoding_t dec[2];
+  nr_ue_slsch_decoding_t slsch_dec;
   uint32_t pdsch_buf_size_max;
   uint32_t pdsch_est_size;
   uint32_t llr_buf_max;

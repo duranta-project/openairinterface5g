@@ -119,14 +119,8 @@ int nr_slsch_encoding(PHY_VARS_NR_UE *ue,
                       unsigned int G,
                       uint8_t *f);
 
-int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
-                      uint8_t UE_id,
-                      short *ulsch_llr,
-                      nfapi_nr_pusch_pdu_t *pusch_pdu,
-                      uint32_t frame,
-                      uint8_t nr_tti_rx,
-                      uint8_t harq_pid,
-                      uint32_t G);
+/// Starts decoding the SLSCH in dec; true: dec->done(dec) is called once decoded, possibly before returning
+bool nr_slsch_decoding_start(nr_ue_slsch_decoding_t *dec, int16_t *slsch_llr, nfapi_nr_pusch_pdu_t *pssch_pdu, uint32_t G);
 
 /** \brief Alternative entry point to UE uplink shared channels procedures.
     It handles all the HARQ processes in only one call.

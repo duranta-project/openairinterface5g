@@ -207,25 +207,42 @@ static int nr_slsch_decoding_result(struct PHY_VARS_NR_UE_s *UE,
   return nb_decoded_segments;
 }
 
-int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
-                      uint8_t SLSCH_id,
-                      short *slsch_llr,
-                      nfapi_nr_pusch_pdu_t *pssch_pdu,
-                      uint32_t frame,
-                      uint8_t nr_tti_rx,
-                      uint8_t harq_pid,
-                      uint32_t G)
+static void nr_slsch_decoded(void *arg)
 {
-  nrLDPC_TB_decoding_parameters_t TB = {0};
-  const int ret = nr_slsch_decoding_prepare(UE, SLSCH_id, slsch_llr, pssch_pdu, frame, nr_tti_rx, harq_pid, G, &TB);
-  if (ret <= 0)
-    return ret;
-  nrLDPC_slot_decoding_parameters_t slot_parameters = {.frame = frame,
-                                                       .slot = nr_tti_rx,
-                                                       .nb_TBs = 1,
-                                                       .threadPool = &get_nrUE_params()->Tpool,
-                                                       .TBs = &TB};
-  // nrLDPC_coding_decoder() always returns 0 and signals per-segment success via decodeSuccess
-  UE->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
-  return nr_slsch_decoding_result(UE, SLSCH_id, &TB, frame, nr_tti_rx, harq_pid);
+  nr_ue_slsch_decoding_t *dec = arg;
+  dec->nb_decoded =
+      nr_slsch_decoding_result(dec->ue, dec->SLSCH_id, &dec->TB, dec->proc->frame_rx, dec->proc->nr_slot_rx, dec->SLSCH_id);
+  dec->done(dec);
+}
+
+bool nr_slsch_decoding_start(nr_ue_slsch_decoding_t *dec, int16_t *slsch_llr, nfapi_nr_pusch_pdu_t *pssch_pdu, uint32_t G)
+{
+  const UE_nr_rxtx_proc_t *proc = dec->proc;
+  nrLDPC_TB_decoding_parameters_t *TB = &dec->TB;
+  memset(TB, 0, sizeof(*TB));
+  dec->nb_decoded = nr_slsch_decoding_prepare(dec->ue,
+                                              dec->SLSCH_id,
+                                              slsch_llr,
+                                              pssch_pdu,
+                                              proc->frame_rx,
+                                              proc->nr_slot_rx,
+                                              dec->SLSCH_id,
+                                              G,
+                                              TB);
+  if (dec->nb_decoded <= 0)
+    return false;
+  dec->slot = (nrLDPC_slot_decoding_parameters_t){.frame = proc->frame_rx,
+                                                  .slot = proc->nr_slot_rx,
+                                                  .nb_TBs = 1,
+                                                  .threadPool = &get_nrUE_params()->Tpool,
+                                                  .TBs = TB,
+                                                  .done = nr_slsch_decoded,
+                                                  .done_arg = dec};
+  const int ret = dec->ue->nrLDPC_coding_interface.nrLDPC_coding_decoder(&dec->slot);
+  if (ret != 0) {
+    LOG_E(PHY, "nrLDPC_coding_decoder returned an error: %d\n", ret);
+    dec->nb_decoded = 0;
+    return false;
+  }
+  return true;
 }
