@@ -189,11 +189,17 @@ int main(int argc, char **argv)
   oru.fronthaul = oru_fh_init(&oru.fh_config);
   AssertFatal(oru.fronthaul != NULL, "Cannot configure oru fronthaul, check your config file/cmdline");
 
-  LOG_I(PHY, "starting rfdevice\n");
-  ret = openair0_device_load(&ru->rfdevice, &ru->openair0_cfg);
-  AssertFatal(ret == 0, "RU %u: openair0_device_load() ret %d: cannot initialize rfdevice\n", ru->idx, ret);
-  ret = ru->rfdevice.trx_start_func(&ru->rfdevice);
-  AssertFatal(ret == 0, "RU %u: trx_start_func() ret %d: cannot start rfdevice\n", ru->idx, ret);
+  if (oru.ue_config.port_name) {
+    // FD-UEs instead of a radio
+    AssertFatal(ru->nb_tx == ru->nb_rx, "O-RU with UEs: %d TX / %d RX antennas, the channel is reciprocal\n", ru->nb_tx, ru->nb_rx);
+    oru.ues = oru_ue_create(&oru.ue_config, fp, ru->nb_tx);
+  } else {
+    LOG_I(PHY, "starting rfdevice\n");
+    ret = openair0_device_load(&ru->rfdevice, &ru->openair0_cfg);
+    AssertFatal(ret == 0, "RU %u: openair0_device_load() ret %d: cannot initialize rfdevice\n", ru->idx, ret);
+    ret = ru->rfdevice.trx_start_func(&ru->rfdevice);
+    AssertFatal(ret == 0, "RU %u: trx_start_func() ret %d: cannot start rfdevice\n", ru->idx, ret);
+  }
 
   // Signal handler
   signal(SIGINT, sig_handler);
@@ -228,18 +234,20 @@ int main(int argc, char **argv)
   initNamedTpool(pool, ru->threadPool, false, "ul_worker");
 
   /* Create south before north so TX/RX start even if a north reader stalls. */
+  const bool south_write = !oru.ues || !oru.ue_config.dl_publish_air;
   threadCreate(&oru.south_read_thread,
-               oru_south_read_thread,
+               oru.ues ? oru_ue_south_thread : oru_south_read_thread,
                (void *)&oru,
                "south_read_thread",
                oru.south_core,
                OAI_PRIORITY_RT_MAX);
-  threadCreate(&oru.south_write_thread,
-               oru_south_write_thread,
-               (void *)&oru,
-               "south_write_thread",
-               oru.tx_write.core,
-               OAI_PRIORITY_RT_MAX);
+  if (south_write)
+    threadCreate(&oru.south_write_thread,
+                 oru.ues ? oru_ue_dl_thread : oru_south_write_thread,
+                 (void *)&oru,
+                 "south_write_thread",
+                 oru.tx_write.core,
+                 OAI_PRIORITY_RT_MAX);
   for (int i = 0; i < oru.num_dl_read_threads; i++) {
     char thread_name[32];
     snprintf(thread_name, sizeof(thread_name), "north_read_%d", i);
@@ -269,7 +277,9 @@ int main(int argc, char **argv)
     pthread_join(oru.dl_read_threads[i], NULL);
   }
   pthread_join(oru.south_read_thread, NULL);
-  pthread_join(oru.south_write_thread, NULL);
+  if (south_write)
+    pthread_join(oru.south_write_thread, NULL);
+  oru_ue_destroy(oru.ues);
 
   if (ru->threadPool) {
     abortTpool(ru->threadPool);

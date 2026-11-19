@@ -23,12 +23,28 @@ ue_low_phy_deadline_t ue_low_phy_deadline_in(int timeout_us)
   return d;
 }
 
+// Process-shared: a port may live in shared memory, its waiters in other processes.
+static void mutex_init(pthread_mutex_t *mutex)
+{
+  pthread_mutexattr_t attr;
+  int ret = pthread_mutexattr_init(&attr);
+  AssertFatal(ret == 0, "ret=%d\n", ret);
+  ret = pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+  AssertFatal(ret == 0, "ret=%d\n", ret);
+  ret = pthread_mutex_init(mutex, &attr);
+  AssertFatal(ret == 0, "ret=%d\n", ret);
+  ret = pthread_mutexattr_destroy(&attr);
+  AssertFatal(ret == 0, "ret=%d\n", ret);
+}
+
 static void cond_init(pthread_cond_t *cond)
 {
   pthread_condattr_t attr;
   int ret = pthread_condattr_init(&attr);
   AssertFatal(ret == 0, "ret=%d\n", ret);
   ret = pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+  AssertFatal(ret == 0, "ret=%d\n", ret);
+  ret = pthread_condattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
   AssertFatal(ret == 0, "ret=%d\n", ret);
   ret = pthread_cond_init(cond, &attr);
   AssertFatal(ret == 0, "ret=%d\n", ret);
@@ -60,7 +76,7 @@ static void wake(ue_low_phy_progress_t *p)
 
 void ue_low_phy_progress_init(ue_low_phy_progress_t *p, uint64_t value)
 {
-  mutexinit(p->lock);
+  mutex_init(&p->lock);
   cond_init(&p->cond);
   p->value = value;
   p->wake_at = UINT64_MAX;
@@ -133,7 +149,7 @@ void ue_low_phy_progress_close(ue_low_phy_progress_t *p)
 
 void ue_low_phy_monitor_init(ue_low_phy_monitor_t *m)
 {
-  mutexinit(m->lock);
+  mutex_init(&m->lock);
   cond_init(&m->cond);
 }
 

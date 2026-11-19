@@ -82,6 +82,46 @@ TEST(UeLowPhyOfdm, ModMatchesMonolithic)
   }
 }
 
+// Modulation then demodulation returns REs and PRACH bins with unit gain and no phase.
+void expect_unit_gain(const char *what, const c16_t *x, const c16_t *y, int n, double max_residual)
+{
+  double re = 0, im = 0, power = 0, residual = 0;
+  for (int i = 0; i < n; i++) {
+    re += (double)y[i].r * x[i].r + (double)y[i].i * x[i].i;
+    im += (double)y[i].i * x[i].r - (double)y[i].r * x[i].i;
+    power += (double)x[i].r * x[i].r + (double)x[i].i * x[i].i;
+    residual = std::max(residual, std::max(std::fabs(y[i].r - x[i].r), std::fabs(y[i].i - x[i].i)));
+  }
+  EXPECT_NEAR(re / power, 1.0, 0.002) << what;
+  EXPECT_NEAR(im / power, 0.0, 0.001) << what;
+  EXPECT_LT(residual, max_residual) << what;
+}
+
+TEST(UeLowPhyOfdm, FdEquivalentToTimeDomain)
+{
+  const int fft = fp.ofdm_symbol_size;
+  const int n_re = fp.N_RB_DL * 12;
+  unsigned seed = 5;
+  Buf x = buf(fft), t = buf(fft + fp.nb_prefix_samples0), y = buf(fft);
+  for (int slot : {0, 1, 7}) {
+    for (int s = 0; s < fp.symbols_per_slot; s++) {
+      fill_random(x.get(), n_re, &seed);
+      ue_low_phy_test_mod_symbol(&fp, link_type_dl, slot, s, x.get(), t.get());
+      ue_low_phy_test_demod_symbol(&fp, slot, s, t.get(), y.get());
+      expect_unit_gain("DL", x.get(), y.get(), n_re, 16);
+      ue_low_phy_test_mod_symbol(&fp, link_type_ul, slot, s, x.get(), t.get());
+      ue_low_phy_test_demod_ul_symbol(&fp, slot, s, t.get(), y.get());
+      expect_unit_gain("UL", x.get(), y.get(), n_re, 16);
+    }
+  }
+  for (int dftlen : {256, 1024, 1536, 24576}) {
+    Buf bins = buf(dftlen), out = buf(dftlen);
+    fill_random(bins.get(), dftlen, &seed);
+    ue_low_phy_test_prach_round_trip(bins.get(), dftlen, out.get());
+    expect_unit_gain("PRACH", bins.get(), out.get(), dftlen, 48);
+  }
+}
+
 TEST(UeLowPhyOfdm, DemodMatchesMonolithic)
 {
   const int fft = fp.ofdm_symbol_size;

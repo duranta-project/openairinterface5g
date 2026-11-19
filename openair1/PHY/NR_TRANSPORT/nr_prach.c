@@ -451,6 +451,15 @@ void rx_nr_prach_ru_rep(prach_item_t *p,
   rx_nr_prach_ru_internal_rep(p, 0, rxdata, fp, N_TA_offset, rep, &params, rxsigF);
 }
 
+void nr_prach_ru_bins(prach_item_t *p, NR_DL_FRAME_PARMS *fp, int prachOccasion, int *k, int *dftlen, int *n_zc)
+{
+  const int prachStartSymbol = p->pdu.prach_start_symbol + prachOccasion * get_nr_prach_duration(p->pdu.prach_format);
+  const prach_ru_params_t params = get_prach_ru_params(p, prachStartSymbol, fp);
+  *k = params.k;
+  *dftlen = params.dftlen;
+  *n_zc = params.N_ZC;
+}
+
 rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 {
   const int nb_rx = in->nb_rx;

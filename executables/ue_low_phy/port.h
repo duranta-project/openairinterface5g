@@ -3,12 +3,17 @@
  */
 
 /*
- * UE Low-PHY port: the boundary between one Low-PHY device (the host, owning the
- * radio) and up to UE_LOW_PHY_MAX_CLIENTS High-PHY clients (UE instances, threads of
- * the same process). Everything crossing it lives in one block of memory, laid
- * out by offsets.
+ * UE Low-PHY port: the boundary between one Low-PHY host and up to
+ * UE_LOW_PHY_MAX_CLIENTS High-PHY clients (UE instances). Everything crossing it lives
+ * in one block of memory, laid out by offsets: process memory when the host and its
+ * clients are threads of one process, a named shared memory object otherwise
+ * (ue_low_phy_port_create_shared(), ue_low_phy_port_attach()).
  *
- * DL: the host demodulates every symbol once into a shared ring; clients only read.
+ * Time: absolute symbols, counted by the host. The time anchor maps them to 3GPP time.
+ *
+ * DL: a host owning a radio demodulates every symbol once into a ring shared by all
+ * clients. A host simulating the clients' channels (dl_per_client) writes one ring per
+ * client, holding the n_rb_dl * 12 REs of each symbol. Clients only read.
  * UL: a client joins at a TX slot, then completes every slot from there on with
  * a slot record (ue_low_phy_client_slot_done(): symbols used, PRACH, Timing Advance)
  * until the slot it leaves at. The host transmits a stretch of samples only when
@@ -46,6 +51,8 @@ typedef struct {
   uint32_t ring_symbols; ///< depth of the RX and TX rings, a multiple of 2 frames
   uint32_t prach_max_samples; ///< largest PRACH IDFT size
   uint32_t max_clients; ///< client slots, 1..UE_LOW_PHY_MAX_CLIENTS: the port's size grows with them
+  uint32_t dl_per_client; ///< nonzero: one DL ring per client, n_rb_dl * 12 REs per symbol
+  uint32_t rx_ring_symbols; ///< depth of the per-client DL rings, a multiple of symbols_per_slot
 } ue_low_phy_geometry_t;
 
 typedef struct {
@@ -123,7 +130,10 @@ typedef struct {
 typedef struct {
   uint64_t size;
   ue_low_phy_geometry_t geo;
-  uint64_t rx_off; ///< [nb_rx][ring_symbols][fft_size]
+  uint32_t ready; ///< set last by the creator: the rest is initialized
+  uint64_t rx_off; ///< [nb_rx][ring_symbols][fft_size], or with dl_per_client [client][nb_rx][rx_ring_symbols][rx_stride]
+  uint32_t rx_ring_symbols; ///< depth of the DL ring(s)
+  uint32_t rx_stride; ///< REs per symbol in the DL ring(s)
   uint64_t tx_off; ///< [client][ring_symbols] (hdr + [nb_tx][tx_stride])
   uint64_t prach_off; ///< [client][UE_LOW_PHY_MAX_PRACH] (hdr + [prach_max_samples])
   uint64_t record_off; ///< [client][ring_slots]
@@ -149,21 +159,73 @@ typedef struct {
   int32_t timing_master; ///< its client id (set by the host), -1 for none
   int32_t timing_shift; ///< accumulated request, monolithic shiftForNextFrame convention
   bool stopped; ///< the host stopped: sync requests are never answered
+  // 3GPP time: absolute symbol a is symbol time_symbol0 + a counted from hyper frame 0,
+  // frame 0, slot 0, symbol 0.
+  bool time_anchored;
+  uint64_t time_symbol0;
 
   ue_low_phy_client_info_t clients[UE_LOW_PHY_MAX_CLIENTS];
 } ue_low_phy_port_mem_t;
 
+typedef enum {
+  UE_LOW_PHY_PORT_PRIVATE, ///< process memory
+  UE_LOW_PHY_PORT_SHARED_OWNER, ///< shared memory object created by this process
+  UE_LOW_PHY_PORT_SHARED_ATTACHED, ///< shared memory object of another process
+} ue_low_phy_port_kind_t;
+
 typedef struct ue_low_phy_port {
   ue_low_phy_port_mem_t *mem;
+  ue_low_phy_port_kind_t kind;
+  char name[64];
 } ue_low_phy_port_t;
 
 ue_low_phy_port_t *ue_low_phy_port_create(const ue_low_phy_geometry_t *geo);
+/// Creates the port as shared memory object name (shm_open() naming), replacing a stale one.
+ue_low_phy_port_t *ue_low_phy_port_create_shared(const char *name, const ue_low_phy_geometry_t *geo);
+/// Maps the port another process created as name, waiting up to timeout_ms for it to be
+/// ready. NULL on timeout.
+ue_low_phy_port_t *ue_low_phy_port_attach(const char *name, int timeout_ms);
+/// Unmaps an attached port; destroys a created one (and unlinks its name).
 void ue_low_phy_port_destroy(ue_low_phy_port_t *port);
 
+/// Shared DL ring of antenna ant (without dl_per_client): [ring_symbols][fft_size].
 static inline c16_t *ue_low_phy_port_rx_ring(const ue_low_phy_port_t *port, int ant)
 {
   const ue_low_phy_geometry_t *g = &port->mem->geo;
   return (c16_t *)((uint8_t *)port->mem + port->mem->rx_off) + (size_t)ant * g->ring_symbols * g->fft_size;
+}
+
+/// DL ring of client and antenna ant (dl_per_client): [rx_ring_symbols][rx_stride], the
+/// n_rb_dl * 12 REs of a symbol from the lowest subcarrier up.
+static inline c16_t *ue_low_phy_port_client_rx_ring(const ue_low_phy_port_t *port, int client, int ant)
+{
+  const ue_low_phy_port_mem_t *s = port->mem;
+  const size_t ring = (size_t)s->rx_ring_symbols * s->rx_stride;
+  return (c16_t *)((uint8_t *)s + s->rx_off) + ((size_t)client * s->geo.nb_rx + ant) * ring;
+}
+
+/// 3GPP time of a 3GPP symbol count (time_symbol0 + absolute symbol).
+typedef struct {
+  uint64_t hfn;
+  int frame;
+  int slot;
+  int symbol;
+} ue_low_phy_3gpp_time_t;
+
+static inline ue_low_phy_3gpp_time_t ue_low_phy_3gpp_time(const ue_low_phy_geometry_t *g, uint64_t symbol_3gpp)
+{
+  const uint64_t symbols_per_frame = (uint64_t)g->slots_per_frame * g->symbols_per_slot;
+  const uint64_t frames = symbol_3gpp / symbols_per_frame;
+  const uint64_t in_frame = symbol_3gpp % symbols_per_frame;
+  return (ue_low_phy_3gpp_time_t){.hfn = frames / 1024,
+                                  .frame = (int)(frames % 1024),
+                                  .slot = (int)(in_frame / g->symbols_per_slot),
+                                  .symbol = (int)(in_frame % g->symbols_per_slot)};
+}
+
+static inline uint64_t ue_low_phy_3gpp_symbol(const ue_low_phy_geometry_t *g, uint64_t hfn, int frame, int slot, int symbol)
+{
+  return ((hfn * 1024 + frame) * g->slots_per_frame + slot) * g->symbols_per_slot + symbol;
 }
 
 static inline ue_low_phy_entry_hdr_t *ue_low_phy_port_tx_entry(const ue_low_phy_port_t *port, int client, uint64_t abs_sym)
@@ -195,7 +257,10 @@ static inline ue_low_phy_slot_record_t *ue_low_phy_port_record(const ue_low_phy_
 /* Host API                                                                  */
 /* ------------------------------------------------------------------------- */
 
+/// Publishes the time anchor: absolute symbol 0 is 3GPP symbol symbol0 (ue_low_phy_3gpp_symbol()).
+void ue_low_phy_port_set_time(ue_low_phy_port_t *port, uint64_t symbol0);
 /// Publishes the cell (once) and the first RX symbol, and answers pending sync requests.
+/// The absolute frames of the cell's host are SFNs (abs_frame % 1024): the time anchor is 0.
 void ue_low_phy_port_anchor(ue_low_phy_port_t *port, const ue_low_phy_cell_t *cell, uint64_t first_symbol);
 bool ue_low_phy_port_anchored(ue_low_phy_port_t *port);
 /// The newest sync request if it differs from *served (then updated), else false.
@@ -230,13 +295,17 @@ uint32_t ue_low_phy_client_request_sync(ue_low_phy_client_t *c, int expected_pci
 /// failed or the host stopped.
 int ue_low_phy_client_sync_result(ue_low_phy_client_t *c, uint32_t req, ue_low_phy_cell_t *cell, int timeout_us);
 
+/// Waits up to timeout_us for the time anchor: true with *symbol0 set, false on timeout or
+/// when the host stopped.
+bool ue_low_phy_client_time(ue_low_phy_client_t *c, uint64_t *symbol0, int timeout_us);
+
 /// Next absolute slot not yet completely published.
 uint64_t ue_low_phy_client_next_published_slot(const ue_low_phy_client_t *c);
 /// 0 when abs_slot is in the RX ring, 1 on timeout, -1 when it already left the ring,
 /// -2 when the host stopped.
 int ue_low_phy_client_wait_slot(ue_low_phy_client_t *c, uint64_t abs_slot, int timeout_us);
-/// Copies published symbol abs_sym of each antenna (fft_size REs) to dst[ant]. False when
-/// the host overwrote it (before or during the copy): dst holds no usable data then.
+/// Copies symbol abs_sym of each antenna to dst[ant], FFT shifted as nr_symbol_fep() leaves
+/// it (with dl_per_client, zeros after the REs). False if the host overwrote it.
 bool ue_low_phy_client_rx_symbol(ue_low_phy_client_t *c, uint64_t abs_sym, c16_t *const *dst, int nb_ant);
 
 /// Asks to become a member from first_tx_slot on (or the first slot the host can still

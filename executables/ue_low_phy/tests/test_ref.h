@@ -36,6 +36,10 @@ void ue_low_phy_test_mod_symbol(NR_DL_FRAME_PARMS *fp, enum nr_Link link, int sl
 /// @param in first sample of the symbol (start of its CP)
 void ue_low_phy_test_demod_symbol(NR_DL_FRAME_PARMS *fp, int slot, int symbol, const c16_t *in, c16_t *out);
 
+/// As ue_low_phy_test_demod_symbol(), UL rotation (an O-RU's or gNB's demodulation).
+void ue_low_phy_test_demod_ul_symbol(NR_DL_FRAME_PARMS *fp, int slot, int symbol, const c16_t *in, c16_t *out);
+/// PRACH bins through the UE's IDFT (nr_prach_ofdm_mod()) and the RU's DFT (rx_nr_prach_ru_rep()).
+void ue_low_phy_test_prach_round_trip(const c16_t *bins, int dftlen, c16_t *out);
 /// nr_prach_ofdm_mod(): ncp + reps * dftlen samples into out.
 void ue_low_phy_test_prach_mod(const c16_t *bins, int dftlen, int ncp, int reps, c16_t *out);
 
