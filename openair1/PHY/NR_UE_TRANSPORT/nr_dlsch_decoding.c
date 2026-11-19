@@ -37,36 +37,26 @@ void nr_dlsch_unscrambling(int16_t *llr, uint32_t size, uint8_t q, uint32_t Nid,
   nr_codeword_unscrambling(llr, size, q, Nid, n_RNTI);
 }
 
-/*! \brief Prepare necessary parameters for nrLDPC_coding_interface
- */
-void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
-                       const UE_nr_rxtx_proc_t *proc,
-                       NR_UE_DLSCH_t *dlsch,
-                       int cw_idx,
-                       fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config,
-                       int16_t *dlsch_llr,
-                       uint8_t *b,
-                       int number_rbs,
-                       int G)
+/// Decoding parameters of a DLSCH codeword, except the decoded segments buffer; false: nothing to decode
+static bool nr_dlsch_decoding_prepare(PHY_VARS_NR_UE *ue,
+                                      const UE_nr_rxtx_proc_t *proc,
+                                      NR_UE_DLSCH_t *dlsch,
+                                      int cw_idx,
+                                      fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config,
+                                      int16_t *dlsch_llr,
+                                      int number_rbs,
+                                      int G,
+                                      nrLDPC_TB_decoding_parameters_t *TB)
 {
-  nrLDPC_TB_decoding_parameters_t TB_parameters = {0};
-  nrLDPC_slot_decoding_parameters_t slot_parameters = {
-    .frame = proc->frame_rx,
-    .slot = proc->nr_slot_rx,
-    .nb_TBs = 1,
-    .threadPool = &get_nrUE_params()->Tpool,
-    .TBs = &TB_parameters
-  };
-
   uint8_t dmrs_Type = dlsch_config->dmrsConfigType;
   int harq_pid = dlsch_config->harq_process_nbr;
   AssertFatal(dmrs_Type == 0 || dmrs_Type == 1, "Illegal dmrs_type %d\n", dmrs_Type);
   fapi_nr_dl_cw_info_t *cw_info = &dlsch->cw_info;
-  NR_DL_UE_HARQ_t *harq_process = &phy_vars_ue->dl_harq_processes[cw_idx][dlsch_config->harq_process_nbr];
+  NR_DL_UE_HARQ_t *harq_process = &ue->dl_harq_processes[cw_idx][dlsch_config->harq_process_nbr];
   if (harq_process->activated_frame != proc->frame_rx || harq_process->activated_slot != proc->nr_slot_rx) {
     LOG_W(PHY, "%d.%d DLSCH harq %d late decode aborted, re-armed %d.%d\n",
           proc->frame_rx, proc->nr_slot_rx, harq_pid, harq_process->activated_frame, harq_process->activated_slot);
-    return;
+    return false;
   }
   LOG_D(PHY, "Round %d RV idx %d\n", harq_process->DLround, cw_info->rv);
   uint8_t nb_re_dmrs;
@@ -76,146 +66,138 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     nb_re_dmrs = 4 * dlsch_config->n_dmrs_cdm_groups;
   uint16_t dmrs_length = get_num_dmrs(dlsch_config->dlDmrsSymbPos);
 
-  TB_parameters.harq_unique_pid = 2 * harq_pid + cw_idx;
-  TB_parameters.G = G;
-  TB_parameters.nb_rb = number_rbs;
-  TB_parameters.Qm = cw_info->qamModOrder;
-  TB_parameters.mcs = cw_info->mcs;
-  TB_parameters.nb_layers = cw_info->Nl;
-  TB_parameters.BG = cw_info->ldpcBaseGraph;
-  TB_parameters.A = cw_info->TBS;
-  TB_parameters.processedSegments = &harq_process->processedSegments;
+  TB->harq_unique_pid = 2 * harq_pid + cw_idx;
+  TB->G = G;
+  TB->nb_rb = number_rbs;
+  TB->Qm = cw_info->qamModOrder;
+  TB->mcs = cw_info->mcs;
+  TB->nb_layers = cw_info->Nl;
+  TB->BG = cw_info->ldpcBaseGraph;
+  TB->A = cw_info->TBS;
+  TB->processedSegments = &harq_process->processedSegments;
 
   float Coderate = (float)cw_info->targetCodeRate / 10240.0f;
 
   LOG_D(PHY,
         "%d.%d DLSCH %d Decoding, harq_pid %d TBS %d G %d nb_re_dmrs %d length dmrs %d mcs %d Nl %d nb_symb_sch %d nb_rb %d Qm %d "
         "Coderate %f\n",
-        slot_parameters.frame,
-        slot_parameters.slot,
+        proc->frame_rx,
+        proc->nr_slot_rx,
         cw_idx,
         harq_pid,
         cw_info->TBS,
         G,
         nb_re_dmrs,
         dmrs_length,
-        TB_parameters.mcs,
-        TB_parameters.nb_layers,
+        TB->mcs,
+        TB->nb_layers,
         dlsch_config->number_symbols,
-        TB_parameters.nb_rb,
-        TB_parameters.Qm,
+        TB->nb_rb,
+        TB->Qm,
         Coderate);
 
   if (harq_process->first_rx == 1) {
     // This is a new packet, so compute quantities regarding segmentation
     nr_segmentation(NULL,
                     NULL,
-                    lenWithCrc(1, TB_parameters.A), // We give a max size in case of 1 segment
-                    &TB_parameters.C,
-                    &TB_parameters.K,
-                    &TB_parameters.Z, // [hna] Z is Zc
-                    &TB_parameters.F,
-                    TB_parameters.BG);
-    harq_process->C = TB_parameters.C;
-    harq_process->K = TB_parameters.K;
-    harq_process->Z = TB_parameters.Z;
-    harq_process->F = TB_parameters.F;
+                    lenWithCrc(1, TB->A), // We give a max size in case of 1 segment
+                    &TB->C,
+                    &TB->K,
+                    &TB->Z, // [hna] Z is Zc
+                    &TB->F,
+                    TB->BG);
+    harq_process->C = TB->C;
+    harq_process->K = TB->K;
+    harq_process->Z = TB->Z;
+    harq_process->F = TB->F;
 
-    if (harq_process->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * TB_parameters.nb_layers) {
-      LOG_E(PHY, "nr_segmentation.c: too many segments %d, A %d\n", harq_process->C, TB_parameters.A);
-      return;
+    if (harq_process->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * TB->nb_layers) {
+      LOG_E(PHY, "nr_segmentation.c: too many segments %d, A %d\n", harq_process->C, TB->A);
+      return false;
     }
 
-    if (LOG_DEBUGFLAG(DEBUG_DLSCH_DECOD) && (!slot_parameters.frame % 100))
-      LOG_I(PHY, "K %d C %d Z %d nl %d \n", harq_process->K, harq_process->C, harq_process->Z, TB_parameters.nb_layers);
+    if (LOG_DEBUGFLAG(DEBUG_DLSCH_DECOD) && (!proc->frame_rx % 100))
+      LOG_I(PHY, "K %d C %d Z %d nl %d \n", harq_process->K, harq_process->C, harq_process->Z, TB->nb_layers);
   } else {
     // This is not a new packet, so retrieve previously computed quantities regarding segmentation
-    TB_parameters.C = harq_process->C;
-    TB_parameters.K = harq_process->K;
-    TB_parameters.Z = harq_process->Z;
-    TB_parameters.F = harq_process->F;
+    TB->C = harq_process->C;
+    TB->K = harq_process->K;
+    TB->Z = harq_process->Z;
+    TB->F = harq_process->F;
   }
 
   if (LOG_DEBUGFLAG(DEBUG_DLSCH_DECOD))
     LOG_I(PHY, "Segmentation: C %d, K %d\n", harq_process->C, harq_process->K);
 
-  TB_parameters.d_to_be_cleared = harq_process->first_rx == 1;
+  TB->d_to_be_cleared = harq_process->first_rx == 1;
   /* Buffer now holds this TB. Clear first_rx only after that, so a skipped decode still re-segments. */
   harq_process->first_rx = 0;
   /* Restart llrLen when the buffer is cleared, even if DLround is already non-zero. */
-  const int llr_round = TB_parameters.d_to_be_cleared ? 0 : harq_process->DLround;
+  const int llr_round = TB->d_to_be_cleared ? 0 : harq_process->DLround;
 
-  TB_parameters.max_ldpc_iterations = dlsch->max_ldpc_iterations;
-  TB_parameters.rv_index = cw_info->rv;
-  TB_parameters.tbslbrm = dlsch_config->tbslbrm;
-  TB_parameters.abort_decode = &harq_process->abort_decode;
+  TB->max_ldpc_iterations = dlsch->max_ldpc_iterations;
+  TB->rv_index = cw_info->rv;
+  TB->tbslbrm = dlsch_config->tbslbrm;
+  TB->abort_decode = &harq_process->abort_decode;
   set_abort(&harq_process->abort_decode, false);
 
-  TB_parameters.llr = dlsch_llr;
-  LOG_D(NR_PHY,
-        "Decoding C %d, Qm %d, TB_parameters.llr %p\n",
-        TB_parameters.C,
-        TB_parameters.Qm,
-        TB_parameters.llr);
-  int E = nr_get_E(TB_parameters.G, TB_parameters.C, TB_parameters.Qm, TB_parameters.nb_layers, 0);
+  TB->llr = dlsch_llr;
+  LOG_D(NR_PHY, "Decoding C %d, Qm %d, TB->llr %p\n", TB->C, TB->Qm, TB->llr);
+  int E = nr_get_E(TB->G, TB->C, TB->Qm, TB->nb_layers, 0);
   if (E < 0)
-    return;
-#ifdef LDPC_CUDA
-  uint8_t *c = harq_process->c; // written by the GPU: mapped memory
-#else
-  // decoded segments, segment r at r * K / 8: only used during this call
-  uint8_t c[TB_parameters.C * (TB_parameters.K >> 3)] __attribute__((aligned(32)));
-#endif
-  TB_parameters.c = c;
-  TB_parameters.d = harq_process->d;
-  TB_parameters.E = E;
-  TB_parameters.E2 = TB_parameters.E;
-  TB_parameters.first_rE2 = TB_parameters.C;
-  for (int r = 1; r < TB_parameters.C; r++) {
-    int Er = nr_get_E(TB_parameters.G, TB_parameters.C, TB_parameters.Qm, TB_parameters.nb_layers, r);
-    if (Er != TB_parameters.E) {
-      TB_parameters.E2 = Er;
-      TB_parameters.first_rE2 = r;
+    return false;
+  TB->d = harq_process->d;
+  TB->E = E;
+  TB->E2 = TB->E;
+  TB->first_rE2 = TB->C;
+  for (int r = 1; r < TB->C; r++) {
+    int Er = nr_get_E(TB->G, TB->C, TB->Qm, TB->nb_layers, r);
+    if (Er != TB->E) {
+      TB->E2 = Er;
+      TB->first_rE2 = r;
       break;
     }
   }
-  TB_parameters.R = nr_get_R_ldpc_decoder(TB_parameters.rv_index,
-                                          TB_parameters.E,
-                                          TB_parameters.BG,
-                                          TB_parameters.Z,
-                                          &harq_process->llrLen,
-                                          llr_round);
-  for (int r = 0; r < TB_parameters.C; r++)
-    TB_parameters.decodeSuccess[r] = false;
+  TB->R = nr_get_R_ldpc_decoder(TB->rv_index, TB->E, TB->BG, TB->Z, &harq_process->llrLen, llr_round);
+  for (int r = 0; r < TB->C; r++)
+    TB->decodeSuccess[r] = false;
 
-  for (int r = 0; r < TB_parameters.C; r++) {
-    reset_single_meas(&TB_parameters.ts_ldpc_decode[r]);
-    int Etmp = nr_get_E(TB_parameters.G, TB_parameters.C, TB_parameters.Qm, TB_parameters.nb_layers, r);
-    if (Etmp != TB_parameters.E) {
-      TB_parameters.E2 = Etmp;
-      TB_parameters.R2 = nr_get_R_ldpc_decoder(TB_parameters.rv_index,
-                                               TB_parameters.E2,
-                                               TB_parameters.BG,
-                                               TB_parameters.Z,
-                                               &harq_process->llrLen,
-                                               llr_round);
-      TB_parameters.first_rE2 = r;
+  for (int r = 0; r < TB->C; r++) {
+    reset_single_meas(&TB->ts_ldpc_decode[r]);
+    int Etmp = nr_get_E(TB->G, TB->C, TB->Qm, TB->nb_layers, r);
+    if (Etmp != TB->E) {
+      TB->E2 = Etmp;
+      TB->R2 = nr_get_R_ldpc_decoder(TB->rv_index, TB->E2, TB->BG, TB->Z, &harq_process->llrLen, llr_round);
+      TB->first_rE2 = r;
       break;
     }
   }
+  return true;
+}
 
-  int ret_decoder = phy_vars_ue->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
-
-  if (ret_decoder != 0) {
-    LOG_E(PHY, "nrLDPC_coding_decoder returned an error: %d\n", ret_decoder);
-    return;
-  }
-
+/// Checks the decoded TB, copies it to b, updates the HARQ process
+static void nr_dlsch_decoding_result(PHY_VARS_NR_UE *ue,
+                                     const UE_nr_rxtx_proc_t *proc,
+                                     NR_UE_DLSCH_t *dlsch,
+                                     int cw_idx,
+                                     fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config,
+                                     nrLDPC_TB_decoding_parameters_t *TB,
+                                     uint8_t *b,
+                                     int number_rbs,
+                                     int G)
+{
+  const int harq_pid = dlsch_config->harq_process_nbr;
+  const fapi_nr_dl_cw_info_t *cw_info = &dlsch->cw_info;
+  NR_DL_UE_HARQ_t *harq_process = &ue->dl_harq_processes[cw_idx][harq_pid];
+  const uint8_t *c = TB->c;
+  const uint8_t nb_re_dmrs = (dlsch_config->dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 6 : 4) * dlsch_config->n_dmrs_cdm_groups;
+  const uint16_t dmrs_length = get_num_dmrs(dlsch_config->dlDmrsSymbPos);
+  const float Coderate = (float)cw_info->targetCodeRate / 10240.0f;
   bool crcok = true;
-  for (int r = 0; r < TB_parameters.C; r++) {
-    merge_single_meas(&phy_vars_ue->phy_cpu_stats.cpu_time_stats[DLSCH_LDPC_DECODING_STATS], &TB_parameters.ts_ldpc_decode[r]);
+  for (int r = 0; r < TB->C; r++) {
+    merge_single_meas(&ue->phy_cpu_stats.cpu_time_stats[DLSCH_LDPC_DECODING_STATS], &TB->ts_ldpc_decode[r]);
 
-    if (TB_parameters.decodeSuccess[r] == false && crcok) {
+    if (TB->decodeSuccess[r] == false && crcok) {
       LOG_D(PHY, "downlink segment error %d/%d\n", r, harq_process->C);
       crcok = false;
     }
@@ -225,14 +207,13 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     uint8_t *output = b;
     const uint8_t *in = c;
     const int sz = (harq_process->K - harq_process->F) / 8 - (harq_process->C > 1 ? 3 : 0);
-    for (int r = 0; r < TB_parameters.C; r++) {
+    for (int r = 0; r < TB->C; r++) {
       memcpy(output, in, sz);
       output += sz;
       in += harq_process->K / 8;
     }
   } else {
-    LOG_D(PHY, "frame=%d, slot=%d, first_rx=%d, rv_index=%d\n",
-          proc->frame_rx, proc->nr_slot_rx, TB_parameters.d_to_be_cleared, cw_info->rv);
+    LOG_D(PHY, "frame=%d, slot=%d, first_rx=%d, rv_index=%d\n", proc->frame_rx, proc->nr_slot_rx, TB->d_to_be_cleared, cw_info->rv);
   }
 
   kpiStructure.nb_total++;
@@ -258,19 +239,19 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
             harq_process->first_rx,
             harq_process->DLround,
             cw_info->rv,
-            TB_parameters.d_to_be_cleared,
+            TB->d_to_be_cleared,
             cw_info->TBS,
-            TB_parameters.A,
+            TB->A,
             harq_process->K,
             harq_process->Z,
             harq_process->F,
-            TB_parameters.E,
-            TB_parameters.E2,
-            TB_parameters.first_rE2,
-            TB_parameters.R,
-            TB_parameters.R2,
-            TB_parameters.Qm,
-            TB_parameters.nb_layers);
+            TB->E,
+            TB->E2,
+            TB->first_rE2,
+            TB->R,
+            TB->R2,
+            TB->Qm,
+            TB->nb_layers);
       harq_process->decodeResult = false;
     }
   }
@@ -300,10 +281,18 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
 
   /* LOG_D only: this runs on a SCHED_FIFO thread; LOG_I formatting was enough to miss slot deadlines. */
   if (harq_process->DLround > 0 || !harq_process->decodeResult)
-    LOG_D(PHY, "%d.%d DL HARQ combine harq %d r%d rv %d %s cleared %d llrLen %d E %d G %d\n",
-          proc->frame_rx, proc->nr_slot_rx, harq_pid, harq_process->DLround, TB_parameters.rv_index,
-          harq_process->decodeResult ? "ok" : "nok", TB_parameters.d_to_be_cleared,
-          harq_process->llrLen, TB_parameters.E, TB_parameters.G);
+    LOG_D(PHY,
+          "%d.%d DL HARQ combine harq %d r%d rv %d %s cleared %d llrLen %d E %d G %d\n",
+          proc->frame_rx,
+          proc->nr_slot_rx,
+          harq_pid,
+          harq_process->DLround,
+          TB->rv_index,
+          harq_process->decodeResult ? "ok" : "nok",
+          TB->d_to_be_cleared,
+          harq_process->llrLen,
+          TB->E,
+          TB->G);
 
   if (harq_process->decodeResult) {
     LOG_D(PHY, "%d.%d DLSCH received ok \n", proc->frame_rx, proc->nr_slot_rx);
@@ -319,7 +308,7 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     LOG_D(PHY, "%d.%d DLSCH received nok \n", proc->frame_rx, proc->nr_slot_rx);
     kpiStructure.nb_nack++;
     dlsch->last_iteration_cnt = dlsch->max_ldpc_iterations;
-    UEdumpScopeData(phy_vars_ue, proc->nr_slot_rx, proc->frame_rx, "DLSCH_NACK");
+    UEdumpScopeData(ue, proc->nr_slot_rx, proc->frame_rx, "DLSCH_NACK");
   }
 
   LOG_D(PHY,
@@ -343,4 +332,37 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
         number_rbs,
         cw_info->qamModOrder,
         Coderate);
+}
+
+void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
+                       const UE_nr_rxtx_proc_t *proc,
+                       NR_UE_DLSCH_t *dlsch,
+                       int cw_idx,
+                       fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config,
+                       int16_t *dlsch_llr,
+                       uint8_t *b,
+                       int number_rbs,
+                       int G)
+{
+  nrLDPC_TB_decoding_parameters_t TB = {0};
+  if (!nr_dlsch_decoding_prepare(phy_vars_ue, proc, dlsch, cw_idx, dlsch_config, dlsch_llr, number_rbs, G, &TB))
+    return;
+#ifdef LDPC_CUDA
+  uint8_t *c = phy_vars_ue->dl_harq_processes[cw_idx][dlsch_config->harq_process_nbr].c; // written by the GPU: mapped memory
+#else
+  // decoded segments, segment r at r * K / 8: only used during this call
+  uint8_t c[TB.C * (TB.K >> 3)] __attribute__((aligned(32)));
+#endif
+  TB.c = c;
+  nrLDPC_slot_decoding_parameters_t slot_parameters = {.frame = proc->frame_rx,
+                                                       .slot = proc->nr_slot_rx,
+                                                       .nb_TBs = 1,
+                                                       .threadPool = &get_nrUE_params()->Tpool,
+                                                       .TBs = &TB};
+  int ret_decoder = phy_vars_ue->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
+  if (ret_decoder != 0) {
+    LOG_E(PHY, "nrLDPC_coding_decoder returned an error: %d\n", ret_decoder);
+    return;
+  }
+  nr_dlsch_decoding_result(phy_vars_ue, proc, dlsch, cw_idx, dlsch_config, &TB, b, number_rbs, G);
 }
