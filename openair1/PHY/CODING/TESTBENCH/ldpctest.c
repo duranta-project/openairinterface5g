@@ -275,11 +275,11 @@ one_measurement_t test_ldpc(short max_iterations,
   channel_input_optim = malloc16(68 * 384 * sizeof(uint32_t));
   memset(channel_input_optim, 0, 68 * 384 * sizeof(uint32_t));
 
-  // Fill input segments with random values
+  // Fill input segments with random values, from the RNG that randominit() seeds (OAI_RNGSEED), like the noise
   for (int j = 0; j < n_segments; j++) {
     int i = 0;
     for (i = 0; i < ((Kprime + 7) & ~7) / 8; i++)
-      test_input[j][i] = (uint8_t)rand();
+      test_input[j][i] = (uint8_t)(uniformrandom() * 256.0);
     // Mask the last byte in order to keep filler bits to 0
     if (Kprime % 8 != 0) {
       uint8_t last_byte_mask = (1 << (Kprime % 8)) - 1;
