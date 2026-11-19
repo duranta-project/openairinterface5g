@@ -19,6 +19,11 @@ typedef enum {
 
 #define FH_COMP_NUM_METHODS 4
 
+typedef struct {
+  fh_comp_method_t method;
+  int iq_width;
+} fh_comp_t;
+
 /* Compressed byte budget per PRB: 1 header byte + 3 × iq_bits packed sample bytes.
  * Applies to BFP, BLKSCALE, and ULAW. Typical iq_bits values: 8, 9, 12, 14. */
 #define FH_COMP_PRB_BYTES(iq_bits) (1 + 3 * (iq_bits))

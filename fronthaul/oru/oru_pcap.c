@@ -65,15 +65,6 @@ static _Atomic bool oru_pcap_enabled = false;
 static bool oru_pcap_init_done = false;
 static pthread_t oru_pcap_thread;
 static _Atomic bool oru_pcap_pusch_seen = false;
-static int oru_pcap_prach_eaxc_offset = 0;
-static struct xran_eaxcid_config oru_pcap_eaxcid_config = {.mask_cuPortId = 0xF000,
-                                                           .mask_bandSectorId = 0x0F00,
-                                                           .mask_ccId = 0x00F0,
-                                                           .mask_ruPortId = 0x000F,
-                                                           .bit_cuPortId = 12,
-                                                           .bit_bandSectorId = 8,
-                                                           .bit_ccId = 4,
-                                                           .bit_ruPortId = 0};
 
 static bool oru_pcap_inactive(void)
 {
@@ -130,12 +121,11 @@ static void *oru_pcap_writer(void *arg)
   return NULL;
 }
 
-void oru_pcap_init_from_env(int prach_eaxc_offset, uint16_t mtu)
+void oru_pcap_init_from_env(uint16_t mtu)
 {
   if (oru_pcap_init_done)
     return;
   oru_pcap_init_done = true;
-  oru_pcap_prach_eaxc_offset = prach_eaxc_offset;
 
   const char *path = getenv("ORU_PCAP_PATH");
   if (path == NULL || path[0] == '\0')
@@ -293,12 +283,12 @@ bool oru_pcap_mbuf_is_prach(struct rte_mbuf *mbuf)
     return false;
   const uint8_t *frame = rte_pktmbuf_mtod(mbuf, const uint8_t *);
   uint32_t len = rte_pktmbuf_pkt_len(mbuf);
-  if (len < sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr))
+  if (len < sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr) + sizeof(struct radio_app_common_hdr))
     return false;
-  const struct xran_ecpri_hdr *ecpri = (const struct xran_ecpri_hdr *)(frame + sizeof(struct rte_ether_hdr));
-  uint8_t ant_id = 0;
-  xran_decompose_cid(ecpri->ecpri_xtc_id, &oru_pcap_eaxcid_config, NULL, NULL, NULL, &ant_id);
-  return ant_id >= (uint8_t)oru_pcap_prach_eaxc_offset;
+  // PRACH U-Plane uses the non-zero filterIndex of its Section Type 3 (CUS 7.5.2.3, 8.3.3.3); PUSCH and SRS use 0
+  const struct radio_app_common_hdr *app =
+      (const struct radio_app_common_hdr *)(frame + sizeof(struct rte_ether_hdr) + sizeof(struct xran_ecpri_hdr));
+  return app->data_feature.filter_id != 0;
 }
 
 static bool oru_pcap_pusch_gate_open(void)
