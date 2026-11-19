@@ -605,7 +605,7 @@ uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,
   NR_UE_DL_BWP_t *dl_bwp = &cand->UE->current_DL_BWP;
   const NR_sched_pdsch_t *orig = &sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
 
-  NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, tda_info, orig->nrOfLayers);
+  NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, tda_info, orig->nrOfLayers, 1);
   uint32_t new_tbs;
   uint16_t new_rbSize;
   bool ok = nr_find_nb_rb(orig->Qm,
@@ -832,7 +832,7 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
       bool tda_changed = sched_pdsch.tda_info.startSymbolIndex != harq_pdsch.tda_info.startSymbolIndex
                          || sched_pdsch.tda_info.nrOfSymbols != harq_pdsch.tda_info.nrOfSymbols;
       if (tda_changed)
-        sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers);
+        sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers, 1);
       else
         sched_pdsch.dmrs_parms = harq_pdsch.dmrs_parms;
     } else {
@@ -841,7 +841,7 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
       int mcs = sched_pdsch.mcs;
       uint8_t Qm = nr_get_Qm_dl(mcs, dl_bwp->mcsTableIdx);
       uint16_t R = nr_get_code_rate_dl(mcs, dl_bwp->mcsTableIdx);
-      NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, l);
+      NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, l, 1);
 
       sched_pdsch.R = R;
       sched_pdsch.Qm = Qm;
@@ -954,7 +954,12 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
   pdsch_pdu->SCID = dmrs_parms->n_scid;
   pdsch_pdu->dlDmrsScramblingId = dmrs_parms->scrambling_id;
   pdsch_pdu->numDmrsCdmGrpsNoData = dmrs_parms->numDmrsCdmGrpsNoData;
-  pdsch_pdu->dmrsPorts = (1 << sched_pdsch->nrOfLayers) - 1;  // FIXME with a better implementation
+  // must be the ports of the antenna port(s) DCI field: they are not always the lowest Nl ports
+  pdsch_pdu->dmrsPorts = dmrs_parms->dmrs_ports;
+  AssertFatal(__builtin_popcount(pdsch_pdu->dmrsPorts) == pdsch_pdu->nrOfLayers,
+              "DMRS ports 0x%x do not match %d layers\n",
+              pdsch_pdu->dmrsPorts,
+              pdsch_pdu->nrOfLayers);
   // Pdsch Allocation in frequency domain
   pdsch_pdu->resourceAlloc = sched_pdsch->alloc_type;
   if (sched_pdsch->alloc_type == PDSCH_TYPE1) {

@@ -167,7 +167,7 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_proc
       .pm_index = target_dl_pmi,
       .nrOfLayers = target_dl_Nl,
       .bwp_info = get_pdsch_bwp_start_size(cell, UE),
-      .dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &tda_info, target_dl_Nl),
+      .dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &tda_info, target_dl_Nl, 1),
       .time_domain_allocation = tda,
       .tda_info = tda_info,
   };

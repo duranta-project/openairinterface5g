@@ -227,10 +227,7 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
                                           sched_ctrl->coreset->controlResourceSetId,
                                           false);
 
-  sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc,
-                                               current_BWP,
-                                               &sched_pdsch.tda_info,
-                                               sched_pdsch.nrOfLayers);
+  sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, current_BWP, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers, 1);
 
   sched_pdsch.Qm = nr_get_Qm_dl(sched_pdsch.mcs, current_BWP->mcsTableIdx);
   sched_pdsch.R = nr_get_code_rate_dl(sched_pdsch.mcs, current_BWP->mcsTableIdx);

@@ -409,7 +409,8 @@ void find_SSB_and_RO_available(nr_cell_sched_t *cell);
 NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
                                    const NR_UE_DL_BWP_t *BWP,
                                    const NR_tda_info_t *tda_info,
-                                   const int Layers);
+                                   const int Layers,
+                                   const uint frontloaded_dmrs);
 
 uint16_t get_pm_index(const nr_cell_sched_t *cell,
                       const NR_UE_info_t *UE,

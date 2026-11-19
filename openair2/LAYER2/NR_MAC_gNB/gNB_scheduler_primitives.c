@@ -301,48 +301,11 @@ uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx)
 NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
                                    const NR_UE_DL_BWP_t *dl_bwp,
                                    const NR_tda_info_t *tda_info,
-                                   const int Layers)
+                                   const int Layers,
+                                   const uint frontloaded_symb)
 {
+  AssertFatal(frontloaded_symb >= 1 && frontloaded_symb <= 2, "Invalid frontloaded DMRS config. Must be either 1 or 2\n");
   NR_pdsch_dmrs_t dmrs = {0};
-  int frontloaded_symb = 1; // default value
-  nr_dci_format_t dci_format = dl_bwp ? dl_bwp->dci_format : NR_DL_DCI_FORMAT_1_0;
-  if (dci_format == NR_DL_DCI_FORMAT_1_0) {
-    dmrs.numDmrsCdmGrpsNoData = tda_info->nrOfSymbols <= 2 ? 1 : 2;
-    dmrs.dmrs_ports_id = 0;
-  } else {
-    //TODO first basic implementation of dmrs port selection
-    //     only vaild for a single codeword
-    //     for now it assumes a selection of Nl consecutive dmrs ports
-    //     and a single front loaded symbol
-    //     dmrs_ports_id is the index of Tables 7.3.1.2.2-1/2/3/4
-    //     number of front loaded symbols need to be consistent with maxLength
-    //     when a more complete implementation is done
-
-    switch (Layers) {
-      case 1:
-        dmrs.dmrs_ports_id = 0;
-        dmrs.numDmrsCdmGrpsNoData = 1;
-        frontloaded_symb = 1;
-        break;
-      case 2:
-        dmrs.dmrs_ports_id = 2;
-        dmrs.numDmrsCdmGrpsNoData = 1;
-        frontloaded_symb = 1;
-        break;
-      case 3:
-        dmrs.dmrs_ports_id = 9;
-        dmrs.numDmrsCdmGrpsNoData = 2;
-        frontloaded_symb = 1;
-        break;
-      case 4:
-        dmrs.dmrs_ports_id = 10;
-        dmrs.numDmrsCdmGrpsNoData = 2;
-        frontloaded_symb = 1;
-        break;
-      default:
-        AssertFatal(1==0,"Number of layers %d\n not supported or not valid\n",Layers);
-    }
-  }
 
   dmrs.n_scid = 0;
   long *scramblingID = NULL;
@@ -354,10 +317,50 @@ NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
     dmrs.phaseTrackingRS = dmrs_Config->phaseTrackingRS ? dmrs_Config->phaseTrackingRS->choice.setup : NULL;
     dmrs.dmrsConfigType = dmrs_Config->dmrs_Type != NULL;
     scramblingID = dmrs.n_scid ? dmrs_Config->scramblingID1 : dmrs_Config->scramblingID0;
+    // frontloaded_symb must be consistent with maxLength set in dmrs_Config.
+    if (frontloaded_symb == 2)
+      AssertFatal(dmrs_Config->maxLength && *dmrs_Config->maxLength == NR_DMRS_DownlinkConfig__maxLength_len2,
+                  "Invalid frontloaded DMRS symbol config\n");
   } else {
     dmrs.dmrsConfigType = NFAPI_NR_DMRS_TYPE1;
     dmrs.phaseTrackingRS = NULL;
+    // single symbol dmrs if no pdsch_Config is present.
+    AssertFatal(frontloaded_symb == 1, "Invalid frontloaded DMRS symbol config\n");
   }
+
+  nr_dci_format_t dci_format = dl_bwp ? dl_bwp->dci_format : NR_DL_DCI_FORMAT_1_0;
+  if (dci_format == NR_DL_DCI_FORMAT_1_0) {
+    dmrs.numDmrsCdmGrpsNoData = tda_info->nrOfSymbols <= 2 ? 1 : 2;
+    dmrs.dmrs_ports_id = 0;
+    dmrs.dmrs_ports = 0x1;
+  } else {
+    // TODO: first basic implementation of dmrs port selection.
+
+    // It selects the lowest Nl ports each table offers: {0}, {0,1}, {0,1,2}, {0,1,2,3} for single-symbol
+    // DMRS, {0,1,4}, {0,1,4,5} (type 1) and {0,1,6}, {0,1,6,7} (type 2) for double-symbol DMRS.
+    // dmrs_ports_id is the value of the antenna port(s) field, i.e. the row index of TS 38.212
+    // Table 7.3.1.2.2-1/2/3/4. The table depends on dmrs-Type and maxLength, so the index (and the
+    // number of CDM groups without data) must be taken from the table matching the configuration:
+    // the UE derives its ports, number of layers, CDM groups and front-loaded symbols from it.
+    static const struct {
+      uint8_t ports_id;
+      uint8_t cdm_grps_no_data;
+      uint8_t ports; // bitmap of the DMRS ports of that row (bit p = port 1000 + p)
+    } dl_ant_ports[2][2][4] = {
+        // dmrs-Type 1
+        {{{0, 1, 0x01}, {2, 1, 0x03}, {9, 2, 0x07}, {10, 2, 0x0f}}, // maxLength 1: Table 7.3.1.2.2-1
+         {{12, 2, 0x01}, {20, 2, 0x03}, {26, 2, 0x13}, {28, 2, 0x33}}}, // maxLength 2: Table 7.3.1.2.2-2
+        // dmrs-Type 2
+        {{{0, 1, 0x01}, {2, 1, 0x03}, {9, 2, 0x07}, {10, 2, 0x0f}}, // maxLength 1: Table 7.3.1.2.2-3
+         {{24, 3, 0x01}, {36, 3, 0x03}, {42, 3, 0x43}, {45, 3, 0xc3}}}, // maxLength 2: Table 7.3.1.2.2-4
+    };
+    AssertFatal(Layers >= 1 && Layers <= 4, "Number of layers %d not supported or not valid\n", Layers);
+    const int type_idx = dmrs.dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 0 : 1;
+    dmrs.dmrs_ports_id = dl_ant_ports[type_idx][frontloaded_symb - 1][Layers - 1].ports_id;
+    dmrs.numDmrsCdmGrpsNoData = dl_ant_ports[type_idx][frontloaded_symb - 1][Layers - 1].cdm_grps_no_data;
+    dmrs.dmrs_ports = dl_ant_ports[type_idx][frontloaded_symb - 1][Layers - 1].ports;
+  }
+
   dmrs.scrambling_id = scramblingID ? *scramblingID : *scc->physCellId;
   dmrs.N_PRB_DMRS = dmrs.numDmrsCdmGrpsNoData * (dmrs.dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 6 : 4);
   dmrs.dl_dmrs_symb_pos = fill_dmrs_mask(pdsch_Config, dci_format, scc->dmrs_TypeA_Position, tda_info->nrOfSymbols, tda_info->startSymbolIndex, tda_info->mapping_type, frontloaded_symb);
