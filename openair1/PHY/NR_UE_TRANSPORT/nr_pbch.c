@@ -478,7 +478,10 @@ double nr_ue_pbch_freq_offset(const NR_DL_FRAME_PARMS *frame_parms,
                               const c16_t dl_ch_est_symb3[NR_PBCH_NUM_RB * NR_NB_SC_PER_RB])
 {
   const int nb_re = NR_PBCH_NUM_RB * NR_NB_SC_PER_RB;
-  const c32_t dot_prod_res = dot_product(dl_ch_est_symb1, dl_ch_est_symb3, nb_re, 8);
+  // Avoid per-RE truncation of weak products. The 240-RE sum is bounded by 240 * 2^31 < 2^40.
+  c64_t dot_prod_res = {0};
+  for (int re = 0; re < nb_re; ++re)
+    dot_prod_res = c64x16maddConjShift(dl_ch_est_symb1[re], dl_ch_est_symb3[re], dot_prod_res, 0);
   const double res_phase = atan2(dot_prod_res.i, dot_prod_res.r);
   const int samples_per_symbol = frame_parms->ofdm_symbol_size + frame_parms->nb_prefix_samples;
   const double t_ofdm = samples_per_symbol / (frame_parms->samples_per_subframe * 1000.0); // symbol duration in sec
