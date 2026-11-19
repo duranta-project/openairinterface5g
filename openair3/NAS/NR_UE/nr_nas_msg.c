@@ -56,6 +56,7 @@
 #include "key_nas_deriver.h"
 #include "nr-uesoftmodem.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap_qos_rule.h"
+#include "openair2/SDAP/nr_sdap/nr_sdap_entity.h"
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #include "curve_25519.h"
@@ -1801,29 +1802,37 @@ static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uin
 
   // decode plain 5GMM message header
   fgmm_msg_header_t mm_header = {0};
-  if ((decoded = decode_5gmm_msg_header(&mm_header, pdu_buffer + size, msg_length - size)) < 0) {
+  if ((decoded = decode_5gmm_msg_header(&mm_header, pdu_buffer + size, msg_length - size)) != sizeof(mm_header)) {
     LOG_E(NAS, "decode_5gmm_msg_header failure in PDU Session Establishment Accept decoding\n");
     return;
   }
   size += decoded;
 
   /* Process container (5GSM message) */
+  if (msg_length - size < 3) {
+    LOG_E(NAS, "Truncated payload container in PDU Session Establishment Accept\n");
+    return;
+  }
   // Payload container type and spare (1 octet)
   size++;
   // Payload container length
   uint16_t iei_len = 0;
   GET_SHORT(pdu_buffer + size, iei_len);
   size += sizeof(iei_len);
+  if (iei_len < sizeof(fgsm_msg_header_t) || iei_len > msg_length - size) {
+    LOG_E(NAS, "Invalid payload container length in PDU Session Establishment Accept\n");
+    return;
+  }
   // decode plain 5GSM message header
   fgsm_msg_header_t sm_header = {0};
-  if ((decoded = decode_5gsm_msg_header(&sm_header, pdu_buffer + size, msg_length - size)) < 0) {
+  if ((decoded = decode_5gsm_msg_header(&sm_header, pdu_buffer + size, iei_len)) != sizeof(sm_header)) {
     LOG_E(NAS, "decode_5gsm_msg_header failure in PDU Session Establishment Accept decoding\n");
     return;
   }
   size += decoded;
 
   // decode PDU Session Establishment Accept
-  if (!decode_pdu_session_establishment_accept_msg(&msg, pdu_buffer + size, msg_length)) {
+  if (decode_pdu_session_establishment_accept_msg(&msg, pdu_buffer + size, iei_len - decoded) < 0) {
     LOG_E(NAS, "decode_pdu_session_establishment_accept_msg failure\n");
     return;
   }
@@ -1842,8 +1851,36 @@ static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uin
               sm_header.pdu_session_id);
   nas_ue_pdu_tun_t *t = &nas->pdu_tun[sm_header.pdu_session_id];
 
-  // Set QFI before starting UE interface thread to avoid early SDUs using 0-initialized QFI.
-  nr_ue_tun_store_qfi(t, msg.qos_rules.rule->qfi);
+  int default_qfi = -1;
+  bool rule_ids[UINT8_MAX + 1] = {0};
+  for (int i = 0; i < msg.qos_rules.num_rules; i++) {
+    const qos_rule_t *rule = &msg.qos_rules.rule[i];
+    if (rule_ids[rule->id] || (rule->dqr && default_qfi != -1)) {
+      LOG_E(NAS, "PDU session %d: duplicate initial rule ID or default rule\n", sm_header.pdu_session_id);
+      return;
+    }
+    rule_ids[rule->id] = true;
+    if (rule->dqr)
+      default_qfi = rule->qfi;
+  }
+  if (default_qfi < 0) {
+    LOG_E(NAS, "PDU session %d: no initial default QoS rule\n", sm_header.pdu_session_id);
+    return;
+  }
+
+  nr_sdap_entity_t *entity = nr_sdap_get_entity(nas->UE_id, sm_header.pdu_session_id);
+  if (entity == NULL || entity->tun.is_gnb || t->reader_thread != 0) {
+    LOG_E(NAS, "PDU session %d: SDAP not ready for initial QoS rules\n", sm_header.pdu_session_id);
+    return;
+  }
+  pthread_mutex_lock(&entity->qos_rules_lock);
+  bool empty_rules = seq_arr_size(&entity->qos_rules) == 0;
+  pthread_mutex_unlock(&entity->qos_rules_lock);
+  if (!empty_rules) {
+    LOG_E(NAS, "PDU session %d: initial QoS rules already installed\n", sm_header.pdu_session_id);
+    return;
+  }
+  nr_ue_tun_store_qfi(t, default_qfi);
 
   // process PDU Session: pass ID -1 to not append PDU ID to interface
   bool is_default = pdu == nas->uicc->pdu_sessions; // if first index
@@ -1867,13 +1904,35 @@ static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uin
     LOG_W(NAS, "Unhandled PDU session type %d, ignoring PDU session ID %d\n", msg.pdu_type, sm_header.pdu_session_id);
     return;
   }
+  if (t->sock <= 0) {
+    LOG_W(NAS, "could not create data interface reader thread, cannot inject data traffic\n");
+    return;
+  }
+
+  // RRC has created SDAP before forwarding this Accept; install before requesting the TUN reader.
+  for (int i = 0; i < msg.qos_rules.num_rules; i++) {
+    const qos_rule_t *rule = &msg.qos_rules.rule[i];
+    nr_sdap_qos_rule_add(nas->UE_id,
+                         sm_header.pdu_session_id,
+                         rule->id,
+                         rule->qfi,
+                         rule->precedence,
+                         rule->dqr,
+                         rule->packet_filters,
+                         rule->num_packet_filters);
+  }
+  pthread_mutex_lock(&entity->qos_rules_lock);
+  bool installed = seq_arr_size(&entity->qos_rules) == msg.qos_rules.num_rules && entity->use_packet_filters
+                   && entity->qfi == default_qfi;
+  pthread_mutex_unlock(&entity->qos_rules_lock);
+  if (!installed) {
+    LOG_E(NAS, "PDU session %d: initial QoS rule installation incomplete, reader not started\n", sm_header.pdu_session_id);
+    return;
+  }
   /* Track active PDU session for later PDU session status IE (24.501 8.2.16.3) */
   nas->psi_status[sm_header.pdu_session_id] = PDU_SESSION_ACTIVE;
   // ask RRC to start connected reader for this PSI
-  if (t->sock > 0)
-    send_nas_tun_req(nas, sm_header.pdu_session_id);
-  else
-    LOG_W(NAS, "could not create data interface reader thread, cannot inject data traffic\n");
+  send_nas_tun_req(nas, sm_header.pdu_session_id);
 }
 
 static void send_nas_uplink_data_req(nr_ue_nas_t *nas, const as_nas_info_t *initial_nas_msg)
