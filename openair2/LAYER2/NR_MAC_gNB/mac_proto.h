@@ -564,7 +564,8 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
                                      const NR_BCCH_DL_SCH_Message_t *sib1);
 
 void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group);
-
+void free_sched_ctrlSIB1(nr_cell_sched_t *cell);
+void free_ul_vrb_map(nr_cell_sched_t *cell);
 void post_process_dlsch(gNB_MAC_INST *nr_mac,
                         nr_cell_sched_t *cell,
                         post_process_pdsch_t *pdsch,
