@@ -950,7 +950,7 @@ void *UE_thread(void *arg)
   Actor_t ul_actors[num_ul_actors > 0 ? num_ul_actors : 1];
   __atomic_store_n(&UE->tx_jobs_completed, 0, __ATOMIC_RELAXED);
   init_ue_actors(&sync_actor, ul_actors);
-  nr_ue_dl_slots_init(&UE->dl_slots, get_nrUE_params()->num_dl_actors, UE->pdsch_num_scratch, &get_nrUE_params()->Tpool);
+  nr_ue_dl_slots_init(&UE->dl_slots, get_nrUE_params()->num_parallel_dl_slots, UE->pdsch_num_scratch, &get_nrUE_params()->Tpool);
 
   const double ntn_init_time_drift = get_nrUE_params()->ntn_init_time_drift;
   if (get_nrUE_params()->time_sync_I)

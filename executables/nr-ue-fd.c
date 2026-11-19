@@ -510,7 +510,7 @@ void init_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
     f->ul_actors = calloc(num_ul_actors > 0 ? num_ul_actors : 1, sizeof(*f->ul_actors));
     AssertFatal(f->ul_actors, "OOM\n");
     init_ue_actors(NULL, f->ul_actors);
-    nr_ue_dl_slots_init(&UE->dl_slots, get_nrUE_params()->num_dl_actors, UE->pdsch_num_scratch, &get_nrUE_params()->Tpool);
+    nr_ue_dl_slots_init(&UE->dl_slots, get_nrUE_params()->num_parallel_dl_slots, UE->pdsch_num_scratch, &get_nrUE_params()->Tpool);
     AssertFatal(ue_low_phy_client_open(ue_low_phy_device_port(fd_device), &f->client) == 0,
                 "[fd-ue] UE Low-PHY port has no free client slot for UE %d\n",
                 u);
