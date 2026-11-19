@@ -739,12 +739,10 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   const uint32_t rx_size_symbol = ceil_mod(freq_alloc->num_rbs * NR_NB_SC_PER_RB, 16);
   __attribute__((aligned(64))) c16_t dl_ch_estimates_ext[matrixSz][rx_size_symbol];
 
-  // 2-layer detector of the L-best family (--pdsch-mimo-receiver; mmse = L = 1). The UE has no full ML grid for
-  // 256QAM: ml takes L = 1 there. 3 and 4 layers: linear MMSE (nr_dlsch_mmse) whatever the receiver.
+  // 2-layer detector of the L-best family (--pdsch-mimo-receiver; mmse = L = 1), as on the gNB. 3 and 4 layers: linear
+  // MMSE (nr_dlsch_mmse) whatever the receiver.
   const nr_mimo_rx_t mimo_rx = nr_mimo_rx_resolve(ue->pdsch_mimo_rx, dlsch->cw_info.qamModOrder, nbRx);
-  int lbest = nr_mimo_rx_lbest(mimo_rx, ue->pdsch_mimo_hires);
-  if (lbest == NR_LBEST_ML && dlsch->cw_info.qamModOrder == 8)
-    lbest = NR_LBEST_L1;
+  const int lbest = nr_mimo_rx_lbest(mimo_rx, ue->pdsch_mimo_hires);
   const bool window = lbest == NR_LBEST_WINDOW || lbest == NR_LBEST_WINDOW_HIRES;
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
