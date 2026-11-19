@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
+
 # Key Performance Indicators for the OpenAirInterface Code Base
 
 The goal of this document is to provide some Key Performance Indicators (KPI) for openairinterface5g RAN and UE stack. 
@@ -85,8 +87,6 @@ The following results apply to the TDD configuration below:
 
 #### Test Profile
 
-#### Test Profile
-
 The measurements were collected with the following FR1 O-RAN 7.2 setup:
 
 |Parameter|Value|
@@ -154,9 +154,9 @@ The following results apply to the TDD configuration below:
 |Bandwidth MHz/PRB|Layers|DL Throughput (Mbps)|UL Throughput (Mbps)|
 |-----------------|-----:|-------------------:|-------------------:|
 |100(66)          |1     |X                   |X                   |
-|                 |2     |550                 |x                   |
+|                 |2     |550                 |X                   |
 |200(132)         |1     |500                 |86                  |
-|                 |2     |890                 |x                   |
+|                 |2     |890                 |X                   |
 
 Round trip time (measured using icmp ping): 4.526 ms
 
