@@ -266,6 +266,17 @@ static int nr_csi_rs_channel_estimation(const NR_DL_FRAME_PARMS *fp,
   AssertFatal(meas_bitmap != 1, "No need to do CSI-RS channel estimation for only RSRP measurment\n");
   int maxh = 0;
 
+  if (csirs_config_pdu->start_rb >= fp->N_RB_DL ||
+      csirs_config_pdu->nr_of_rbs == 0 ||
+      csirs_config_pdu->nr_of_rbs > fp->N_RB_DL - csirs_config_pdu->start_rb) {
+    LOG_E(NR_PHY,
+          "Invalid CSI-RS resource allocation: start_rb %u, nr_of_rbs %u, N_RB_DL %u\n",
+          csirs_config_pdu->start_rb,
+          csirs_config_pdu->nr_of_rbs,
+          fp->N_RB_DL);
+    return -1;
+  }
+
   for (int ant_rx = 0; ant_rx < fp->nb_antennas_rx; ant_rx++) {
 
     /// LS channel estimation
@@ -1184,6 +1195,16 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
   }
 
   const NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
+  if (csirs_config_pdu->start_rb >= frame_parms->N_RB_DL ||
+      csirs_config_pdu->nr_of_rbs == 0 ||
+      csirs_config_pdu->nr_of_rbs > frame_parms->N_RB_DL - csirs_config_pdu->start_rb) {
+    LOG_E(NR_PHY,
+          "Invalid CSI-RS resource allocation: start_rb %u, nr_of_rbs %u, N_RB_DL %u\n",
+          csirs_config_pdu->start_rb,
+          csirs_config_pdu->nr_of_rbs,
+          frame_parms->N_RB_DL);
+    return;
+  }
   csi_mapping_parms_t mapping_parms = get_csi_mapping_parms(csirs_config_pdu->row,
                                                             csirs_config_pdu->freq_domain,
                                                             csirs_config_pdu->symb_l0,
@@ -1233,16 +1254,18 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
   // if we need to measure only RSRP no need to do channel estimation
   if (csirs_config_pdu->measurement_bitmap != 1) {
     const bool use_trs_buff = (csirs_config_pdu->csi_type == 0 && res_idx == 0);
-    nr_csi_rs_channel_estimation(frame_parms,
-                                 csirs_config_pdu,
-                                 csi_info,
-                                 (const c16_t **)csi_info->csi_rs_generated_signal,
-                                 csi_rs_received_signal,
-                                 &mapping_parms,
-                                 CDM_group_size,
-                                 (use_trs_buff) ? trs_estimates : csi_rs_ls_estimated_channel,
-                                 csi_rs_estimated_channel_freq,
-                                 &log2_maxh);
+    int ret = nr_csi_rs_channel_estimation(frame_parms,
+                                           csirs_config_pdu,
+                                           csi_info,
+                                           (const c16_t **)csi_info->csi_rs_generated_signal,
+                                           csi_rs_received_signal,
+                                           &mapping_parms,
+                                           CDM_group_size,
+                                           (use_trs_buff) ? trs_estimates : csi_rs_ls_estimated_channel,
+                                           csi_rs_estimated_channel_freq,
+                                           &log2_maxh);
+    if (ret < 0)
+      return;
   }
 
   // bit 1 in bitmap to indicate RI measurement
