@@ -399,8 +399,17 @@ static void check_receive_batch(instance_t instance, int sender, GtpuPacketError
   socklen_t addr_len = sizeof(destination.sin);
   ASSERT_EQ(getsockname(instance, &destination.sa, &addr_len), 0);
   transport_layer_addr_t remote_addr = get_tl_addr(AF_INET, "127.0.0.1");
-  teid_t teid =
-      newGtpuCreateTunnel(instance, batch_ue_id, batch_bearer_id, batch_bearer_id, 1, remote_addr, recv_batch, NULL, NULL);
+  teid_t teid = newGtpuCreateTunnel(instance,
+                                    batch_ue_id,
+                                    batch_bearer_id,
+                                    batch_bearer_id,
+                                    1,
+                                    remote_addr,
+                                    recv_batch,
+                                    NULL,
+                                    NULL,
+                                    NULL,
+                                    NULL);
   ASSERT_NE(teid, 0U);
 
   ASSERT_NO_FATAL_FAILURE(send_batch_packet(sender, &destination, teid, 0));
@@ -523,9 +532,9 @@ TEST(gtp, end_marker_not_delivered)
   instance_t ep2 = init_gtp(ip2, port);
   ASSERT_GE(ep2, 1);
   transport_layer_addr_t null_addr = {.length = 32};
-  teid_t t1 = newGtpuCreateTunnel(ep1, ue_id, pdu_id, pdu_id, -1, null_addr, recv_end_marker, NULL, NULL);
+  teid_t t1 = newGtpuCreateTunnel(ep1, ue_id, pdu_id, pdu_id, -1, null_addr, recv_end_marker, NULL, NULL, NULL, NULL);
   transport_layer_addr_t tl_addr1 = get_tl_addr(AF_INET, ip1);
-  teid_t t2 = newGtpuCreateTunnel(ep2, ue_id, pdu_id, pdu_id, t1, tl_addr1, NULL, NULL, NULL);
+  teid_t t2 = newGtpuCreateTunnel(ep2, ue_id, pdu_id, pdu_id, t1, tl_addr1, NULL, NULL, NULL, NULL, NULL);
   GtpuUpdateTunnelOutgoingAddressAndTeid(ep1, ue_id, pdu_id, get_addr(AF_INET, ip2), t2);
   const int fd = socket(AF_INET, SOCK_DGRAM, 0);
   ASSERT_GE(fd, 0);
