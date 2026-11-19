@@ -231,6 +231,8 @@ e3_c_service_model_desc_t *create_l1_kpm_sm_model(void)
   desc.sm_stop = kpm_sm_stop;
   desc.sm_is_running = kpm_sm_is_running;
   desc.sm_process_control = NULL;
+  /* Not set: this SM does not report a granted periodicity through libe3's
+   * granted-periodicity hook, so a dApp reads "not reported" in the response. */
   desc.sm_context = &g_kpm_worker;
   return &desc;
 }

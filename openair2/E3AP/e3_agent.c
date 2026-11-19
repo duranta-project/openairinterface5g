@@ -72,14 +72,17 @@ static void e2_e3_bridge(uint32_t dapp_id,
                          size_t report_size,
                          uint32_t sequence_id)
 {
-  (void)sequence_id; /* correlation id of the dApp's detection; not used by the E2 relay yet */
-  E3_LOG_D("Received dApp report for RAN function %u from dApp %u (%zu bytes)\n", ran_function_id, dapp_id, report_size);
+  E3_LOG_D("Received dApp report for RAN function %u from dApp %u (%zu bytes, seq=%u)\n",
+           ran_function_id,
+           dapp_id,
+           report_size,
+           sequence_id);
 #ifdef E2_AGENT
   if (!report_data && report_size > 0) {
     E3_LOG_E("Invalid dApp report payload: report_data is NULL while report_size=%zu\n", report_size);
     return;
   }
-  generate_e2_indication_from_e3_dapp_report(ran_function_id, dapp_id, report_size, report_data);
+  generate_e2_indication_from_e3_dapp_report(ran_function_id, dapp_id, report_size, report_data, sequence_id);
 #else
   (void)report_data;
 #endif
@@ -218,6 +221,11 @@ int e3_init()
     e3.agent = NULL;
     return -1;
   }
+
+  /* The other half of the deferred control acknowledge: nothing can complete a
+   * procedure until this is running. Started after the agent, because a
+   * completion has nowhere to go before then. */
+  start_dapp_ctrl_ack_relay();
 
   return 0;
 }

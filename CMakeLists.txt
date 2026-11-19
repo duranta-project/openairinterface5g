@@ -1850,7 +1850,12 @@ if(E2_AGENT)
 endif()
 
 if (E3_AGENT)
-    target_link_libraries(nr-softmodem PRIVATE e3ap)
+    # e3ap_ctrl_ack is an OBJECT library so its members are always linked; see the
+    # note on its definition. Linking it as a static archive instead leaves
+    # prb_block_on_air_hook() resolved to the weak no-op, the mask goes on air
+    # with nobody listening, every deferred acknowledge times out with an empty
+    # apply outcome -- and both the build and the run look completely fine.
+    target_link_libraries(nr-softmodem PRIVATE e3ap $<$<BOOL:${E2_AGENT}>:e3ap_ctrl_ack>)
     target_compile_definitions(nr-softmodem PRIVATE E3_AGENT)
 endif()
 
@@ -1878,6 +1883,12 @@ target_compile_definitions(nr-cuup PRIVATE PDCP_CUCP_CUUP)
 if(E2_AGENT)
   target_link_libraries(nr-cuup PRIVATE e2_agent e2_agent_arg e2_ran_func_cuup)
   target_compile_definitions(nr-cuup PRIVATE ${E2AP_VERSION} ${KPM_VERSION} E2_AGENT)
+endif()
+if(E3_AGENT)
+  # e2_ran_func_cuup carries the E2SM-DAPP RAN function, which calls into the E3
+  # agent, so nr-cuup has to resolve those symbols too.
+  target_link_libraries(nr-cuup PRIVATE e3ap)
+  target_compile_definitions(nr-cuup PRIVATE E3_AGENT)
 endif()
 
 # nr-uesoftmodem is  UE implementation

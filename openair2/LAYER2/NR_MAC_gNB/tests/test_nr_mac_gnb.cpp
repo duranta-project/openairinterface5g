@@ -19,10 +19,11 @@ extern configmodule_interface_t *uniqCfg;
 
 int main(int argc, char **argv)
 {
+  // gtest removes its flags from argv; the config module keeps argv, so it must be loaded afterwards
+  testing::InitGoogleTest(&argc, argv);
   uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY);
   AssertFatal(uniqCfg != NULL, "configuration module init failed\n");
   nr_mac_gnb_test_init();
-  testing::InitGoogleTest(&argc, argv);
   int ret = RUN_ALL_TESTS();
   end_configmodule(uniqCfg);
   return ret;

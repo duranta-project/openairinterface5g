@@ -3,10 +3,57 @@
  */
 
 #include "e3_config.h"
+
+#include <stdbool.h>
+
 #include "../e3_log.h"
 #include "common/utils/LOG/log.h"
 #include "common/config/config_paramdesc.h"
 #include "common/config/config_userapi.h"
+
+/* Encoders libe3 was built with; the macros come from libe3.pc (CLIBE3_COMPILE_DEFS in CMakeLists.txt). */
+#ifdef LIBE3_ENABLE_ASN1
+#define E3_ENC_ASN1_NAME " asn1"
+#else
+#define E3_ENC_ASN1_NAME ""
+#endif
+#ifdef LIBE3_ENABLE_JSON
+#define E3_ENC_JSON_NAME " json"
+#else
+#define E3_ENC_JSON_NAME ""
+#endif
+#ifdef LIBE3_ENABLE_PROTOBUF
+#define E3_ENC_PROTOBUF_NAME " protobuf"
+#else
+#define E3_ENC_PROTOBUF_NAME ""
+#endif
+#define E3_AVAILABLE_ENCODINGS E3_ENC_ASN1_NAME E3_ENC_JSON_NAME E3_ENC_PROTOBUF_NAME
+
+static bool e3_encoding_available(int encoding)
+{
+  switch (encoding) {
+    case E3_ENCODING_ASN1:
+#ifdef LIBE3_ENABLE_ASN1
+      return true;
+#else
+      return false;
+#endif
+    case E3_ENCODING_JSON:
+#ifdef LIBE3_ENABLE_JSON
+      return true;
+#else
+      return false;
+#endif
+    case E3_ENCODING_PROTOBUF:
+#ifdef LIBE3_ENABLE_PROTOBUF
+      return true;
+#else
+      return false;
+#endif
+    default:
+      return false;
+  }
+}
 
 #define simOpt PARAMFLAG_NOFREE | PARAMFLAG_CMDLINE_NOPREFIXENABLED
 
@@ -62,6 +109,12 @@ void e3_readconfig(e3_cmdline_config_t *config)
   config->link_layer = config_get_processedint(config_get_if(), &e3_params[E3_LINK_IDX]);
   config->transport_layer = config_get_processedint(config_get_if(), &e3_params[E3_TRANSPORT_IDX]);
   config->encoding = config_get_processedint(config_get_if(), &e3_params[E3_ENCODING_IDX]);
+  AssertFatal(e3_encoding_available(config->encoding),
+              "E3Configuration.encoding=\"%s\" is not compiled into the linked libe3, which "
+              "provides:%s. Set encoding to one of those, or rebuild libe3 with the matching "
+              "-DLIBE3_ENABLE_<ENCODING>=ON\n",
+              s_encoding ? s_encoding : "asn1",
+              E3_AVAILABLE_ENCODINGS[0] ? E3_AVAILABLE_ENCODINGS : " (none)");
   /* setup_port, subscriber_port, publisher_port written directly by config_get via u16ptr */
 
   config->enabled_sms = e3_params[E3_ENABLED_SMS_IDX].iptr;

@@ -38,6 +38,9 @@
 #include "enb_paramdef.h"
 #include "executables/softmodem-common.h"
 #include "f1ap_common.h"
+#ifdef E3_AGENT
+#include "openair2/E3AP/ran_func_spectrum_extern.h"
+#endif /* E3_AGENT */
 #include "gnb_paramdef.h"
 #include "lib/f1ap_interface_management.h"
 #include "F1AP_CauseRadioNetwork.h"
@@ -1971,6 +1974,9 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     config_nr_mac_update_cell(cell, &config, scc->uplinkConfigCommon->initialUplinkBWP, idx, macrlc_p, macrlc_np);
 
   nr_mac_cell_config_scc(cell, scc, &config);
+#ifdef E3_AGENT
+  e3_spectrum_mac_attach_cell(nrmac, cell);
+#endif /* E3_AGENT */
 
   f1ap_served_cell_info_t info = read_du_cell_info(idx, GNBParamList.paramarray[idx], scc);
   cell->nr_cellid = info.nr_cellid;

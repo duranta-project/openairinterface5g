@@ -84,6 +84,20 @@ set(SM_ENCODING_GTP "PLAIN" CACHE STRING "The GTP SM encoding to use")
 set_property(CACHE SM_ENCODING_GTP PROPERTY STRINGS "PLAIN")
 message(STATUS "Selected GTP SM_ENCODING: ${SM_ENCODING_GTP}")
 
+# E2SM-CCC Service Model. Arrived in flexRIC v3.0.0; its CMakeLists stops the
+# configure with "Unknown SM encoding type" unless this is set, and JSON is the
+# only encoding it implements.
+set(SM_ENCODING_CCC "JSON" CACHE STRING "The CCC SM encoding to use")
+set_property(CACHE SM_ENCODING_CCC PROPERTY STRINGS "JSON")
+message(STATUS "Selected CCC SM_ENCODING: ${SM_ENCODING_CCC}")
+
+# E2SM-DAPP Service Model
+if(E3_AGENT)
+  set(SM_ENCODING_DAPP "ASN" CACHE STRING "The DAPP SM encoding to use")
+  set_property(CACHE SM_ENCODING_DAPP PROPERTY STRINGS "ASN")
+  message(STATUS "Selected DAPP SM_ENCODING: ${SM_ENCODING_DAPP}")
+endif()
+
 
 if(E2AP_VERSION STREQUAL "E2AP_V1")
   add_library(e2ap_ran_func_obj OBJECT 

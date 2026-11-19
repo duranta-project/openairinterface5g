@@ -173,6 +173,32 @@ Spectrum-XAppControlData ::= SEQUENCE {
 
 
 -- ============================================================================
+-- APPLY OUTCOME STRUCTURES
+-- ============================================================================
+--
+-- What the RAN reports about a control it applied (see "Apply outcome" in
+-- SPECTRUM_SM_ARCHITECTURE.md). All timestamps are CLOCK_REALTIME ns at the gNB.
+
+Spectrum-PRBBlockApplyOutcome ::= SEQUENCE {
+    installedTimestamp      INTEGER OPTIONAL,                               -- mask written into the MAC
+    onAirTimestamp          INTEGER OPTIONAL,                               -- first scheduler tick with the mask on the air
+    sfn                     INTEGER (0..1023) OPTIONAL,                     -- frame of that tick
+    slot                    INTEGER (0..maxSlotIndex) OPTIONAL,             -- slot of that tick
+    ...
+}
+
+Spectrum-ApplyOutcomePayload ::= CHOICE {
+    prbBlockApplyOutcome    Spectrum-PRBBlockApplyOutcome,
+    ...
+}
+
+-- Carried by the E2SM-DAPP control outcome; timestamp is when the outcome was built.
+Spectrum-ApplyOutcomeData ::= SEQUENCE {
+    timestamp               INTEGER OPTIONAL,
+    applyOutcomePayload     Spectrum-ApplyOutcomePayload
+}
+
+-- ============================================================================
 -- CONSTANTS AND CONSTRAINTS
 -- ============================================================================
 
@@ -180,6 +206,7 @@ Spectrum-XAppControlData ::= SEQUENCE {
 maxPRBs                     INTEGER ::= 273                                 -- Maximum PRBs in 5G NR
 maxPRBIndex                 INTEGER ::= 272                                 -- maxPRBs - 1
 maxSlotsFrame               INTEGER ::= 160                                 -- slots per frame at 3GPP numerology 4 (worst case); 20 at numerology 1 (30 kHz SCS)
+maxSlotIndex                INTEGER ::= 159                                 -- maxSlotsFrame - 1
 maxSymbolMask               INTEGER ::= 16383                               -- 14-bit symbol bitmap = (1 << 14) - 1
 
 END
