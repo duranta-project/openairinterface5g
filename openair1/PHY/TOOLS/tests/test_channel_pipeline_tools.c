@@ -4,6 +4,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 #include "test_channel_pipeline_tools.h"
 #include "channel_pipeline.h"
 #include "thread-pool.h"
@@ -12,6 +13,15 @@ void *init_tpool(int num_threads)
 {
   tpool_t *tpool = malloc(sizeof(*tpool));
   initFloatingCoresTpool(num_threads, tpool, false, NULL);
+  return tpool;
+}
+
+void *init_tpool_cores(const char *cores)
+{
+  tpool_t *tpool = malloc(sizeof(*tpool));
+  char *params = strdup(cores);
+  initNamedTpool(params, tpool, false, NULL);
+  free(params);
   return tpool;
 }
 

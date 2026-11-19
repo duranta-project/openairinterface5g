@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+
+# Variant of 5g_vrtsim_fhi72_oaioru_1x1_ru_ue that deploys an 8T8R 100 MHz (273 PRB) O-RU without
+# beamforming: the conf file to mount is picked by RU_CONF in .env. The O-RU needs more cores than
+# the 1x1 case (its conf pins threads to 2-13), and the UE runs the 273 PRB carrier.
+include:
+    - ../5g_vrtsim_fhi72_oaioru_1x1_ru_ue/docker-compose.yml
+
+services:
+    oai-nr-oru:
+        cpuset: "2-13"
+    oai-nr-ue:
+        environment:
+            USE_ADDITIONAL_OPTIONS: -r 273 --numerology 1 --band 77 -C 4049760000 --ssb 1518 --uicc0.imsi 208990100001100 --log_config.global_log_options level,nocolor,time --device.name vrtsim
+        cpuset: "14-19"

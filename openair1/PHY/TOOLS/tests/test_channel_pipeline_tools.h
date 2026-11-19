@@ -24,6 +24,8 @@ void channel_convolution_cpu(const cf_t **channel,
 void generate_random_signal(c16_t *sig, int num_samples);
 void generate_random_signal_float(cf_t *sig, int num_samples);
 void *init_tpool(int num_threads);
+/// Pool with one worker per core of the comma-separated list, pinned to it.
+void *init_tpool_cores(const char *cores);
 void destroy_tpool(void *tpool);
 
 #ifdef __cplusplus
