@@ -29,6 +29,7 @@
 #include "SCHED_NR_UE/harq_nr.h"
 
 #include "SCHED_NR_UE/pucch_uci_ue_nr.h"
+#include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 
 long
 binary_search_float_nr(
@@ -144,17 +145,7 @@ void pucch_procedures_ue_nr(PHY_VARS_NR_UE *ue,
       ue->tx_power_dBm[nr_slot_tx] = pucch_tx_power;
       ue->tx_total_RE[nr_slot_tx] = nb_of_prbs * NR_NB_SC_PER_RB;
 
-      int tx_amp;
-
-      /*
-      tx_amp = nr_get_tx_amp(pucch_tx_power,
-                             ue->tx_power_max_dBm,
-                             ue->frame_parms.N_RB_UL,
-                             nb_of_prbs);
-      if (tx_amp == 0)*/
-      // FIXME temporarly using fixed amplitude before pucch power control implementation revised
-      tx_amp = AMP;
-
+      const int tx_amp = nr_ue_ul_amplitude(ue, pucch_tx_power, nb_of_prbs * NR_NB_SC_PER_RB);
 
       LOG_D(PHY,"Generation of PUCCH format %d at frame.slot %d.%d\n",pucch_pdu->format_type,proc->frame_tx,nr_slot_tx);
 
