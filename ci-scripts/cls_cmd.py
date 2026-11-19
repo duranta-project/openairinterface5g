@@ -119,10 +119,6 @@ class LocalCmd(Cmd):
 		return self.cp.stdout
 
 	def copyin(self, src, tgt):
-		if src[0] != '/' or tgt[0] != '/':
-			raise Exception(f'support only absolute file paths (src {src} tgt {tgt})!')
-		if src == tgt:
-			return True # nothing to copy, file is already where it should go
 		return self.run(f'cp {src} {tgt}').returncode == 0
 
 def GetFile(client, src, tgt):
@@ -193,9 +189,9 @@ class RemoteCmd(Cmd):
 		p = parameters if parameters else ""
 		r = f"> {redirect}" if redirect else ""
 		if not silent:
-			logging.debug(f"local> ssh {self.hostname} bash -s {p} < {path} {r}")
+			logging.debug(f"local> ssh {self.hostname} bash -s -- {p} < {path} {r}")
 		bash_opt = 'BASH_XTRACEFD=1' # write bash set -x output to stdout, see bash(1)
-		stdin, stdout, stderr = self.client.exec_command(f"{bash_opt} bash -s {p} {r}", timeout=timeout)
+		stdin, stdout, stderr = self.client.exec_command(f"{bash_opt} bash -s -- {p} {r}", timeout=timeout)
 		# open() the file f at path, read() it and write() it into the stdin of the bash -s cmd
 		with open(path) as f:
 			stdin.write(f.read())

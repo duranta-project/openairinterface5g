@@ -15,6 +15,7 @@
     <desc>Build and Deploy PhySim T2 Offload tests</desc>
     <script>scripts/source-deploy-physims.sh</script>
     <node>caracal</node>
+    <prefix>numactl --cpunodebind=1 --membind=1</prefix>
     <ctest-opt>-R '5g-offload.*(T2|CPU)' -j1</ctest-opt>
   </testCase>
 
