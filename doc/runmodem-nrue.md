@@ -123,6 +123,11 @@ Here are some useful command line options for the NR UE:
 | `--ue-fo-compensation`   | Enables the initial frequency offset compensation at the UE. Useful when running over the air and/or without an external clock/time source. |
 | `--cont-fo-comp`         | Enables the continuous frequency offset (FO) estimation and compensation.  Parameter value `1` specifies that the main FO contribution comes from the local oscillator's (LO) accuracy.  Parameter value `2` specifies that the main FO contribution comes from Doppler shift. Parameter value `3` specifies that no measured residual DL FO is considered for UL FO pre-compensation. |
 | `--initial-fo`           | Sets the known initial frequency offset. Useful especially with large Doppler frequency, e.g. LEO satellite.  |
+| `--ue-pss-cfo-search`    | Enables blind joint CFO, PSS sequence and timing acquisition. Requires `--ue-fo-compensation`. |
+| `--ue-pss-cfo-coarse-span` | Sets the coarse CFO search half-span in Hz (default: 60000). |
+| `--ue-pss-cfo-coarse-step` | Sets the coarse CFO grid step in Hz (default: 5000). |
+| `--ue-pss-cfo-fine-span` | Sets the fine CFO search half-span around the coarse estimate in Hz (default: 6000). |
+| `--ue-pss-cfo-fine-step` | Sets the fine CFO grid step in Hz (default: 400). |
 | `--freq-sync-P`          | Sets the coefficient for the Proportional part of the PI-controller for the continuous frequency offset compensation. Default value 0.01. |
 | `--freq-sync-I`          | Sets the coefficient for the Integrating part of the PI-controller for the continuous frequency offset compensation. Default value 0.001. |
 | `--num-ues`              | Run multiple UEs in one process                                                                               |
@@ -135,6 +140,14 @@ Here are some useful command line options for the NR UE:
 | `--clock-source`         | Sets the clock source (internal or external).                                                                 |
 | `--time-source`          | Sets the time source (internal or external).                                                                  |
 | `--ue-capability-rx2tx`  | Sets the minimum number of slots for the UE between RX command and TX of corresponding channel.               |
+
+When the initial CFO is unknown and exceeds the capture range of the standard PSS detector, `--ue-pss-cfo-search` searches
+the CFO, PSS sequence and timing jointly. It evaluates all three NID2 sequences on a coarse grid, refines the winning
+hypothesis on a fine grid and applies the estimated CFO before the existing SSS and PBCH processing. The feature is disabled
+by default, so the standard initial synchronization path remains unchanged unless it is explicitly enabled.
+
+Both grids must include zero, use a positive step and contain at most 257 points. Increasing the span or reducing the step
+increases acquisition time.
 
 You can view all available options by typing:
 
