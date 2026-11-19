@@ -157,6 +157,9 @@ typedef struct {
 } rb_range_t;
 rb_range_t g_rb_ranges[MAX_RB_RANGES];
 
+// number of front-loaded dmrs for simulation
+int num_front_loaded_dmrs = 1;
+
 void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_process_pdsch_t *pp_pdsch)
 {
   DevAssert(get_num_connected_ue(&nr_mac->UE_info) == 1);
@@ -227,7 +230,8 @@ void nr_dlsim_preprocessor(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, post_pro
                                           sched_ctrl->coreset->controlResourceSetId,
                                           false);
 
-  sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, current_BWP, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers, 1);
+  sched_pdsch.dmrs_parms =
+      get_dl_dmrs_params(scc, current_BWP, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers, num_front_loaded_dmrs);
 
   sched_pdsch.Qm = nr_get_Qm_dl(sched_pdsch.mcs, current_BWP->mcsTableIdx);
   sched_pdsch.R = nr_get_code_rate_dl(sched_pdsch.mcs, current_BWP->mcsTableIdx);
@@ -365,7 +369,7 @@ int main(int argc, char **argv)
   int loglvl=OAILOG_WARNING;
   int8_t enable_ptrs = 0;
   int8_t modify_dmrs = 0;
-  int8_t dmrs_arg[3] = {-1,-1,-1};// Invalid values
+  int8_t dmrs_arg[4] = {-1, -1, -1, 1}; // Invalid values, except single-symbol front-loaded DMRS by default
   int8_t ptrs_arg[2] = {-1,-1};// Invalid values
   uint16_t ptrsRePerSymb = 0;
   uint16_t pdu_bit_map = 0x0;
@@ -1348,6 +1352,11 @@ int main(int argc, char **argv)
         round++;
       } // round
 
+      // the UE TBS comes from its own decoding of the DCI, the bit buffers below are sized with the gNB TBS
+      AssertFatal(TBS == 8 * pdsch_pdu_rel15->TBSize[0],
+                  "UE TBS %u bits does not match gNB TBS %u bits: gNB and UE PDSCH configurations differ\n",
+                  TBS,
+                  8 * pdsch_pdu_rel15->TBSize[0]);
       if (test_input_bit == NULL) {
         test_input_bit = (unsigned char *)malloc16(8 * pdsch_pdu_rel15->TBSize[0]);
         estimated_output_bit = (unsigned char *)malloc16(8 * pdsch_pdu_rel15->TBSize[0]);
@@ -1624,6 +1633,7 @@ void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t* dmrs_arg)
   int8_t  mapping_type = typeA;//default value
   int8_t  add_pos = pdsch_dmrs_pos0;//default value
   int8_t  dmrs_config_type = NFAPI_NR_DMRS_TYPE1;//default value
+  num_front_loaded_dmrs = 1; // default
 
   if(dmrs_arg[0] == 0) {
     mapping_type = typeA;
@@ -1646,6 +1656,13 @@ void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t* dmrs_arg)
     dmrs_config_type = NFAPI_NR_DMRS_TYPE1;
   } else if(dmrs_arg[2] == 2) {
     dmrs_config_type = NFAPI_NR_DMRS_TYPE2;
+  }
+
+  // Single or double symbol dmrs
+  if (dmrs_arg[3] == 1 || dmrs_arg[3] == 2) {
+    num_front_loaded_dmrs = dmrs_arg[3];
+  } else {
+    AssertFatal(1 == 0, "Incorrect number of front-loaded DMRS symbol. Valid options: 1, 2\n");
   }
 
   AssertFatal((bwp->bwp_Dedicated->pdsch_Config != NULL && bwp->bwp_Dedicated->pdsch_Config->choice.setup != NULL), "Base RRC reconfig structures are not allocated.\n");
@@ -1692,9 +1709,22 @@ void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t* dmrs_arg)
     dmrs_config->dmrs_AdditionalPosition = NULL;
   }
 
+  if (num_front_loaded_dmrs == 2) {
+    CALLOC_IFF_NULL(dmrs_config->maxLength);
+    *dmrs_config->maxLength = NR_DMRS_DownlinkConfig__maxLength_len2;
+  } else {
+    dmrs_config->maxLength = NULL;
+  }
+
   for (int i=0;i<bwp->bwp_Common->pdsch_ConfigCommon->choice.setup->pdsch_TimeDomainAllocationList->list.count;i++) {
     bwp->bwp_Common->pdsch_ConfigCommon->choice.setup->pdsch_TimeDomainAllocationList->list.array[i]->mappingType = mapping_type;
   }
 
-  printf("[DLSIM] DMRS Config is modified with Mapping Type %d, Additional Positions %d Config. Type %d \n", mapping_type, add_pos, dmrs_config_type);
+  printf(
+      "[DLSIM] DMRS Config is modified with Mapping Type %d, Additional Positions %d Config. Type %d, Number of frontloaded DMRS "
+      "%d \n",
+      mapping_type,
+      add_pos,
+      dmrs_config_type,
+      num_front_loaded_dmrs);
 }
