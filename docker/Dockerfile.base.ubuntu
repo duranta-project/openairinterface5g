@@ -13,6 +13,9 @@ FROM ${UBUNTU_IMAGE} AS ran-base
 
 ARG NEEDED_GIT_PROXY
 ARG TARGETARCH
+# e.g. GCC_VERSION=12 makes gcc-12 the default compiler for this image and the images built from it;
+# empty keeps the distro gcc (13 on noble)
+ARG GCC_VERSION=
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe/Paris
 ENV BUILD_UHD_FROM_SOURCE=True
@@ -42,7 +45,14 @@ RUN apt-get update && \
        libflatbuffers-dev \
        libnanomsg-dev \
        libzmq3-dev && \
-    # --break-system-packages allows externally managed environment in pip 
+    if [ -n "$GCC_VERSION" ]; then \
+      apt-get install --yes gcc-$GCC_VERSION g++-$GCC_VERSION && \
+      # cc/c++ (what cmake and meson pick first) point at the distro gcc via /etc/alternatives, so redirect them too
+      for t in gcc cc; do ln -sf /usr/bin/gcc-$GCC_VERSION /usr/bin/$t; done && \
+      for t in g++ c++; do ln -sf /usr/bin/g++-$GCC_VERSION /usr/bin/$t; done; \
+    fi && \
+    cc --version | head -1 && c++ --version | head -1 && \
+    # --break-system-packages allows externally managed environment in pip
     pip3 install --ignore-installed pyyaml --break-system-packages
 
 # Add "Tini - A tiny but valid init for containers", https://github.com/krallin/tini

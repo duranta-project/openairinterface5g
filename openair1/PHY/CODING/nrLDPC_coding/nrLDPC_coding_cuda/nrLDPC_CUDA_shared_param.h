@@ -9,6 +9,7 @@
 #ifndef NRLDPC_CUDA_SHARED_PARAM_H_
 #define NRLDPC_CUDA_SHARED_PARAM_H_
 
+#include <stdint.h>
 #include "PHY/gpu_compat.h"
 
 #ifndef MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER
@@ -33,24 +34,19 @@ extern "C" {
 #define num_TotalBlocks_cn_BG1_R89_Node 5
 #define num_TotalBlocks_bn_BG1_R89_Node 27
 
-#define JETSON_ORIN 
-//#define GH200
+// Segment counts above which the node kernels are used instead of the edge kernels. They depend on
+// how many SMs the GPU has, so cuda_support_init_decoder() picks them at runtime from the SM count
+typedef struct {
+  uint32_t cn_r13, bn_r13, cn_r23, bn_r23, cn_r89, bn_r89;
+} nodeEdge_switch_t;
+extern nodeEdge_switch_t nodeEdge_switch;
 
-#if defined(GH200)
-#define NodeEdge_Switch_Cn_R13 32
-#define NodeEdge_Switch_Bn_R13 10
-#define NodeEdge_Switch_Cn_R23 32
-#define NodeEdge_Switch_Bn_R23 12
-#define NodeEdge_Switch_Cn_R89 48
-#define NodeEdge_Switch_Bn_R89 24
-#elif defined(JETSON_ORIN)
-#define NodeEdge_Switch_Cn_R13 3
-#define NodeEdge_Switch_Bn_R13 1
-#define NodeEdge_Switch_Cn_R23 3
-#define NodeEdge_Switch_Bn_R23 1
-#define NodeEdge_Switch_Cn_R89 4
-#define NodeEdge_Switch_Bn_R89 2
-#endif
+#define NodeEdge_Switch_Cn_R13 nodeEdge_switch.cn_r13
+#define NodeEdge_Switch_Bn_R13 nodeEdge_switch.bn_r13
+#define NodeEdge_Switch_Cn_R23 nodeEdge_switch.cn_r23
+#define NodeEdge_Switch_Bn_R23 nodeEdge_switch.bn_r23
+#define NodeEdge_Switch_Cn_R89 nodeEdge_switch.cn_r89
+#define NodeEdge_Switch_Bn_R89 nodeEdge_switch.bn_r89
 
 #ifdef __cplusplus
 }
