@@ -332,7 +332,8 @@ bool is_ss_monitor_occasion(const int frame, const int slot, const int slots_per
   const int duration = ss->duration ? *ss->duration : 1;
   bool monitor = false;
   int period, offset;
-  get_monitoring_period_offset(ss, &period, &offset);
+  if (!get_monitoring_period_offset(ss, &period, &offset))
+    return false;
   // The UE monitors PDCCH candidates for search space set ss for 'duration' consecutive slots
   for (int i = 0; i < duration; i++) {
     if (is_periodic_occasion(frame, slot, slots_per_frame, period, offset + i)) {
@@ -352,7 +353,8 @@ static bool search_space_monitoring_ocasion_other_si(NR_UE_MAC_INST_t *mac,
 {
   const int duration = ss->duration ? *ss->duration : 1;
   int period, offset;
-  get_monitoring_period_offset(ss, &period, &offset);
+  if (!get_monitoring_period_offset(ss, &period, &offset))
+    return false;
   for (int i = 0; i < duration; i++) {
     if (is_periodic_occasion(frame, slot, slots_per_frame, period, offset + i)) {
       int N = mac->ssb_list.nb_tx_ssb;
@@ -483,7 +485,8 @@ static bool monitor_paging_dci(const NR_SearchSpace_t *paging_ss,
    * else i_s*S*X). */
   int period = 0;
   int offset = 0;
-  get_monitoring_period_offset(paging_ss, &period, &offset);
+  if (!get_monitoring_period_offset(paging_ss, &period, &offset))
+    return false;
 
   /* TODO TS 38.304 §7.1: S is defined as the number of transmitted SS/PBCH blocks (ssb-PositionsInBurst
    *  in SIB1). Currently uses the count of SSBs detected by the UE PHY. */

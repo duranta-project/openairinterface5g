@@ -699,7 +699,8 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
   int num_ssb = cc->num_active_ssb;
   // number of PDCCH monitoring occasions in SI-window
   int period, offset;
-  get_monitoring_period_offset(ss, &period, &offset);
+  if (!get_monitoring_period_offset(ss, &period, &offset))
+    return;
   // The UE assumes that, in the SI window, PDCCH for an SI message is transmitted
   // in at least one PDCCH monitoring occasion corresponding to each transmitted SSB
   // frame and slot relative to start of window

@@ -1476,72 +1476,80 @@ void find_aggregation_candidates(int *aggregation_level, int *nr_of_candidates, 
   } 
 }
 
-void get_monitoring_period_offset(const NR_SearchSpace_t *ss, int *period, int *offset)
+bool get_monitoring_period_offset(const NR_SearchSpace_t *ss, int *period, int *offset)
 {
+  if (!period || !offset)
+    return false;
+  *period = 0;
+  *offset = 0;
+
+  if (!ss || !ss->monitoringSlotPeriodicityAndOffset)
+    return false;
+
   switch(ss->monitoringSlotPeriodicityAndOffset->present) {
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl1:
       *period = 1;
       *offset = 0;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl2:
       *period = 2;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl2;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl4:
       *period = 4;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl4;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl5:
       *period = 5;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl5;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl8:
       *period = 8;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl8;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl10:
       *period = 10;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl10;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl16:
       *period = 16;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl16;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl20:
       *period = 20;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl20;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl40:
       *period = 40;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl40;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl80:
       *period = 80;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl80;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl160:
       *period = 160;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl160;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl320:
       *period = 320;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl320;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl640:
       *period = 640;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl640;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl1280:
       *period = 1280;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl1280;
-      break;
+      return true;
     case NR_SearchSpace__monitoringSlotPeriodicityAndOffset_PR_sl2560:
       *period = 2560;
       *offset = ss->monitoringSlotPeriodicityAndOffset->choice.sl2560;
-      break;
-  default:
-    AssertFatal(1==0,"Invalid monitoring slot periodicity value\n");
-    break;
+      return true;
+    default:
+      LOG_E(NR_MAC, "Invalid monitoring slot periodicity value %d\n", ss->monitoringSlotPeriodicityAndOffset->present);
+      return false;
   }
 }
 
