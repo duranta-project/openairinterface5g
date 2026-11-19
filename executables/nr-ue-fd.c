@@ -47,7 +47,8 @@
 #include "common/utils/threadPool/pthread_utils.h"
 
 /* Non-static functions from nr-ue.c. */
-extern void UE_dl_processing(void *arg);
+extern nr_rxtx_thread_data_t *nr_ue_new_dl_slot(void);
+extern void nr_ue_submit_dl_slot(PHY_VARS_NR_UE *UE, nr_rxtx_thread_data_t *msg);
 extern void nr_ue_dequeue_rrc_to_mac_msgs(PHY_VARS_NR_UE *UE);
 extern int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
                                const UE_nr_rxtx_proc_t *proc,
@@ -59,7 +60,7 @@ extern int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot);
 extern int determine_N_TA_offset(PHY_VARS_NR_UE *ue);
 extern void processSlotTX(void *arg);
 extern void start_process_slot_tx(void *arg);
-extern void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_actors);
+extern void init_ue_actors(Actor_t *sync_actor, Actor_t *ul_actors);
 
 // Per-TX-slot facts for the slot record, indexed slot % window: the TA is set when
 // the slot is scheduled, the rest while its UL actor processes it. As deep as the
@@ -75,7 +76,6 @@ typedef struct {
   PHY_VARS_NR_UE *UE;
   nr_ue_fd_ifdevice_t dev;
   ue_low_phy_client_t client;
-  Actor_t *dl_actors;
   Actor_t *ul_actors;
   uint32_t ta[FD_SLOT_WINDOW];
   uint32_t used[FD_SLOT_WINDOW];
@@ -129,7 +129,7 @@ static bool fd_read_symbol(nr_ue_fd_ifdevice_t *dev, int frame, int slot, int sy
   fd_ue_t *f = dev->priv;
   const NR_DL_FRAME_PARMS *fp = &f->UE->frame_parms;
   // The PHY knows the SFN only (abs_frame % 1024 == SFN): the slot is the newest published
-  // one with this SFN and slot. A DL actor never lags a whole SFN cycle.
+  // one with this SFN and slot. A DL slot never lags a whole SFN cycle.
   const uint64_t period = (uint64_t)MAX_FRAME_NUMBER * fp->slots_per_frame;
   const uint64_t newest = ue_low_phy_client_next_published_slot(&f->client) - 1;
   const uint64_t lag = (newest % period + period - ((uint64_t)frame * fp->slots_per_frame + slot)) % period;
@@ -200,8 +200,7 @@ static void fd_process_slot_tx(void *arg)
 
 static void fd_flush(fd_ue_t *f)
 {
-  for (int i = 0; i < get_nrUE_params()->num_dl_actors; i++)
-    flush_actor(f->dl_actors + i);
+  nr_ue_dl_slots_wait_idle(&f->UE->dl_slots);
   for (int i = 0; i < get_nrUE_params()->num_ul_actors; i++)
     flush_actor(f->ul_actors + i);
 }
@@ -431,9 +430,8 @@ static void *UE_fd_thread(void *arg)
 
     fd_tick_rrc(f, abs_frame_rx + 1);
 
-    notifiedFIFO_elt_t *newRx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), curMsg.proc.nr_slot_tx, NULL, UE_dl_processing);
-    nr_rxtx_thread_data_t *curMsgRx = NotifiedFifoData(newRx);
-    *curMsgRx = (nr_rxtx_thread_data_t){.proc = curMsg.proc, .UE = UE};
+    nr_rxtx_thread_data_t *curMsgRx = nr_ue_new_dl_slot();
+    *curMsgRx = (nr_rxtx_thread_data_t){.dl_job = curMsgRx->dl_job, .proc = curMsg.proc, .UE = UE};
     const int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed);
     if (ret != INT_MAX)
       shiftForNextFrame = ret;
@@ -454,13 +452,7 @@ static void *UE_fd_thread(void *arg)
     if (!may_send && ue_low_phy_client_try_slot_done(c, abs_slot_tx, 0, -1, new_ta))
       f->declared[abs_slot_tx % FD_SLOT_WINDOW] = abs_slot_tx + 1;
 
-    if (get_nrUE_params()->num_dl_actors > 0)
-      pushNotifiedFIFO(&f->dl_actors[curMsg.proc.nr_slot_rx % get_nrUE_params()->num_dl_actors].fifo, newRx);
-    else {
-      // inline: the actor thread is not there to free the message
-      newRx->processingFunc(curMsgRx);
-      delNotifiedFIFO_elt(newRx);
-    }
+    nr_ue_submit_dl_slot(UE, curMsgRx);
 
     // writeBlockSize 0: processSlotTX()'s RU_write() does nothing, the Low-PHY transmits.
     notifiedFIFO_elt_t *newTx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), 0, 0, fd_process_slot_tx);
@@ -514,11 +506,11 @@ void init_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
     f->UE = UE;
     ue_low_phy_progress_init(&f->tx_completed, 0);
     ue_low_phy_progress_init(&f->tx_jobs, 0);
-    const int num_dl_actors = get_nrUE_params()->num_dl_actors, num_ul_actors = get_nrUE_params()->num_ul_actors;
-    f->dl_actors = calloc(num_dl_actors > 0 ? num_dl_actors : 1, sizeof(*f->dl_actors));
+    const int num_ul_actors = get_nrUE_params()->num_ul_actors;
     f->ul_actors = calloc(num_ul_actors > 0 ? num_ul_actors : 1, sizeof(*f->ul_actors));
-    AssertFatal(f->dl_actors && f->ul_actors, "OOM\n");
-    init_ue_actors(NULL, f->dl_actors, f->ul_actors);
+    AssertFatal(f->ul_actors, "OOM\n");
+    init_ue_actors(NULL, f->ul_actors);
+    nr_ue_dl_slots_init(&UE->dl_slots, get_nrUE_params()->num_dl_actors, UE->pdsch_num_scratch, &get_nrUE_params()->Tpool);
     AssertFatal(ue_low_phy_client_open(ue_low_phy_device_port(fd_device), &f->client) == 0,
                 "[fd-ue] UE Low-PHY port has no free client slot for UE %d\n",
                 u);
@@ -561,17 +553,16 @@ void term_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
   for (int u = 0; u < num_ues; u++) {
     PHY_VARS_NR_UE *UE = UE_list[u];
     fd_ue_t *f = UE->fd_ifdevice->priv;
+    // DL decodings start TX slots on the UL actors
+    nr_ue_dl_slots_free(&UE->dl_slots);
     for (int i = 0; i < get_nrUE_params()->num_ul_actors; i++)
       shutdown_actor(&f->ul_actors[i]);
-    for (int i = 0; i < get_nrUE_params()->num_dl_actors; i++)
-      shutdown_actor(&f->dl_actors[i]);
     if (!IS_SOFTMODEM_NOSTATS)
       join_thread(UE->stat_thread);
     if (!ue_low_phy_client_leave(&f->client, f->last_tx_slot, 200000))
       LOG_W(NR_PHY, "[fd-ue] UE %d: Low-PHY did not confirm leaving\n", UE->Mod_id);
     UE->fd_ifdevice = NULL;
     ue_low_phy_client_close(&f->client);
-    free(f->dl_actors);
     free(f->ul_actors);
     ue_low_phy_progress_destroy(&f->tx_completed);
     ue_low_phy_progress_destroy(&f->tx_jobs);

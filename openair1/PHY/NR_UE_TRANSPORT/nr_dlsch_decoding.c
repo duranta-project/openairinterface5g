@@ -366,3 +366,37 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   }
   nr_dlsch_decoding_result(phy_vars_ue, proc, dlsch, cw_idx, dlsch_config, &TB, b, number_rbs, G);
 }
+
+static void nr_dlsch_decoded(void *arg)
+{
+  nr_ue_dlsch_decoding_t *dec = arg;
+  nr_dlsch_decoding_result(dec->ue, dec->proc, dec->dlsch, dec->cw_idx, dec->config, &dec->TB, dec->b, dec->nb_rb, dec->G);
+  dec->done(dec);
+}
+
+bool nr_dlsch_decoding_start(nr_ue_dlsch_decoding_t *dec, int16_t *dlsch_llr)
+{
+  PHY_VARS_NR_UE *ue = dec->ue;
+  nrLDPC_TB_decoding_parameters_t *TB = &dec->TB;
+  memset(TB, 0, sizeof(*TB));
+  if (!nr_dlsch_decoding_prepare(ue, dec->proc, dec->dlsch, dec->cw_idx, dec->config, dlsch_llr, dec->nb_rb, dec->G, TB))
+    return false;
+#ifdef LDPC_CUDA
+  TB->c = ue->dl_harq_processes[dec->cw_idx][dec->config->harq_process_nbr].c; // written by the GPU: mapped memory
+#else
+  TB->c = dec->c;
+#endif
+  dec->slot = (nrLDPC_slot_decoding_parameters_t){.frame = dec->proc->frame_rx,
+                                                  .slot = dec->proc->nr_slot_rx,
+                                                  .nb_TBs = 1,
+                                                  .threadPool = &get_nrUE_params()->Tpool,
+                                                  .TBs = TB,
+                                                  .done = nr_dlsch_decoded,
+                                                  .done_arg = dec};
+  int ret_decoder = ue->nrLDPC_coding_interface.nrLDPC_coding_decoder(&dec->slot);
+  if (ret_decoder != 0) {
+    LOG_E(PHY, "nrLDPC_coding_decoder returned an error: %d\n", ret_decoder);
+    return false;
+  }
+  return true;
+}

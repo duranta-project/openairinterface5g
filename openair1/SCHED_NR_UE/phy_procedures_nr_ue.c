@@ -449,7 +449,8 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                   fapi_nr_dl_config_dlsch_pdu_rel15_t *dlschCfg,
                                   int16_t *llr,
                                   c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
-                                  freq_alloc_bitmap_t *freq_alloc)
+                                  freq_alloc_bitmap_t *freq_alloc,
+                                  pdsch_scratch_t *scratch)
 {
   int frame_rx = proc->frame_rx;
   int nr_slot_rx = proc->nr_slot_rx;
@@ -488,8 +489,6 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
         dmrs_symb_bitmap,
         dlsch->cw_info.Nl);
 
-  const int actor_idx = proc->nr_slot_rx % ue->pdsch_num_actors;
-  pdsch_scratch_t *scratch = &ue->pdsch_scratch[actor_idx];
   const uint32_t pdsch_est_size = scratch->pdsch_est_size;
   const uint32_t pdsch_buf_size_max = scratch->pdsch_buf_size_max;
   int32_t (*pdsch_dl_ch_estimates)[pdsch_est_size] = (int32_t (*)[pdsch_est_size])scratch->pdsch_dl_ch_estimates;
@@ -702,61 +701,19 @@ static uint32_t compute_csi_rm_unav_res(fapi_nr_dl_config_dlsch_pdu_rel15_t *dls
   return unav_res;
 }
 
-/*! \brief Process the whole DLSCH slot
- */
-static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
+/// Reports the TB to MAC, releases the TX slot waiting for its HARQ feedback
+static void nr_ue_dlsch_indication(PHY_VARS_NR_UE *ue,
                                    const UE_nr_rxtx_proc_t *proc,
                                    NR_UE_DLSCH_t *dlsch,
                                    int cw_idx,
-                                   int G,
-                                   freq_alloc_bitmap_t *freq_alloc,
                                    fapi_nr_dl_config_dlsch_pdu_rel15_t *config,
-                                   int16_t *llr)
+                                   uint8_t *output)
 {
-  if (dlsch->active == false) {
-    LOG_E(PHY, "DLSCH should be active when calling this function\n");
-    return;
-  }
-
-  int harq_pid = config->harq_process_nbr;
-  int frame_rx = proc->frame_rx;
-  int nr_slot_rx = proc->nr_slot_rx;
-
-  LOG_D(PHY, "AbsSubframe %d.%d Start LDPC Decoder for CW%d [harq_pid %d]\n", frame_rx % 1024, nr_slot_rx, cw_idx, harq_pid);
-
+  const int harq_pid = config->harq_process_nbr;
+  const int frame_rx = proc->frame_rx;
+  const int nr_slot_rx = proc->nr_slot_rx;
   NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
-  // exit dlsch procedures as there are no active dlsch
   NR_DL_UE_HARQ_t *dl_harq = &ue->dl_harq_processes[cw_idx][harq_pid];
-  if (dl_harq->status != NR_ACTIVE) {
-    /* Grant arrived (dlsch active, LLRs demodulated) but the HARQ process is no longer ACTIVE. */
-    LOG_E(NR_PHY, "Internal error nr_ue_dlsch_procedure() no active cw slot %d harq %d (now %d.%d status %d activated %d.%d)\n",
-          nr_slot_rx, harq_pid, frame_rx, nr_slot_rx, dl_harq->status, dl_harq->activated_frame, dl_harq->activated_slot);
-    if (config->k1_feedback) {
-      const int ack_nack_slot_and_frame = (proc->nr_slot_rx + config->k1_feedback) + proc->frame_rx * fp->slots_per_frame;
-      dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
-    }
-    return;
-  }
-
-  /* Late finish of a TB that no longer owns the PID: do not decode, ACK, or write HARQ state. */
-  if (dl_harq->activated_frame != frame_rx || dl_harq->activated_slot != nr_slot_rx) {
-    LOG_W(NR_PHY, "%d.%d DLSCH harq %d late decode skipped, re-armed %d.%d first_rx %d\n",
-          frame_rx, nr_slot_rx, harq_pid, dl_harq->activated_frame, dl_harq->activated_slot, dl_harq->first_rx);
-    if (config->k1_feedback) {
-      const int ack_nack_slot_and_frame = (proc->nr_slot_rx + config->k1_feedback) + proc->frame_rx * fp->slots_per_frame;
-      dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
-    }
-    return;
-  }
-
-  start_meas_nr_ue_phy(ue, DLSCH_UNSCRAMBLING_STATS);
-  nr_dlsch_unscrambling(llr, G, 0, config->dlDataScramblingId, dlsch->rnti);
-  stop_meas_nr_ue_phy(ue, DLSCH_UNSCRAMBLING_STATS);
-
-  start_meas_nr_ue_phy(ue, DLSCH_DECODING_STATS);
-  uint8_t output[lenWithCrc(1, dlsch->cw_info.TBS) / 8];
-  nr_dlsch_decoding(ue, proc, dlsch, cw_idx, config, llr, output, freq_alloc->num_rbs, G);
-  stop_meas_nr_ue_phy(ue, DLSCH_DECODING_STATS);
 
   int ind_type = -1;
   switch (dlsch->rnti_type) {
@@ -828,14 +785,98 @@ static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
     dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
   }
 
-  int a_segments = MAX_NUM_NR_DLSCH_SEGMENTS; // number of segments to be allocated
-  if (freq_alloc->num_rbs != 273) {
-    a_segments = a_segments * freq_alloc->num_rbs;
-    a_segments = (a_segments / 273) + 1;
+  if (ue->phy_sim_dlsch_b)
+    memcpy(ue->phy_sim_dlsch_b, output, lenWithCrc(1, dlsch->cw_info.TBS) / 8);
+}
+
+static void nr_ue_dlsch_decoded(nr_ue_dlsch_decoding_t *dec)
+{
+  stop_single_meas(&dec->ts_decoding);
+  merge_single_meas(&dec->ue->phy_cpu_stats.cpu_time_stats[DLSCH_DECODING_STATS], &dec->ts_decoding);
+  nr_ue_dlsch_indication(dec->ue, dec->proc, dec->dlsch, dec->cw_idx, dec->config, dec->b);
+  nr_ue_dl_job_drop(dec->job);
+}
+
+/// Starts decoding a DLSCH codeword, completed by nr_ue_dlsch_decoded()
+static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
+                                   const UE_nr_rxtx_proc_t *proc,
+                                   NR_UE_DLSCH_t *dlsch,
+                                   int cw_idx,
+                                   int G,
+                                   freq_alloc_bitmap_t *freq_alloc,
+                                   fapi_nr_dl_config_dlsch_pdu_rel15_t *config,
+                                   int16_t *llr,
+                                   pdsch_scratch_t *scratch,
+                                   nr_ue_dl_job_t *job)
+{
+  if (dlsch->active == false) {
+    LOG_E(PHY, "DLSCH should be active when calling this function\n");
+    return;
   }
 
-  if (ue->phy_sim_dlsch_b)
-    memcpy(ue->phy_sim_dlsch_b, output, sizeof(output));
+  int harq_pid = config->harq_process_nbr;
+  int frame_rx = proc->frame_rx;
+  int nr_slot_rx = proc->nr_slot_rx;
+
+  LOG_D(PHY, "AbsSubframe %d.%d Start LDPC Decoder for CW%d [harq_pid %d]\n", frame_rx % 1024, nr_slot_rx, cw_idx, harq_pid);
+
+  NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
+  // exit dlsch procedures as there are no active dlsch
+  NR_DL_UE_HARQ_t *dl_harq = &ue->dl_harq_processes[cw_idx][harq_pid];
+  if (dl_harq->status != NR_ACTIVE) {
+    /* Grant arrived (dlsch active, LLRs demodulated) but the HARQ process is no longer ACTIVE. */
+    LOG_E(NR_PHY,
+          "Internal error nr_ue_dlsch_procedure() no active cw slot %d harq %d (now %d.%d status %d activated %d.%d)\n",
+          nr_slot_rx,
+          harq_pid,
+          frame_rx,
+          nr_slot_rx,
+          dl_harq->status,
+          dl_harq->activated_frame,
+          dl_harq->activated_slot);
+    if (config->k1_feedback) {
+      const int ack_nack_slot_and_frame = (proc->nr_slot_rx + config->k1_feedback) + proc->frame_rx * fp->slots_per_frame;
+      dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
+    }
+    return;
+  }
+
+  /* Late finish of a TB that no longer owns the PID: do not decode, ACK, or write HARQ state. */
+  if (dl_harq->activated_frame != frame_rx || dl_harq->activated_slot != nr_slot_rx) {
+    LOG_W(NR_PHY,
+          "%d.%d DLSCH harq %d late decode skipped, re-armed %d.%d first_rx %d\n",
+          frame_rx,
+          nr_slot_rx,
+          harq_pid,
+          dl_harq->activated_frame,
+          dl_harq->activated_slot,
+          dl_harq->first_rx);
+    if (config->k1_feedback) {
+      const int ack_nack_slot_and_frame = (proc->nr_slot_rx + config->k1_feedback) + proc->frame_rx * fp->slots_per_frame;
+      dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
+    }
+    return;
+  }
+
+  start_meas_nr_ue_phy(ue, DLSCH_UNSCRAMBLING_STATS);
+  nr_dlsch_unscrambling(llr, G, 0, config->dlDataScramblingId, dlsch->rnti);
+  stop_meas_nr_ue_phy(ue, DLSCH_UNSCRAMBLING_STATS);
+
+  nr_ue_dlsch_decoding_t *dec = &scratch->dec[cw_idx];
+  dec->ue = ue;
+  dec->proc = proc;
+  dec->dlsch = dlsch;
+  dec->config = config;
+  dec->job = job;
+  dec->done = nr_ue_dlsch_decoded;
+  dec->cw_idx = cw_idx;
+  dec->G = G;
+  dec->nb_rb = freq_alloc->num_rbs;
+  reset_single_meas(&dec->ts_decoding);
+  start_single_meas(&dec->ts_decoding);
+  nr_ue_dl_job_hold(job);
+  if (!nr_dlsch_decoding_start(dec, llr))
+    nr_ue_dlsch_decoded(dec);
 }
 
 static bool check_neighboring_cells_task(PHY_VARS_NR_UE *ue, bool task_pending)
@@ -1267,7 +1308,7 @@ int pbch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_da
   return sampleShift;
 }
 
-void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data, nr_ue_dl_job_t *job)
 {
   int frame_rx = proc->frame_rx;
   int nr_slot_rx = proc->nr_slot_rx;
@@ -1323,8 +1364,8 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     }
   }
 
-  const int actor_idx_llr = proc->nr_slot_rx % ue->pdsch_num_actors;
-  int16_t **llr = ue->pdsch_scratch[actor_idx_llr].llr;
+  pdsch_scratch_t *scratch = &ue->pdsch_scratch[job->scratch_idx];
+  int16_t **llr = scratch->llr;
   fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_config = &phy_data->dlsch_config;
   for (int c = 0; c < phy_data->n_dlsch_codewords; c++) {
     NR_UE_DLSCH_t *dlsch = &phy_data->dlsch[c];
@@ -1375,7 +1416,7 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     // dlsch_harq contains the previous transmissions data for this harq pid
     NR_DL_UE_HARQ_t *harq = &ue->dl_harq_processes[c][dlsch_config->harq_process_nbr];
     // it returns -1 in case of internal failure, or 0 in case of normal result
-    int ret_pdsch = nr_ue_pdsch_procedures(ue, proc, dlsch, harq, dlsch_config, llr[c], rxdataF, &freq_alloc);
+    int ret_pdsch = nr_ue_pdsch_procedures(ue, proc, dlsch, harq, dlsch_config, llr[c], rxdataF, &freq_alloc, scratch);
     TracyCPlot("pdsch mcs", dlsch->cw_info.mcs);
 
     UEscopeCopy(ue, pdschLlr, llr[c], sizeof(int16_t), 1, G, 0);
@@ -1384,7 +1425,7 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     start_meas_nr_ue_phy(ue, DLSCH_PROCEDURES_STATS);
 
     if (ret_pdsch >= 0) {
-      nr_ue_dlsch_procedures(ue, proc, dlsch, c, G, &freq_alloc, dlsch_config, llr[c]);
+      nr_ue_dlsch_procedures(ue, proc, dlsch, c, G, &freq_alloc, dlsch_config, llr[c], scratch, job);
     } else {
       LOG_E(NR_PHY, "Demodulation impossible, internal error\n");
       if (dlsch_config->k1_feedback) {

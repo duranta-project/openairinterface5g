@@ -97,6 +97,24 @@ THREAD_STRUCT thread_struct;
  * here as well, only provide a prototype (and abort if they are ever called). */
 
 /* Function to set or overwrite PTRS DL RRC parameters */
+/// PDSCH of the simulated slot, processed inline
+typedef struct {
+  nr_ue_dl_job_t job;
+  PHY_VARS_NR_UE *UE;
+  const UE_nr_rxtx_proc_t *proc;
+  nr_phy_data_t *phy_data;
+} dlsim_dl_job_t;
+
+static void dlsim_pdsch_processing(nr_ue_dl_job_t *job)
+{
+  dlsim_dl_job_t *j = (dlsim_dl_job_t *)job;
+  pdsch_processing(j->UE, j->proc, j->phy_data, job);
+}
+
+static void dlsim_dl_release(nr_ue_dl_job_t *job)
+{
+}
+
 static void rrc_config_dl_ptrs_params(NR_BWP_Downlink_t *bwp, long *ptrsNrb, long *ptrsMcs, long *epre_Ratio, long *reOffset)
 {
   int i=0;
@@ -967,6 +985,7 @@ int main(int argc, char **argv)
   unsigned int errors_bit = 0;
 
   initFloatingCoresTpool(dlsch_threads, &nrUE_params.Tpool, false, "UE-tpool");
+  nr_ue_dl_slots_init(&UE->dl_slots, 0, UE->pdsch_num_scratch, &nrUE_params.Tpool);
 
   // generate signal
   AssertFatal(input_fd==NULL,"Not ready for input signal file\n");
@@ -1307,9 +1326,13 @@ int main(int argc, char **argv)
         NR_DL_UE_HARQ_t *decode_harq = &UE->dl_harq_processes[0][phy_data.dlsch_config.harq_process_nbr];
         decode_harq->activated_frame = UE_proc.frame_rx;
         decode_harq->activated_slot = UE_proc.nr_slot_rx;
-        pdsch_processing(UE,
-                         &UE_proc,
-                         &phy_data);
+        dlsim_dl_job_t dl_job = {
+            .job = {.run = dlsim_pdsch_processing, .release = dlsim_dl_release},
+            .UE = UE,
+            .proc = &UE_proc,
+            .phy_data = &phy_data,
+        };
+        nr_ue_dl_slots_submit(&UE->dl_slots, &dl_job.job);
         //----------------------------------------------------------
         //---------------------- count errors ----------------------
         //----------------------------------------------------------
