@@ -22,13 +22,15 @@
 
 #define NR_LDPC_ROT_MAX_CN 46
 
-/** Edges in CN order: offset of the edge's Z-vector in bnProcBuf / bnProcBufRes and in the input LLRs, and its shift */
+/** Edges in CN order: offset of the edge's Z-vector in bnProcBuf / bnProcBufRes and in the input LLRs, its shift, and
+    whether its BN-to-CN message is the input LLR in every iteration (chan) */
 typedef struct {
   uint16_t numCn;
   uint8_t deg[NR_LDPC_ROT_MAX_CN];
   uint32_t bnOff[NR_LDPC_NUM_EDGE_BG1];
   uint32_t llrOff[NR_LDPC_NUM_EDGE_BG1];
   uint16_t shift[NR_LDPC_NUM_EDGE_BG1];
+  uint8_t chan[NR_LDPC_NUM_EDGE_BG1];
 } nrLDPC_cnEdges_t;
 
 /** Walks the CN groups like nrLDPC_llr2CnProcBuf_BG* / nrLDPC_cn2bnProcBuf_BG* */
@@ -36,7 +38,13 @@ static inline void nrLDPC_cnEdges_init(const t_nrLDPC_lut *p_lut, uint8_t BG, ui
 {
   static const uint8_t deg1[] = {3, 4, 5, 6, 7, 8, 9, 10, 19};
   static const uint8_t deg2[] = {3, 4, 5, 6, 8, 10};
+  /* BN-to-CN messages nrLDPC_bn2cnProcBuf_BG* refreshes per CN: the last edge of the other groups is a degree-1 BN, whose
+     message stays the input LLR that nrLDPC_llr2CnProcBuf_BG* put there (bnProcBufRes differs from it once
+     llrRes = llr + msg saturates) */
+  static const uint8_t upd1[] = {2, 3, 4, 5, 6, 7, 8, 9, 19};
+  static const uint8_t upd2[] = {2, 3, 4, 5, 8, 10};
   const uint8_t *deg = BG == 1 ? deg1 : deg2;
+  const uint8_t *upd = BG == 1 ? upd1 : upd2;
   const int numGroups = BG == 1 ? sizeofArray(deg1) : sizeofArray(deg2);
   int n = 0, c = 0;
   for (int g = 0; g < numGroups; g++) {
@@ -48,6 +56,7 @@ static inline void nrLDPC_cnEdges_init(const t_nrLDPC_lut *p_lut, uint8_t BG, ui
         e->bnOff[n] = (arrPos(p_lut->startAddrBnProcBuf[g], j))[i] + bnPos * Z;
         e->llrOff[n] = (arrPos(p_lut->posBnInCnProcBuf[g], j))[i] * Z;
         e->shift[n] = (arrPos(p_lut->circShift[g], j))[i];
+        e->chan[n] = j >= upd[g];
       }
     }
   }
@@ -82,12 +91,13 @@ static inline void nrLDPC_rot_store(int8_t *v, uint32_t p, uint32_t Z, simde__m5
 }
 
 /**
-   \brief Two-pass min-sum over all CNs, as nrLDPC_cnProc_group_2pass_512: edge n read at src[srcOff[n]] rotated, its
-   CN-to-BN message written at bnProcBuf[bnOff[n]] rotated the same way.
+   \brief Two-pass min-sum over all CNs, as nrLDPC_cnProc_group_2pass_512: edge n read at src[srcOff[n]] rotated (at
+   llr[llrOff[n]] if chan[n]), its CN-to-BN message written at bnProcBuf[bnOff[n]] rotated the same way.
 */
 static inline void nrLDPC_cnProc_rot(const nrLDPC_cnEdges_t *e,
                                      const int8_t *src,
                                      const uint32_t *srcOff,
+                                     const int8_t *llr,
                                      int8_t *bnProcBuf,
                                      uint16_t Z)
 {
@@ -102,7 +112,7 @@ static inline void nrLDPC_cnProc_rot(const nrLDPC_cnEdges_t *e,
       simde__m512i min1 = maxLLR, min2 = maxLLR, sgn = zeros;
       for (int k = n0; k < n1; k++) {
         const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;
-        const simde__m512i x = nrLDPC_rot_load(src + srcOff[k], p, Z, mvl);
+        const simde__m512i x = nrLDPC_rot_load(e->chan[k] ? llr + e->llrOff[k] : src + srcOff[k], p, Z, mvl);
         const simde__m512i a = simde_mm512_abs_epi8(x);
         sgn = simde_mm512_xor_si512(sgn, x);
         min2 = simde_mm512_min_epu8(min2, simde_mm512_max_epu8(min1, a));
@@ -110,7 +120,7 @@ static inline void nrLDPC_cnProc_rot(const nrLDPC_cnEdges_t *e,
       }
       for (int k = n0; k < n1; k++) {
         const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;
-        const simde__m512i x = nrLDPC_rot_load(src + srcOff[k], p, Z, mvl);
+        const simde__m512i x = nrLDPC_rot_load(e->chan[k] ? llr + e->llrOff[k] : src + srcOff[k], p, Z, mvl);
         const simde__m512i a = simde_mm512_abs_epi8(x);
         const simde__m512i mag =
             simde_mm512_min_epu8(simde_mm512_mask_blend_epi8(simde_mm512_cmpeq_epi8_mask(a, min1), min1, min2), maxLLR);
@@ -122,10 +132,11 @@ static inline void nrLDPC_cnProc_rot(const nrLDPC_cnEdges_t *e,
 }
 
 /**
-   \brief Parity check on the rotated BN-to-CN (bnProcBufRes) plus CN-to-BN (bnProcBuf) messages, as
+   \brief Parity check on the rotated BN-to-CN (bnProcBufRes, or llr if chan) plus CN-to-BN (bnProcBuf) messages, as
    nrLDPC_cnProcPc_BG* on cnProcBuf + cnProcBufRes: 1 at the first unsatisfied check.
 */
 static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
+                                           const int8_t *llr,
                                            const int8_t *bnProcBufRes,
                                            const int8_t *bnProcBuf,
                                            uint16_t Z)
@@ -138,7 +149,7 @@ static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
       simde__m512i par = simde_mm512_setzero_si512();
       for (int k = n0; k < n0 + e->deg[c]; k++) {
         const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;
-        const simde__m512i in = nrLDPC_rot_load(bnProcBufRes + bnOff[k], p, Z, mvl);
+        const simde__m512i in = nrLDPC_rot_load(e->chan[k] ? llr + e->llrOff[k] : bnProcBufRes + bnOff[k], p, Z, mvl);
         const simde__m512i res = nrLDPC_rot_load(bnProcBuf + bnOff[k], p, Z, mvl);
         par = simde_mm512_xor_si512(par, simde_mm512_adds_epi8(in, res));
       }
