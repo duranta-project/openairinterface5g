@@ -1889,6 +1889,7 @@ add_executable(nr-uesoftmodem
   ${OPENAIR_DIR}/executables/nr-uesoftmodem.c
   ${OPENAIR_DIR}/executables/position_interface.c
   ${OPENAIR_DIR}/executables/nr-ue.c
+  ${OPENAIR_DIR}/executables/nr-ue-tx-deadline.c
   ${OPENAIR_DIR}/executables/nr-ue-ru.c
   ${OPENAIR_DIR}/executables/nr-ue-fd.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
