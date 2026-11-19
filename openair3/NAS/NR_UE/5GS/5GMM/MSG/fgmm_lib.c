@@ -96,10 +96,10 @@ int decode_pdu_session_ie(uint8_t *psi, const byte_array_t *buffer)
   return decoded;
 }
 
-/* Encode GPRS Timer IE (3GPP TS 24.008 10.5.7.3) */
+/* Encode GPRS timer 2 IE (TS 24.008 clause 10.5.7.4). */
 int encode_gprs_timer_ie(byte_array_t *buffer, nas_service_IEI_t iei, const gprs_timer_t *timer)
 {
-  if (buffer->len < GPRS_TIMER_LENGTH) {
+  if (!buffer->buf || buffer->len < GPRS_TIMER_LENGTH) {
     PRINT_ERROR("Buffer length is too short to encode the GPRS Timer IE\n");
     return -1;
   }
@@ -120,11 +120,16 @@ int encode_gprs_timer_ie(byte_array_t *buffer, nas_service_IEI_t iei, const gprs
   return encoded;
 }
 
-/* Decode GPRS Timer IE (3GPP TS 24.008 10.5.7.3) */
+/* Decode GPRS timer 2 IE (TS 24.008 clause 10.5.7.4). */
 int decode_gprs_timer_ie(gprs_timer_t *timer, const byte_array_t *buffer)
 {
-  if (buffer->len < GPRS_TIMER_LENGTH - IEI_LEN) {
+  if (!buffer->buf || buffer->len < GPRS_TIMER_LENGTH - IEI_LEN) {
     PRINT_ERROR("Buffer length is too short to decode the GPRS Timer IE\n");
+    return -1;
+  }
+  const uint8_t content_len = buffer->buf[0];
+  if (content_len < 1 || content_len > buffer->len - IEI_LEN) {
+    PRINT_ERROR("Invalid GPRS Timer IE length\n");
     return -1;
   }
 
@@ -133,7 +138,8 @@ int decode_gprs_timer_ie(gprs_timer_t *timer, const byte_array_t *buffer)
   uint8_t *buf = buffer->buf;
   timer->unit = (buf[decoded] >> 5) & 0x07;
   timer->value = buf[decoded++] & 0x1F;
-  return decoded;
+  // TS 24.007 clause 11.4.2: ignore complete extra type 4 contents.
+  return IEI_LEN + content_len;
 }
 
 /** @brief Equality check for GPRS Timer */
