@@ -91,6 +91,26 @@ void reset_active_stats(PHY_VARS_gNB *gNB, int frame)
   }
 }
 
+/* Persistent PUSCH LLR buffer instead of the stack array of phy_procedures_gNB_uespec_RX(), for the GPU (mapped
+   memory) or a simulator reading the LLRs after the call. Worst case of a slot: the PUSCH share the grid, the layers
+   of a MU-MIMO group add up to at most NR_MAX_NB_LAYERS, 8 bits per RE and layer at most (256QAM), the UCI LLRs
+   come from the same REs. Short HARQ-ACK also occupies a separate slice, so reserve at most two copies
+   of the grid, plus slice alignment. */
+void init_nr_gNB_pusch_llr_pool(PHY_VARS_gNB *gNB)
+{
+  if (gNB->pusch_llr_pool)
+    return;
+  const NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
+  gNB->pusch_llr_pool_size =
+      fp->N_RB_UL * NR_NB_SC_PER_RB * (2 * fp->symbols_per_slot) * 8 * NR_MAX_NB_LAYERS + 4 * 32 * MAX_UL_PDUS_PER_SLOT;
+#ifdef LDPC_CUDA
+  gNB->pusch_llr_pool = gpuHostAlloc_or_fail(gNB->pusch_llr_pool_size * sizeof(int16_t), gpuHostAllocMapped);
+  gNB->pusch_llr_pool_dev = gpuHostGetDevicePointer_or_fail(gNB->pusch_llr_pool);
+#else
+  gNB->pusch_llr_pool = malloc16(gNB->pusch_llr_pool_size * sizeof(int16_t));
+#endif
+}
+
 void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
 {
   // shortcuts
@@ -107,7 +127,6 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
 
   int Ptx = cfg->carrier_config.num_tx_ant.value;
   int Prx = cfg->carrier_config.num_rx_ant.value;
-  int max_ul_mimo_layers = NR_MAX_NB_LAYERS;
 
   AssertFatal(Ptx > 0 && Ptx < 9,"Ptx %d is not supported\n", Ptx);
   AssertFatal(Prx > 0 && Prx < 9,"Prx %d is not supported\n", Prx);
@@ -167,45 +186,15 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   // PRACH
   init_nr_prach(gNB);
 
-  int N_RB_UL = cfg->carrier_config.ul_grid_size[cfg->ssb_config.scs_common.value].value;
-  int n_buf = Prx*max_ul_mimo_layers;
-
-  int nb_re_pusch = N_RB_UL * NR_NB_SC_PER_RB;
-  int nb_re_pusch2 = ceil_mod(nb_re_pusch, 16);
+#ifdef LDPC_CUDA
+  init_nr_gNB_pusch_llr_pool(gNB); // the GPU reads the LLRs: mapped memory, not the stack
+#endif
 
   gNB->pusch_vars = (NR_gNB_PUSCH *)malloc16_clear(gNB->max_nb_pusch * sizeof(NR_gNB_PUSCH));
-  for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
-    NR_gNB_PUSCH *pusch = &gNB->pusch_vars[ULSCH_id];
-    pusch->ul_ch_estimates = (int32_t **)malloc16(n_buf * sizeof(int32_t *));
-    for (int i = 0; i < n_buf; i++) {
-      pusch->ul_ch_estimates[i] = (int32_t *)malloc16_clear(sizeof(int32_t) * fp->ofdm_symbol_size * fp->symbols_per_slot);
-    }
-
-    pusch->rxdataF_comp = (c16_t **)malloc16(max_ul_mimo_layers * sizeof(*pusch->rxdataF_comp));
-    for (int i = 0; i < max_ul_mimo_layers; i++) {
-      pusch->rxdataF_comp[i] = (c16_t *)malloc16_clear(sizeof(**pusch->rxdataF_comp) * nb_re_pusch2 * fp->symbols_per_slot);
-    }
-#ifdef LDPC_CUDA
-    // 144 segments 8448*3 coded bits per segment
-    pusch->ulsch_llrs = gpuHostAlloc_or_fail((144 * 3 * 8448) * sizeof(int16_t), gpuHostAllocMapped);
-    pusch->llr_dev = gpuHostGetDevicePointer_or_fail(pusch->ulsch_llrs);
-#else
-    pusch->ulsch_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t)); // 144 segments 3*8448 coded bits per segment
-#endif
-    // TODO refine the size
-    pusch->ack_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
-    pusch->csi1_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
-    pusch->csi2_llrs = (int16_t *)malloc16_clear((144 * 3 * 8448) * sizeof(int16_t));
-    pusch->ul_valid_re_per_slot = (int16_t *)malloc16_clear(sizeof(int16_t) * fp->symbols_per_slot);
-  } // ulsch_id
 }
 
 void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
 {
-  const int Prx = gNB->gNB_config.carrier_config.num_rx_ant.value;
-  const int max_ul_mimo_layers = NR_MAX_NB_LAYERS;
-  const int n_buf = Prx * max_ul_mimo_layers;
-
   PHY_MEASUREMENTS_gNB *meas = &gNB->measurements;
   free_and_zero(meas->n0_subband_power);
 
@@ -234,28 +223,16 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
    * RU's txdataF/rxdataF, and the RU will free that */
   free_and_zero(common_vars->rxdataF);
 
-  for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
-    NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ULSCH_id];
-    for (int i = 0; i < n_buf; i++) {
-      free_and_zero(pusch_vars->ul_ch_estimates[i]);
-    }
-    for (int i = 0; i < max_ul_mimo_layers; i++)
-      free_and_zero(pusch_vars->rxdataF_comp[i]);
-
-    free_and_zero(pusch_vars->ul_ch_estimates);
-    free_and_zero(pusch_vars->ul_valid_re_per_slot);
-    free_and_zero(pusch_vars->rxdataF_comp);
-
-#ifdef LDPC_CUDA
-    gpuFreeHost(pusch_vars->llr_dev);
-#else
-    free_and_zero(pusch_vars->ulsch_llrs);
-#endif
-    free_and_zero(pusch_vars->ack_llrs);
-    free_and_zero(pusch_vars->csi1_llrs);
-    free_and_zero(pusch_vars->csi2_llrs);
-  } // ULSCH_id
   free(gNB->pusch_vars);
+  // not NULL out of phy_procedures_gNB_uespec_RX(): the persistent buffer
+  if (gNB->pusch_llr_pool) {
+#ifdef LDPC_CUDA
+    gpuFreeHost(gNB->pusch_llr_pool);
+#else
+    free(gNB->pusch_llr_pool);
+#endif
+    gNB->pusch_llr_pool = NULL;
+  }
 
   free_nrLDPC_coding_interface(&gNB->nrLDPC_coding_interface);
 }

@@ -57,7 +57,6 @@ void free_gNB_ulsch(NR_gNB_ULSCH_t *ulsch, uint16_t N_RB_UL)
     gpuFreeHost(ulsch->harq_process->c);
     gpuFreeHost(ulsch->harq_process->d);
 #else
-    free_and_zero(ulsch->harq_process->c);
     free_and_zero(ulsch->harq_process->d);
 #endif
     free_and_zero(ulsch->harq_process);
@@ -90,7 +89,6 @@ NR_gNB_ULSCH_t new_gNB_ulsch(uint8_t max_ldpc_iterations, uint16_t N_RB_UL)
   harq->c = gpuHostAlloc_or_fail(a_segments * 8448 * sizeof(*harq->c), gpuHostAllocMapped);
   harq->d = gpuHostAlloc_or_fail(a_segments * 64 * 384 * sizeof(*harq->d), gpuHostAllocMapped);
 #else
-  harq->c = malloc16_clear(a_segments * 8448 * sizeof(*harq->c));
   harq->d = malloc16_clear(a_segments * 68 * 384 * sizeof(*harq->d));
 #endif
   return (ulsch);
@@ -112,6 +110,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
                                                        .TBs = TBs};
 
   int max_num_segments = 0;
+  size_t c_size = 0; // bytes of the decoded code blocks of all the TBs
 
   for (uint8_t pusch_id = 0; pusch_id < nb_pusch; pusch_id++) {
     uint8_t ULSCH_id = ULSCH_ids[pusch_id];
@@ -213,6 +212,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
       return -1;
     }
     max_num_segments = max(max_num_segments, TB_parameters->C);
+    c_size += TB_parameters->C * (TB_parameters->K >> 3);
 
 #ifdef DEBUG_ULSCH_DECODING
     printf("ulsch decoding nr segmentation Z %d\n", TB_parameters->Z);
@@ -227,6 +227,13 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
     TB_parameters->abort_decode = &harq_process->abort_decode;
     set_abort(&harq_process->abort_decode, false);
   }
+
+#ifndef LDPC_CUDA
+  // decoded code blocks of all the TBs, block r of a TB at r * K / 8: only used during this call
+  DevAssert(c_size > 0);
+  uint8_t c_slot[c_size] __attribute__((aligned(32)));
+  uint8_t *c_next = c_slot;
+#endif
 
   for (uint8_t pusch_id = 0; pusch_id < nb_pusch; pusch_id++) {
     uint8_t ULSCH_id = ULSCH_ids[pusch_id];
@@ -253,7 +260,12 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
       return -1;
     TB_parameters->llr = ulsch_llr;
     TB_parameters->d = harq_process->d;
-    TB_parameters->c = harq_process->c;
+#ifdef LDPC_CUDA
+    TB_parameters->c = harq_process->c; // written by the GPU: mapped memory
+#else
+    TB_parameters->c = c_next;
+    c_next += TB_parameters->C * (TB_parameters->K >> 3);
+#endif
     TB_parameters->E = E;
     TB_parameters->first_rE2 = TB_parameters->C;
     TB_parameters->E2 = TB_parameters->E;
@@ -301,7 +313,7 @@ int nr_ulsch_decoding(PHY_VARS_gNB *phy_vars_gNB,
       LOG_D(PHY, "Segment %d %d\n", r, TB_parameters->decodeSuccess[r]);
       uint32_t seg_len = (harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0);
       if (TB_parameters->decodeSuccess[r]) {
-        memcpy(harq_process->b + offset, harq_process->c + r_offset, seg_len);
+        memcpy(harq_process->b + offset, TB_parameters->c + r_offset, seg_len);
       } else {
         LOG_D(PHY, "Segment %d/%d in error\n", r, TB_parameters->C);
       }

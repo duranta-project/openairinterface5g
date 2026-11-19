@@ -1424,6 +1424,32 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
   int ulsch_idx_to_decode[MAX_UL_PDUS_PER_SLOT];
   int num_pusch = 0;
 
+  /* LLRs of the PUSCH of this slot, from the demodulation to the decoding, sliced per PUSCH by
+     nr_rx_pusch_group_tp(). Short HARQ-ACK punctures data and needs additional LLR storage; it can span
+     more than one symbol. The size also includes alignment of the four slices. */
+  int llr_need = 0;
+  for (int i = 0; i < n_pusch_jobs; i++) {
+    const nfapi_nr_pusch_pdu_t *p = &pusch[i].pusch_pdu;
+    llr_need += nr_get_pusch_llr_size(p);
+  }
+  // the PUSCH of a slot share the grid: check it before the stack array (no stack clash protection in the build)
+  const int llr_grid = frame_parms->N_RB_UL * NR_NB_SC_PER_RB * (2 * frame_parms->symbols_per_slot) * 8 * NR_MAX_NB_LAYERS
+                       + 4 * 32 * MAX_UL_PDUS_PER_SLOT;
+  AssertFatal(llr_need <= llr_grid,
+              "PUSCH of slot %d.%d need %d LLRs, more than the grid (%d)\n",
+              frame_rx,
+              slot_rx,
+              llr_need,
+              llr_grid);
+  // out of this call, the pool is not NULL only if persistent (init_nr_gNB_pusch_llr_pool())
+  const bool persistent_pool = gNB->pusch_llr_pool != NULL;
+  int16_t llr_stack[persistent_pool ? 1 : max(llr_need, 1)] __attribute__((aligned(64)));
+  if (!persistent_pool) {
+    gNB->pusch_llr_pool = llr_stack;
+    gNB->pusch_llr_pool_size = llr_need;
+  }
+  gNB->pusch_llr_pool_used = 0;
+
   // Group the jobs using group index
   NR_MU_MIMO_job_groups_t pusch_groups = group_pusch_jobs(gNB, pusch, n_pusch_jobs);
 
@@ -1514,6 +1540,10 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, N
   }
 #endif // E3_AGENT
 
+  if (!persistent_pool) {
+    gNB->pusch_llr_pool = NULL; // stack array of this call
+    gNB->pusch_llr_pool_size = 0;
+  }
   return pusch_DTX;
 }
 
