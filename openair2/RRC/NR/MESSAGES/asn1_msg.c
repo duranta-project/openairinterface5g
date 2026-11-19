@@ -572,6 +572,12 @@ static NR_RRCReconfiguration_IEs_t *build_RRCReconfiguration_IEs(const nr_rrc_re
       ie->nonCriticalExtension->masterKeyUpdate->keySetChangeIndicator = false;
       ie->nonCriticalExtension->masterKeyUpdate->nextHopChainingCount = params->nextHopChainingCount;
     }
+
+    /* fullConfig */
+    if (params->fullConfig) {
+      ie->nonCriticalExtension->fullConfig = calloc_or_fail(1, sizeof(*ie->nonCriticalExtension->fullConfig));
+      *ie->nonCriticalExtension->fullConfig = NR_RRCReconfiguration_v1530_IEs__fullConfig_true;
+    }
   }
 
   return ie;

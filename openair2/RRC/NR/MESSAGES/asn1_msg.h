@@ -55,6 +55,7 @@ typedef struct {
   byte_array_t dedicated_NAS_msg_list[MAX_DRBS_PER_UE];
   int num_nas_msg;
   byte_array_t *cgc;
+  bool fullConfig;
   bool masterKeyUpdate;
   int nextHopChainingCount;
   byte_array_t ue_cap;
