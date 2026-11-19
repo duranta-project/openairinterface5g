@@ -1,0 +1,119 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+# OCUDU gnb_split_7_2 DU for the OAI nr-oru over O-RAN 7.2, one host.
+# Template: envsubst writes the host values of ~/ocudu_env.sh into it, as in
+# doc/running_ocudu_du_with_oai_in_7_2_split.md, section 8.
+
+gnb_id: 3584
+gnb_id_bit_length: 22
+
+cu_cp:
+  amf:
+    addrs: ${NET}.132
+    port: 38412
+    bind_addrs: ${NET}.129           # N2 address on the Docker bridge
+    supported_tracking_areas:
+      - tac: 40960
+        plmn_list:
+          - plmn: "20895"
+            tai_slice_support_list:
+              - sst: 1
+
+cu_up:
+  ngu:
+    socket:
+      - bind_addr: ${NET}.129        # N3 address
+
+cell_cfg:
+  dl_arfcn: 669984                   # carrier center (f_ref), not pointA
+  band: 77
+  channel_bandwidth_MHz: 40
+  common_scs: 30
+  plmn: "20895"
+  tac: 40960
+  pci: 0
+  nof_antennas_dl: 1
+  nof_antennas_ul: 1
+  ssb:
+    ssb_period: 20
+    ssb_block_power_dbm: 0
+  pdcch:
+    common:
+      coreset0_index: 11
+      ss0_index: 0
+  ul_common:
+    p_max: 23
+  tdd_ul_dl_cfg:
+    dl_ul_tx_period: 5               # in slots
+    nof_dl_slots: 3
+    nof_dl_symbols: 6
+    nof_ul_slots: 1
+    nof_ul_symbols: 4
+  prach:
+    prach_config_index: 159
+    prach_root_sequence_index: 1
+    zero_correlation_zone: 0
+    prach_frequency_start: 0
+    preamble_rx_target_pw: -100
+    preamble_trans_max: 20
+    power_ramping_step_db: 4
+    total_nof_ra_preambles: 64
+    nof_cb_preambles_per_ssb: 64
+  pusch:
+    p0_nominal_with_grant: -100
+  pucch:
+    p0_nominal: -96
+    formats: f0_and_f2
+  csi:
+    csi_rs_enabled: true
+
+ru_ofh:
+  t1a_max_cp_dl: 470
+  t1a_min_cp_dl: 285
+  t1a_max_cp_ul: 429
+  t1a_min_cp_ul: 285
+  t1a_max_up: 450
+  t1a_min_up: 300
+  ta4_max: 440
+  ta4_min: 0
+  is_prach_cp_enabled: true
+  compr_method_ul: none
+  compr_bitwidth_ul: 16
+  compr_method_dl: none
+  compr_bitwidth_dl: 16
+  compr_method_prach: none
+  compr_bitwidth_prach: 16
+  enable_ul_static_compr_hdr: true
+  enable_dl_static_compr_hdr: true
+  cplane_prach_fft_len: 256
+  # DL RE level -36 dBFS, as OAI tx_amp_backoff_dB 36
+  ru_reference_level_dBFS: -4.96
+  cells:
+    # Keep the quotes: YAML 1.1 can read the value as a number.
+    - network_interface: "${DU_VF}"
+      ru_mac_addr: "02:00:00:00:00:02"
+      du_mac_addr: "02:00:00:00:00:01"
+      mtu: 9000
+      dl_port_id: [0]
+      ul_port_id: [0]
+      prach_port_id: [1]
+
+hal:
+  eal_args: "--lcores (0-1)@(${DU_EAL}) -a ${DU_VF} --file-prefix ocudu_du --iova-mode=va"
+
+expert_execution:
+  affinities:
+    main_pool_cpus: ${DU_POOL}
+    ofh:
+      timing_cpu: ${DU_TIMING}
+      txrx_cpus: [${DU_TXRX}]
+  cell_affinities:
+    - ru_cpus: ${DU_RU}
+
+log:
+  filename: ./ocudu_gnb.log
+  all_level: info
+  ofh_level: info
+
+pcap:
+  mac_enable: false
+  ngap_enable: false
