@@ -389,7 +389,7 @@ int main(int argc, char **argv)
   randominit();
 
   int print_perf = 0;
-  int pdsch_mimo_rx = NR_PDSCH_RX_AUTO;
+  int pdsch_mimo_rx = NR_MIMO_RX_AUTO;
   bool pdsch_mimo_hires = false;
 
   int use_cuda = 0;
@@ -537,8 +537,8 @@ int main(int argc, char **argv)
       break;
 
     case 'E':
-      pdsch_mimo_rx = nr_pdsch_mimo_rx_from_str(optarg);
-      AssertFatal(pdsch_mimo_rx >= 0, "-E %s: must be auto, mmse, ml or lbest\n", optarg);
+      pdsch_mimo_rx = nr_mimo_rx_from_str(optarg);
+      AssertFatal(pdsch_mimo_rx >= 0, "-E %s: must be auto, lbest, mmse or ml\n", optarg);
       break;
 
     case 'J':

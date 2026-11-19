@@ -5,6 +5,7 @@
 #ifndef __NR_COMPUTE_LLR__H__
 #define __NR_COMPUTE_LLR__H__
 
+#include "nr_mimo_rx.h"
 #include "platform_types.h"
 
 void nr_qpsk_llr(const c16_t *rxdataF_comp, int16_t *llr, uint32_t nb_re);
@@ -30,6 +31,7 @@ int nr_llr8_shift(int mod_order, int nb_layers);
  * lbest: the reduced-search L-best kernel is used (64QAM wants one bit cooler than full ML).
  */
 int nr_ml_llr_maxh_off(int mod_order, int lbest);
+
 /// L-best / MMSE seed regularization (noise variance in the compensated Pp/rho units) for log2_maxh = shift
 float nr_2layer_seed_lambda(uint32_t nvar, int shift);
 /// the 2-layer 64/256QAM L-best / full ML run in FP16 (aarch64 CPUs with FP16 vector arithmetic, OAI_LBEST_F16 != 0)
@@ -258,13 +260,12 @@ void nr_compute_ML_llr(c16_t *rxdataF_comp0,
                        c16_t *rho1,
                        uint32_t nb_re,
                        uint8_t mod_order,
-                       int lbest, // 64/256QAM: 0 = full max-log ML, 1 = reduced-search L-best, 2 = L-best with the
-                                  // fp32 256QAM metric (high resolution; = 1 for 64QAM)
+                       int lbest, // NR_LBEST_ML, NR_LBEST_WINDOW or NR_LBEST_WINDOW_HIRES (L = 1: nr_compute_lbest1_llr)
                        float lambda); // L-best seed regularization: noise variance >> log2_maxh (0: ZF seed)
 
-/// 2-layer linear MMSE receiver (L = 1 member of the L-best family): per-layer LLRs from the MRC outputs, the
-/// 2x2 Gram (rho_ab = h_a^H h_b, real part of the diagonal used) and lambda = nr_2layer_seed_lambda().
-void nr_compute_MMSE_llr(c16_t *comp0,
+/// 2-layer L-best at L = 1 (linear MMSE): per-layer LLRs from the MRC outputs, the 2x2 Gram (rho_ab = h_a^H h_b, real
+/// part of the diagonal used) and lambda = nr_2layer_seed_lambda(); FP16 for 64/256QAM where nr_lbest_f16_enabled()
+void nr_compute_lbest1_llr(c16_t *comp0,
                          c16_t *comp1,
                          c16_t *rho00,
                          c16_t *rho01,
@@ -275,7 +276,7 @@ void nr_compute_MMSE_llr(c16_t *comp0,
                          uint32_t nb_re,
                          uint8_t mod_order,
                          float lambda);
-/// scalar float reference of the 2-layer MMSE LLR for one target layer (z0 / g00 target, z1 / g11 other)
+/// scalar float reference of the 2-layer L = 1 (MMSE) LLR for one target layer (z0 / g00 target, z1 / g11 other)
 void nr_llr_2layer_mmse_ref(const c16_t *z0,
                             const c16_t *z1,
                             const c16_t *g00,

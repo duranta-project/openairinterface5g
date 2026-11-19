@@ -14,6 +14,9 @@
 /// L-best (pattern 1) / full ML (pattern 3) of the target layer, the arguments and LLR units of
 /// nr_qam{64,256}_llr_2layer_lbest_f32_simd_w*
 void nr_qam64_llr_2layer_lbest_f16(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
+/// L = 1 (linear MMSE) of the target layer from the compensated streams z0 (target) / z1 and the Gram matrix (g00, g11
+/// diagonal, rho01 off-diagonal): the LLRs of nr_llr_2layer_mmse_simd in FP16, 64/256QAM
+void nr_llr_2layer_lbest1_f16(c16_t *z0, c16_t *z1, c16_t *g00, c16_t *g11, int16_t *out, c16_t *rho01, uint32_t length, int mod_order, float lambda);
 void nr_qam256_llr_2layer_lbest_f16(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 
 /// fused 2-layer inner RX (MRC + Gram + L-best / full ML), 64/256QAM: the arguments of nr_inner_rx_2layer_ml,

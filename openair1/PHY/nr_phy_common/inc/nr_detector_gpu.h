@@ -74,7 +74,7 @@ int nr_gpu_compensation_2layer(const c16_t *rxF,
                                void *stream);
 
 /// Fused 2-layer inner RX of nsym (<= NR_GPU_MAX_SYM) symbols in one launch: front end (MRC with the CPE, magnitudes,
-/// Gram), detector, the output shift of nr_compute_ML_llr / nr_compute_MMSE_llr, layer demap and descrambling into
+/// Gram), detector, the output shift of nr_compute_ML_llr / nr_compute_lbest1_llr, layer demap and descrambling into
 /// each symbol's codeword slice. MMSE: Qm 2-8; L-best / ML: the exact int16 ML for QPSK / 16QAM, the fp32 metric for
 /// 64QAM / 256QAM. ws holds the descriptors (the previous call on it must have completed) and must hold 2 x the REs
 /// of the call (L-best 64/256QAM).

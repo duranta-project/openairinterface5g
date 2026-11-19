@@ -3,7 +3,7 @@
  */
 
 // Slot timing of the fused GPU 2-layer inner RX (nr_gpu_inner_rx_2layer: 12 data symbols x 273 PRB in one call)
-// against the CPU path on one core (fused nr_inner_rx for L-best / ML; nr_channel_compensation + nr_compute_MMSE_llr
+// against the CPU path on one core (fused nr_inner_rx for L-best / ML; nr_channel_compensation + nr_compute_lbest1_llr
 // for the MMSE), same inputs. usage: bench_inner_rx_gpu [nb_rx (default 4)] [ill-conditioned PRB fraction (0.05)]
 
 #include <stdio.h>
@@ -19,8 +19,8 @@ extern "C" {
 #include "openair1/PHY/nr_phy_common/inc/nr_detector_gpu.h"
 // VLA parameters in the C headers: declared with the decayed types
 void nr_channel_compensation(uint32_t, uint32_t, int, int, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t **, c16_t *, c16_t, int, uint32_t, uint32_t);
-bool nr_inner_rx(uint32_t, uint32_t, int, int, int, c16_t *, c16_t *, c16_t, c16_t **, c16_t **, c16_t **, c16_t **, c16_t *, c16_t *, int, bool, bool, int, float, int16_t **, const int16_t *, int16_t *);
-void nr_compute_MMSE_llr(c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, uint32_t, uint8_t, float);
+bool nr_inner_rx(uint32_t, uint32_t, int, int, int, c16_t *, c16_t *, c16_t, c16_t **, c16_t **, c16_t **, c16_t **, c16_t *, c16_t *, c16_t *, c16_t *, int, bool, int, float, int16_t **, const int16_t *, int16_t *);
+void nr_compute_lbest1_llr(c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, uint32_t, uint8_t, float);
 }
 
 #define CHECK(x)                                                    \
@@ -162,10 +162,10 @@ int main(int argc, char **argv)
         if (c.det == NR_GPU_DET_MMSE) {
           c16_t *rxComp[2] = {comp0.data(), comp1.data()};
           nr_channel_compensation(stride, stride, nb_rx, 2, rx[s].data(), ch[s].data(), maga.data(), magb.data(), magc.data(), rxComp, rho.data(), {32767, 0}, c.qm, 0, shift);
-          nr_compute_MMSE_llr(comp0.data(), comp1.data(), &rho[0], &rho[stride], &rho[2 * stride], &rho[3 * stride], l0.data(), l1.data(), len, c.qm, lambda);
+          nr_compute_lbest1_llr(comp0.data(), comp1.data(), &rho[0], &rho[stride], &rho[2 * stride], &rho[3 * stride], l0.data(), l1.data(), len, c.qm, lambda);
         } else {
           const int lbest = c.det == NR_GPU_DET_ML ? 0 : (c.qm == 8 ? 2 : 1);
-          nr_inner_rx(len, stride, nb_rx, 2, c.qm, rx[s].data(), ch[s].data(), {32767, 0}, NULL, NULL, NULL, NULL, NULL, NULL, shift, true, true, lbest, lambda, lay, scr[s].data(), cw[s].data());
+          nr_inner_rx(len, stride, nb_rx, 2, c.qm, rx[s].data(), ch[s].data(), {32767, 0}, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, shift, true, lbest, lambda, lay, scr[s].data(), cw[s].data());
         }
       }
       const double dt = now_us() - t0;

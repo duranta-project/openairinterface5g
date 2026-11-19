@@ -42,7 +42,7 @@ void nr_llr_2layer_mmse_simd_w128(const c16_t *, const c16_t *, const c16_t *, c
 void nr_llr_2layer_mmse_simd_w256(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_llr_2layer_mmse_ref(const c16_t *, const c16_t *, const c16_t *, const c16_t *, const c16_t *, int16_t *, uint32_t, int, float);
 void nr_channel_compensation(uint32_t, uint32_t, int, int, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t **, c16_t *, c16_t, int, uint32_t, uint32_t);
-bool nr_inner_rx(uint32_t, uint32_t, int, int, int, c16_t *, c16_t *, c16_t, c16_t **, c16_t **, c16_t **, c16_t **, c16_t *, c16_t *, int, bool, bool, int, float, int16_t **, const int16_t *, int16_t *);
+bool nr_inner_rx(uint32_t, uint32_t, int, int, int, c16_t *, c16_t *, c16_t, c16_t **, c16_t **, c16_t **, c16_t **, c16_t *, c16_t *, c16_t *, c16_t *, int, bool, int, float, int16_t **, const int16_t *, int16_t *);
 #if defined(NR_LBEST_F16)
 #include "openair1/PHY/nr_phy_common/src/nr_lbest_f16.h"
 #endif
@@ -479,9 +479,9 @@ Inputs2L gen_gram_inputs(uint32_t nb_re, unsigned seed)
   return in;
 }
 
-// 2-layer MMSE (L = 1): all widths bit-identical (any input), and within rounding of the scalar float reference
-// on physical Gram matrices, for every modulation, block-multiple and ragged lengths, with and without the noise
-// term.
+// 2-layer L = 1 (linear MMSE): all int16 widths bit-identical (any input), and within rounding of the scalar float
+// reference on physical Gram matrices, for every modulation, block-multiple and ragged lengths, with and without the
+// noise term; the FP16 kernel (64/256QAM) within the FP16 rounding.
 TEST(test_llr_2layer, mmse_widths_and_reference)
 {
   for (int qm : {2, 4, 6, 8})
@@ -504,6 +504,17 @@ TEST(test_llr_2layer, mmse_widths_and_reference)
           maxd = std::max(maxd, labs((long)o256[k] - ref[k]));
         EXPECT_LE(maxd, 1) << "MMSE SIMD vs reference, Qm=" << qm << " n=" << n << " lambda=" << lambda;
         EXPECT_EQ(0, o256[nll]) << "MMSE store past the end, Qm=" << qm << " n=" << n;
+#if defined(NR_LBEST_F16)
+        if (qm >= 6 && nr_lbest_f16_enabled()) { // FP16 L = 1 (nr_compute_lbest1_llr on these CPUs): within FP16 rounding
+          AlignedVector512<int16_t> o16(nll + 64, 0);
+          nr_llr_2layer_lbest1_f16(in.s0.data(), in.s1.data(), in.mag.data(), in.magi.data(), o16.data(), in.rho.data(), n, qm, lambda);
+          const Fit f = fit_stats(o16.data(), ref.data(), nll);
+          EXPECT_LT(f.signDisagree_pct, 0.1) << "FP16 L = 1, Qm=" << qm << " n=" << n << " lambda=" << lambda;
+          EXPECT_NEAR(f.fitScale, 1.0, 0.005) << "FP16 L = 1, Qm=" << qm << " n=" << n << " lambda=" << lambda;
+          EXPECT_LT(f.residFrac, 0.002) << "FP16 L = 1, Qm=" << qm << " n=" << n << " lambda=" << lambda;
+          EXPECT_EQ(0, o16[nll]) << "FP16 L = 1 store past the end, Qm=" << qm << " n=" << n;
+        }
+#endif
       }
 }
 
@@ -638,7 +649,7 @@ TEST(test_llr_2layer, flat_2x2_qpsk_signs)
           }
         }
     };
-    nr_compute_MMSE_llr(rxComp[0], rxComp[1], r00, r01, r10, r11, llr0.data(), llr1.data(), n, 2, lambda);
+    nr_compute_lbest1_llr(rxComp[0], rxComp[1], r00, r01, r10, r11, llr0.data(), llr1.data(), n, 2, lambda);
     count(err_mmse, zero_mmse);
     nr_compute_ML_llr(rxComp[0], rxComp[1], mag.data(), mag.data() + n, llr0.data(), llr1.data(), r01, r10, n, 2, 0, lambda);
     count(err_ml, zero_ml);
@@ -699,7 +710,7 @@ TEST(test_llr_2layer, fused_f16_units)
   for (double amp : {400.0, 1200.0})
   for (int qm : {6, 8})
     for (int nb_rx : {2, 4})
-      for (int lbest : {0, 1}) {
+      for (int lbest : {NR_LBEST_ML, NR_LBEST_WINDOW, NR_LBEST_L1}) {
         const uint32_t n = 1272 + 3, bl = (n + 15) & ~15u;
         const int shift = nb_rx == 2 ? 8 : 9;
         std::vector<int> sgn[2];
@@ -731,7 +742,7 @@ TEST(test_llr_2layer, fused_f16_units)
         AlignedVector512<int16_t> r0(bl * qm + 64), r1(bl * qm + 64), f0(bl * qm + 64), f1(bl * qm + 64);
         int16_t *ref[2] = {r0.data(), r1.data()};
         nr_channel_compensation(bl, bl, nb_rx, 2, rx.data(), ch.data(), maga.data(), magb.data(), magc.data(), rxComp, rho.data(), (c16_t){32767, 0}, qm, 0, shift);
-        ASSERT_TRUE(nr_inner_rx(n, bl, nb_rx, 2, qm, rx.data(), ch.data(), (c16_t){32767, 0}, rxComp, ma, mb, mc, rho.data() + bl, rho.data() + 2 * bl, shift, false, true, lbest, 1.0f, ref, nullptr, nullptr));
+        ASSERT_TRUE(nr_inner_rx(n, bl, nb_rx, 2, qm, rx.data(), ch.data(), (c16_t){32767, 0}, rxComp, ma, mb, mc, rho.data(), rho.data() + bl, rho.data() + 2 * bl, rho.data() + 3 * bl, shift, false, lbest, 1.0f, ref, nullptr, nullptr));
         nr_inner_rx_2layer_f16(n, bl, nb_rx, rx.data(), ch.data(), (c16_t){32767, 0}, qm, lbest, 1.0f, shift, f0.data(), f1.data(), nullptr, nullptr);
         for (int l = 0; l < 2; l++) {
           const Fit f = fit_stats(l ? f1.data() : f0.data(), ref[l], (size_t)n * qm);
@@ -740,7 +751,7 @@ TEST(test_llr_2layer, fused_f16_units)
             er += (ref[l][i * qm] > 0 ? 1 : -1) != sgn[l][i];
             ef += ((l ? f1 : f0)[i * qm] > 0 ? 1 : -1) != sgn[l][i];
           }
-          const char *what = lbest ? "lbest" : "ml";
+          const char *what = lbest == NR_LBEST_L1 ? "l1" : lbest ? "lbest" : "ml";
           if (amp < 1000) {
             EXPECT_NEAR(f.fitScale, 1.0, 0.01) << "Qm=" << qm << " nb_rx=" << nb_rx << " " << what << " layer " << l;
             EXPECT_LT(f.residFrac, 0.01) << "Qm=" << qm << " nb_rx=" << nb_rx << " " << what << " layer " << l;
@@ -784,7 +795,7 @@ TEST(test_llr_2layer, single_layer_f16_units)
         AlignedVector512<int16_t> ref(bl * qm + 64), f16(bl * qm + 64);
         int16_t *ls[1] = {ref.data()};
         nr_channel_compensation(bl, bl, nb_rx, 1, rx.data(), ch.data(), maga.data(), magb.data(), magc.data(), rxComp, nullptr, (c16_t){32767, 0}, qm, 0, shift);
-        ASSERT_TRUE(nr_inner_rx(n, bl, nb_rx, 1, qm, rx.data(), ch.data(), (c16_t){32767, 0}, rxComp, ma, mb, mc, nullptr, nullptr, shift, false, false, 0, 0.0f, ls, nullptr, nullptr));
+        ASSERT_TRUE(nr_inner_rx(n, bl, nb_rx, 1, qm, rx.data(), ch.data(), (c16_t){32767, 0}, rxComp, ma, mb, mc, nullptr, nullptr, nullptr, nullptr, shift, false, 0, 0.0f, ls, nullptr, nullptr));
         nr_inner_rx_1layer_f16(n, bl, nb_rx, rx.data(), ch.data(), (c16_t){32767, 0}, qm, shift, f16.data(), nullptr);
         const Fit f = fit_stats(f16.data(), ref.data(), (size_t)n * qm);
         int er = 0, ef = 0;

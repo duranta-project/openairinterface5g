@@ -271,38 +271,7 @@ typedef struct {
 } nrUE_cell_params_t;
 
 /// Top-level PHY Data Structure for UE
-/// Multi-layer PDSCH detector. AUTO is 0 so an unconfigured UE gets the default.
-typedef enum {
-  NR_PDSCH_RX_AUTO = 0, ///< per PDSCH: ML for QPSK/16QAM, MMSE for 64/256QAM with >= 4 Rx, L-best otherwise
-  NR_PDSCH_RX_MMSE, ///< linear MMSE, all layer counts and modulations
-  NR_PDSCH_RX_ML, ///< 2-layer exact max-log ML for QPSK/16QAM/64QAM; MMSE otherwise
-  NR_PDSCH_RX_LBEST, ///< 2-layer reduced-search near-ML up to 256QAM; MMSE for 3 and 4 layers
-} nr_pdsch_mimo_rx_t;
-
-/// Receiver used for one PDSCH: AUTO resolves on its modulation order and the number of Rx antennas (same rule as
-/// nr_pusch_mimo_rx_resolve).
-static inline nr_pdsch_mimo_rx_t nr_pdsch_mimo_rx_resolve(nr_pdsch_mimo_rx_t rx, int qm, int nb_rx)
-{
-  if (rx != NR_PDSCH_RX_AUTO)
-    return rx;
-  if (qm <= 4)
-    return NR_PDSCH_RX_ML;
-  return nb_rx >= 4 ? NR_PDSCH_RX_MMSE : NR_PDSCH_RX_LBEST;
-}
-
-/// Parses "auto" | "mmse" | "ml" | "lbest"; returns -1 if unknown.
-static inline int nr_pdsch_mimo_rx_from_str(const char *s)
-{
-  if (!strcmp(s, "auto"))
-    return NR_PDSCH_RX_AUTO;
-  if (!strcmp(s, "mmse"))
-    return NR_PDSCH_RX_MMSE;
-  if (!strcmp(s, "ml"))
-    return NR_PDSCH_RX_ML;
-  if (!strcmp(s, "lbest"))
-    return NR_PDSCH_RX_LBEST;
-  return -1;
-}
+#include "openair1/PHY/nr_phy_common/inc/nr_mimo_rx.h"
 
 typedef struct PHY_VARS_NR_UE_s {
   /// \brief Module ID indicator for this instance
@@ -451,7 +420,7 @@ typedef struct PHY_VARS_NR_UE_s {
   bool no_phase_pre_comp;
 
   /// multi-layer PDSCH receiver (nr-uesoftmodem --pdsch-mimo-receiver, nr_dlsim -E)
-  nr_pdsch_mimo_rx_t pdsch_mimo_rx;
+  nr_mimo_rx_t pdsch_mimo_rx;
   /// 256QAM L-best with the fp32 metric (nr-uesoftmodem --pdsch-mimo-hires, nr_dlsim -J)
   bool pdsch_mimo_hires;
 

@@ -124,15 +124,15 @@ void nr_inner_rx_2layer_ml(uint32_t length,
 /**
  * @brief Shared post-extraction inner RX dispatch (UE PDSCH + gNB PUSCH common detector set).
  *
- * Handles the single-layer and the 2-layer near-ML detectors, fused (MRC inline from rxFext/chFext)
- * or not (compensation already done: rxComp/mag_a-c per layer, rho01/rho10 for 2 layers). Writes
- * the layer-demapped (+ descrambled, if scramble != NULL) codeword to llr_cw, or — when
- * llr_cw == NULL — leaves per-layer LLRs in layer_scratch[] for the caller to demap.
+ * Handles the single-layer detector and the 2-layer L-best family (full ML, L-best, L = 1 i.e. linear MMSE), fused
+ * (MRC inline from rxFext/chFext, see nr_inner_rx_2layer_fused()) or not (compensation already done: rxComp/mag_a-c
+ * per layer, the 2x2 Gram rho00/rho01/rho10/rho11 for 2 layers). Writes the layer-demapped (+ descrambled, if
+ * scramble != NULL) codeword to llr_cw, or — when llr_cw == NULL — leaves per-layer LLRs in layer_scratch[] for the
+ * caller to demap.
  *
- * @param ml2    use the 2-layer near-ML detector (nr_compute_ML_llr) for nb_layer == 2
- * @param lbest  its search selector (0 = full ML, 1 = L-best, 2 = L-best with the fp32 256QAM metric)
- * @param lambda L-best seed regularization: noise variance >> output_shift (0: ZF seed)
- * @return true if handled; false for caller-specific paths (2-layer MMSE, 3-layer, >2 layers).
+ * @param lbest  2-layer detector: NR_LBEST_ML, NR_LBEST_WINDOW, NR_LBEST_WINDOW_HIRES or NR_LBEST_L1
+ * @param lambda seed regularization: noise variance >> output_shift (0: ZF seed)
+ * @return true if handled; false for the caller-specific paths (more than 2 layers).
  */
 bool nr_inner_rx(uint32_t length,
                  uint32_t buffer_length,
@@ -146,15 +146,21 @@ bool nr_inner_rx(uint32_t length,
                  c16_t *mag_a[nb_layer],
                  c16_t *mag_b[nb_layer],
                  c16_t *mag_c[nb_layer],
+                 c16_t *rho00,
                  c16_t *rho01,
                  c16_t *rho10,
+                 c16_t *rho11,
                  int output_shift,
                  bool fuse,
-                 bool ml2,
                  int lbest,
                  float lambda,
                  int16_t *layer_scratch[nb_layer],
                  const int16_t *scramble,
                  int16_t *llr_cw);
+
+/// Whether nr_inner_rx() runs the 2-layer detector lbest fused (MRC inline, no int16 compensation by the caller) on
+/// length REs: in FP16 for 64/256QAM where nr_lbest_f16_enabled(), or the int16 fused near-ML with fuse_env (OAI_FUSE);
+/// L = 1 only in FP16.
+bool nr_inner_rx_2layer_fused(bool fuse_env, int mod_order, uint32_t length, int lbest);
 
 #endif /* __NR_CHANNEL_COMPENSATION__H__ */

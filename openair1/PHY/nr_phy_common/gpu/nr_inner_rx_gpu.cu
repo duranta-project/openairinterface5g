@@ -167,7 +167,7 @@ __device__ __forceinline__ void store_cw(const nr_gpu_rx_sym_t &s, uint32_t i, i
   s.llr_cw[k] = v;
 }
 
-// output shifts of nr_compute_MMSE_llr / nr_compute_ML_llr (shared nr_ml_llr_maxh_off table)
+// output shifts of nr_compute_lbest1_llr / nr_compute_ML_llr (shared nr_ml_llr_maxh_off table)
 __host__ __device__ constexpr int out_shift(int nb)
 {
   return nb == 1 ? 4 : nb == 3 ? 1 : 0; // MMSE and ML alike
