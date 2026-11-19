@@ -1261,6 +1261,9 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
 
   // the prepared dci is valid, we add it in the list
   dl_config->number_pdus++;
+  // Give PHY time to decode the scheduled Msg2 before the response window expires.
+  if (dl_conf_req->pdu_type == FAPI_NR_DL_CONFIG_TYPE_RA_DLSCH && mac->ra.ra_state == nrRA_WAIT_RAR)
+    nr_timer_suspension(&mac->ra.response_window_timer, true);
   return 0;
 }
 
