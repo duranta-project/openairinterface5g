@@ -329,6 +329,7 @@ static bool search_neighboring_cell(UE_nr_rxtx_proc_t *proc,
 }
 
 static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
+                               uint16_t known_pci,
                                fapi_nr_neighboring_cell_t *nr_neighboring_cell,
                                neighboring_cell_info_t *neighboring_cell_info,
                                c16_t **rxdata,
@@ -336,7 +337,6 @@ static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
                                c16_t pssTime[][frame_parms->ofdm_symbol_size],
                                int slot)
 {
-  int known_pci = nr_neighboring_cell->Nid_cell;
 
   int length = neighboring_cell_info->pss_search_length;
   c16_t *rx[frame_parms->nb_antennas_rx];
@@ -465,8 +465,9 @@ static void search_new_neighboring_cell(UE_nr_rxtx_proc_t *proc, PHY_VARS_NR_UE 
   int num_exclude_nid_cells = 1;
   for (int i = 0; i < NUMBER_OF_NEIGHBORING_CELLS_MAX; i++) {
     fapi_nr_neighboring_cell_t *cell = &ue->nrUE_config.meas_config.nr_neighboring_cell[i];
-    if (cell->active && cell->Nid_cell != (uint16_t)-1 && cell->Nid_cell != frame_parms->Nid_cell) {
-      exclude_nid_cells[num_exclude_nid_cells++] = cell->Nid_cell;
+    const uint16_t nid_cell = cell->Nid_cell;
+    if (cell->active && nid_cell <= 1007 && nid_cell != frame_parms->Nid_cell) {
+      exclude_nid_cells[num_exclude_nid_cells++] = nid_cell;
     }
   }
 
@@ -519,7 +520,8 @@ static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_N
 
   for (int cell_idx = 0; cell_idx < NUMBER_OF_NEIGHBORING_CELLS_MAX; cell_idx++) {
     fapi_nr_neighboring_cell_t *neighbor_cell = &ue->nrUE_config.meas_config.nr_neighboring_cell[cell_idx];
-    if (neighbor_cell->active == 0 || neighbor_cell->Nid_cell == (uint16_t)-1 || neighbor_cell->Nid_cell == frame_parms->Nid_cell) {
+    const uint16_t nid_cell = neighbor_cell->Nid_cell;
+    if (neighbor_cell->active == 0 || nid_cell > 1007 || nid_cell == frame_parms->Nid_cell) {
       continue;
     }
 
@@ -532,13 +534,13 @@ static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_N
     if (neighboring_cell_info->ssb_slot != -1 && neighboring_cell_info->ssb_slot != proc->nr_slot_rx)
       continue;
 
-    if (!validate_known_pci(frame_parms, neighbor_cell, neighboring_cell_info, rxdata, rxdataF, pssTime, proc->nr_slot_rx)) {
+    if (!validate_known_pci(frame_parms, nid_cell, neighbor_cell, neighboring_cell_info, rxdata, rxdataF, pssTime, proc->nr_slot_rx)) {
       if (neighboring_cell_info->consec_fail >= NEIGHBOR_CELL_MAX_CONSECUTIVE_FAILURES) {
         if (neighbor_cell->is_candidate) {
-          LOG_D(NR_PHY, "Neighbor cell confirmation failed for candidate with PCI=%d\n", neighbor_cell->Nid_cell);
+          LOG_D(NR_PHY, "Neighbor cell confirmation failed for candidate with PCI=%d\n", nid_cell);
         } else {
-          LOG_D(NR_PHY, "Max consecutive failures reached for PCI=%d, resetting to full search\n", neighbor_cell->Nid_cell);
-          send_neighbor_cell_meas(ue, proc, neighbor_cell->Nid_cell, INT_MAX);
+          LOG_D(NR_PHY, "Max consecutive failures reached for PCI=%d, resetting to full search\n", nid_cell);
+          send_neighbor_cell_meas(ue, proc, nid_cell, INT_MAX);
         }
         reset_neighboring_cell_info(neighbor_cell,
                                     neighboring_cell_info,
@@ -557,7 +559,7 @@ static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_N
         - dB_fixed(ue->frame_parms.ofdm_symbol_size);
 
     // Send SS measurements to RRC directly
-    send_neighbor_cell_meas(ue, proc, neighbor_cell->Nid_cell, neighboring_cell_info->ssb_rsrp_dBm);
+    send_neighbor_cell_meas(ue, proc, nid_cell, neighboring_cell_info->ssb_rsrp_dBm);
   }
 }
 
