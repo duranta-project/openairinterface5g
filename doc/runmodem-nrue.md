@@ -166,6 +166,9 @@ e.g.
 sudo ./nr-uesoftmodem -r 106 --numerology 1 --band 78 -C 3319680000 --ue-nb-ant-tx 2 --ue-nb-ant-rx 2 --uecap_file /opt/oai-nr-ue/etc/uecap.xml
 ```
 
+With a USRP, frequency and gain changes (e.g. the frequency-offset correction after initial sync) are applied to every
+channel, which matters on devices with one LO per channel (e.g. X410).
+
 ## NR UE: Configure multiple RF-frontends (RUs) and UEs in one process
 
 Multiple RF-frontends (also called RUs) can be defined for the nr-uesoftmodem.
