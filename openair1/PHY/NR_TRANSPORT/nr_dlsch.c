@@ -597,11 +597,12 @@ static inline void do_txdataF(c16_t **txdataF,
 
    Precoding at 273 PRB / 4 ports, single-threaded, against that generic kernel, ranks 2-4:
    1.10-1.45x on a Cortex-A72, 1.21-1.41x on a Cortex-A78AE, 1.50-1.60x on a Cortex-X925,
-   2.1-2.6x on a Xeon Gold 6433N and 2.6-3.3x on a Xeon Gold 6154.  The narrow NEON register
+   2.1-2.6x on a Xeon Gold 6433N, 2.6-3.3x on a Xeon Gold 6154, and at ranks 2 and 4 1.36-1.39x on a
+   SpacemiT X100 (RVV, VLEN 256) and 1.14-1.34x on an A100 (VLEN 1024).  The narrow NEON register
    file is what limits the ARM cores: six accumulators plus eight weight registers plus four
    input pointers spill at rank 4 on the A72 (its worst case, 1.10x), where the x86 tiers,
    with more and wider registers, do best. */
-#if defined(__aarch64__) || defined(__AVX2__)
+#if defined(__aarch64__) || defined(__AVX2__) || (defined(__riscv) && defined(__riscv_vector))
 #define NR_PDSCH_2X4_FASTPATH 1
 #endif
 

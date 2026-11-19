@@ -1353,6 +1353,81 @@ void nr_layer_precoder_Nx4_simd(const int n_layers,
   }
 #undef NX4_RUN
 #undef NX4_LAYER
+#elif defined(__riscv) && defined(__riscv_vector)
+  /* The x86 algebra in split form: same phi bucketing, same accumulation order and the same
+     cmac0_prec*() rounding, so the output is bit-identical to the x86 kernels.  As in
+     nr_layer_precoder_simd(), VLEN 256 (X100) keeps vlseg2/vsseg2 and VLEN > 256 (A100, where
+     segment accesses are element-serial) moves c16_t as e32 elements. */
+  int16_t w_r[NR_MAX_NB_LAYERS], w_i[NR_MAX_NB_LAYERS];
+  const c16_t *src[NR_MAX_NB_LAYERS];
+  int grp[4]; /* exclusive end of each phi group, in the order +1, -1, +j, -j */
+  int n = 0;
+  for (int g = 0; g < 4; g++) {
+    const bool g_swap = g >= 2, g_neg = (g & 1) != 0;
+    for (int l = 0; l < n_layers; l++) {
+      if (phi_swap[l] == g_swap && phi_neg[l] == g_neg) {
+        w_r[n] = weights[l][p].r;
+        w_i[n] = weights[l][p].i;
+        src[n] = txdataF_res_mapped[l] + sc_offset;
+        n++;
+      }
+    }
+    grp[g] = n;
+  }
+  DevAssert(n == n_layers); /* the caller classified every layer */
+  const int e0 = grp[0], e1 = grp[1], e2 = grp[2];
+  c16_t *lo_out = out_lo + sc_offset;
+  c16_t *hi_out = out_hi + sc_offset;
+  const bool wide = __riscv_vlenb() > 32;
+  int done = 0;
+  while (done < re_cnt) {
+    const size_t vl = __riscv_vsetvl_e16m1((size_t)(re_cnt - done));
+    const vint16m1_t zero = __riscv_vmv_v_x_i16m1(0, vl);
+    vint16m1_t lo_r = zero, lo_i = zero, P_r = zero, P_i = zero, Q_r = zero, Q_i = zero;
+    for (int l = 0; l < n_layers; l++) {
+      vint16m1_t xr, xi;
+      if (wide) {
+        const vint32m2_t x = __riscv_vle32_v_i32m2((const int32_t *)(src[l] + done), vl);
+        xr = rvv_c16_re(x, vl);
+        xi = rvv_c16_im(x, vl);
+      } else {
+        const vint16m1x2_t x = __riscv_vlseg2e16_v_i16m1x2((const int16_t *)(src[l] + done), vl);
+        xr = __riscv_vget_v_i16m1x2_i16m1(x, 0);
+        xi = __riscv_vget_v_i16m1x2_i16m1(x, 1);
+      }
+      /* cmac0_prec*(): re = (xr.wr - xi.wi) >> 15, im = high half of (xr.wi + xi.wr) << 1 */
+      const vint32m2_t mr = __riscv_vsub_vv_i32m2(__riscv_vwmul_vx_i32m2(xr, w_r[l], vl), __riscv_vwmul_vx_i32m2(xi, w_i[l], vl), vl);
+      const vint32m2_t mi = __riscv_vwmacc_vx_i32m2(__riscv_vwmul_vx_i32m2(xr, w_i[l], vl), w_r[l], xi, vl);
+      const vint16m1_t tr = __riscv_vnsra_wx_i16m1(mr, 15, vl);
+      const vint16m1_t ti = __riscv_vnsra_wx_i16m1(__riscv_vsll_vx_i32m2(mi, 1, vl), 16, vl);
+      lo_r = __riscv_vsadd_vv_i16m1(lo_r, tr, vl);
+      lo_i = __riscv_vsadd_vv_i16m1(lo_i, ti, vl);
+      if (l < e0) {
+        P_r = __riscv_vsadd_vv_i16m1(P_r, tr, vl);
+        P_i = __riscv_vsadd_vv_i16m1(P_i, ti, vl);
+      } else if (l < e1) {
+        P_r = __riscv_vssub_vv_i16m1(P_r, tr, vl);
+        P_i = __riscv_vssub_vv_i16m1(P_i, ti, vl);
+      } else if (l < e2) {
+        Q_r = __riscv_vsadd_vv_i16m1(Q_r, tr, vl);
+        Q_i = __riscv_vsadd_vv_i16m1(Q_i, ti, vl);
+      } else {
+        Q_r = __riscv_vssub_vv_i16m1(Q_r, tr, vl);
+        Q_i = __riscv_vssub_vv_i16m1(Q_i, ti, vl);
+      }
+    }
+    /* hi = P + j.Q with j.(r,i) = (-i, r); the x86 sign/mullo negation wraps, so -Q_i does too */
+    const vint16m1_t hi_r = __riscv_vsadd_vv_i16m1(P_r, __riscv_vneg_v_i16m1(Q_i, vl), vl);
+    const vint16m1_t hi_i = __riscv_vsadd_vv_i16m1(P_i, Q_r, vl);
+    if (wide) {
+      __riscv_vse32_v_i32m2((int32_t *)(lo_out + done), rvv_c16_pack(lo_r, lo_i, vl), vl);
+      __riscv_vse32_v_i32m2((int32_t *)(hi_out + done), rvv_c16_pack(hi_r, hi_i, vl), vl);
+    } else {
+      __riscv_vsseg2e16_v_i16m1x2((int16_t *)(lo_out + done), __riscv_vcreate_v_i16m1x2(lo_r, lo_i), vl);
+      __riscv_vsseg2e16_v_i16m1x2((int16_t *)(hi_out + done), __riscv_vcreate_v_i16m1x2(hi_r, hi_i), vl);
+    }
+    done += vl;
+  }
 #else /* x86 and anything else simde covers */
   /* Same algebra, interleaved.  Deinterleaving is an aarch64 idea: VPMADDWD multiplies
      adjacent 16-bit pairs, which already matches the |Re Im| layout, so the products are
