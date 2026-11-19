@@ -24,6 +24,7 @@ int nfapi_nr_pnf_start(nfapi_nr_pnf_config_t* config)
 {
   if (!config)
     return -1;
+#ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
   pnf_t* _this = PNF_FROM_NR_CONFIG(config);
   /* pnf_connect() reads _public.vnf_ip_addr and _public.vnf_p5_port */
@@ -39,6 +40,9 @@ int nfapi_nr_pnf_start(nfapi_nr_pnf_config_t* config)
   }
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() terminate=1 - EXITTING............\n", __FUNCTION__);
   return 0;
+#else
+  AssertFatal(false, "The PNF can't be run when compiled with Aerial transport");
+#endif
 }
 
 int nfapi_nr_pnf_vendor_extension(nfapi_nr_pnf_config_t* config, nfapi_p4_p5_message_header_t* msg, uint32_t msg_len)

@@ -29,3 +29,7 @@ target_link_libraries(nfapi_nr_pnf_lib PRIVATE asn1_nr_rrc_hdrs nr_fapi_p7)
 target_link_libraries(nfapi_nr_pnf_lib PUBLIC nfapi_pnf_common_lib nfapi_nr_lib)
 target_include_directories(nfapi_nr_pnf_lib PUBLIC public_inc)
 target_include_directories(nfapi_nr_pnf_lib PUBLIC inc)
+#TODO: Delete this block once #156 goes in, making ENABLE_AERIAL global
+if(OAI_AERIAL)
+    target_compile_definitions(nfapi_nr_pnf_lib PRIVATE ENABLE_AERIAL)
+endif()
