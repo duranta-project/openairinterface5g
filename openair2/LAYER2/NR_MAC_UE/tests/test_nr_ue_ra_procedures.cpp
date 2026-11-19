@@ -221,6 +221,46 @@ TEST(test_init_ra, four_step_cfra)
   EXPECT_EQ(mac.ra.cfra, 1);
 }
 
+TEST(test_ra_resource_selection, four_step_pdcch_order_uses_common_mapping)
+{
+  for (float ssb_per_ro : {0.5f, 1.0f, 2.0f}) {
+    SCOPED_TRACE(ssb_per_ro);
+    NR_UE_MAC_INST_t mac = {0};
+    NR_UE_UL_BWP_t ul_bwp = {0};
+    NR_RACH_ConfigCommon_t rach_common = {0};
+    mac.current_UL_BWP = &ul_bwp;
+    ul_bwp.rach_ConfigCommon = &rach_common;
+    mac.frequency_range = FR1;
+    mac.frame_structure.frame_type = FDD;
+    mac.frame_structure.numb_slots_frame = 10;
+    mac.ssb_list.nb_tx_ssb = 1;
+    mac.ssb_ro_preambles.ssb_per_ro = ssb_per_ro;
+    mac.ssb_ro_preambles.preambles_per_ssb = 32;
+
+    mac.ra.ra_type = RA_4_STEP;
+    mac.ra.cfra = true;
+    // TS 38.211 Table 6.3.3.2-2 index 16 provides one format-0 RO per frame.
+    mac.ra.ra_config_index = 16;
+    mac.ra.num_fd_occasions = 1;
+    mac.ra.prach_resources.preamble_power_ramping_cnt = 1;
+    mac.ra.pdcch_order.active = true;
+    mac.ra.pdcch_order.preamble_index = 17;
+
+    // PDCCH-ordered CFRA bypasses the CBRA mapping assignment.
+    ASSERT_FLOAT_EQ(mac.ra.ssb_ro_config.ssb_per_ro, 0.0f);
+    ra_resource_selection(&mac);
+
+    EXPECT_FLOAT_EQ(mac.ra.ssb_ro_config.ssb_per_ro, ssb_per_ro);
+    EXPECT_EQ(mac.ra.ssb_ro_config.preambles_per_ssb, 32);
+    EXPECT_EQ(mac.ra.ra_PreambleIndex, 17);
+    EXPECT_EQ(mac.ra.ra_ssb, 0);
+    EXPECT_EQ(mac.ra.sched_ro_info.fdm, 0);
+    EXPECT_EQ(mac.ra.sched_ro_info.format, 0);
+    EXPECT_EQ(mac.ra.ra_rnti, 15);
+    EXPECT_EQ(mac.ra.association_periods, ssb_per_ro < 1.0f ? 2 : 1);
+  }
+}
+
 int main(int argc, char **argv)
 {
   logInit();
