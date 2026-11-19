@@ -148,12 +148,15 @@ bool rrc_gNB_send_XNAP_HANDOVER_REQUEST(gNB_RRC_INST *rrc,
     }
   }
 
-  /* Derive NG-RAN* key: use NH when NCC > 0, otherwise fall back to KgNB */
+  /* Derive NG-RAN* key: use NH when unused (nh_ncc != kgnb_ncc), otherwise fall back to KgNB (TS 33.501 §6.9.2.3.2).
+   * kgnb_ncc is not changed: the source keeps using the current KgNB until the UE has moved */
+  const bool vertical = UE->nh_ncc != UE->kgnb_ncc;
   uint8_t as_key_ranstar[32];
   nr_derive_key_ng_ran_star(neighbour->physicalCellId,
                             neighbour->absoluteFrequencySSB,
-                            UE->nh_ncc > 0 ? UE->nh : UE->kgnb,
+                            vertical ? UE->nh : UE->kgnb,
                             as_key_ranstar);
+  LOG_I(NR_RRC, "UE %u: KgNB* from %s, NCC %d -> %d\n", UE->rrc_ue_id, vertical ? "NH" : "KgNB", UE->kgnb_ncc, UE->nh_ncc);
 
   /* UE context information */
   xnap_ue_context_info_t ue_context = {
@@ -298,6 +301,7 @@ int rrc_gNB_process_XNAP_HANDOVER_REQUEST(gNB_RRC_INST *rrc, xnap_handover_req_t
   UE->nh_ncc = req->ue_context.as_security_ncc;
   memcpy(UE->kgnb, req->ue_context.as_security_key_ranstar, SECURITY_KEY_LENGTH);
   memset(UE->nh, 0, SECURITY_KEY_LENGTH);
+  UE->kgnb_ncc = UE->nh_ncc;
   UE->as_security_active = true;
 
   activate_srb(UE, SRB1);
