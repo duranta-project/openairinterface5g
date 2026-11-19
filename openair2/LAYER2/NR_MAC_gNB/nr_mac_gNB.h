@@ -348,6 +348,12 @@ typedef struct {
   /// used for otherSIB data
   uint8_t other_sib_bcch_pdu[2][NR_MAX_SIB_LENGTH / 8];
   int other_sib_bcch_length[2];
+  /// true if the SIB19 epoch was placed with a lead (nr_update_sib19()): the SIB19 is not broadcast once it has passed
+  bool sib19_external_epoch;
+  /// time left until that epoch, in ms; 0 once it has passed
+  int sib19_epoch_remaining_ms;
+  /// frame * 10 + subframe at which sib19_epoch_remaining_ms was last counted down
+  int sib19_epoch_last_ms;
   /// VRB map for common channels
   uint16_t vrb_map[MAX_NUM_BEAM_PERIODS][275];
   /// VRB map for common channels and PUSCH, dynamically allocated because
@@ -1444,6 +1450,10 @@ typedef struct gNB_MAC_INST_s {
   nr_mac_rrc_ul_if_t mac_rrc;
   f1_config_t f1_config;
   int16_t frame;
+  /// subframe of the slot being scheduled; with frame, the current time of the gNB
+  sub_frame_t subframe;
+  /// set (atomically) once frame and subframe hold the time of a scheduled slot
+  bool sched_time_valid;
 
   /// number of UEs to exceed to disable stats
   int stats_max_ue;

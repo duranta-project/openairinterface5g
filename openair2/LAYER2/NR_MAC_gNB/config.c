@@ -1286,8 +1286,10 @@ static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_u
 
 bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)
 {
-  gNB_MAC_INST *nrmac = RC.nrmac[0];
-  AssertFatal(nrmac != NULL, "no MAC instance\n");
+  // an update can come before the MAC exists, and a lead needs the time that the scheduler publishes from its first slot
+  gNB_MAC_INST *nrmac = RC.nrmac ? RC.nrmac[0] : NULL;
+  if (!nrmac || (sat_position->epoch_lead_ms > 0 && !__atomic_load_n(&nrmac->sched_time_valid, __ATOMIC_ACQUIRE)))
+    return false;
 
   LOG_D(NR_MAC, "SFN = %d, SubFrame = %d\n", sat_position->sfn, sat_position->subframe);
   LOG_D(NR_MAC, "TA_Common: value %d, %f msec\n", sat_position->delay, sat_position->delay * 4.072e-6);
@@ -1331,12 +1333,29 @@ bool nr_update_sib19(const gnb_sat_position_update_t *sat_position)
   }
 
   NR_SCHED_LOCK(&nrmac->sched_lock);
+  gnb_sat_position_update_t update = *sat_position;
+  if (update.epoch_lead_ms > 0) {
+    // the source does not know our SFN: the epoch is the instant it describes, its lead ahead of now
+    nr_sib19_epoch_from_lead(nrmac->frame, nrmac->subframe, update.epoch_lead_ms, &update.sfn, &update.subframe);
+    LOG_D(NR_MAC,
+          "Epoch SFN = %d, SubFrame = %d, %d ms ahead of %d.%u\n",
+          update.sfn,
+          update.subframe,
+          update.epoch_lead_ms,
+          nrmac->frame,
+          nrmac->subframe);
+  }
   bool updated = false;
   FOR_EACH_SEQ_ARR(nr_cell_sched_t *, cell, &nrmac->cells) {
     NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
     if (!scc || !scc->ext2 || !scc->ext2->ntn_Config_r17)
       continue;
-    nr_update_sib19_cell(cell, sat_position);
+    nr_update_sib19_cell(cell, &update);
+    // the scheduler counts the lead down, to stop broadcasting this SIB19 once its epoch has passed
+    NR_COMMON_channels_t *cc = &cell->common_channels;
+    cc->sib19_external_epoch = update.epoch_lead_ms > 0;
+    cc->sib19_epoch_remaining_ms = update.epoch_lead_ms;
+    cc->sib19_epoch_last_ms = nrmac->frame * NR_NUMBER_OF_SUBFRAMES_PER_FRAME + nrmac->subframe;
     updated = true;
   }
   NR_SCHED_UNLOCK(&nrmac->sched_lock);
