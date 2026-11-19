@@ -1327,6 +1327,7 @@ int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_dec
   }
 
   pthread_mutex_unlock(&decode_mutex);
+  nrLDPC_decoding_done(nrLDPC_slot_decoding_parameters);
   return 0;
 }
 
