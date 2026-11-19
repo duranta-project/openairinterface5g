@@ -8,3 +8,4 @@ modules_list.txt
 test_results*.html
 pMain*
 __pycache__
+test_verdict*.json
