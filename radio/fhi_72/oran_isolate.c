@@ -160,7 +160,7 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
   const struct xran_fh_init *fh_init = get_xran_fh_init();
 
   // UL slot
-  if (s7cfg->slot_dir[slot] & NR_UPLINK_SLOT) { // also covers NR_MIXED_SLOT (and FDD)
+  if (SLOT_HAS_UL(s7cfg->slot_dir[slot])) {
     START_MEAS_FULL_SLOT(&s7cfg->ul_cp, s7cfg->slot_dir[slot], NR_UPLINK_SLOT);
     for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
       for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
@@ -179,7 +179,7 @@ static void oran_cp(split7_config_t *s7cfg, uint16_t **beam_id, int frame, int s
   }
 
   // DL slot
-  if (s7cfg->slot_dir[slot] & NR_DOWNLINK_SLOT) { // also covers NR_MIXED_SLOT (and FDD)
+  if (SLOT_HAS_DL(s7cfg->slot_dir[slot])) {
     START_MEAS_FULL_SLOT(&s7cfg->dl_cp, s7cfg->slot_dir[slot], NR_DOWNLINK_SLOT);
     for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
       for (int xran_port = 0; xran_port < fh_init->xran_ports; xran_port++) {
@@ -448,7 +448,7 @@ static void *split7_thread(void *param)
     int slot = s.tti % s7cfg->slots_per_frame;
     LOG_D(HW, "Processing tti[%d] = frame[%d].slot[%d]\n", s.tti, frame, slot);
 
-    if (s7cfg->slot_dir[slot] == NR_UPLINK_SLOT || s7cfg->slot_dir[slot] == NR_MIXED_SLOT) { // FDD falls under NR_MIXED_SLOT
+    if (SLOT_HAS_UL(s7cfg->slot_dir[slot])) {
       if (!wait_free_rx_tti(&gNB->L1_rx_out, rx_tti_busy, frame, slot))
         break; // L1_rx_out aborted: stopping
       START_MEAS_FULL_SLOT(&s7cfg->ul_up, s7cfg->slot_dir[slot], NR_UPLINK_SLOT);
