@@ -86,8 +86,57 @@ jobs:
             exit 1
           fi
 
+  verify-commit-assets:
+    runs-on: ubuntu-24.04
+
+    if: github.event_name == 'pull_request_target'
+
+    steps:
+      - name: Check commits for assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMITS: ${{ github.event.pull_request.commits }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "Checking PR history for assets"
+
+          ASSET_REGEX='\.(pdf|png|jpe?g|gif|bmp|tiff?|webp|svg|ico|avif)"?$'
+
+          git init -q pr && cd pr
+          git fetch -q --no-tags --filter=blob:none --depth=$((COMMITS + 1)) \
+            "https://github.com/${{ github.repository }}" "$HEAD_SHA"
+
+          SHAS=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits" \
+            --jq '.[].sha')
+
+          ASSETS=$(for SHA in $SHAS; do
+            git diff-tree -r --name-only --diff-filter=AM --no-commit-id "$SHA" \
+              | grep -iE "$ASSET_REGEX" | sed "s|.*|- ${SHA:0:7}: \`&\`|"
+          done)
+
+          if [ -n "$ASSETS" ]; then
+            echo -e "Assets found in PR:\n$ASSETS"
+            gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "$(cat <<EOF
+          ### Validation failed: assets found in PR history
+
+          The following prohibited assets were found:
+
+          $ASSETS
+
+          To resolve this:
+
+          1. Add them to [duranta-project/assets](https://github.com/duranta-project/assets) and link that PR
+             in this PR's description.
+          2. Reference each asset using its commit SHA, for example:
+             \`https://raw.githubusercontent.com/duranta-project/assets/<commit-sha>/<path>\`
+          3. Rewrite this PR's history to remove the assets. Deleting them in a later commit is not sufficient.
+          EOF
+          )"
+            exit 1
+          fi
+
   check-labels:
-    needs: [verify-signed-commits, verify-commit-emails]
+    needs: [verify-signed-commits, verify-commit-emails, verify-commit-assets]
     runs-on: ubuntu-24.04
 
     if: github.event_name == 'pull_request_target'
