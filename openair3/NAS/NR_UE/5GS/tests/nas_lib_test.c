@@ -182,6 +182,31 @@ static void test_service_request(void)
               "test_service_request() failed: original and decoded messages do not match\n");
   free_fgs_service_request(&decoded_service_request);
   free_fgs_service_request(&original_msg);
+
+  // Each bitmap keeps its first occurrence, even if that occurrence is malformed.
+  // clang-format off
+  uint8_t duplicate_enc[] = {
+      0x17, 0x00, 0x07, 0xF4, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, // Mandatory fields
+      IEI_PDU_SESSION_STATUS, 1, 0x10, // Malformed status
+      IEI_UPLINK_DATA_STATUS, 2, 0x04, 0x80, // PSI 2 and 15
+      IEI_UPLINK_DATA_STATUS, 2, 0x10, 0x00, // Repeat with PSI 4
+      IEI_PDU_SESSION_STATUS, 2, 0x10, 0x00, // Repeat with PSI 4
+      IEI_FGS_NAS_MESSAGE_CONTAINER, 0, 3, 0xde, 0xad, 0xbe,
+  };
+  // clang-format on
+  const uint8_t uplink_status[MAX_NUM_PSI] = {[2] = PDU_SESSION_ACTIVE, [15] = PDU_SESSION_ACTIVE};
+  fgs_service_request_msg_t dec_duplicate = {0};
+  AssertFatal(decode_fgs_service_request(&dec_duplicate, duplicate_enc, sizeof(duplicate_enc)) == sizeof(duplicate_enc),
+              "Service Request: duplicate bitmap length mismatch\n");
+  AssertFatal(!dec_duplicate.has_pdu_session_status, "Service Request: malformed first PDU session status must remain absent\n");
+  AssertFatal(
+      dec_duplicate.has_uplink_data_status && memcmp(dec_duplicate.uplink_data_status, uplink_status, sizeof(uplink_status)) == 0,
+      "Service Request: first uplink data status mismatch\n");
+  AssertFatal(dec_duplicate.fgsnasmessagecontainer, "Service Request: missing NAS message container after duplicate bitmaps\n");
+  const OctetString *contents = &dec_duplicate.fgsnasmessagecontainer->nasmessagecontainercontents;
+  AssertFatal(contents->length == sizeof(container_data) && memcmp(contents->value, container_data, sizeof(container_data)) == 0,
+              "Service Request: NAS message container mismatch\n");
+  free_fgs_service_request(&dec_duplicate);
 }
 
 /**
@@ -254,6 +279,28 @@ static void test_service_accept(void)
   AssertFatal(dec_eap.eap_msg.len == sizeof(eap) && memcmp(dec_eap.eap_msg.buf, eap, sizeof(eap)) == 0,
               "Service Accept: EAP message mismatch\n");
   free_fgs_service_accept(&dec_eap);
+
+  // A malformed first reactivation result stays absent, while a later malformed status leaves the first status intact.
+  // clang-format off
+  uint8_t duplicate_enc[] = {
+      IEI_PDU_SESSION_REACT_RESULT, 0, // Malformed result
+      IEI_PDU_SESSION_STATUS, 2, 0x02, 0x80, // PSI 1 and 15
+      IEI_PDU_SESSION_REACT_RESULT, 2, 0x04, 0x00, // Well-formed repeat
+      IEI_PDU_SESSION_STATUS, 1, 0x04, // Malformed repeat
+      IEI_T3448_VALUE, 1, 0x21,
+  };
+  // clang-format on
+  const uint8_t status[MAX_NUM_PSI] = {[1] = PDU_SESSION_ACTIVE, [15] = PDU_SESSION_ACTIVE};
+  byte_array_t duplicate = {.buf = duplicate_enc, .len = sizeof(duplicate_enc)};
+  fgs_service_accept_msg_t dec_duplicate = {0};
+  AssertFatal(decode_fgs_service_accept(&dec_duplicate, &duplicate) == sizeof(duplicate_enc),
+              "Service Accept: duplicate bitmap length mismatch\n");
+  AssertFatal(!dec_duplicate.has_psi_res, "Service Accept: malformed first reactivation result must remain absent\n");
+  AssertFatal(dec_duplicate.has_psi_status && memcmp(dec_duplicate.psi_status, status, sizeof(status)) == 0,
+              "Service Accept: first PDU session status mismatch\n");
+  AssertFatal(dec_duplicate.t3448 && dec_duplicate.t3448->unit == ONE_MINUTE && dec_duplicate.t3448->value == 1,
+              "Service Accept: T3448 mismatch after duplicate bitmaps\n");
+  free_fgs_service_accept(&dec_duplicate);
 }
 
 /** @brief Test NAS Service Reject enc/dec */
@@ -326,6 +373,59 @@ static void test_service_reject(void)
   AssertFatal(dec_eap.eap_msg && dec_eap.eap_msg->len == sizeof(eap) && memcmp(dec_eap.eap_msg->buf, eap, sizeof(eap)) == 0,
               "Service Reject: EAP message mismatch\n");
   free_fgs_service_reject(&dec_eap);
+
+  const uint8_t status[MAX_NUM_PSI] = {[1] = PDU_SESSION_ACTIVE, [15] = PDU_SESSION_ACTIVE};
+  uint8_t terminal_enc[] = {Illegal_UE, IEI_PDU_SESSION_STATUS, 2, 0x02, 0x80};
+  byte_array_t terminal = {.buf = terminal_enc, .len = sizeof(terminal_enc)};
+  fgs_service_reject_msg_t dec_terminal = {0};
+  AssertFatal(decode_fgs_service_reject(&dec_terminal, &terminal) == sizeof(terminal_enc),
+              "Service Reject: terminal bitmap length mismatch\n");
+  AssertFatal(dec_terminal.has_psi_status && memcmp(dec_terminal.psi_status, status, sizeof(status)) == 0,
+              "Service Reject: terminal PDU session status mismatch\n");
+  free_fgs_service_reject(&dec_terminal);
+
+  // T3446 must still be decoded after the extension octets, including a length above the known maximum of 32.
+  const uint8_t status_lengths[] = {3, 32, 33};
+  const uint8_t timer[] = {IEI_T3446_VALUE, 1, 0x0a};
+  for (size_t i = 0; i < sizeofArray(status_lengths); i++) {
+    const uint8_t len = status_lengths[i];
+    uint8_t enc[3 + 33 + sizeof(timer)] = {Illegal_UE, IEI_PDU_SESSION_STATUS, len, 0x02, 0x80};
+    const size_t timer_offset = 3 + len;
+    memcpy(enc + timer_offset, timer, sizeof(timer));
+    byte_array_t with_extensions = {.buf = enc, .len = timer_offset + sizeof(timer)};
+    fgs_service_reject_msg_t dec_extended = {0};
+    AssertFatal(decode_fgs_service_reject(&dec_extended, &with_extensions) == (int)with_extensions.len,
+                "Service Reject: extended bitmap length mismatch for length %u\n",
+                len);
+    AssertFatal(dec_extended.has_psi_status && memcmp(dec_extended.psi_status, status, sizeof(status)) == 0,
+                "Service Reject: extended PDU session status mismatch for length %u\n",
+                len);
+    AssertFatal(dec_extended.t3446 && dec_extended.t3446->unit == TWO_SECONDS && dec_extended.t3446->value == 10,
+                "Service Reject: T3446 mismatch after bitmap of length %u\n",
+                len);
+    free_fgs_service_reject(&dec_extended);
+  }
+
+  // Use exact-size buffers for incomplete tails so sanitizer runs can detect reads past the message.
+  uint8_t missing_len[] = {Illegal_UE, IEI_T3446_VALUE, 1, 0x0a, IEI_PDU_SESSION_STATUS};
+  uint8_t short_bitmap[] = {Illegal_UE, IEI_T3446_VALUE, 1, 0x0a, IEI_PDU_SESSION_STATUS, 2, 0x02};
+  uint8_t short_extensions[] = {Illegal_UE, IEI_T3446_VALUE, 1, 0x0a, IEI_PDU_SESSION_STATUS, 3, 0x02, 0x80};
+  const byte_array_t incomplete[] = {
+      {.buf = missing_len, .len = sizeof(missing_len)},
+      {.buf = short_bitmap, .len = sizeof(short_bitmap)},
+      {.buf = short_extensions, .len = sizeof(short_extensions)},
+  };
+  for (size_t i = 0; i < sizeofArray(incomplete); i++) {
+    fgs_service_reject_msg_t dec_incomplete = {0};
+    AssertFatal(decode_fgs_service_reject(&dec_incomplete, &incomplete[i]) == (int)incomplete[i].len,
+                "Service Reject: incomplete bitmap length mismatch for %zu-byte message\n",
+                incomplete[i].len);
+    AssertFatal(!dec_incomplete.has_psi_status, "Service Reject: incomplete PDU session status must be absent\n");
+    AssertFatal(dec_incomplete.cause == Illegal_UE && dec_incomplete.t3446 && dec_incomplete.t3446->unit == TWO_SECONDS
+                    && dec_incomplete.t3446->value == 10,
+                "Service Reject: incomplete bitmap must preserve cause and T3446\n");
+    free_fgs_service_reject(&dec_incomplete);
+  }
 }
 
 /** @brief Test NAS Registration Reject enc/dec (plain AMF reject: cause only) */
