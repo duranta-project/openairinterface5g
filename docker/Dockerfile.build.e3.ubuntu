@@ -12,7 +12,7 @@
 
 FROM ran-base:latest AS ran-build-e3
 
-ARG LIBE3_VERSION=0.2.3
+ARG LIBE3_VERSION=0.4.3
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe
 

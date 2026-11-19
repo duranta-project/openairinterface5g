@@ -9,7 +9,7 @@
 #   encoding        asn1 | json | protobuf, the one the gNB was started with
 #   gnb-container   name of the running gNB container
 # Env:   DAPP_TIMED   dApp run seconds       (default: 20)
-#        DAPPS_SPEC   pip requirement of the dApp library (default: dapps>=0.2.3)
+#        DAPPS_SPEC   pip requirement of the dApp library (default: dapps>=0.3.2)
 #        SKIP_PIP     set to 1 to use the python3 on PATH and its dApp library as is
 #        BOOT_TIMEOUT_S  wait for the gNB to reach Frame.Slot (default: 90)
 #
@@ -21,7 +21,7 @@ set -u
 ENC="${1:?usage: run-e3-dapp.sh <encoding> <gnb-container>}"
 GNB="${2:?usage: run-e3-dapp.sh <encoding> <gnb-container>}"
 DAPP_TIMED="${DAPP_TIMED:-20}"
-DAPPS_SPEC="${DAPPS_SPEC:-dapps>=0.2.3}"
+DAPPS_SPEC="${DAPPS_SPEC:-dapps>=0.3.2}"
 SKIP_PIP="${SKIP_PIP:-0}"
 BOOT_TIMEOUT_S="${BOOT_TIMEOUT_S:-90}"
 
@@ -45,7 +45,7 @@ if [ "${SKIP_PIP}" != "1" ]; then
         || { echo "[e3-ci] pip install '${DAPPS_SPEC}' libe3py==${LIBE3_VER} failed:" >&2; tail -20 "${WORK}/pip.log" >&2; exit 2; }
 fi
 "${PY}" -c "import e3interface, spectrum.spectrum_dapp, examples.spectrum_dapp" 2>/dev/null \
-    || { echo "[e3-ci] dApp library not importable (need dapps>=0.2.3 with its shipped examples)" >&2; exit 2; }
+    || { echo "[e3-ci] dApp library not importable (need dapps>=0.3.2 with its shipped examples)" >&2; exit 2; }
 
 waited=0
 until gnb_log | grep -q "Frame.Slot"; do
@@ -71,6 +71,9 @@ grep -q "E3 Setup Response outcome: True" "${WORK}/dapp.stats" \
     || fail "${ENC}: dApp setup not accepted (no 'outcome: True')"
 [ "$(grep -c "Positive subscription response" "${WORK}/dapp.stats")" -ge 2 ] \
     || fail "${ENC}: fewer than 2 positive subscription responses on the dApp side"
+# OAI's SMs do not set libe3's granted-periodicity hook: the response has none.
+[ "$(grep -c "periodicity not reported by the RAN" "${WORK}/dapp.stats")" -ge 2 ] \
+    || fail "${ENC}: fewer than 2 subscription responses without a periodicity on the dApp side"
 grep -qE "\[SHM\] final stats: handled=[1-9][0-9]* read_drops=0 " "${WORK}/dapp.stats" \
     || fail "${ENC}: dApp did not process IQ (want handled>0, read_drops=0): $(grep -o '\[SHM\] final stats:.*' "${WORK}/dapp.stats" | tail -1)"
 

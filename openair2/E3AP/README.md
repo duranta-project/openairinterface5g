@@ -25,12 +25,12 @@ For a complete description of the dApp architecture and the E3 interface, refer 
 
 ## Prerequisites — libe3
 
-The E3 Agent requires the external `libe3` library (any 0.2.x release; this tree is tested with
-0.2.3), discovered at build time with `pkg-config`. It is not vendored in OAI. Install it once, with
+The E3 Agent requires the external `libe3` library (any 0.4.x release from 0.4.3 on; this tree is tested with
+0.4.3), discovered at build time with `pkg-config`. It is not vendored in OAI. Install it once, with
 every wire encoding, so the gNB can serve whichever one its dApp uses:
 
 ```bash
-git clone --branch 0.2.3 https://github.com/wineslab/libe3 && cd libe3
+git clone --branch 0.4.3 https://github.com/wineslab/libe3 && cd libe3
 ./build_libe3 -I                          # system prerequisites, if not already present
 ./build_libe3 --all-encodings --install   # into /usr/local; asks for sudo
 ```
@@ -116,6 +116,11 @@ The wire encoding (`asn1`, `json` or `protobuf`) is chosen per run with
 sensing keys described in the Spectrum SM README.
 [`targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.106prb.rfsim.e3.conf`](../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.106prb.rfsim.e3.conf)
 is a complete example.
+
+A subscription response carries a `periodicity` only when the SM reports the least interval
+it keeps between indications through libe3's granted-periodicity hook. The SMs here do not set
+the hook, so a dApp reads "not reported". The agent emits at the fastest period any subscribed
+dApp asked for (`min_subscription_period_us()` in `e3_agent.c`), not at the one of each dApp.
 
 ## dApp development
 

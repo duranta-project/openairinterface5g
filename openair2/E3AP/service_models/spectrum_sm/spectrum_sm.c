@@ -71,6 +71,8 @@ static e3_error_t spectrum_sm_process_control(e3_service_model_handle_t *sm_hand
                                               size_t data_len,
                                               uint32_t sequence_id);
 
+/* This SM does not report a granted periodicity through libe3's granted-periodicity
+ * hook, so a dApp reads "not reported" in the subscription response. */
 static e3_c_service_model_desc_t spectrum_sm_desc = {
     .name = "spectrum_sm",
     .version = 1,

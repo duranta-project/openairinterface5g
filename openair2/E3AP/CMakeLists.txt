@@ -6,8 +6,10 @@ set(E3_REQUIRED_ENCODINGS "" CACHE STRING "E3 wire encodings the linked libe3 mu
 find_package(PkgConfig REQUIRED)
 # libe3's C API is not stable across minor releases: 0.2.0 adds a correlation
 # id (sequence_id) to the control and report callbacks and to
-# e3_agent_send_xapp_control(), so stay inside the 0.2 series.
-pkg_check_modules(CLIBE3 REQUIRED libe3>=0.2.0 libe3<0.3.0)
+# e3_agent_send_xapp_control(). 0.4.3 is the first release whose subscription
+# response carries only a periodicity the Service Model reports, so stay inside
+# the 0.4 series.
+pkg_check_modules(CLIBE3 REQUIRED libe3>=0.4.3 libe3<0.5.0)
 
 if(NOT CLIBE3_FOUND)
     message(FATAL_ERROR "libe3 not found and required for E3 Agent")
