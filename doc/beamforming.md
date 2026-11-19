@@ -41,12 +41,15 @@ The single parameter `bf_method` selects the beamforming method:
 - `straight-wire` (default): no beamforming is applied, each logical antenna
   port maps straight onto a physical one.
 - `das`: distributed antenna system, where each beam corresponds to one antenna
-  (or a set of antennas) of the system. The beam index is the logical antenna
-  port index, so `ssb_beams` must not be set and the number of concurrent beams
-  equals `beams_per_period`. The scheduler constraint above is alleviated,
-  because the number of concurrent beams allowed normally equals the total
-  number of beams. This is OAI-specific and is expected to be removed once the
-  digital beam table is fully supported. The reference configuration file is
+  (or a set of antennas) of the system. Each transmitted SSB gets the next beam
+  index, counting only the SSBs set in `ssb_PositionsInBurst` (e.g. SSB 0 and
+  SSB 2 get beams 0 and 1), so `ssb_beams` must not be set. L1 uses the beam
+  index to select the antenna group the logical ports map onto, in both DL and
+  UL. The scheduler constraint above is alleviated, because the number of
+  concurrent beams allowed normally equals the total number of beams. This is
+  OAI-specific and is expected to be removed once the digital beam table also
+  covers the UL, since the table only weights the TX side for now. The reference
+  configuration file is
   [`gnb-du.sa.band77.273prb.fhi72.4x4-das-benetel650_650.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-du.sa.band77.273prb.fhi72.4x4-das-benetel650_650.conf).
 - `predefined`: the beam IDs allocated by L2 are signalled to L1 over FAPI.
   `ssb_beams` gives the beam ID to use for each transmitted SSB, and what L1
@@ -122,12 +125,21 @@ fronthaul.
 A DBT is only meaningful for `predefined`. Configuring one together with
 `straight-wire` or `das` is rejected at startup.
 
-It is also only supported with Aerial for the time being. The table does reach a
-native L1, but `nr_feptx_prec()` copies the samples through instead of precoding
-them, so the weights would have no effect; configuring a table without Aerial is
-rejected rather than silently ignored.
+Both Aerial and the native L1 apply the table, the native L1 for split 8 and for
+a 7.2 category A RU alike. Every TX antenna of the `RUs` section transmits the
+logical antenna ports weighted by the entry of their beam for that antenna, so
+the number of logical ports and of TX antennas can differ.
 
-A single CSI port is required as well, that is `pdsch_AntennaPorts_N1 *
+- The beam is taken per PDU (SSB, PDCCH, CSI-RS and PDSCH), and per DCI for
+  PDCCH. A PDU uses one beam over all its RBs: per-PRG (frequency-selective)
+  beams are not supported.
+- PDUs on the same resources add up, as needed for several beams on the same
+  resources (MU-MIMO).
+- PRS is not beamformed: it is transmitted on the first TX antenna.
+- Only PDUs whose beam IDs have the MSB clear are beamformed with the table;
+  see [Beam ID encoding](#beam-id-encoding).
+
+A single CSI port is required, that is `pdsch_AntennaPorts_N1 *
 pdsch_AntennaPorts_N2 * pdsch_AntennaPorts_XP` must be 1. The scheduler signals
 one beam ID per PDU and repeats it on every FAPI beamforming port, so with more
 ports the weights of a single beam would be applied to all of them instead of
@@ -210,17 +222,17 @@ you.
 
 The number of weights per beam must equal the number of TXRUs, and a mismatch
 is rejected at startup. Under Aerial that count is `num_tx_ant` of the
-[`Aerial` section](#aerial-section). Should a native L1 gain DBT support, it
-would instead be the sum of `nb_tx` over the `RUs` section.
+[`Aerial` section](#aerial-section); for a native L1 it is the sum of `nb_tx`
+over the `RUs` section.
 
 ### Beam IDs and their relation to `ssb_beams`
 
-Beam IDs name the rows of the table; they are arbitrary 16-bit values and do not
-have to start at zero, be contiguous, or be sorted, but they must be unique — a
-table listing the same ID twice is rejected at startup. A table typically holds
-many more beams than there are SSBs, so `ssb_beams` selects the subset used for
-SSB/PRACH, one entry per transmitted SSB. Every ID listed in `ssb_beams` must
-appear in the table, otherwise startup fails with
+Beam IDs name the rows of the table; they are arbitrary values below 512 and do
+not have to start at zero, be contiguous, or be sorted, but they must be unique
+— a table listing the same ID twice is rejected at startup. A table typically
+holds many more beams than there are SSBs, so `ssb_beams` selects the subset
+used for SSB/PRACH, one entry per transmitted SSB. Every ID listed in
+`ssb_beams` must appear in the table, otherwise startup fails with
 
 ```
 ssb_beams[<i>] = <id> is not a beam of the digital beam table (<n> entries)
@@ -229,6 +241,8 @@ ssb_beams[<i>] = <id> is not a beam of the digital beam table (<n> entries)
 With a table configured, L1 resolves each beam ID through it; without one, the
 IDs are passed on to the RU or the fronthaul unchanged.
 
+For an example with a digital beam table on a native L1, see
+[`gnb.sa.band78.106prb.rfsim.dbt.conf`](../ci-scripts/conf_files/gnb.sa.band78.106prb.rfsim.dbt.conf).
 For an example without a digital beam table, see
 [`gnb.sa.band257.u3.66prb.rfsim.4beams.conf`](../ci-scripts/conf_files/gnb.sa.band257.u3.66prb.rfsim.4beams.conf),
 which maps the four transmitted SSBs onto four beams.
@@ -308,7 +322,8 @@ allocated:
 
 - MSB set: the remaining 15 bits are the beam ID itself, which L1 does not
   resolve and forwards to the radio or to the fronthaul. This is the case for
-  `das`, and for `predefined` without a digital beam table.
+  `das`, where L1 also uses it to select the antenna group, and for
+  `predefined` without a digital beam table.
 - MSB clear: the ID points to a vector of weights pre-stored at L1, i.e. a row
   of the digital beam table.
 
@@ -317,9 +332,16 @@ the FAPI value is built.
 
 Aerial does not implement this part of the beam-ID definition and expects a
 plain index into the beam table it was configured with, so the MSB is masked
-off when packing towards it. A native L1 currently handles only the MSB-set
-case and asserts otherwise, consistently with the digital beam table being
-restricted to Aerial.
+off when packing towards it.
+
+A native L1 applies this per PDU (per DCI for PDCCH) in `nr_dbt_pdu()`. With
+the MSB clear and a table configured, each logical port is weighted by the
+table entry of its beam ID (combined with the precoding matrix for PDSCH) onto
+every TXRU, and the spatial stream indices are not used. Otherwise L1 applies
+no weights: each logical port goes onto the baseband port of its spatial stream
+index (with `das`, of its beam's antenna group). With a table, all digital BF
+interfaces of a PDU must agree on the MSB. PRS is not beamformed and goes to
+the first TXRU.
 
 ## L1 implementation
 
