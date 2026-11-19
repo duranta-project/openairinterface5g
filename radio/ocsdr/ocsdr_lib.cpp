@@ -22,6 +22,8 @@
  *   tx_gate_lead=N, tx_gate_lag=N  samples the gate opens before / stays open after a burst (128 / 256)
  *   tx_gate_mode=M  0 PAs off between bursts, 1 PAs off + TX switches to the 50 ohm loads, 2 switches only,
  *                   PAs stay on (default; per-burst PA shutdown leaves RX1 ~6 dB noisier for >100 us)
+ *   tx_gate_trx=0/1/2  with tx_gate, register set v15+ (TRX image): 1 the TX connectors are also the RX inputs (TDD
+ *                 on one antenna per channel), 2 the same with the LNAs off while transmitting
  *   tx_flush_us=N  send a partly filled TX block N us before its start time if no more samples came (default 0:
  *                  off). A block only leaves when full, so the tail of a slot waits for the next slot's write; with
  *                  this a late next write loses its first samples (at most one block) instead of the earlier
@@ -74,6 +76,7 @@ struct ocsdr_args {
   unsigned    tx_gate_lead = 128;
   unsigned    tx_gate_lag  = 256;
   unsigned    tx_gate_mode = 2;
+  unsigned tx_gate_trx = 0;
   unsigned    tx_flush_us  = 0;
   bool        tx_lead_stats = false;
   bool        rx_only      = false;
@@ -187,11 +190,13 @@ static bool parse_args(const char *s, ocsdr_args &out)
       out.tx_gate_lag = (unsigned)v;
     else if (key == "tx_gate_mode" && v >= 0 && v <= 2)
       out.tx_gate_mode = (unsigned)v;
+    else if (key == "tx_gate_trx" && v >= 0 && v <= 2)
+      out.tx_gate_trx = (unsigned)v;
     else {
       LOG_E(HW,
             "ocsdr: unknown or out-of-range sdr_addrs item '%s' (keys: board, host, tx_shift, ring, skip_init, frontend, "
             "rx_atten, rx1_atten, tx_atten, rx_gain, rx2_gain, tx_advance, tx_gate, tx_gate_lead, tx_gate_lag, "
-            "tx_gate_mode, tx_flush_us, tx_lead_stats, rx_only)\n",
+            "tx_gate_mode, tx_gate_trx, tx_flush_us, tx_lead_stats, rx_only)\n",
             item.c_str());
       return false;
     }
@@ -648,22 +653,32 @@ extern "C" int device_init(openair0_device_t *device, openair0_config_t *openair
     LOG_I(HW, "ocsdr: receive only: TX shut down (RF control 0x%08x), TX samples dropped\n", ocsdr_rfctrl(s->dev));
   }
   if (s->args.tx_gate) {
-    if (ocsdr_tx_gate(s->dev,
-                      true,
-                      s->args.tx_gate_lead,
-                      s->args.tx_gate_lag,
-                      s->args.tx_gate_mode == 0   ? 0u
-                      : s->args.tx_gate_mode == 1 ? OCSDR_TXGATE_LOAD
-                                                  : OCSDR_TXGATE_LOAD | OCSDR_TXGATE_PA_ON)
-        != 0) {
-      LOG_E(HW, "ocsdr: TX gating needs FPGA image v16s or later\n");
+    uint32_t gate_mode = s->args.tx_gate_mode == 0   ? 0u
+                         : s->args.tx_gate_mode == 1 ? OCSDR_TXGATE_LOAD
+                                                     : OCSDR_TXGATE_LOAD | OCSDR_TXGATE_PA_ON;
+#ifdef OCSDR_TXGATE_TRX
+    if (s->args.tx_gate_trx >= 1)
+      gate_mode |= OCSDR_TXGATE_TRX;
+    if (s->args.tx_gate_trx == 2)
+      gate_mode |= OCSDR_TXGATE_TRX_LNA_OFF;
+#else
+    if (s->args.tx_gate_trx) {
+      LOG_E(HW, "ocsdr: tx_gate_trx needs a libocsdr with TRX support (OCSDR_TXGATE_TRX)\n");
+      return -1;
+    }
+#endif
+    if (ocsdr_tx_gate(s->dev, true, s->args.tx_gate_lead, s->args.tx_gate_lag, gate_mode) != 0) {
+      LOG_E(HW,
+            s->args.tx_gate_trx ? "ocsdr: tx_gate_trx needs a TRX FPGA image (register set v15+)\n"
+                                : "ocsdr: TX gating needs FPGA image v16s or later\n");
       return -1;
     }
     if (s->args.host.empty())
       LOG_I(HW, "ocsdr: TX gating over PCIe needs an image that gates on the PCIe TX stream, else the gate stays open\n");
     LOG_I(HW,
-          "ocsdr: TX gating on between bursts, mode %u (lead %u, lag %u samples)\n",
+          "ocsdr: TX gating on between bursts, mode %u, TRX %u (lead %u, lag %u samples)\n",
           s->args.tx_gate_mode,
+          s->args.tx_gate_trx,
           s->args.tx_gate_lead,
           s->args.tx_gate_lag);
   }
