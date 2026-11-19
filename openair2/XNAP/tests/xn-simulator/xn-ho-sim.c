@@ -54,6 +54,11 @@ void nr_ue_tun_store_qfi(nas_ue_pdu_tun_t *t, uint8_t qfi)
 {
   t->qfi = qfi;
 }
+void nr_ue_tun_cleanup_ipv4_route(nas_ue_pdu_tun_t *t, int ue_id)
+{
+  UNUSED(t);
+  UNUSED(ue_id);
+}
 void nr_sdap_qos_rule_add(ue_id_t ue_id,
                           int pdusession_id,
                           uint8_t rule_id,
