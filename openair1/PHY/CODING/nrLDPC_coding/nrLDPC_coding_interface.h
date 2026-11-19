@@ -91,6 +91,10 @@ typedef struct nrLDPC_TB_decoding_parameters_s{
  * in order to launch jobs internally
  * DEQUEUING THE JOBS IS DONE WITHIN THE IMPLEMENTATION
  * \var TBs array of TBs decoding parameters
+ * \var done optional: called once when the decoding has finished, from any thread, possibly
+ * before the decoder returns, only if it returns 0. The parameters must stay valid until then.
+ * NULL: the decoding has finished when the decoder returns.
+ * \var done_arg argument of done
  */
 typedef struct nrLDPC_slot_decoding_parameters_s{
   int frame;
@@ -98,6 +102,8 @@ typedef struct nrLDPC_slot_decoding_parameters_s{
   int nb_TBs;
   tpool_t *threadPool;
   nrLDPC_TB_decoding_parameters_t *TBs;
+  void (*done)(void *done_arg);
+  void *done_arg;
 } nrLDPC_slot_decoding_parameters_t;
 
 /**
@@ -185,6 +191,13 @@ typedef struct nrLDPC_slot_encoding_parameters_s{
   tpool_t *threadPool;
   nrLDPC_TB_encoding_parameters_t *TBs;
 } nrLDPC_slot_encoding_parameters_t;
+
+/// For decoders that finish before returning 0
+static inline void nrLDPC_decoding_done(const nrLDPC_slot_decoding_parameters_t *p)
+{
+  if (p->done)
+    p->done(p->done_arg);
+}
 
 typedef int32_t(nrLDPC_coding_init_t)(int);
 typedef int32_t(nrLDPC_coding_shutdown_t)(void);

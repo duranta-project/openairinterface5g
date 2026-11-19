@@ -63,6 +63,9 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
                        int number_rbs,
                        int G);
 
+/// Starts decoding the codeword in dec; true: dec->done(dec) is called once decoded, possibly before returning
+bool nr_dlsch_decoding_start(nr_ue_dlsch_decoding_t *dec, int16_t *dlsch_llr);
+
 int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
                           uint32_t tb_size_bytes,
                           uint8_t nrOfLayers,
@@ -79,6 +82,7 @@ int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
     @param[in] G array of Gs
     @param[in] nb_ulsch number of uplink shared channels
     @param[in] ULSCH_ids array of uplink shared channel ids
+    @param[out] f array of encoder outputs (packed bits), one per ULSCH, of nr_ulsch_f_size(G) bytes, 64 bytes aligned
     @returns 0 on success, -1 on unsuccessful decoding
 */
 int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
@@ -87,7 +91,14 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
                       const uint8_t slot,
                       unsigned int *G,
                       int nb_ulsch,
-                      uint8_t *ULSCH_ids);
+                      uint8_t *ULSCH_ids,
+                      uint8_t **f);
+
+/// bytes of the encoder output of G bits: the encoder ORs 64-bit words and can write one word beyond G
+static inline size_t nr_ulsch_f_size(unsigned int G)
+{
+  return (G + 511) / 512 * 64 + 64;
+}
 
 /** \brief Top-level entry point for SLSCH encoding in UE: LDPC encoding of the single
     transport block carried by the PSSCH of this slot.
@@ -97,6 +108,7 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
     @param[in] frame frame index
     @param[in] slot slot index
     @param[in] G number of coded bits available on the PSSCH
+    @param[out] f encoder output (packed bits), of nr_ulsch_f_size(G) bytes, 64 bytes aligned
     @returns 0 on success, -1 on unsuccessful encoding
 */
 int nr_slsch_encoding(PHY_VARS_NR_UE *ue,
@@ -104,16 +116,11 @@ int nr_slsch_encoding(PHY_VARS_NR_UE *ue,
                       uint8_t harq_pid,
                       const uint32_t frame,
                       const uint8_t slot,
-                      unsigned int G);
+                      unsigned int G,
+                      uint8_t *f);
 
-int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
-                      uint8_t UE_id,
-                      short *ulsch_llr,
-                      nfapi_nr_pusch_pdu_t *pusch_pdu,
-                      uint32_t frame,
-                      uint8_t nr_tti_rx,
-                      uint8_t harq_pid,
-                      uint32_t G);
+/// Starts decoding the SLSCH in dec; true: dec->done(dec) is called once decoded, possibly before returning
+bool nr_slsch_decoding_start(nr_ue_slsch_decoding_t *dec, int16_t *slsch_llr, nfapi_nr_pusch_pdu_t *pssch_pdu, uint32_t G);
 
 /** \brief Alternative entry point to UE uplink shared channels procedures.
     It handles all the HARQ processes in only one call.
