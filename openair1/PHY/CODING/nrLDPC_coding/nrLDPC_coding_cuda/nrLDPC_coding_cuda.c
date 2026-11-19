@@ -169,6 +169,7 @@ int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *slot_params)
   }
   if (nb_pushed > 0)
     join_task_ans(&ans);
+  nrLDPC_decoding_done(slot_params);
   return 0;
 }
 

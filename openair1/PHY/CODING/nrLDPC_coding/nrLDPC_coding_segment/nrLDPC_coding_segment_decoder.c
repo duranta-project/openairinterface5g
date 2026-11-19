@@ -59,8 +59,11 @@
  * \var c Pointers to code blocks after LDPC decoding (38.212 V15.4.0 section 5.2.2)
  * \var decodeSuccess pointer to the flag indicating that the decoding of the segment was successful
  * \var ans pointer to task answer used by the thread pool to detect task completion
+ * \var async asynchronous completion, ans unused
  * \var p_ts_ldpc_decode pointer to decoding time stats
  */
+struct nrLDPC_async_decoding_s;
+
 typedef struct nrLDPC_decoding_parameters_s {
   t_nrLDPC_dec_params decoderParms;
 
@@ -87,9 +90,45 @@ typedef struct nrLDPC_decoding_parameters_s {
   bool *decodeSuccess;
 
   task_ans_t *ans;
+  struct nrLDPC_async_decoding_s *async;
 
   time_single_t ts_ldpc_decode;
 } nrLDPC_decoding_parameters_t;
+
+/// Slot decoding completed by its last segment
+typedef struct nrLDPC_async_decoding_s {
+  nrLDPC_slot_decoding_parameters_t *slot;
+  int remaining;
+  nrLDPC_decoding_parameters_t seg[];
+} nrLDPC_async_decoding_t;
+
+static void nrLDPC_merge_segments(nrLDPC_slot_decoding_parameters_t *slot, const nrLDPC_decoding_parameters_t *seg)
+{
+  for (int tb = 0; tb < slot->nb_TBs; tb++) {
+    nrLDPC_TB_decoding_parameters_t *TB = &slot->TBs[tb];
+    *TB->processedSegments = 0;
+    for (int r = 0; r < TB->C; r++, seg++) {
+      if (TB->decodeSuccess[r])
+        *TB->processedSegments = *TB->processedSegments + 1;
+      TB->ts_ldpc_decode[r] = seg->ts_ldpc_decode;
+    }
+  }
+}
+
+static void nrLDPC_segment_completed(nrLDPC_decoding_parameters_t *rdata)
+{
+  nrLDPC_async_decoding_t *async = rdata->async;
+  if (!async) {
+    completed_task_ans(rdata->ans);
+    return;
+  }
+  if (__atomic_sub_fetch(&async->remaining, 1, __ATOMIC_ACQ_REL) > 0)
+    return;
+  nrLDPC_slot_decoding_parameters_t *slot = async->slot;
+  nrLDPC_merge_segments(slot, async->seg);
+  free(async);
+  slot->done(slot->done_arg);
+}
 
 static void nr_process_decode_segment(void *arg)
 {
@@ -145,8 +184,7 @@ static void nr_process_decode_segment(void *arg)
           K,
           K - rdata->F - 2 * (p_decoderParms->Z));
 
-    // Task completed
-    completed_task_ans(rdata->ans);
+    nrLDPC_segment_completed(rdata);
     return;
   }
 
@@ -192,13 +230,15 @@ static void nr_process_decode_segment(void *arg)
   }
   stop_single_meas(&rdata->ts_ldpc_decode);
 
-  // Task completed
-  completed_task_ans(rdata->ans);
+  nrLDPC_segment_completed(rdata);
 }
 
-int nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_decoding_parameters,
-                               int pusch_id,
-                               thread_info_tm_t *t_info)
+/// Fills the segment parameters of a TB, returns the number of segments
+static int nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_decoding_parameters,
+                                      int pusch_id,
+                                      nrLDPC_decoding_parameters_t *seg,
+                                      task_ans_t *ans,
+                                      nrLDPC_async_decoding_t *async)
 {
   nrLDPC_TB_decoding_parameters_t *nrLDPC_TB_decoding_parameters = &nrLDPC_slot_decoding_parameters->TBs[pusch_id];
 
@@ -210,10 +250,9 @@ int nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_de
   decParams.outMode = nrLDPC_outMode_BIT;
 
   for (int r = 0; r < nrLDPC_TB_decoding_parameters->C; r++) {
-    nrLDPC_decoding_parameters_t *rdata = &((nrLDPC_decoding_parameters_t *)t_info->buf)[t_info->len];
-    DevAssert(t_info->len < t_info->cap);
-    rdata->ans = t_info->ans;
-    t_info->len += 1;
+    nrLDPC_decoding_parameters_t *rdata = &seg[r];
+    rdata->ans = ans;
+    rdata->async = async;
     int llr_offset;
     if (r < nrLDPC_TB_decoding_parameters->first_rE2) {
       decParams.R = nrLDPC_TB_decoding_parameters->R;
@@ -250,10 +289,6 @@ int nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_de
     rdata->llr = nrLDPC_TB_decoding_parameters->llr + llr_offset; // rdata->Kc*rdata->Z;
     rdata->decodeSuccess = &nrLDPC_TB_decoding_parameters->decodeSuccess[r];
     reset_single_meas(&rdata->ts_ldpc_decode);
-    task_t t = {.func = &nr_process_decode_segment, .args = rdata};
-    pushTpool(nrLDPC_slot_decoding_parameters->threadPool, t);
-
-    LOG_D(PHY, "Added a block to decode, in pipe: %d, rdata->c %p\n", r, rdata->c);
   }
   return nrLDPC_TB_decoding_parameters->C;
 }
@@ -271,34 +306,41 @@ int32_t nrLDPC_coding_shutdown(void)
 int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *nrLDPC_slot_decoding_parameters)
 {
   int nbSegments = 0;
-  for (int pusch_id = 0; pusch_id < nrLDPC_slot_decoding_parameters->nb_TBs; pusch_id++) {
-    nrLDPC_TB_decoding_parameters_t *nrLDPC_TB_decoding_parameters = &nrLDPC_slot_decoding_parameters->TBs[pusch_id];
-    nbSegments += nrLDPC_TB_decoding_parameters->C;
+  for (int pusch_id = 0; pusch_id < nrLDPC_slot_decoding_parameters->nb_TBs; pusch_id++)
+    nbSegments += nrLDPC_slot_decoding_parameters->TBs[pusch_id].C;
+  tpool_t *tpool = nrLDPC_slot_decoding_parameters->threadPool;
+
+  if (nrLDPC_slot_decoding_parameters->done) {
+    if (nbSegments == 0) {
+      nrLDPC_decoding_done(nrLDPC_slot_decoding_parameters);
+      return 0;
+    }
+    nrLDPC_async_decoding_t *async = malloc(sizeof(*async) + nbSegments * sizeof(*async->seg));
+    AssertFatal(async != NULL, "out of memory\n");
+    async->slot = nrLDPC_slot_decoding_parameters;
+    async->remaining = nbSegments;
+    nrLDPC_decoding_parameters_t *seg = async->seg;
+    for (int pusch_id = 0; pusch_id < nrLDPC_slot_decoding_parameters->nb_TBs; pusch_id++)
+      seg += nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters, pusch_id, seg, NULL, async);
+    // the last segment frees async: not read after the push
+    nrLDPC_decoding_parameters_t *first = async->seg;
+    for (int r = 0; r < nbSegments; r++)
+      pushTpool(tpool, (task_t){.func = &nr_process_decode_segment, .args = first + r});
+    return 0;
   }
+
   nrLDPC_decoding_parameters_t arr[nbSegments];
   task_ans_t ans;
   init_task_ans(&ans, nbSegments);
-  thread_info_tm_t t_info = {.buf = (uint8_t *)arr, .len = 0, .cap = nbSegments, .ans = &ans};
-
-  for (int pusch_id = 0; pusch_id < nrLDPC_slot_decoding_parameters->nb_TBs; pusch_id++) {
-    (void)nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters, pusch_id, &t_info);
-  }
+  nrLDPC_decoding_parameters_t *seg = arr;
+  for (int pusch_id = 0; pusch_id < nrLDPC_slot_decoding_parameters->nb_TBs; pusch_id++)
+    seg += nrLDPC_prepare_TB_decoding(nrLDPC_slot_decoding_parameters, pusch_id, seg, &ans, NULL);
+  for (int r = 0; r < nbSegments; r++)
+    pushTpool(tpool, (task_t){.func = &nr_process_decode_segment, .args = arr + r});
 
   // Execute thread pool tasks
-  join_task_ans(t_info.ans);
+  join_task_ans(&ans);
 
-  size_t r_t_info = 0;
-  for (int pusch_id = 0; pusch_id < nrLDPC_slot_decoding_parameters->nb_TBs; pusch_id++) {
-    nrLDPC_TB_decoding_parameters_t *nrLDPC_TB_decoding_parameters = &nrLDPC_slot_decoding_parameters->TBs[pusch_id];
-    *nrLDPC_TB_decoding_parameters->processedSegments = 0;
-    for (int r = 0; r < nrLDPC_TB_decoding_parameters->C; r++) {
-      if (nrLDPC_TB_decoding_parameters->decodeSuccess[r])
-        *nrLDPC_TB_decoding_parameters->processedSegments = *nrLDPC_TB_decoding_parameters->processedSegments + 1;
-
-      nrLDPC_decoding_parameters_t *rdata = &((nrLDPC_decoding_parameters_t *)t_info.buf)[r_t_info];
-      r_t_info += 1;
-      nrLDPC_TB_decoding_parameters->ts_ldpc_decode[r] = rdata->ts_ldpc_decode;
-    }
-  }
+  nrLDPC_merge_segments(nrLDPC_slot_decoding_parameters, arr);
   return 0;
 }

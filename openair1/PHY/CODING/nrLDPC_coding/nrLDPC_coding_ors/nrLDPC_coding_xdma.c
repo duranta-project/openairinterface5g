@@ -214,6 +214,8 @@ int32_t nrLDPC_coding_decoder(nrLDPC_slot_decoding_parameters_t *slot_params, in
   int nbDecode = 0;
   for (int ULSCH_id = 0; ULSCH_id < slot_params->nb_TBs; ULSCH_id++)
     nbDecode += decoder_xdma(&slot_params->TBs[ULSCH_id], frame_rx, slot_rx, slot_params->threadPool);
+  if (nbDecode == 0)
+    nrLDPC_decoding_done(slot_params);
   return nbDecode;
 }
 
