@@ -699,7 +699,7 @@ static void UE_dl_processing(nr_ue_dl_job_t *job)
   nr_phy_data_t *phy_data = &rxtxD->phy_data;
 
   if (UE->sl_mode == SL_MODE2_SUPPORTED)
-    pssch_processing(UE, proc, phy_data, job->scratch_idx);
+    pssch_processing(UE, proc, phy_data, job);
   else
     pdsch_processing(UE, proc, phy_data, job);
 
