@@ -264,6 +264,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
                         int slot_rx,
                         const UE_nr_rxtx_proc_t *proc,
                         nr_phy_data_t *phy_data,
+                        int16_t *llr,
                         bool dtx,
                         const sl_nr_psfch_pdu_t *rx_psfch) {
 
@@ -385,7 +386,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue,
   if (!previously_decoded && !dtx) {
     nbDecode = nr_slsch_decoding(ue,
                                  SLSCH_id,
-                                 ue->pssch_vars[proc->nr_slot_rx % ue->pssch_num_actors].ulsch_llrs,
+                                 llr,
                                  &pusch_pdu,
                                  frame_rx,
                                  slot_rx,
@@ -631,10 +632,9 @@ int nr_sl_psfch_feedback_abs_slot(const nr_phy_data_t *phy_data, const UE_nr_rxt
   return proc->nr_slot_rx + offset + proc->frame_rx * slots_per_frame;
   }
 
-/* Sidelink counterpart of pdsch_processing(): runs on a DL actor, so every
- * buffer it writes belongs either to this slot's phy_data or to the actor's
- * own PSSCH scratch. */
-void pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+/* Sidelink counterpart of pdsch_processing(): DL slots run in parallel, so it
+ * writes only this slot's phy_data and PSSCH scratch. */
+void pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data, int scratch_idx)
 {
   if (phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSSCH_SCI
       && phy_data->sl_rx_action != SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH
@@ -644,7 +644,7 @@ void pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
   const int frame_rx = proc->frame_rx;
   const int nr_slot_rx = proc->nr_slot_rx;
   NR_DL_FRAME_PARMS *fp = &ue->SL_UE_PHY_PARAMS.sl_frame_params;
-  const int pssch_id = nr_slot_rx % ue->pssch_num_actors;
+  const int pssch_id = scratch_idx;
   NR_gNB_PUSCH *pssch_vars = &ue->pssch_vars[pssch_id];
   const uint32_t rxdataF_sz = fp->samples_per_slot_wCP;
   __attribute__((aligned(32))) c16_t rxdataF[fp->nb_antennas_rx][rxdataF_sz];
@@ -793,6 +793,7 @@ void pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
                                             nr_slot_rx,
                                             proc,
                                             phy_data,
+                                            pssch_vars->ulsch_llrs,
                                             pssch_vars->DTX,
                                           decoded_combined_psfch ? &decoded_psfch : NULL);
     psfch_bundled_with_slsch = decoded_combined_psfch;

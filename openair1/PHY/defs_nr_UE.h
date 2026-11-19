@@ -23,6 +23,7 @@
 #include "fapi_nr_ue_interface.h"
 #include "common/utils/barrier/barrier.h"
 #include "common/utils/actor/actor.h"
+#include "SCHED_NR_UE/nr_ue_dl_slots.h"
 //#include "openair1/SCHED_NR_UE/defs.h"
 
 #define msg(aRGS...) LOG_D(PHY, ##aRGS)
@@ -284,6 +285,48 @@ typedef struct nr_ue_fd_ifdevice_s nr_ue_fd_ifdevice_t;
 struct NR_gNB_ULSCH_s;
 struct NR_gNB_PUSCH_s;
 
+/// DLSCH codeword decoding, completed in the task of its last segment
+typedef struct nr_ue_dlsch_decoding_s {
+  struct PHY_VARS_NR_UE_s *ue;
+  const UE_nr_rxtx_proc_t *proc;
+  NR_UE_DLSCH_t *dlsch;
+  fapi_nr_dl_config_dlsch_pdu_rel15_t *config;
+  nr_ue_dl_job_t *job;
+  /// called once decoded
+  void (*done)(struct nr_ue_dlsch_decoding_s *dec);
+  int cw_idx;
+  int G;
+  int nb_rb;
+  nrLDPC_TB_decoding_parameters_t TB;
+  nrLDPC_slot_decoding_parameters_t slot;
+  time_single_t ts_decoding;
+  /// decoded segments (LDPC_CUDA: per HARQ process, GPU mapped)
+  uint8_t *c;
+  /// decoded TB with CRC
+  uint8_t *b;
+} nr_ue_dlsch_decoding_t;
+
+/// Buffers of a DL slot in flight
+typedef struct pdsch_scratch_s {
+  // 1-symbol-wide: channel compensation writes into these and LLR+demapping consumes
+  // them within the same nr_rx_pdsch() call, so no per-symbol slot-wide storage is kept.
+  c16_t *rxdataF_comp; // [max_layers][pdsch_buf_size_max]
+  c16_t *dl_ch_mag; // [max_layers][pdsch_buf_size_max]
+  c16_t *dl_ch_magb; // [max_layers][pdsch_buf_size_max]
+  c16_t *dl_ch_magr; // [max_layers][pdsch_buf_size_max]
+  c16_t *rho_dl; // [max_layers*max_layers][pdsch_buf_size_max], only allocated when do_ml is set
+  int32_t *pdsch_dl_ch_estimates; // [nb_antennas_rx*NR_MAX_NB_LAYERS][pdsch_est_size]
+  int16_t *llr[2]; // [2 codewords][llr_buf_max]
+#ifdef LDPC_CUDA
+  // gpu mapped version (gpuHostGetDevicePointer), typically the same for Jetson/GH/GB
+  int16_t *llr_dev[2];
+#endif
+  nr_ue_dlsch_decoding_t dec[2];
+  uint32_t pdsch_buf_size_max;
+  uint32_t pdsch_est_size;
+  uint32_t llr_buf_max;
+} pdsch_scratch_t;
+
 /// Top-level PHY Data Structure for UE
 typedef struct PHY_VARS_NR_UE_s {
   /// \brief Module ID indicator for this instance
@@ -466,8 +509,8 @@ typedef struct PHY_VARS_NR_UE_s {
   int max_nb_slsch;
   // we use the gNB ULSCH context for SLSCH reception
   struct NR_gNB_ULSCH_s *slsch;
-  /// PSSCH demodulation scratch, one per DL actor as for the PDSCH
-  int pssch_num_actors;
+  /// PSSCH scratch, one per DL slot in flight
+  int pssch_num_scratch;
   struct NR_gNB_PUSCH_s *pssch_vars;
   /// PSSCH signal detection threshold
   int pssch_thres;
@@ -475,28 +518,11 @@ typedef struct PHY_VARS_NR_UE_s {
   NR_PUCCH0_LUT_t pucch0_lut;
   pthread_t main_thread;
   pthread_t stat_thread;
-  // Per-DL-actor pre-allocated PDSCH scratch buffers (one set per actor to avoid races)
-  struct pdsch_scratch_s {
-    // 1-symbol-wide: channel compensation writes into these and LLR+demapping consumes
-    // them within the same nr_rx_pdsch() call, so no per-symbol slot-wide storage is kept.
-    c16_t   *rxdataF_comp;          // [max_layers][pdsch_buf_size_max]
-    c16_t   *dl_ch_mag;             // [max_layers][pdsch_buf_size_max]
-    c16_t   *dl_ch_magb;            // [max_layers][pdsch_buf_size_max]
-    c16_t   *dl_ch_magr;            // [max_layers][pdsch_buf_size_max]
-    c16_t   *rho_dl;                // [max_layers*max_layers][pdsch_buf_size_max], only allocated when do_ml is set
-    int32_t *pdsch_dl_ch_estimates; // [nb_antennas_rx*NR_MAX_NB_LAYERS][pdsch_est_size]
-    int16_t *llr[2];               // [2 codewords][llr_buf_max]
-#ifdef LDPC_CUDA
-    // gpu mapped version (gpuHostGetDevicePointer), typically the same for Jetson/GH/GB
-    int16_t *llr_dev[2];
-#endif
-    uint32_t pdsch_buf_size_max;
-    uint32_t pdsch_est_size;
-    uint32_t llr_buf_max;
-  } *pdsch_scratch;
-  int pdsch_num_actors;
+  /// one PDSCH scratch per DL slot in flight
+  pdsch_scratch_t *pdsch_scratch;
+  int pdsch_num_scratch;
+  nr_ue_dl_slots_t dl_slots;
 } PHY_VARS_NR_UE;
-typedef struct pdsch_scratch_s pdsch_scratch_t;
 
 typedef struct UE_nr_rxtx_proc_s {
   openair0_timestamp_t timestamp_tx;
@@ -629,6 +655,8 @@ enum stream_status_e { STREAM_STATUS_UNSYNC, STREAM_STATUS_SYNCING, STREAM_STATU
  * proc to the function UE_thread_rxn_txnp4
  */
 typedef struct nr_rxtx_thread_data_s {
+  /// first: the message is the job
+  nr_ue_dl_job_t dl_job;
   UE_nr_rxtx_proc_t proc;
   PHY_VARS_NR_UE *UE;
   int writeBlockSize;

@@ -63,6 +63,9 @@ void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
                        int number_rbs,
                        int G);
 
+/// Starts decoding the codeword in dec; true: dec->done(dec) is called once decoded, possibly before returning
+bool nr_dlsch_decoding_start(nr_ue_dlsch_decoding_t *dec, int16_t *dlsch_llr);
+
 int nr_ulsch_pre_encoding(NR_UL_UE_HARQ_t *harq_process,
                           uint32_t tb_size_bytes,
                           uint8_t nrOfLayers,

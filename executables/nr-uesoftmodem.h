@@ -28,9 +28,10 @@ extern uint16_t ue_id_g;
 #define  CONFIG_HLP_CONT_FO_COMP           "Enable continuous frequency offset (FO) estimation and (pre-)compensation and specify main FO source (1 = local oscillator, 2 = Doppler shift, 3 = Don't consider residual DL FO in UL FO pre-compensation)\n"
 #define  CONFIG_HLP_AGC                    "Rx Gain control used for UE\n"
 #define  CONFIG_HLP_NUM_UL_ACTORS          "Number of UL actors to use. Set to 0 to disable UL actor framework and do processing inline\n"
-#define  CONFIG_HLP_NUM_DL_ACTORS          "Number of DL actors to use. Set to 0 to disable DL actor framework and do processing inline\n"
-#define CONFIG_HLP_ACTOR_AFFINITY                                                                                          \
-  "Comma-separated cores for DL then UL actors (and SYNC if one spare). Must have at least num-dl-actors + num-ul-actors " \
+#define CONFIG_HLP_NUM_DL_ACTORS \
+  "Number of DL slots processed in parallel in the thread pool. Set to 0 to process each DL slot inline\n"
+#define CONFIG_HLP_ACTOR_AFFINITY                                                                      \
+  "Comma-separated cores for the UL actors (and SYNC if one spare). Must have at least num-ul-actors " \
   "entries; omit for no affinity\n"
 #define  CONFIG_HLP_DISABLE_BLIND_SEARCH   "Disable blind search for UE searches by neighboring cells\n"
 #define  CONFIG_HLP_RX2TX                  "Defines ue capability in slots to produce an UL feedback from its relative DL meassage (DCI->ULSCH or PDSCH->PUCCH)"

@@ -489,10 +489,9 @@ static void process_slot_tx_job(void *arg)
   __atomic_fetch_add(&data->UE->tx_jobs_completed, 1, __ATOMIC_RELEASE);
 }
 
-static void flush_ue_actors(PHY_VARS_NR_UE *UE, Actor_t *dl_actors, Actor_t *ul_actors)
+static void flush_ue_jobs(PHY_VARS_NR_UE *UE, Actor_t *ul_actors)
 {
-  for (int i = 0; i < get_nrUE_params()->num_dl_actors; i++)
-    flush_actor(&dl_actors[i]);
+  nr_ue_dl_slots_wait_idle(&UE->dl_slots);
 
   // Main-thread admission has stopped. A TX predecessor can still enqueue its
   // successor behind an actor's flush sentinel, so drain the finite admitted
@@ -512,13 +511,13 @@ static uint64_t get_carrier_frequency(const int N_RB, const int mu, const uint32
   return carrier_freq;
 }
 
-static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE, Actor_t *dl_actors, Actor_t *ul_actors)
+static int handle_sync_req_from_mac(PHY_VARS_NR_UE *UE, Actor_t *ul_actors)
 {
   NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
   // Start synchronization with a target gNB
   if (UE->synch_request.received_synch_request == 1) {
     // Finish old-cell jobs before changing their radio configuration or HARQ state.
-    flush_ue_actors(UE, dl_actors, ul_actors);
+    flush_ue_jobs(UE, ul_actors);
 
     // if upper layers signal BW scan we do as instructed by command line parameter
     // if upper layers disable BW scan we set it to false
@@ -691,19 +690,39 @@ int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
   return sampleShift;
 }
 
-void UE_dl_processing(void *arg) {
-  TracyCZone(ctx, true);;
-  nr_rxtx_thread_data_t *rxtxD = (nr_rxtx_thread_data_t *) arg;
+static void UE_dl_processing(nr_ue_dl_job_t *job)
+{
+  TracyCZone(ctx, true);
+  nr_rxtx_thread_data_t *rxtxD = (nr_rxtx_thread_data_t *)job;
   UE_nr_rxtx_proc_t *proc = &rxtxD->proc;
   PHY_VARS_NR_UE    *UE   = rxtxD->UE;
   nr_phy_data_t *phy_data = &rxtxD->phy_data;
 
   if (UE->sl_mode == SL_MODE2_SUPPORTED)
-    pssch_processing(UE, proc, phy_data);
+    pssch_processing(UE, proc, phy_data, job->scratch_idx);
   else
-    pdsch_processing(UE, proc, phy_data);
+    pdsch_processing(UE, proc, phy_data, job);
 
   TracyCZoneEnd(ctx);
+}
+
+static void UE_dl_release(nr_ue_dl_job_t *job)
+{
+  free(job);
+}
+
+nr_rxtx_thread_data_t *nr_ue_new_dl_slot(void)
+{
+  _Static_assert(offsetof(nr_rxtx_thread_data_t, dl_job) == 0, "dl_job must be the first field");
+  nr_rxtx_thread_data_t *msg = malloc16(sizeof(*msg));
+  AssertFatal(msg != NULL, "out of memory\n");
+  msg->dl_job = (nr_ue_dl_job_t){.run = UE_dl_processing, .release = UE_dl_release};
+  return msg;
+}
+
+void nr_ue_submit_dl_slot(PHY_VARS_NR_UE *UE, nr_rxtx_thread_data_t *msg)
+{
+  nr_ue_dl_slots_submit(&UE->dl_slots, &msg->dl_job);
 }
 
 void dummyWrite(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, int writeBlockSize)
@@ -874,40 +893,30 @@ static int parse_actor_affinity(const char *params, int *cores, int max_cores)
   return n;
 }
 
-/* Assign one core from the shared pool to each DL actor, then each UL actor.
+/* Assign one core from the shared pool to each UL actor.
  * If a spare remains, pin SYNC too (sync_actor may be NULL: none). Leave everyone at
  * -1 when actor-affinity is unset. The actors live as long as the thread owning them. */
-void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_actors)
+void init_ue_actors(Actor_t *sync_actor, Actor_t *ul_actors)
 {
   const nrUE_params_t *p = get_nrUE_params();
-  const int need = p->num_dl_actors + p->num_ul_actors;
+  const int need = p->num_ul_actors;
   int cores[64];
   const int have = parse_actor_affinity(p->actor_affinity, cores, sizeof(cores) / sizeof(cores[0]));
-  AssertFatal(have == 0 || have >= need,
-              "actor-affinity has %d entries but needs at least num-dl-actors (%d) + num-ul-actors (%d) = %d\n",
-              have,
-              p->num_dl_actors,
-              p->num_ul_actors,
-              need);
+  AssertFatal(have == 0 || have >= need, "actor-affinity has %d entries but needs at least num-ul-actors (%d)\n", have, need);
 
   int idx = 0;
   const int sync_core = (have > need) ? cores[need] : -1;
   if (sync_actor)
     init_actor(sync_actor, "SYNC_", sync_core);
 
-  for (int i = 0; i < p->num_dl_actors; i++) {
-    const int core = (have > 0) ? cores[idx++] : -1;
-    init_actor(&dl_actors[i], "DL_", core);
-  }
   for (int i = 0; i < p->num_ul_actors; i++) {
     const int core = (have > 0) ? cores[idx++] : -1;
     init_actor(&ul_actors[i], "UL_", core);
   }
   if (have > 0)
     LOG_I(PHY,
-          "Pinned actors from actor-affinity=%s (DL %d, UL %d, SYNC %d)%s\n",
+          "Pinned actors from actor-affinity=%s (UL %d, SYNC %d)%s\n",
           p->actor_affinity,
-          p->num_dl_actors,
           p->num_ul_actors,
           sync_core,
           have > need + 1 ? " (extra cores unused)" : "");
@@ -936,14 +945,13 @@ void *UE_thread(void *arg)
   notifiedFIFO_t freeBlocks;
   initNotifiedFIFO_nothreadSafe(&freeBlocks);
 
-  const int num_dl_actors = get_nrUE_params()->num_dl_actors;
   const int num_ul_actors = get_nrUE_params()->num_ul_actors;
   Actor_t sync_actor;
   // zero-length VLAs are undefined (C11 6.7.6.2), hence the size-1 floor
-  Actor_t dl_actors[num_dl_actors > 0 ? num_dl_actors : 1];
   Actor_t ul_actors[num_ul_actors > 0 ? num_ul_actors : 1];
   __atomic_store_n(&UE->tx_jobs_completed, 0, __ATOMIC_RELAXED);
-  init_ue_actors(&sync_actor, dl_actors, ul_actors);
+  init_ue_actors(&sync_actor, ul_actors);
+  nr_ue_dl_slots_init(&UE->dl_slots, get_nrUE_params()->num_dl_actors, UE->pdsch_num_scratch, &get_nrUE_params()->Tpool);
 
   const double ntn_init_time_drift = get_nrUE_params()->ntn_init_time_drift;
   if (get_nrUE_params()->time_sync_I)
@@ -1066,7 +1074,7 @@ void *UE_thread(void *arg)
     if (!UE->is_synchronized)
       nr_ue_dequeue_rrc_to_mac_msgs(UE);
     /* check if MAC has sent sync request */
-    if (handle_sync_req_from_mac(UE, dl_actors, ul_actors) == 0)
+    if (handle_sync_req_from_mac(UE, ul_actors) == 0)
       continue;
 
     if (!UE->is_synchronized) {
@@ -1306,8 +1314,7 @@ void *UE_thread(void *arg)
       nr_ue_rrc_timer_trigger(UE->Mod_id, curMsg.proc.hfn_rx, curMsg.proc.frame_rx, curMsg.proc.gNB_id);
 
     // RX slot processing. We launch and forget.
-    notifiedFIFO_elt_t *newRx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), curMsg.proc.nr_slot_tx, NULL, UE_dl_processing);
-    nr_rxtx_thread_data_t *curMsgRx = (nr_rxtx_thread_data_t *)NotifiedFifoData(newRx);
+    nr_rxtx_thread_data_t *curMsgRx = nr_ue_new_dl_slot();
     /* not zeroing the whole message: 10 KB per slot and per UE are the search space configurations, that the scheduled
        response writes entirely, up to nb_search_space */
     curMsgRx->proc = curMsg.proc;
@@ -1323,11 +1330,7 @@ void *UE_thread(void *arg)
     int ret = UE_dl_preprocessing(UE, &curMsgRx->proc, tx_wait_for_dlsch, &curMsgRx->phy_data, &stats_printed, &sl_stats_printed);
     if (ret != INT_MAX)
       shiftForNextFrame = ret;
-    if (num_dl_actors > 0) {
-      pushNotifiedFIFO(&dl_actors[curMsg.proc.nr_slot_rx % num_dl_actors].fifo, newRx);
-    } else {
-      newRx->processingFunc(curMsgRx);
-    }
+    nr_ue_submit_dl_slot(UE, curMsgRx);
 
     // apply new NTN timing information
     apply_ntn_config(UE,
@@ -1367,10 +1370,10 @@ void *UE_thread(void *arg)
     tx_wait_for_dlsch[slot] = 0;
   }
   LOG_W(NR_PHY, "UE main thread is ending\n");
+  // DL decodings start TX slots on the UL actors
+  nr_ue_dl_slots_free(&UE->dl_slots);
   for (int i = 0; i < num_ul_actors; i++)
     shutdown_actor(&ul_actors[i]);
-  for (int i = 0; i < num_dl_actors; i++)
-    shutdown_actor(&dl_actors[i]);
   destroy_actor(&sync_actor);
   return NULL;
 }
