@@ -162,10 +162,7 @@ static void config_common_ue_sa(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommo
             cfg->carrier_config.uplink_frequency,
             cfg->carrier_config.dl_frequency);
     } else {
-      cfg->carrier_config.uplink_frequency = from_nrarfcn(*frequencyInfoUL->frequencyBandList->list.array[0]->freqBandIndicatorNR,
-                                                          frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing,
-                                                          *frequencyInfoUL->absoluteFrequencyPointA)
-                                             / 1000; // freq in kHz
+      cfg->carrier_config.uplink_frequency = from_nrarfcn(*frequencyInfoUL->absoluteFrequencyPointA) / 1000; // freq in kHz
       LOG_I(NR_MAC,
             "Initial cell selection: uplink_frequency=%u kHz (from absoluteFrequencyPointA=%ld, band=%ld, scs=%ld)\n",
             cfg->carrier_config.uplink_frequency,
@@ -572,10 +569,7 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
                                             frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth);
     cfg->carrier_config.dl_bandwidth = get_supported_bw_mhz(mac->frequency_range, bw_index);
 
-    cfg->carrier_config.dl_frequency = from_nrarfcn(mac->nr_band,
-                                                    *scc->ssbSubcarrierSpacing,
-                                                    frequencyInfoDL->absoluteFrequencyPointA)
-                                       / 1000; // freq in kHz
+    cfg->carrier_config.dl_frequency = from_nrarfcn(frequencyInfoDL->absoluteFrequencyPointA) / 1000; // freq in kHz
     LOG_I(NR_MAC,
           "[UE %d] Set dl_frequency=%u kHz (from absoluteFrequencyPointA=%ld, band=%d, scs=%ld)\n",
           mac->ue_id,
@@ -612,10 +606,7 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
       UL_pointA = &frequencyInfoDL->absoluteFrequencyPointA;
 
     if (UL_pointA)
-      cfg->carrier_config.uplink_frequency = from_nrarfcn(*frequencyInfoUL->frequencyBandList->list.array[0],
-                                                          *scc->ssbSubcarrierSpacing,
-                                                          *UL_pointA)
-                                             / 1000; // freq in kHz
+      cfg->carrier_config.uplink_frequency = from_nrarfcn(*UL_pointA) / 1000; // freq in kHz
 
     for (int i = 0; i < 5; i++) {
       if (i == frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing) {
