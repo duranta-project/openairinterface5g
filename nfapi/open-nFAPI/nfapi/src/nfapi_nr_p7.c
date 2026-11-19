@@ -444,6 +444,10 @@ static uint8_t unpack_nr_srs_reported_symbol(nfapi_nr_srs_reported_symbol_t *prg
   if(!pull16(ppReadPackedMsg, &prgs->num_prgs, end)) {
     return 0;
   }
+  if (prgs->num_prgs > sizeof(prgs->prg_list) / sizeof(prgs->prg_list[0])) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "SRS beamforming report: num_prgs %d too large\n", prgs->num_prgs);
+    return 0;
+  }
 
   for(int i = 0; i < prgs->num_prgs; i++) {
     if (!pull8(ppReadPackedMsg, &prgs->prg_list[i].rb_snr, end)) {
@@ -466,6 +470,14 @@ int unpack_nr_srs_beamforming_report(void *pMessageBuf, uint32_t messageBufLen, 
         && pull8(&pReadPackedMessage, &nr_srs_beamforming_report->num_symbols, end)
         && pull8(&pReadPackedMessage, &nr_srs_beamforming_report->wide_band_snr, end)
         && pull8(&pReadPackedMessage, &nr_srs_beamforming_report->num_reported_symbols, end))) {
+    return -1;
+  }
+  const size_t max_symbols =
+      sizeof(nr_srs_beamforming_report->reported_symbol_list) / sizeof(nr_srs_beamforming_report->reported_symbol_list[0]);
+  if (nr_srs_beamforming_report->num_reported_symbols > max_symbols) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                "SRS beamforming report: num_reported_symbols %d too large\n",
+                nr_srs_beamforming_report->num_reported_symbols);
     return -1;
   }
 

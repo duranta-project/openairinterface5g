@@ -1623,10 +1623,16 @@ void handle_nr_srs_measurements(const module_id_t module_id,
   switch (srs_ind->srs_usage) {
     case NR_SRS_ResourceSet__usage_beamManagement: {
       nfapi_nr_srs_beamforming_report_t nr_srs_bf_report;
-      unpack_nr_srs_beamforming_report(report_tlv->value,
-                                       report_tlv->length,
-                                       &nr_srs_bf_report,
-                                       sizeof(nfapi_nr_srs_beamforming_report_t));
+      if (unpack_nr_srs_beamforming_report(report_tlv->value,
+                                           report_tlv->length,
+                                           &nr_srs_bf_report,
+                                           sizeof(nfapi_nr_srs_beamforming_report_t))
+              != 0
+          || nr_srs_bf_report.prg_size == 0) {
+        LOG_W(NR_MAC, "Invalid SRS beamforming report for RNTI %04x\n", srs_ind->rnti);
+        NR_SCHED_UNLOCK(&nrmac->sched_lock);
+        return;
+      }
 
       if (nr_srs_bf_report.wide_band_snr == 0xFF) {
         LOG_W(NR_MAC, "Invalid wide_band_snr for RNTI %04x\n", srs_ind->rnti);
@@ -1656,7 +1662,8 @@ void handle_nr_srs_measurements(const module_id_t module_id,
       const int ul_prbblack_SNR_threshold = cell->radio_config.ul_prbblack_SNR_threshold;
       uint16_t *ulprbbl = cell->ulprbbl;
 
-      uint16_t num_rbs = nr_srs_bf_report.prg_size * nr_srs_bf_report.reported_symbol_list[0].num_prgs;
+      // ulprbbl holds MAX_BWP_SIZE entries, the PRGs of the report may span more
+      const int num_rbs = min(nr_srs_bf_report.prg_size * nr_srs_bf_report.reported_symbol_list[0].num_prgs, MAX_BWP_SIZE);
       memset(ulprbbl, 0, num_rbs * sizeof(uint16_t));
       for (int rb = 0; rb < num_rbs; rb++) {
         int snr = (nr_srs_bf_report.reported_symbol_list[0].prg_list[rb / nr_srs_bf_report.prg_size].rb_snr >> 1) - 64;
