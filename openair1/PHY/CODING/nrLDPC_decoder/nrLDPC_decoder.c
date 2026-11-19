@@ -145,7 +145,7 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
     NR_LDPC_PROFILER_DETAIL(start_meas(&p_profiler->cnProc));
 #if NR_LDPC_ROT
     if (rot)
-      nrLDPC_cnProc_rot(&edges, p_llr, edges.llrOff, bnProcBuf, Z);
+      nrLDPC_cnProc_rot(&edges, p_llr, edges.llrOff, p_llr, bnProcBuf, Z);
     else
 #endif
     if (BG==1) {
@@ -225,7 +225,7 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
 #endif
 #if NR_LDPC_ROT
         if (rot)
-          nrLDPC_cnProc_rot(&edges, bnProcBufRes, edges.bnOff, bnProcBuf, Z);
+          nrLDPC_cnProc_rot(&edges, bnProcBufRes, edges.bnOff, p_llr, bnProcBuf, Z);
         else
 #endif
         if (BG==1) {
@@ -291,7 +291,7 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
           NR_LDPC_PROFILER_DETAIL(start_meas(&p_profiler->cnProcPc));
 #if NR_LDPC_ROT
           if (rot)
-            pcRes = nrLDPC_cnProcPc_rot(&edges, bnProcBufRes, bnProcBuf, Z);
+            pcRes = nrLDPC_cnProcPc_rot(&edges, p_llr, bnProcBufRes, bnProcBuf, Z);
           else
 #endif
           if (BG == 1)
