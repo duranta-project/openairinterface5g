@@ -382,11 +382,12 @@ bool nr_inner_rx(uint32_t length,
                  c16_t *mag_a[nb_layer],
                  c16_t *mag_b[nb_layer],
                  c16_t *mag_c[nb_layer],
+                 c16_t *rho00,
                  c16_t *rho01,
                  c16_t *rho10,
+                 c16_t *rho11,
                  int output_shift,
                  bool fuse,
-                 bool ml2,
                  int lbest,
                  float lambda,
                  int16_t *layer_scratch[nb_layer],
@@ -415,7 +416,7 @@ bool nr_inner_rx(uint32_t length,
     return true;
   }
 
-  if (nb_layer == 2 && ml2) {
+  if (nb_layer == 2) {
     if (fuse) {
 #if defined(NR_LBEST_F16)
       if (mod_order >= 6 && length >= (uint32_t)nr_lbest_f16_lanes() && nr_lbest_f16_enabled()) { // MRC, Gram, detector in FP16
@@ -424,15 +425,32 @@ bool nr_inner_rx(uint32_t length,
         return true;
       }
 #endif
+      AssertFatal(lbest != NR_LBEST_L1, "2-layer L = 1 is fused only in FP16 (see nr_inner_rx_2layer_fused)\n");
       nr_inner_rx_2layer_ml(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, mod_order, lbest, lambda, output_shift,
                             cw ? NULL : layer_scratch[0], cw ? NULL : layer_scratch[1], llr_cw, cw ? scramble : NULL);
       return true;
     }
-    nr_compute_ML_llr(rxComp[0], rxComp[1], mag_a[0], mag_a[1], layer_scratch[0], layer_scratch[1], rho01, rho10, length, mod_order, lbest, lambda);
+    if (lbest == NR_LBEST_L1)
+      nr_compute_lbest1_llr(rxComp[0], rxComp[1], rho00, rho01, rho10, rho11, layer_scratch[0], layer_scratch[1], length, mod_order, lambda);
+    else
+      nr_compute_ML_llr(rxComp[0], rxComp[1], mag_a[0], mag_a[1], layer_scratch[0], layer_scratch[1], rho01, rho10, length, mod_order, lbest, lambda);
     if (cw)
       nr_demap_descramble(2, mod_order, length, layer_scratch, scramble, llr_cw);
     return true;
   }
 
   return false;
+}
+
+bool nr_inner_rx_2layer_fused(bool fuse_env, int mod_order, uint32_t length, int lbest)
+{
+  const bool f16 = mod_order >= 6 && nr_lbest_f16_enabled();
+  if (lbest == NR_LBEST_L1) {
+#if defined(NR_LBEST_F16)
+    return f16 && length >= (uint32_t)nr_lbest_f16_lanes();
+#else
+    return false;
+#endif
+  }
+  return fuse_env || f16;
 }

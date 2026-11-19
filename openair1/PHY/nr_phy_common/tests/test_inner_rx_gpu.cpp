@@ -46,11 +46,12 @@ bool nr_inner_rx(uint32_t length,
                  c16_t **mag_a,
                  c16_t **mag_b,
                  c16_t **mag_c,
+                 c16_t *rho00,
                  c16_t *rho01,
                  c16_t *rho10,
+                 c16_t *rho11,
                  int output_shift,
                  bool fuse,
-                 bool ml2,
                  int lbest,
                  float lambda,
                  int16_t **layer_scratch,
@@ -367,7 +368,7 @@ TEST(test_inner_rx_gpu, close_to_production_inner_rx)
       int16_t *scratch[2] = {l0.data(), l1.data()};
       // lbest 2 = fp32 3x3 for 256QAM as on the GPU; 64QAM L-best is fp32 at lbest 1
       const int lbest = det == NR_GPU_DET_ML ? 0 : (qm == 8 ? 2 : 1);
-      ASSERT_TRUE(nr_inner_rx(s.length, s.stride, nb_rx, 2, qm, s.rxF.data(), s.chF.data(), c16_t{32767, 0}, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, shift, true, true, lbest, 20.0f, scratch, s.scr.data(), cw.data()));
+      ASSERT_TRUE(nr_inner_rx(s.length, s.stride, nb_rx, 2, qm, s.rxF.data(), s.chF.data(), c16_t{32767, 0}, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, shift, true, lbest, 20.0f, scratch, s.scr.data(), cw.data()));
       for (size_t k = 0; k < got.size(); k++) {
         ndiff += got[k] != cw[k];
         nsign += (got[k] > 0 && cw[k] < 0) || (got[k] < 0 && cw[k] > 0);
@@ -412,7 +413,7 @@ TEST(test_inner_rx_gpu, single_layer_bit_exact)
             int16_t *ls[1] = {scratch.data()};
             if (!fuse)
               nr_channel_compensation(bl, bl, nb_rx, 1, s.rxF.data(), s.chF.data(), maga.data(), magb.data(), magc.data(), rxComp, nullptr, cpe[k], qm, 0, shift);
-            ASSERT_TRUE(nr_inner_rx(s.length, bl, nb_rx, 1, qm, s.rxF.data(), s.chF.data(), cpe[k], rxComp, ma, mb, mc, nullptr, nullptr, shift, fuse, false, 0, 0.0f, ls, s.scr.data(), cw.data()));
+            ASSERT_TRUE(nr_inner_rx(s.length, bl, nb_rx, 1, qm, s.rxF.data(), s.chF.data(), cpe[k], rxComp, ma, mb, mc, nullptr, nullptr, nullptr, nullptr, shift, fuse, 0, 0.0f, ls, s.scr.data(), cw.data()));
             uint32_t bad = 0;
             for (uint32_t i = 0; i < s.length; i++)
               bad += memcmp(&got[(size_t)i * qm], &cw[(size_t)i * qm], qm * sizeof(int16_t)) != 0;

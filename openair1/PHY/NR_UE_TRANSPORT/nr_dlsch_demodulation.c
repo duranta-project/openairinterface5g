@@ -739,12 +739,13 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   const uint32_t rx_size_symbol = ceil_mod(freq_alloc->num_rbs * NR_NB_SC_PER_RB, 16);
   __attribute__((aligned(64))) c16_t dl_ch_estimates_ext[matrixSz][rx_size_symbol];
 
-  // ml: joint ML LLR for 2-layer QPSK/16QAM/64QAM. lbest additionally covers 2-layer 256QAM
-  // (otherwise MMSE + single-layer LLR). MMSE (default) for everything else, including 3-4 layers.
-  const nr_pdsch_mimo_rx_t mimo_rx = nr_pdsch_mimo_rx_resolve(ue->pdsch_mimo_rx, dlsch->cw_info.qamModOrder, nbRx);
-  const bool do_ml = mimo_rx != NR_PDSCH_RX_MMSE;
-  const bool lbest_gate = mimo_rx == NR_PDSCH_RX_LBEST;
-  const bool ml256 = lbest_gate;
+  // 2-layer detector of the L-best family (--pdsch-mimo-receiver; mmse = L = 1). The UE has no full ML grid for
+  // 256QAM: ml takes L = 1 there. 3 and 4 layers: linear MMSE (nr_dlsch_mmse) whatever the receiver.
+  const nr_mimo_rx_t mimo_rx = nr_mimo_rx_resolve(ue->pdsch_mimo_rx, dlsch->cw_info.qamModOrder, nbRx);
+  int lbest = nr_mimo_rx_lbest(mimo_rx, ue->pdsch_mimo_hires);
+  if (lbest == NR_LBEST_ML && dlsch->cw_info.qamModOrder == 8)
+    lbest = NR_LBEST_L1;
+  const bool window = lbest == NR_LBEST_WINDOW || lbest == NR_LBEST_WINDOW_HIRES;
 
   // Reinterpret flat dl_ch_estimates_ext as [nl][nbRx][rx_size_symbol]
   c16_t(*chFext)[nbRx][rx_size_symbol] = (void *)dl_ch_estimates_ext;
@@ -895,10 +896,10 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     // linear MMSE (nr_dlsch_mmse) normalizes in its matrix inverse and keeps the plain level.
     if (nl == 1)
       *log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(nbRx >> 1);
-    else if (!do_ml && nl > 2)
+    else if (mimo_rx == NR_MIMO_RX_MMSE && nl > 2)
       *log2_maxh = (log2_approx(avgs) >> 1) + log2_approx(nbRx >> 1);
     else
-      *log2_maxh = nr_2layer_log2_maxh(avgs) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder, lbest_gate) + log2_approx(nbRx >> 1);
+      *log2_maxh = nr_2layer_log2_maxh(avgs) + nr_ml_llr_maxh_off(dlsch->cw_info.qamModOrder, window) + log2_approx(nbRx >> 1);
     LOG_D(PHY, "[DLSCH] AbsSubframe %d.%d log2_maxh = %d (%d)\n", frame % 1024, nr_slot_rx, *log2_maxh, avgs);
 #if T_TRACER
     T(T_UE_PHY_PDSCH_ENERGY,
@@ -936,12 +937,10 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     fuse_env = e ? atoi(e) : 0;
   }
   const bool fuse_1layer = fuse_env && (nl == 1) && !scope_req->copy_rxdataF_comp_to_scope;
-  // Fused 2-layer near-ML (nr_inner_rx_2layer_ml): the joint ML-LLR path below, QPSK/16QAM/64QAM
-  // or 256QAM under the L-best (ml256) gate. The 256QAM-MMSE and do_ml-off paths are not fused.
-  const uint8_t qam_fuse = dlsch->cw_info.qamModOrder;
-  // CPUs running the 2-layer detector in FP16 fuse 64/256QAM by default (nr_inner_rx_2layer_f16: no int16 compensation)
-  const bool fuse_2layer_ml = (fuse_env || (nr_lbest_f16_enabled() && qam_fuse >= 6)) && (nl == 2) && do_ml
-                              && (qam_fuse <= 6 || (qam_fuse == 8 && ml256)) && !scope_req->copy_rxdataF_comp_to_scope;
+  // Fused 2-layer detector (MRC + Gram + detector, nr_inner_rx_2layer_fused): in FP16 for 64/256QAM on CPUs running
+  // the detector in FP16 (no int16 compensation), int16 with OAI_FUSE (not L = 1)
+  const bool fuse_2layer_ml = (nl == 2) && nr_inner_rx_2layer_fused(fuse_env, dlsch->cw_info.qamModOrder, nb_re_pdsch, lbest)
+                              && !scope_req->copy_rxdataF_comp_to_scope;
 
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_COMPENSATION_STATS);
   if (!fuse_1layer && !fuse_2layer_ml)
@@ -1003,8 +1002,7 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                   nvar,
                   rho_dl);
   }
-  // 2-layer MMSE (mmse receiver, or 256QAM with the ml receiver) is fused per RE with its LLR
-  // below (nr_compute_MMSE_llr), so rxdataF_comp stays the MRC output here for nl == 2.
+  // 2 layers: rxdataF_comp stays the MRC output; the detector (L = 1 included) works on it in nr_inner_rx below.
   stop_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
 
   if (meas_enabled) {
@@ -1023,12 +1021,10 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
   const int llr_per_symbol = nb_re_pdsch * qamModOrder;
 
   start_meas_nr_ue_phy(ue, DLSCH_LLR_LAYER_DEMAP_STATS);
-  // Single layer, or 2-layer near-ML (QPSK/16QAM/64QAM, and 256QAM with the lbest receiver): the
-  // detector set shared with the gNB. nr_inner_rx writes this symbol's layer-demapped, descrambled
-  // codeword straight into llr (fused kernels under OAI_FUSE, else LLR on the compensated stream).
-  // rho_dl is [nl*nl][rx_size_symbol]: index 1 = rho[0][1], index nl (=2) = rho[1][0].
-  const bool ml2 = (nl == 2) && do_ml && (qamModOrder <= 6 || (qamModOrder == 8 && ml256));
-  if (nl == 1 || ml2) {
+  // Single layer, or the 2-layer L-best family: the detector set shared with the gNB. nr_inner_rx writes this
+  // symbol's layer-demapped, descrambled codeword straight into llr (fused kernels, else LLR on the compensated
+  // stream). rho_dl is [nl*nl][rx_size_symbol]: index 0 / 1 / nl / nl + 1 = rho[0][0] / [0][1] / [1][0] / [1][1].
+  if (nl <= 2) {
     // padded to 16 REs: the SIMD ML LLR kernels write whole groups of REs
     __attribute__((aligned(32))) int16_t sym_llr[nl][ceil_mod(nb_re_pdsch, 16) * qamModOrder];
     int16_t *p_symllr[nl];
@@ -1052,39 +1048,18 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                 mag_a,
                 mag_b,
                 mag_c,
-                ml2 ? rho_dl[1] : NULL,
-                ml2 ? rho_dl[nl] : NULL,
+                nl == 2 ? rho_dl[0] : NULL,
+                nl == 2 ? rho_dl[1] : NULL,
+                nl == 2 ? rho_dl[nl] : NULL,
+                nl == 2 ? rho_dl[nl + 1] : NULL,
                 *log2_maxh,
                 fuse_1layer || fuse_2layer_ml,
-                ml2,
-                lbest_gate ? (ue->pdsch_mimo_hires ? 2 : 1) : 0,
-                ml2 ? nr_2layer_seed_lambda(nvar, *log2_maxh) : 0,
+                lbest,
+                nl == 2 ? nr_2layer_seed_lambda(nvar, *log2_maxh) : 0,
                 p_symllr,
                 scramble,
                 llr);
     stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-  } else if (nl == 2) {
-    // 2-layer linear MMSE, every case the ML branch above did not take (mmse receiver, or 256QAM
-    // with the ml receiver): the L = 1 member of the L-best family, as in the gNB inner_rx.
-    __attribute__((aligned(32))) int16_t sym_llr[2][llr_per_symbol];
-    int16_t *p_symllr[2] = {sym_llr[0], sym_llr[1]};
-    start_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    nr_compute_MMSE_llr(p_rxComp[0],
-                        p_rxComp[1],
-                        rho_dl[0],
-                        rho_dl[1],
-                        rho_dl[nl],
-                        rho_dl[nl + 1],
-                        sym_llr[0],
-                        sym_llr[1],
-                        nb_re_pdsch,
-                        qamModOrder,
-                        nr_2layer_seed_lambda(nvar, *log2_maxh));
-    stop_meas_nr_ue_phy(ue, DLSCH_LLR_STATS);
-    start_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
-    nr_layer_demapping(2, qamModOrder, nb_re_pdsch, p_symllr, llr);
-    nr_dlsch_descramble_symbol(llr, scramble, 2 * llr_per_symbol);
-    stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
   } else {
     /* Multi-layer: LLR into per-layer temp buffers, then demapped into output. */
     __attribute__((aligned(32))) int16_t sym_llr[nl][llr_per_symbol];

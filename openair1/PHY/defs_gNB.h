@@ -21,39 +21,7 @@
 #include "nfapi_nr_interface_scf.h"
 #include "common/utils/threadPool/task_ans.h"
 
-/// 2-layer PUSCH detector. AUTO is 0 so an unconfigured gNB gets the default.
-typedef enum {
-  NR_PUSCH_RX_AUTO = 0, ///< per PUSCH: ML for QPSK/16QAM, MMSE for 64/256QAM with >= 4 Rx, L-best otherwise
-  NR_PUSCH_RX_LBEST, ///< reduced-search near-ML (QPSK/16QAM: exact ML, same kernel)
-  NR_PUSCH_RX_MMSE, ///< linear MMSE (L-best at L = 1): cheapest for 64/256QAM
-  NR_PUSCH_RX_ML, ///< exact max-log ML (64/256QAM full search): most expensive
-} nr_pusch_mimo_rx_t;
-
-/// Receiver used for one PUSCH: AUTO resolves on its modulation order and the number of Rx streams. With 4 Rx the
-/// MMSE matches L-best and ML for 64/256QAM up to MCS 24 (within ~0.4 dB, TDL-A) at a third of the cost; with 2 Rx
-/// the near-ML receivers gain 1-4 dB; for QPSK/16QAM exact ML costs no more than the MMSE and gains up to 1 dB.
-static inline nr_pusch_mimo_rx_t nr_pusch_mimo_rx_resolve(nr_pusch_mimo_rx_t rx, int qm, int nb_rx)
-{
-  if (rx != NR_PUSCH_RX_AUTO)
-    return rx;
-  if (qm <= 4)
-    return NR_PUSCH_RX_ML;
-  return nb_rx >= 4 ? NR_PUSCH_RX_MMSE : NR_PUSCH_RX_LBEST;
-}
-
-/// Parses "auto" | "lbest" | "mmse" | "ml"; returns -1 if unknown.
-static inline int nr_pusch_mimo_rx_from_str(const char *s)
-{
-  if (!strcmp(s, "auto"))
-    return NR_PUSCH_RX_AUTO;
-  if (!strcmp(s, "lbest"))
-    return NR_PUSCH_RX_LBEST;
-  if (!strcmp(s, "mmse"))
-    return NR_PUSCH_RX_MMSE;
-  if (!strcmp(s, "ml"))
-    return NR_PUSCH_RX_ML;
-  return -1;
-}
+#include "PHY/nr_phy_common/inc/nr_mimo_rx.h"
 #include "openair1/PHY/defs_RU.h"
 #include "common/utils/ds/spsc_q.h"
 
@@ -460,7 +428,7 @@ typedef struct PHY_VARS_gNB_s {
   int pucch0_thres;
   int pusch_thres;
   /// 2-layer PUSCH receiver (L1 "pusch_mimo_receiver", nr_ulsim -D)
-  nr_pusch_mimo_rx_t pusch_mimo_rx;
+  nr_mimo_rx_t pusch_mimo_rx;
   /// 256QAM L-best with the fp32 metric (L1 "pusch_mimo_hires", nr_ulsim -J)
   bool pusch_mimo_hires;
   int prach_thres;

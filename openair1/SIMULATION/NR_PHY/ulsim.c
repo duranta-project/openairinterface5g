@@ -177,7 +177,7 @@ int main(int argc, char *argv[])
   int params_from_file = 0;
   int threadCnt=0;
   int max_ldpc_iterations = 5;
-  int pusch_mimo_rx = NR_PUSCH_RX_AUTO;
+  int pusch_mimo_rx = NR_MIMO_RX_AUTO;
   bool pusch_mimo_hires = false;
   double rx_gain_dB = 0; // -K: gain on signal+noise at the gNB input (same SNR, different level)
   int num_antennas_per_thread = 1;
@@ -497,7 +497,7 @@ int main(int argc, char *argv[])
       break;
 
     case 'D':
-      pusch_mimo_rx = nr_pusch_mimo_rx_from_str(optarg);
+      pusch_mimo_rx = nr_mimo_rx_from_str(optarg);
       AssertFatal(pusch_mimo_rx >= 0, "-D %s: must be auto, lbest, mmse or ml\n", optarg);
       break;
 

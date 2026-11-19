@@ -264,14 +264,40 @@ static inline __attribute__((always_inline)) hm nrh_layer_window(const nrh_seed_
   return wide;
 }
 
+// L = 1 (linear MMSE): the seed alone, per-axis piecewise-linear Gray-PAM LLRs 4 g v_b with v_0 = est,
+// v_b = 2^(nb - b) - |v_(b-1)|, g = 0.5 Peff / K, Peff = det / P1s -- the LLRs of nr_llr_2layer_mmse_simd
+static inline __attribute__((always_inline)) void nrh_layer_l1(const nrh_seed_t *s, int nb, const hsc *inv, hi res[8])
+{
+  const hv FLOOR = hv_set1(1.0f / 256.0f);
+  const hv g4 = hv_mul(hv_set1(2.0f / (nb == 4 ? 170.0f : 42.0f)), hv_div(s->det, hv_max(s->P1s, FLOOR)));
+  hv vI = s->estI, vQ = s->estQ;
+  NRH_UNROLL
+  for (int b = 0; b < nb; b++) {
+    if (b > 0) {
+      const hv t = hv_set1((float)(1 << (nb - b)));
+      vI = hv_sub(t, hv_abs(vI));
+      vQ = hv_sub(t, hv_abs(vQ));
+    }
+    res[2 * b] = nrh_llr16(hv_mul(g4, vI), inv);
+    res[2 * b + 1] = nrh_llr16(hv_mul(g4, vQ), inv);
+  }
+}
+
+// detector of nrh_layer
+#define NRH_WINDOW 0 // 3x3 window with the adaptive full grid (L-best)
+#define NRH_FULL 1 // full grid (max-log ML)
+#define NRH_L1 2 // seed alone (L = 1, linear MMSE)
+
 // one layer of a vector of REs (arguments of nrh_seed): int16 LLRs (per-layer order) in the compensation units
 static inline __attribute__((always_inline)) void
-nrh_layer(hv ztr, hv zti, hv zor, hv zoi, hv Pt, hv Po, hv rr, hv ri, hv lam, int full, int nb, const hsc *inv, hi res[8])
+nrh_layer(hv ztr, hv zti, hv zor, hv zoi, hv Pt, hv Po, hv rr, hv ri, hv lam, int mode, int nb, const hsc *inv, hi res[8])
 {
   nrh_seed_t s;
   nrh_seed(ztr, zti, zor, zoi, Pt, Po, rr, ri, lam, nb, &s);
-  if (full)
+  if (mode == NRH_FULL)
     nrh_layer_full(&s, nb, inv, res);
+  else if (mode == NRH_L1)
+    nrh_layer_l1(&s, nb, inv, res);
   else
     nrh_layer_window(&s, nb, inv, 0, res);
 }

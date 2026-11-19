@@ -44,7 +44,7 @@
 #define L1_PUSCH_MIMO_RX                     "pusch_mimo_receiver"
 #define L1_PUSCH_MIMO_HIRES                  "pusch_mimo_hires"
 #define HLP_L1_PUSCH_MIMO_HIRES "256QAM 2-layer L-best with the fp32 metric: ~0.2-0.6 dB better at 70% throughput (MCS 20-26), ~1.4 dB at MCS 27, for ~16% more detector cost (always on with the _gpu inner-RX offload and on ARM CPUs with FP16 vector arithmetic)"
-#define HLP_L1_PUSCH_MIMO_RX "2-layer PUSCH receiver: auto (default: ml for QPSK/16QAM, mmse for 64/256QAM with >= 4 Rx, lbest otherwise), lbest (near-ML), mmse (cheapest), ml (exact max-log ML, most expensive)"
+#define HLP_L1_PUSCH_MIMO_RX "2-layer PUSCH receiver: auto (default: ml for QPSK/16QAM, mmse for 64/256QAM with >= 4 Rx, lbest otherwise), lbest (near-ML), mmse (L-best at L = 1: linear MMSE, cheapest), ml (exact max-log ML, most expensive)"
 
 /*----------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            L1 configuration parameters                                                                             */

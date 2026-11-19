@@ -34,7 +34,7 @@ extern uint16_t ue_id_g;
   "entries; omit for no affinity\n"
 #define  CONFIG_HLP_DISABLE_BLIND_SEARCH   "Disable blind search for UE searches by neighboring cells\n"
 #define  CONFIG_HLP_PDSCH_MIMO_HIRES      "256QAM 2-layer L-best with the fp32 metric: ~0.2-0.6 dB better at 70% throughput (MCS 20-26), ~1.4 dB at MCS 27, for ~16% more detector cost\n"
-#define  CONFIG_HLP_PDSCH_MIMO_RX         "multi-layer PDSCH receiver: auto (default: ml for QPSK/16QAM, mmse for 64/256QAM with >= 4 Rx, lbest otherwise), mmse, ml (2-layer QPSK..64QAM), lbest (2-layer up to 256QAM)\n"
+#define  CONFIG_HLP_PDSCH_MIMO_RX         "multi-layer PDSCH receiver: auto (default: ml for QPSK/16QAM, mmse for 64/256QAM with >= 4 Rx, lbest otherwise), lbest (2-layer L-best), mmse (2-layer L-best at L = 1; 3/4 layers whatever the receiver), ml (2-layer full ML up to 64QAM, L = 1 for 256QAM)\n"
 #define  CONFIG_HLP_RX2TX                  "Defines ue capability in slots to produce an UL feedback from its relative DL meassage (DCI->ULSCH or PDSCH->PUCCH)"
 
 /***************************************************************************************************************************************/

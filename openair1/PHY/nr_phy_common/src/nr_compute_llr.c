@@ -4164,22 +4164,30 @@ static void nr_llr_2layer_mmse(const c16_t *z0,
 #endif
 }
 
-// 2-layer linear MMSE receiver: the L = 1 member of the L-best detector family (same unbiased MMSE estimate as
-// the L-best seed, piecewise-linear per-axis LLRs at the max-log scale), for all modulation orders.
-void nr_compute_MMSE_llr(c16_t *comp0,
-                         c16_t *comp1,
-                         c16_t *rho00,
-                         c16_t *rho01,
-                         c16_t *rho10,
-                         c16_t *rho11,
-                         int16_t *llr_layer0,
-                         int16_t *llr_layer1,
-                         uint32_t nb_re,
-                         uint8_t mod_order,
-                         float lambda)
+// 2-layer L-best at L = 1 (linear MMSE): the L-best seed (unbiased MMSE estimate) alone, piecewise-linear per-axis
+// LLRs at the max-log scale, for all modulation orders
+void nr_compute_lbest1_llr(c16_t *comp0,
+                           c16_t *comp1,
+                           c16_t *rho00,
+                           c16_t *rho01,
+                           c16_t *rho10,
+                           c16_t *rho11,
+                           int16_t *llr_layer0,
+                           int16_t *llr_layer1,
+                           uint32_t nb_re,
+                           uint8_t mod_order,
+                           float lambda)
 {
-  nr_llr_2layer_mmse(comp0, comp1, rho00, rho11, rho01, llr_layer0, nb_re, mod_order, lambda);
-  nr_llr_2layer_mmse(comp1, comp0, rho11, rho00, rho10, llr_layer1, nb_re, mod_order, lambda);
+#if defined(NR_LBEST_F16)
+  if (mod_order >= 6 && nr_lbest_f16()) { // as the other L-best detectors on these CPUs
+    nr_llr_2layer_lbest1_f16(comp0, comp1, rho00, rho11, llr_layer0, rho01, nb_re, mod_order, lambda);
+    nr_llr_2layer_lbest1_f16(comp1, comp0, rho11, rho00, llr_layer1, rho10, nb_re, mod_order, lambda);
+  } else
+#endif
+  {
+    nr_llr_2layer_mmse(comp0, comp1, rho00, rho11, rho01, llr_layer0, nb_re, mod_order, lambda);
+    nr_llr_2layer_mmse(comp1, comp0, rho11, rho00, rho10, llr_layer1, nb_re, mod_order, lambda);
+  }
   // the output scaling of nr_compute_ML_llr (its QPSK and 64QAM kernels), so that both receivers share the
   // nr_ml_llr_maxh_off table
   const int shift = mod_order == 2 ? 4 : (mod_order == 6 ? 1 : 0);

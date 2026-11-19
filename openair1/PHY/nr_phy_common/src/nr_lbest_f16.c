@@ -201,10 +201,10 @@ int nr_lbest_f16_lanes(void)
 // ---------------------------------------------------------------------------------------------------------------------
 // detector on the int16 compensation outputs (target layer)
 // ---------------------------------------------------------------------------------------------------------------------
-static inline __attribute__((always_inline)) void nrh_lbest_block(const c16_t *s0, const c16_t *s1, const c16_t *cm0, const c16_t *cm1, const c16_t *rho, int16_t *out, int full, float lambda, int nb)
+// cm0 / cm1: the QAM_n1 magnitudes ||h||^2 (M / 2) / K^(1/2), or with mode NRH_L1 the Gram diagonal ||h||^2 itself
+static inline __attribute__((always_inline)) void nrh_lbest_block(const c16_t *s0, const c16_t *s1, const c16_t *cm0, const c16_t *cm1, const c16_t *rho, int16_t *out, int mode, float lambda, int nb)
 {
-  // cm = ||h||^2 K^(1/2) / (M / 2) (the QAM_n1 magnitudes)
-  const hv PSC = hv_set1((nb == 3 ? 6.48074069840786f : 13.038404810405298f) / (float)(1 << (nb - 1)));
+  const hv PSC = hv_set1(mode == NRH_L1 ? 1.0f : (nb == 3 ? 6.48074069840786f : 13.038404810405298f) / (float)(1 << (nb - 1)));
   hi z1r, z1i, z2r, z2i, rr, ri, c0, c1, dummy;
   hi_load_c16(s0, &z1r, &z1i);
   hi_load_c16(s1, &z2r, &z2i);
@@ -218,27 +218,29 @@ static inline __attribute__((always_inline)) void nrh_lbest_block(const c16_t *s
   const hs up = hs_pow2(k);
   hi res[8];
   nrh_layer(hv_mul(hv_cvt(z1r), T), hv_mul(hv_cvt(z1i), T), hv_mul(hv_cvt(z2r), T), hv_mul(hv_cvt(z2i), T), hv_mul(P0, T), hv_mul(P1, T),
-            hv_mul(hv_cvt(rr), T), hv_mul(hv_cvt(ri), T), hv_lam(lambda, &up), full, nb, &inv, res);
+            hv_mul(hv_cvt(rr), T), hv_mul(hv_cvt(ri), T), hv_lam(lambda, &up), mode, nb, &inv, res);
   nrh_store(out, res, 2 * nb);
 }
 
-// one specialization per modulation and candidate set (constant loop bounds in the grid)
-#define NRH_LBEST_SPEC(NB, FULL)                                                                                           \
-  static void nrh_lbest_##NB##_##FULL(c16_t *s0, c16_t *s1, c16_t *cm0, c16_t *cm1, int16_t *out, c16_t *rho, uint32_t length, float lambda) \
+// one specialization per modulation and detector (constant loop bounds in the grid)
+#define NRH_LBEST_SPEC(NB, MODE)                                                                                           \
+  static void nrh_lbest_##NB##_##MODE(c16_t *s0, c16_t *s1, c16_t *cm0, c16_t *cm1, int16_t *out, c16_t *rho, uint32_t length, float lambda) \
   {                                                                                                                         \
     for (uint32_t re = 0; re < length; re += NRH_N) {                                                                       \
       if (re + NRH_N > length)                                                                                              \
         re = length - NRH_N; /* overlaps the previous vector */                                                             \
-      nrh_lbest_block(&s0[re], &s1[re], &cm0[re], &cm1[re], &rho[re], &out[re * 2 * NB], FULL, lambda, NB);                 \
+      nrh_lbest_block(&s0[re], &s1[re], &cm0[re], &cm1[re], &rho[re], &out[re * 2 * NB], MODE, lambda, NB);                 \
     }                                                                                                                       \
   }
 NRH_LBEST_SPEC(3, 0)
 NRH_LBEST_SPEC(3, 1)
+NRH_LBEST_SPEC(3, 2)
 NRH_LBEST_SPEC(4, 0)
 NRH_LBEST_SPEC(4, 1)
+NRH_LBEST_SPEC(4, 2)
 #undef NRH_LBEST_SPEC
 
-static void nrh_lbest(c16_t *s0, c16_t *s1, c16_t *cm0, c16_t *cm1, int16_t *out, c16_t *rho, uint32_t length, int pattern, float lambda, int nb)
+static void nrh_lbest(c16_t *s0, c16_t *s1, c16_t *cm0, c16_t *cm1, int16_t *out, c16_t *rho, uint32_t length, int mode, float lambda, int nb)
 {
   if (length < NRH_N) { // a zero-padded vector: the REs are independent, a call gives the same LLRs whatever its length
     c16_t in[5][NRH_N] __attribute__((aligned(64))) = {0};
@@ -248,25 +250,29 @@ static void nrh_lbest(c16_t *s0, c16_t *s1, c16_t *cm0, c16_t *cm1, int16_t *out
     memcpy(in[2], cm0, length * sizeof(c16_t));
     memcpy(in[3], cm1, length * sizeof(c16_t));
     memcpy(in[4], rho, length * sizeof(c16_t));
-    nrh_lbest(in[0], in[1], in[2], in[3], o, in[4], NRH_N, pattern, lambda, nb);
+    nrh_lbest(in[0], in[1], in[2], in[3], o, in[4], NRH_N, mode, lambda, nb);
     memcpy(out, o, length * 2 * nb * sizeof(int16_t));
     return;
   }
-  const int full = pattern == 3;
-  if (nb == 3)
-    (full ? nrh_lbest_3_1 : nrh_lbest_3_0)(s0, s1, cm0, cm1, out, rho, length, lambda);
-  else
-    (full ? nrh_lbest_4_1 : nrh_lbest_4_0)(s0, s1, cm0, cm1, out, rho, length, lambda);
+  static void (*const f[2][3])(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, float) = {
+      {nrh_lbest_3_0, nrh_lbest_3_1, nrh_lbest_3_2},
+      {nrh_lbest_4_0, nrh_lbest_4_1, nrh_lbest_4_2}};
+  f[nb - 3][mode](s0, s1, cm0, cm1, out, rho, length, lambda);
 }
 
 void nr_qam256_llr_2layer_lbest_f16(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag, c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01, uint32_t length, int pattern, float lambda)
 {
-  nrh_lbest(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda, 4);
+  nrh_lbest(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern == 3 ? NRH_FULL : NRH_WINDOW, lambda, 4);
 }
 
 void nr_qam64_llr_2layer_lbest_f16(c16_t *stream0_in, c16_t *stream1_in, c16_t *ch_mag, c16_t *ch_mag_i, int16_t *stream0_out, c16_t *rho01, uint32_t length, int pattern, float lambda)
 {
-  nrh_lbest(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern, lambda, 3);
+  nrh_lbest(stream0_in, stream1_in, ch_mag, ch_mag_i, stream0_out, rho01, length, pattern == 3 ? NRH_FULL : NRH_WINDOW, lambda, 3);
+}
+
+void nr_llr_2layer_lbest1_f16(c16_t *z0, c16_t *z1, c16_t *g00, c16_t *g11, int16_t *out, c16_t *rho01, uint32_t length, int mod_order, float lambda)
+{
+  nrh_lbest(z0, z1, g00, g11, out, rho01, length, NRH_L1, lambda, mod_order / 2);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -445,7 +451,7 @@ static inline __attribute__((always_inline)) void nrh_fused(uint32_t length,
                             const c16_t *chFext,
                             c16_t cpe,
                             int nb,
-                            int full,
+                            int mode,
                             float lambda,
                             int output_shift,
                             int16_t *llr0,
@@ -470,8 +476,8 @@ static inline __attribute__((always_inline)) void nrh_fused(uint32_t length,
     const hv z0r = hv_mul(f.z0r, T), z0i = hv_mul(f.z0i, T), z1r = hv_mul(f.z1r, T), z1i = hv_mul(f.z1i, T);
     const hv P0 = hv_mul(f.P0, T), P1 = hv_mul(f.P1, T), rr = hv_mul(f.rr, T), ri = hv_mul(f.ri, T);
     hi res[2][8];
-    nrh_layer(z0r, z0i, z1r, z1i, P0, P1, rr, ri, lam, full, nb, &inv, res[0]);
-    nrh_layer(z1r, z1i, z0r, z0i, P1, P0, rr, hv_neg(ri), lam, full, nb, &inv, res[1]);
+    nrh_layer(z0r, z0i, z1r, z1i, P0, P1, rr, ri, lam, mode, nb, &inv, res[0]);
+    nrh_layer(z1r, z1i, z0r, z0i, P1, P0, rr, hv_neg(ri), lam, mode, nb, &inv, res[1]);
     if (nb == 3) // 64QAM: the one-bit cooling of nr_compute_ML_llr
       for (int t = 0; t < 2; t++)
         for (int p = 0; p < Qm; p++)
@@ -497,16 +503,18 @@ static inline __attribute__((always_inline)) void nrh_fused(uint32_t length,
   }
 }
 
-#define NRH_FUSED_SPEC(NB, FULL)                                                                                            \
-  static void nrh_fused_##NB##_##FULL(uint32_t length, uint32_t bl, int nb_rx, const c16_t *rx, const c16_t *ch, c16_t cpe, float lambda, \
+#define NRH_FUSED_SPEC(NB, MODE)                                                                                            \
+  static void nrh_fused_##NB##_##MODE(uint32_t length, uint32_t bl, int nb_rx, const c16_t *rx, const c16_t *ch, c16_t cpe, float lambda, \
                                       int shift, int16_t *l0, int16_t *l1, int16_t *cw, const int16_t *scr)                  \
   {                                                                                                                         \
-    nrh_fused(length, bl, nb_rx, rx, ch, cpe, NB, FULL, lambda, shift, l0, l1, cw, scr);                                    \
+    nrh_fused(length, bl, nb_rx, rx, ch, cpe, NB, MODE, lambda, shift, l0, l1, cw, scr);                                    \
   }
 NRH_FUSED_SPEC(3, 0)
 NRH_FUSED_SPEC(3, 1)
+NRH_FUSED_SPEC(3, 2)
 NRH_FUSED_SPEC(4, 0)
 NRH_FUSED_SPEC(4, 1)
+NRH_FUSED_SPEC(4, 2)
 #undef NRH_FUSED_SPEC
 
 void nr_inner_rx_2layer_f16(uint32_t length,
@@ -524,11 +532,11 @@ void nr_inner_rx_2layer_f16(uint32_t length,
                             int16_t *llr_cw,
                             const int16_t *scramble)
 {
-  const int full = lbest == 0;
-  if (mod_order == 6)
-    (full ? nrh_fused_3_1 : nrh_fused_3_0)(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, lambda, output_shift, llr0, llr1, llr_cw, scramble);
-  else
-    (full ? nrh_fused_4_1 : nrh_fused_4_0)(length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, lambda, output_shift, llr0, llr1, llr_cw, scramble);
+  static void (*const f[2][3])(uint32_t, uint32_t, int, const c16_t *, const c16_t *, c16_t, float, int, int16_t *, int16_t *, int16_t *, const int16_t *) = {
+      {nrh_fused_3_0, nrh_fused_3_1, nrh_fused_3_2},
+      {nrh_fused_4_0, nrh_fused_4_1, nrh_fused_4_2}};
+  const int mode = lbest == NR_LBEST_L1 ? NRH_L1 : lbest == NR_LBEST_ML ? NRH_FULL : NRH_WINDOW;
+  f[mod_order == 6 ? 0 : 1][mode](length, buffer_length, nb_rx_ant, rxFext, chFext, cpe, lambda, output_shift, llr0, llr1, llr_cw, scramble);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -15,13 +15,13 @@ extern "C" {
 void nr_qam64_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_qam256_llr_2layer_lbest(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, c16_t *, uint32_t, int, float);
 void nr_compute_ML_llr(c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, c16_t *, c16_t *, uint32_t, uint8_t, int, float);
-void nr_compute_MMSE_llr(c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, uint32_t, uint8_t, float);
+void nr_compute_lbest1_llr(c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, c16_t *, int16_t *, int16_t *, uint32_t, uint8_t, float);
 }
 #include "openair1/PHY/TOOLS/phy_test_tools.hpp"
 #include <random>
 
 // Per-slot (12 data symbols) cost of the 2-layer PUSCH LLR stage, from the matched-filter output
-// on: ML / L-best = nr_compute_ML_llr (full search / reduced search), MMSE = nr_compute_MMSE_llr
+// on: ML / L-best = nr_compute_ML_llr (full search / reduced search), MMSE = nr_compute_lbest1_llr (L-best at L = 1)
 // (Gram-fed 2x2 equalization + scalar LLR). All consume the same rxdataF_comp/ch_mag/rho that channel
 // compensation produces. usage: bench_rx2l ml|lbest|lbesthr|mmse [Qm]
 int main(int argc, char **argv)
@@ -57,7 +57,7 @@ int main(int argc, char **argv)
         c16_t *comp[2] = {w0.data(), w1.data()};
         auto a = std::chrono::steady_clock::now();
         if (mmse)
-          nr_compute_MMSE_llr(comp[0], comp[1], r00.data(), r01.data(), r10.data(), r11.data(), llr[0], llr[1], nb_re, qm, 100);
+          nr_compute_lbest1_llr(comp[0], comp[1], r00.data(), r01.data(), r10.data(), r11.data(), llr[0], llr[1], nb_re, qm, 100);
         else
           nr_compute_ML_llr(w0.data(),
                             w1.data(),

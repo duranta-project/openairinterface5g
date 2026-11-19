@@ -270,14 +270,14 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
     fuse_env = e ? atoi(e) : 0;
   }
   const bool fuse_1layer = fuse_env && (nb_layer == 1) && (rel15_ul->transform_precoding != transformPrecoder_enabled);
-  // 2-layer near-ML (pusch_mimo_receiver = lbest | ml) fuses MRC + rho + joint ML-LLR the same way;
-  // the 2-layer MMSE receiver is not fused.
-  const nr_pusch_mimo_rx_t mimo_rx = nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul->qam_mod_order, nb_rx_ant);
-  // CPUs running the 2-layer detector in FP16 fuse 64/256QAM by default (nr_inner_rx_2layer_f16: no int16 compensation)
-  const bool fuse_2layer_ml = (fuse_env || (nr_lbest_f16_enabled() && rel15_ul->qam_mod_order >= 6)) && (nb_layer == 2)
-                              && (mimo_rx != NR_PUSCH_RX_MMSE);
+  // the 2-layer detector of the L-best family (pusch_mimo_receiver; mmse = L = 1)
+  const int lbest = nr_mimo_rx_lbest(nr_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul->qam_mod_order, nb_rx_ant), gNB->pusch_mimo_hires);
+  const uint32_t valid_re = pusch_vars->ul_valid_re_per_slot[symbol];
+  // fuses MRC + Gram + detector the same way: in FP16 for 64/256QAM on CPUs running the detector in FP16 (no int16
+  // compensation), int16 with OAI_FUSE (not L = 1)
+  const bool fuse_2layer = (nb_layer == 2) && nr_inner_rx_2layer_fused(fuse_env, rel15_ul->qam_mod_order, valid_re, lbest);
 
-  if (!fuse_1layer && !fuse_2layer_ml) {
+  if (!fuse_1layer && !fuse_2layer) {
     memset(rho, 0, sizeof(rho));
     for (int i = 0; i < nb_layer; i++)
       memset(&pusch_vars->rxdataF_comp[i][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
@@ -311,12 +311,10 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
     nr_idft((int32_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length], pusch_vars->ul_valid_re_per_slot[symbol]);
   }
   /* PTRS processing and start_meas(ulsch_llr) now happen earlier, per upstream's ptrs refactor */
-  const uint32_t valid_re = pusch_vars->ul_valid_re_per_slot[symbol];
   const int mod = rel15_ul->qam_mod_order;
-  const bool ml2 = (nb_layer == 2) && (mimo_rx != NR_PUSCH_RX_MMSE);
-  if (nb_layer == 1 || ml2) {
-    // Single layer, or 2-layer near-ML (pusch_mimo_receiver = lbest | ml): the detector set shared
-    // with the UE. With llr_cw it writes the layer-demapped, descrambled codeword directly.
+  if (nb_layer <= 2) {
+    // Single layer, or the 2-layer L-best family: the detector set shared with the UE. With llr_cw it writes the
+    // layer-demapped, descrambled codeword directly.
     c16_t *rxComp[nb_layer], *mag_a[nb_layer], *mag_b[nb_layer], *mag_c[nb_layer];
     for (int l = 0; l < nb_layer; l++) {
       rxComp[l] = &pusch_vars->rxdataF_comp[l][symbol * buffer_length];
@@ -336,42 +334,28 @@ static bool inner_rx(PHY_VARS_gNB *gNB,
                 mag_a,
                 mag_b,
                 mag_c,
-                ml2 ? rho[0][1] : NULL,
-                ml2 ? rho[1][0] : NULL,
+                nb_layer == 2 ? rho[0][0] : NULL,
+                nb_layer == 2 ? rho[0][1] : NULL,
+                nb_layer == 2 ? rho[1][0] : NULL,
+                nb_layer == 2 ? rho[1][1] : NULL,
                 output_shift,
-                fuse_1layer || fuse_2layer_ml,
-                ml2,
-                mimo_rx == NR_PUSCH_RX_LBEST ? (gNB->pusch_mimo_hires ? 2 : 1) : 0,
-                ml2 ? nr_2layer_seed_lambda(nvar, output_shift) : 0,
+                fuse_1layer || fuse_2layer,
+                lbest,
+                nb_layer == 2 ? nr_2layer_seed_lambda(nvar, output_shift) : 0,
                 llr,
                 scramble,
                 llr_cw);
     return llr_cw != NULL;
   }
-  if (nb_layer == 2) {
-    // 2-layer linear MMSE: the L = 1 member of the L-best family
-    nr_compute_MMSE_llr(&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
-                        &pusch_vars->rxdataF_comp[1][symbol * buffer_length],
-                        rho[0][0],
-                        rho[0][1],
-                        rho[1][0],
-                        rho[1][1],
-                        llr[0],
-                        llr[1],
-                        valid_re,
-                        mod,
-                        nr_2layer_seed_lambda(nvar, output_shift));
-  } else {
-    for (int aatx = 0; aatx < nb_layer; aatx++) // >2 layers: per-layer LLR on the MRC'd stream
-      nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
-                     rxF_ch_maga[aatx],
-                     rxF_ch_magb[aatx],
-                     rxF_ch_magc[aatx],
-                     llr[aatx],
-                     valid_re,
-                     symbol,
-                     mod);
-  }
+  for (int aatx = 0; aatx < nb_layer; aatx++) // >2 layers: per-layer LLR on the MRC'd stream
+    nr_compute_llr(&pusch_vars->rxdataF_comp[aatx][symbol * buffer_length],
+                   rxF_ch_maga[aatx],
+                   rxF_ch_magb[aatx],
+                   rxF_ch_magc[aatx],
+                   llr[aatx],
+                   valid_re,
+                   symbol,
+                   mod);
   return false;
 }
 
@@ -869,9 +853,9 @@ static rate_match_info_uci_t get_uci_on_pusch_info(const nfapi_nr_pusch_pdu_t *p
   return uci_info;
 }
 
-static int irx_detector(nr_pusch_mimo_rx_t rx)
+static int irx_detector(nr_mimo_rx_t rx)
 {
-  return rx == NR_PUSCH_RX_MMSE ? NR_IRX_DET_MMSE : rx == NR_PUSCH_RX_ML ? NR_IRX_DET_ML : NR_IRX_DET_LBEST;
+  return rx == NR_MIMO_RX_MMSE ? NR_IRX_DET_MMSE : rx == NR_MIMO_RX_ML ? NR_IRX_DET_ML : NR_IRX_DET_LBEST;
 }
 
 // Allocation REs (channel-estimate indices) that nr_ulsch_extract_rbs keeps on a symbol, in its order; returns their
@@ -1048,7 +1032,7 @@ static int pusch_irx_offload(PHY_VARS_gNB *gNB,
   const nr_irx_params_t p = {.nb_layers = nl,
                              .nb_rx = nb_rx,
                              .mod_order = qm,
-                             .detector = irx_detector(nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, qm, nb_rx)),
+                             .detector = irx_detector(nr_mimo_rx_resolve(gNB->pusch_mimo_rx, qm, nb_rx)),
                              .output_shift = output_shift,
                              .lambda = nr_2layer_seed_lambda(nvar, output_shift)};
   return irx->run(ctx, sym, n, &p);
@@ -1396,8 +1380,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     // over-drives its LLRs (2x2 AWGN, MCS 22). Same table as the UE.
     joint_pv->log2_maxh = nr_2layer_log2_maxh(avgs)
                           + nr_ml_llr_maxh_off(rel15_ul_ref->qam_mod_order,
-                                               nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul_ref->qam_mod_order, num_sp_streams)
-                                                   == NR_PUSCH_RX_LBEST)
+                                               nr_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul_ref->qam_mod_order, num_sp_streams)
+                                                   == NR_MIMO_RX_LBEST)
                           + log2_approx(num_sp_streams >> 1);
   else
     joint_pv->log2_maxh = (log2_approx(avgs) >> 1) + 1 + log2_approx(num_sp_streams >> 1);
@@ -1427,7 +1411,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
       && gNB->irx.supported(irx_nl,
                             nb_rx_ref,
                             rel15_ul_ref->qam_mod_order,
-                            irx_detector(nr_pusch_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul_ref->qam_mod_order, nb_rx_ref)))
+                            irx_detector(nr_mimo_rx_resolve(gNB->pusch_mimo_rx, rel15_ul_ref->qam_mod_order, nb_rx_ref)))
       && (irx_ctx = gNB->irx.acquire())) {
     for (int s = rel15_ul_ref->start_symbol_index; s < end_symbol; s++)
       irx_off[s] = joint_pv->ul_valid_re_per_slot[s] && !map_uci[0].d_ack[s] && !map_uci[0].d_csi1[s] && !map_uci[0].d_csi2[s];
