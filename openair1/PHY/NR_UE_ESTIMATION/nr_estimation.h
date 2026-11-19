@@ -102,6 +102,8 @@ typedef struct {
   c16_t rxdata_ant[];
 } nr_meas_task_args_t;
 
+uint32_t get_ssb_arfcn(const NR_DL_FRAME_PARMS *frame_parms);
+bool is_neighboring_cell_due(const PHY_VARS_NR_UE *ue, int cell_idx, const UE_nr_rxtx_proc_t *proc);
 void nr_ue_meas_neighboring_cell(void *arg);
 void nr_ue_search_new_neighboring_cell(void *arg);
 
