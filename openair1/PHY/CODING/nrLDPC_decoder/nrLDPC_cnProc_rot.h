@@ -188,11 +188,12 @@ static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
     __riscv_vse8_v_i8##LM##_m(__riscv_vmsgeu_vx_u8##LM##_b##MB(vid, n1, vl), v - n1, x, vl);                                      \
   }                                                                                                                               \
                                                                                                                                   \
-  /* Two-pass min-sum over all CNs: edge n read at src[srcOff[n]] rotated, its CN-to-BN message written at                        \
+  /* Two-pass min-sum over all CNs: edge n read at src[srcOff[n]] rotated (llr[llrOff[n]] if chan[n]), its CN-to-BN message at  \
      bnProcBuf[bnOff[n]] rotated the same way */                                                                                  \
   static inline void nrLDPC_cnProc_rot_##LM(const nrLDPC_cnEdges_t *e,                                                            \
                                             const int8_t *src,                                                                    \
                                             const uint32_t *srcOff,                                                               \
+                                            const int8_t *llr,                                                                    \
                                             int8_t *bnProcBuf,                                                                    \
                                             uint16_t Z)                                                                           \
   {                                                                                                                               \
@@ -208,7 +209,8 @@ static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
         vint8##LM##_t sgn = __riscv_vmv_v_x_i8##LM(0, vl);                                                                        \
         for (int k = n0; k < n1; k++) {                                                                                           \
           const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;                                                           \
-          const vint8##LM##_t x = nrLDPC_rvv_load_rot_##LM(src + srcOff[k], p, Z, vid, vl);                                       \
+          const int8_t *s = e->chan[k] ? llr + e->llrOff[k] : src + srcOff[k];                                                    \
+          const vint8##LM##_t x = nrLDPC_rvv_load_rot_##LM(s, p, Z, vid, vl);                                                     \
           const vuint8##LM##_t a =                                                                                                \
               __riscv_vreinterpret_v_i8##LM##_u8##LM(__riscv_vmax_vv_i8##LM(x, __riscv_vneg_v_i8##LM(x, vl), vl));                \
           sgn = __riscv_vxor_vv_i8##LM(sgn, x, vl);                                                                               \
@@ -217,7 +219,8 @@ static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
         }                                                                                                                         \
         for (int k = n0; k < n1; k++) {                                                                                           \
           const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;                                                           \
-          const vint8##LM##_t x = nrLDPC_rvv_load_rot_##LM(src + srcOff[k], p, Z, vid, vl);                                       \
+          const int8_t *s = e->chan[k] ? llr + e->llrOff[k] : src + srcOff[k];                                                    \
+          const vint8##LM##_t x = nrLDPC_rvv_load_rot_##LM(s, p, Z, vid, vl);                                                     \
           const vuint8##LM##_t a =                                                                                                \
               __riscv_vreinterpret_v_i8##LM##_u8##LM(__riscv_vmax_vv_i8##LM(x, __riscv_vneg_v_i8##LM(x, vl), vl));                \
           const vint8##LM##_t mag = __riscv_vreinterpret_v_u8##LM##_i8##LM(                                                       \
@@ -230,9 +233,10 @@ static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
     }                                                                                                                             \
   }                                                                                                                               \
                                                                                                                                   \
-  /* Parity check on the rotated BN-to-CN (bnProcBufRes) plus CN-to-BN (bnProcBuf) messages, as nrLDPC_cnProcPc_BG*               \
+  /* Parity check on the rotated BN-to-CN (bnProcBufRes, llr if chan) plus CN-to-BN (bnProcBuf) messages, as nrLDPC_cnProcPc_BG*\
      on cnProcBuf + cnProcBufRes: 1 at the first unsatisfied check */                                                             \
   static inline uint32_t nrLDPC_cnProcPc_rot_##LM(const nrLDPC_cnEdges_t *e,                                                      \
+                                                  const int8_t *llr,                                                              \
                                                   const int8_t *bnProcBufRes,                                                     \
                                                   const int8_t *bnProcBuf,                                                        \
                                                   uint16_t Z)                                                                     \
@@ -246,7 +250,8 @@ static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
         vint8##LM##_t par = __riscv_vmv_v_x_i8##LM(0, vl);                                                                        \
         for (int k = n0; k < n0 + e->deg[c]; k++) {                                                                               \
           const uint32_t p = t + sh[k] < Z ? t + sh[k] : t + sh[k] - Z;                                                           \
-          const vint8##LM##_t in = nrLDPC_rvv_load_rot_##LM(bnProcBufRes + bnOff[k], p, Z, vid, vl);                              \
+          const int8_t *s = e->chan[k] ? llr + e->llrOff[k] : bnProcBufRes + bnOff[k];                                            \
+          const vint8##LM##_t in = nrLDPC_rvv_load_rot_##LM(s, p, Z, vid, vl);                                                    \
           const vint8##LM##_t res = nrLDPC_rvv_load_rot_##LM(bnProcBuf + bnOff[k], p, Z, vid, vl);                                \
           par = __riscv_vxor_vv_i8##LM(par, __riscv_vsadd_vv_i8##LM(in, res, vl), vl);                                            \
         }                                                                                                                         \
@@ -277,29 +282,31 @@ static inline int nrLDPC_rot_lmul(void)
 static inline void nrLDPC_cnProc_rot(const nrLDPC_cnEdges_t *e,
                                      const int8_t *src,
                                      const uint32_t *srcOff,
+                                     const int8_t *llr,
                                      int8_t *bnProcBuf,
                                      uint16_t Z)
 {
   const int lmul = nrLDPC_rot_lmul();
   if (lmul == 1)
-    nrLDPC_cnProc_rot_m1(e, src, srcOff, bnProcBuf, Z);
+    nrLDPC_cnProc_rot_m1(e, src, srcOff, llr, bnProcBuf, Z);
   else if (lmul == 2)
-    nrLDPC_cnProc_rot_m2(e, src, srcOff, bnProcBuf, Z);
+    nrLDPC_cnProc_rot_m2(e, src, srcOff, llr, bnProcBuf, Z);
   else
-    nrLDPC_cnProc_rot_m4(e, src, srcOff, bnProcBuf, Z);
+    nrLDPC_cnProc_rot_m4(e, src, srcOff, llr, bnProcBuf, Z);
 }
 
 static inline uint32_t nrLDPC_cnProcPc_rot(const nrLDPC_cnEdges_t *e,
+                                           const int8_t *llr,
                                            const int8_t *bnProcBufRes,
                                            const int8_t *bnProcBuf,
                                            uint16_t Z)
 {
   const int lmul = nrLDPC_rot_lmul();
   if (lmul == 1)
-    return nrLDPC_cnProcPc_rot_m1(e, bnProcBufRes, bnProcBuf, Z);
+    return nrLDPC_cnProcPc_rot_m1(e, llr, bnProcBufRes, bnProcBuf, Z);
   if (lmul == 2)
-    return nrLDPC_cnProcPc_rot_m2(e, bnProcBufRes, bnProcBuf, Z);
-  return nrLDPC_cnProcPc_rot_m4(e, bnProcBufRes, bnProcBuf, Z);
+    return nrLDPC_cnProcPc_rot_m2(e, llr, bnProcBufRes, bnProcBuf, Z);
+  return nrLDPC_cnProcPc_rot_m4(e, llr, bnProcBufRes, bnProcBuf, Z);
 }
 #define NR_LDPC_ROT 1
 #else
