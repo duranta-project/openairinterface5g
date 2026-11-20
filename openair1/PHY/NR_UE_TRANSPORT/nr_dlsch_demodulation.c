@@ -1111,9 +1111,8 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
 #endif
 
   if (ue->phy_sim_pdsch_rxdataF_comp) {
-    for (int a = 0; a < nbRx; a++) {
-      memcpy((c16_t *)ue->phy_sim_pdsch_dl_ch_estimates + pdsch_est_size * a, dl_ch_estimates, pdsch_est_size * sizeof(c16_t));
-    }
+    /* all [layer * nbRx + rx][symbol * ofdm_symbol_size] estimate rows, same layout as dl_ch_estimates */
+    memcpy(ue->phy_sim_pdsch_dl_ch_estimates, dl_ch_estimates, (size_t)nl * nbRx * pdsch_est_size * sizeof(c16_t));
     for (int l = 0; l < nl; l++) {
       /* Reproduce the [symbol][layer][re] layout that dlsim expects in phy_sim_pdsch_rxdataF_comp. */
       size_t byte_offset = (size_t)(symbol * max_layers + l) * pdsch_buf_size_max * sizeof(c16_t);

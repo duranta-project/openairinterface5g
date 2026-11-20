@@ -1000,7 +1000,10 @@ int main(int argc, char **argv)
   UE->phy_sim_pdsch_llr = calloc_or_fail(1, (8 * (3 * 8 * 8448)) * sizeof(int16_t)); // Max length
   UE->phy_sim_pdsch_rxdataF_ext = calloc_or_fail(sizeof(int32_t *) * UE->frame_parms.nb_antennas_rx * g_nrOfLayers, rx_size);
   UE->phy_sim_pdsch_rxdataF_comp = calloc_or_fail(sizeof(int32_t *) * UE->frame_parms.nb_antennas_rx * g_nrOfLayers, rx_size);
-  UE->phy_sim_pdsch_dl_ch_estimates = calloc_or_fail(sizeof(int32_t *) * UE->frame_parms.nb_antennas_rx * g_nrOfLayers, rx_size);
+  // [layer * nb_antennas_rx + rx][symbol * ofdm_symbol_size], as the UE pdsch_dl_ch_estimates scratch buffer
+  UE->phy_sim_pdsch_dl_ch_estimates = calloc_or_fail(
+      (size_t)UE->frame_parms.nb_antennas_rx * g_nrOfLayers * UE->frame_parms.symbols_per_slot * UE->frame_parms.ofdm_symbol_size,
+      sizeof(c16_t));
   UE->phy_sim_pdsch_dl_ch_estimates_ext =
       calloc_or_fail(sizeof(int32_t *) * UE->frame_parms.nb_antennas_rx * g_nrOfLayers, rx_size);
   int a_segments = MAX_NUM_NR_DLSCH_SEGMENTS; // number of segments to be allocated
@@ -1495,14 +1498,28 @@ int main(int argc, char **argv)
                   dec,
                   op_format);
             snprintf(fName, sizeof(fName), "rxF_comp_l%d_s%d.m", l, i);
-            LOG_M(fName, "rxFc", ((c16_t *)UE->phy_sim_pdsch_rxdataF_comp) + (l * NR_SYMBOLS_PER_SLOT * numReSym) + (i * numReSym), numValidReSym, dec, op_format);
+            /* nr_rx_pdsch() stores rxdataF_comp as [symbol][max_layers][pdsch_buf_size_max] */
+            const uint32_t compStride = (frame_parms->N_RB_DL * NR_NB_SC_PER_RB + 15) & ~15;
+            const int compMaxLayers = min(UE->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS);
+            LOG_M(fName,
+                  "rxFc",
+                  ((c16_t *)UE->phy_sim_pdsch_rxdataF_comp) + (i * compMaxLayers + l) * compStride,
+                  numValidReSym,
+                  dec,
+                  op_format);
             if (l == 0) {
               snprintf(fName, sizeof(fName), "rxF_ext_r%d_s%d.m", r, i);
               buff_offset = (i * n_rx * numReSym) + (r * numReSym);
               LOG_M(fName, "rxFext", ((c16_t *)UE->phy_sim_pdsch_rxdataF_ext) + buff_offset, numValidReSym, dec, op_format);
             }
-            snprintf(fName, sizeof(fName), "chestF0_s%d.m", i);
-            LOG_M(fName, "chF0", ((c16_t *)UE->phy_sim_pdsch_dl_ch_estimates) + i * frame_parms->ofdm_symbol_size, nrb*12, dec, op_format);
+            if ((dmrsBitMap >> i) & 1) {
+              /* estimates of layer l / rx r on a DMRS symbol: nrb * 12 REs from the start of the symbol.
+                 With double-symbol DMRS only the first symbol of the pair holds an estimate. */
+              snprintf(fName, sizeof(fName), "chestF_l%d_r%d_s%d.m", l, r, i);
+              const size_t est_offset =
+                  ((size_t)(l * n_rx + r) * frame_parms->symbols_per_slot + i) * frame_parms->ofdm_symbol_size;
+              LOG_M(fName, "chF", ((c16_t *)UE->phy_sim_pdsch_dl_ch_estimates) + est_offset, nrb * 12, dec, op_format);
+            }
           }
         }
       }
