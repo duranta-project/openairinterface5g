@@ -307,3 +307,21 @@ static int encode_imeisv_5gs_mobile_identity(const Imeisv5GSMobileIdentity_t *im
 
   return encoded;
 }
+
+bool eq_fgs_guti(const Guti5GSMobileIdentity_t *a, const Guti5GSMobileIdentity_t *b)
+{
+  _EQ_CHECK_INT(a->spare, b->spare);
+  _EQ_CHECK_INT(a->oddeven, b->oddeven);
+  _EQ_CHECK_INT(a->typeofidentity, b->typeofidentity);
+  _EQ_CHECK_INT(a->mccdigit2, b->mccdigit2);
+  _EQ_CHECK_INT(a->mccdigit1, b->mccdigit1);
+  _EQ_CHECK_INT(a->mncdigit3, b->mncdigit3);
+  _EQ_CHECK_INT(a->mccdigit3, b->mccdigit3);
+  _EQ_CHECK_INT(a->mncdigit2, b->mncdigit2);
+  _EQ_CHECK_INT(a->mncdigit1, b->mncdigit1);
+  _EQ_CHECK_INT(a->amfregionid, b->amfregionid);
+  _EQ_CHECK_INT(a->amfsetid, b->amfsetid);
+  _EQ_CHECK_INT(a->amfpointer, b->amfpointer);
+  _EQ_CHECK_INT(a->tmsi, b->tmsi);
+  return true;
+}
