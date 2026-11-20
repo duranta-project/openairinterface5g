@@ -1382,7 +1382,7 @@ void copy_tx_data_request_PDU(const nfapi_nr_pdu_t *src, nfapi_nr_pdu_t *dst)
     switch (src_tlv->tag) {
       case 0:
         // value.direct
-        memcpy(dst_tlv->value.direct, src_tlv->value.direct, sizeof(src_tlv->value.direct));
+        memcpy(dst_tlv->value.direct, src_tlv->value.direct, ((src_tlv->length + 3) / 4) * 4);
         break;
       case 1:
         // value.ptr: instead of allocating a new pointer, we avoid overhead
