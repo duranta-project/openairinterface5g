@@ -1298,6 +1298,17 @@ typedef struct nr_pucch_radio_res_s {
   /// first PRB (in the BWP) of each HARQ and periodic resource, placed around the UL PRB blacklist
   int harq_start_prb[8]; // MAX_NUM_PUCCH_RES_PER_SET
   int periodic_start_prb[MAX_BWP_SIZE / 4];
+  /// all the PUCCH resources of a UE (HARQ sets, SR, CSI) are on one symbol, so that they always overlap and are
+  /// multiplexed in one PUCCH (TS 38.213 9.2.5); the UEs are spread on the symbols that are UL in the UL slots
+  int nb_symb;
+  int symb[NR_SYMBOLS_PER_SLOT];
+  /// UL slots of a TDD period where symb[i] can carry PUCCH
+  int symb_slots[NR_SYMBOLS_PER_SLOT];
+  /// symbol of the SRS in the full UL slots, -1 without SRS: no PUCCH there
+  int srs_symb;
+  /// UEs served by one periodic resource on symb[i] in a period, and on all the symbols
+  int ue_per_symb[NR_SYMBOLS_PER_SLOT];
+  int ue_per_res;
 } nr_pucch_radio_res_t;
 
 typedef struct {

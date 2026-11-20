@@ -241,19 +241,102 @@ static void get_valid_periodicities(int scs, const int **table, int *nb_entries)
   }
 }
 
+/* whether symbol symb of slot can carry PUCCH: an UL symbol, not the SRS one of the full UL slots */
+bool pucch_symb_usable(const frame_structure_t *fs, int srs_symb, int slot, int symb)
+{
+  if (fs->frame_type == FDD)
+    return symb != srs_symb;
+  const tdd_bitmap_t *b = &fs->period_cfg.tdd_slot_bitmap[slot % fs->numb_slots_period];
+  if (b->slot_type == TDD_NR_UPLINK_SLOT)
+    return symb != srs_symb;
+  if (b->slot_type == TDD_NR_MIXED_SLOT)
+    return symb >= NR_SYMBOLS_PER_SLOT - b->num_ul_symbols;
+  return false;
+}
+
+/* the PUCCH symbols, those UL in the most slots first and the last symbol first: with few UEs, they all stay on the
+   last symbol. A symbol UL in fewer slots than the full UL slots (the SRS symbol, UL only in the mixed slot) leaves too
+   few HARQ-ACK occasions to its UEs: not used. */
+static void set_pucch_symbols(const frame_structure_t *fs, int srs_symb, nr_pucch_radio_res_t *res)
+{
+  res->srs_symb = srs_symb;
+  res->nb_symb = 0;
+  int nb_slots[NR_SYMBOLS_PER_SLOT] = {0};
+  for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
+    for (int slot = 0; slot < fs->numb_slots_period; slot++)
+      nb_slots[s] += pucch_symb_usable(fs, srs_symb, slot, s);
+  const int min_slots = max(get_full_ul_slots_per_period(fs), 1);
+  for (int n = fs->numb_slots_period; n >= min_slots; n--)
+    for (int s = NR_SYMBOLS_PER_SLOT - 1; s >= 0; s--)
+      if (nb_slots[s] == n) {
+        res->symb[res->nb_symb] = s;
+        res->symb_slots[res->nb_symb++] = n;
+      }
+  AssertFatal(res->nb_symb > 0, "no UL symbol for PUCCH\n");
+}
+
+/* UEs served in a period by one periodic resource on each symbol: a UE takes reports_per_ue occasions of a symbol */
+static void set_pucch_ue_per_res(const frame_structure_t *fs, nr_pucch_radio_res_t *res, int reports_per_ue)
+{
+  const int nb_cycles = res->periodicity / fs->numb_slots_period;
+  res->ue_per_res = 0;
+  for (int i = 0; i < res->nb_symb; i++) {
+    res->ue_per_symb[i] = nb_cycles * res->symb_slots[i] / reports_per_ue;
+    res->ue_per_res += res->ue_per_symb[i];
+  }
+}
+
+typedef struct {
+  int res; // periodic resource (PRBs)
+  int symb_idx; // index in nr_pucch_radio_res_t symb[]
+  int k; // UE of this resource and symbol
+} pucch_place_t;
+
+/* the periodic resource and symbol of a UE: the UIDs fill the last symbol in all the resources before the next
+   symbol, as the PUSCHs leave the last symbol free and the PUCCHs on the others take PUSCH PRBs */
+static pucch_place_t get_pucch_place(const nr_pucch_radio_res_t *res, int uid)
+{
+  DevAssert(res->ue_per_res > 0 && res->nb_periodic_res > 0);
+  pucch_place_t p = {0};
+  int r = uid % (res->nb_periodic_res * res->ue_per_res);
+  while (r >= res->nb_periodic_res * res->ue_per_symb[p.symb_idx])
+    r -= res->nb_periodic_res * res->ue_per_symb[p.symb_idx++];
+  p.res = r / res->ue_per_symb[p.symb_idx];
+  p.k = r % res->ue_per_symb[p.symb_idx];
+  return p;
+}
+
+int get_pucch_symb(const nr_pucch_radio_res_t *res, int uid)
+{
+  return res->symb[get_pucch_place(res, uid).symb_idx];
+}
+
+/* slot offset in the periodicity of report occasion j on symbol index i */
+static int get_pucch_occasion_offset(const frame_structure_t *fs, const nr_pucch_radio_res_t *res, int i, int j)
+{
+  int c = j % res->symb_slots[i];
+  for (int slot = 0; slot < fs->numb_slots_period; slot++)
+    if (pucch_symb_usable(fs, res->srs_symb, slot, res->symb[i]) && c-- == 0)
+      return slot + j / res->symb_slots[i] * fs->numb_slots_period;
+  AssertFatal(false, "no PUCCH occasion %d on symbol %d\n", j, res->symb[i]);
+  return 0;
+}
+
 static nr_pucch_radio_res_t get_nb_periodic_pucch_per_slot(const frame_structure_t *fs,
                                                            int min_period,
                                                            int max_period,
                                                            int scs,
-                                                           int reports_per_ue)
+                                                           int reports_per_ue,
+                                                           int srs_symb,
+                                                           int max_symb)
 {
   AssertFatal(min_period <= max_period, "min_periodicity %d must be <= max_periodicity %d", min_period, max_period);
-  int ul_slots_period = get_ul_slots_per_period(fs);
-  int max_csi_reports = MAX_MOBILES_PER_GNB * reports_per_ue;
 
   // find the minimum valid periodicity that is a multiple of numb_slots_period
   // and offers enough UL occasions to serve all reports with a single PUCCH resource
   nr_pucch_radio_res_t res = {0};
+  set_pucch_symbols(fs, srs_symb, &res);
+  res.nb_symb = min(res.nb_symb, max_symb);
   const int *valid_periodicities;
   int nb_valid_periodicities;
   get_valid_periodicities(scs, &valid_periodicities, &nb_valid_periodicities);
@@ -265,10 +348,9 @@ static nr_pucch_radio_res_t get_nb_periodic_pucch_per_slot(const frame_structure
     if (valid_periodicities[i] % fs->numb_slots_period != 0)
       continue;
     period = valid_periodicities[i];
-    int nb_cycles = period / fs->numb_slots_period;
-    int available_report_occasions = nb_cycles * ul_slots_period;
-    if (available_report_occasions >= max_csi_reports) {
-      res.periodicity = period;
+    res.periodicity = period;
+    set_pucch_ue_per_res(fs, &res, reports_per_ue);
+    if (res.ue_per_res >= MAX_MOBILES_PER_GNB) {
       res.nb_periodic_res = 1; // one PUCCH resource suffices
       return res;
     }
@@ -276,19 +358,12 @@ static nr_pucch_radio_res_t get_nb_periodic_pucch_per_slot(const frame_structure
 
   // no single periodicity value in range covers all reports -> fall back to
   // max_periodicity and compute how many parallel PUCCH resources are needed
-  int periodicity = period;
-  AssertFatal(periodicity != 0 && periodicity % fs->numb_slots_period == 0,
+  AssertFatal(period != 0 && period % fs->numb_slots_period == 0,
               "periodicity %d is not a multiple of numb_slots_period %d",
-              periodicity,
+              period,
               fs->numb_slots_period);
-  int nb_cycles = periodicity / fs->numb_slots_period;
-  int available_report_occasions = nb_cycles * ul_slots_period;
-  res.nb_periodic_res = (max_csi_reports + available_report_occasions - 1) / available_report_occasions;
-  // each report of a UE takes a block of ceil(MAX_MOBILES_PER_GNB / nb_periodic_res) occasions (see
-  // set_csi_meas_periodicity()): the blocks must fit in the period
-  while (reports_per_ue * ((MAX_MOBILES_PER_GNB + res.nb_periodic_res - 1) / res.nb_periodic_res) > available_report_occasions)
-    res.nb_periodic_res++;
-  res.periodicity = periodicity;
+  AssertFatal(res.ue_per_res > 0, "no periodic PUCCH occasion in a periodicity of %d slots\n", period);
+  res.nb_periodic_res = (MAX_MOBILES_PER_GNB + res.ue_per_res - 1) / res.ue_per_res;
   return res;
 }
 
@@ -934,7 +1009,7 @@ static NR_SRS_Resource_t *get_srs_resource(const NR_UE_NR_Capability_t *uecap,
     default:
       AssertFatal(1 == 0, "Invalid transmission comb %d\n", tx_comb);
   }
-  srs_res->resourceMapping.startPosition = 1;
+  srs_res->resourceMapping.startPosition = NR_SRS_START_POSITION;
   srs_res->resourceMapping.nrofSymbols = NR_SRS_Resource__resourceMapping__nrofSymbols_n1;
   srs_res->resourceMapping.repetitionFactor = NR_SRS_Resource__resourceMapping__repetitionFactor_n1;
   srs_res->freqDomainPosition = 0;
@@ -1358,8 +1433,9 @@ static void set_SR_periodandoffset(const frame_structure_t *fs,
                                    const nr_pucch_radio_res_t *pucch_res_config,
                                    int uid)
 {
-  int idx = uid / pucch_res_config->nb_periodic_res;
-  int offset = get_ul_slot_offset(fs, idx, true);
+  // the SR is on the occasion of the first report of the UE (see set_csi_meas_periodicity())
+  const pucch_place_t p = get_pucch_place(pucch_res_config, uid);
+  int offset = get_pucch_occasion_offset(fs, pucch_res_config, p.symb_idx, p.k);
   schedulingRequestResourceConfig->periodicityAndOffset = calloc(1,sizeof(*schedulingRequestResourceConfig->periodicityAndOffset));
   if (pucch_res_config->periodicity == 10) {
     schedulingRequestResourceConfig->periodicityAndOffset->present = NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl10;
@@ -1900,22 +1976,32 @@ static int get_required_prbs(nr_pucch_radio_res_t *res)
   return res->nb_harq_res * res->nb_prb_harq_res + res->nb_prb_periodic_res * res->nb_periodic_res;
 }
 
-// size the PUCCH resources for bwp_size PRBs
-static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *fs,
-                                                       int bwp_size,
-                                                       int scs,
-                                                       int max_bits,
-                                                       int reports_per_ue)
+typedef enum { PUCCH_PLAN_FULL, PUCCH_PLAN_REDUCED, PUCCH_PLAN_NO_FIT } pucch_plan_status_t;
+
+/* size the PUCCH resources for bwp_size PRBs on the first max_symb PUCCH symbols: PUCCH_PLAN_REDUCED when it serves
+   fewer HARQ-ACK resources than MAX_NUM_PUCCH_RES_PER_SET or fewer UEs than MAX_MOBILES_PER_GNB */
+static nr_pucch_radio_res_t size_pucch_radio_resources_symb(const frame_structure_t *fs,
+                                                            int bwp_size,
+                                                            int scs,
+                                                            int max_bits,
+                                                            int reports_per_ue,
+                                                            int srs_symb,
+                                                            int max_symb,
+                                                            pucch_plan_status_t *status)
 {
+  *status = PUCCH_PLAN_FULL;
   // set min period at slots per frame and max at 320
   int min_period = fs->numb_slots_frame;
   int max_period = 320;
-  nr_pucch_radio_res_t res = get_nb_periodic_pucch_per_slot(fs, min_period, max_period, scs, reports_per_ue);
+  nr_pucch_radio_res_t res = get_nb_periodic_pucch_per_slot(fs, min_period, max_period, scs, reports_per_ue, srs_symb, max_symb);
   res.nb_prb_periodic_res = get_nb_pucch2_prb(max_bits);
   // by default 8 HARQ resources
   res.nb_harq_res = MAX_NUM_PUCCH_RES_PER_SET; // TODO compute automatically depending TDD and how many UE we can serve per period
   // by default HARQ has twice as many PRBs as periodic (capped at 16)
   res.nb_prb_harq_res = res.nb_prb_periodic_res > 8 ? 16 : res.nb_prb_periodic_res * 2;
+  // on several symbols, the PUCCH PRBs are taken from the PUSCHs: no redundancy in HARQ PRBs
+  if (res.nb_symb > 1)
+    res.nb_prb_harq_res = res.nb_prb_periodic_res;
 
   int required_prbs = get_required_prbs(&res);
   int diff_prb = bwp_size - required_prbs;
@@ -1933,6 +2019,7 @@ static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *
     }
     // reduce number of HARQ resources
     // we can serve less UEs per period but they can still attach
+    *status = PUCCH_PLAN_REDUCED;
     while (res.nb_harq_res > 1) {
       res.nb_harq_res--;
       required_prbs = get_required_prbs(&res);
@@ -1946,20 +2033,19 @@ static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *
       res.nb_periodic_res--;
       required_prbs = get_required_prbs(&res);
       diff_prb = bwp_size - required_prbs;
-      int nb_cycles = res.periodicity / fs->numb_slots_period;
-      int available_report_occasions = nb_cycles * get_ul_slots_per_period(fs);
-      res.max_served_ues = (res.nb_periodic_res * available_report_occasions) / reports_per_ue;
+      res.max_served_ues = res.nb_periodic_res * res.ue_per_res;
       if (diff_prb >= 0)
         return res;
     }
-    AssertFatal(false, "Couldn't configure PUCCH radio resources for BWP with size %d\n", bwp_size);
-    return res; // never reached, to avoid compiler complaining
-  } else if (diff_prb >= res.nb_prb_periodic_res) { // we have available resources to distribute
+    *status = PUCCH_PLAN_NO_FIT;
+    return res;
+  } else if (diff_prb >= res.nb_prb_periodic_res && res.nb_symb == 1) {
+    // we have available resources to distribute: on the last symbol only, as on the others they are PUSCH PRBs
     // we reduce periodicity to verify if we can fit the possible increase of PRBs
     nr_pucch_radio_res_t new_res = res;
     int new_max_period = res.periodicity / 2;
     while (diff_prb >= new_res.nb_prb_periodic_res && new_max_period >= min_period) {
-      new_res = get_nb_periodic_pucch_per_slot(fs, min_period, new_max_period, scs, reports_per_ue);
+      new_res = get_nb_periodic_pucch_per_slot(fs, min_period, new_max_period, scs, reports_per_ue, srs_symb, max_symb);
       // cap the number of periodic resources to the same as HARQ MAX_NUM_PUCCH_RES_PER_SET
       if (new_res.nb_periodic_res > MAX_NUM_PUCCH_RES_PER_SET)
         break;
@@ -1981,8 +2067,39 @@ static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *
                       res.nb_harq_res + num_add_harq_res :
                       MAX_NUM_PUCCH_RES_PER_SET;
     return res;
-  } else  // we have an optimal value
+  } else // we have an optimal value
     return res;
+}
+
+/* size the PUCCH resources for bwp_size PRBs. The PUSCHs end before the last symbol (UL TDAs), so that the PUCCHs there
+   take no PUSCH PRB: the PUCCHs are on the last symbol, and spill over the other symbols only when it cannot serve
+   MAX_MOBILES_PER_GNB UEs with MAX_NUM_PUCCH_RES_PER_SET HARQ-ACK resources */
+static nr_pucch_radio_res_t size_pucch_radio_resources(const frame_structure_t *fs,
+                                                       int bwp_size,
+                                                       int scs,
+                                                       int max_bits,
+                                                       int reports_per_ue,
+                                                       int srs_symb)
+{
+  nr_pucch_radio_res_t all = {0};
+  set_pucch_symbols(fs, srs_symb, &all);
+  nr_pucch_radio_res_t best = {0};
+  bool found = false;
+  for (int n = 1; n <= all.nb_symb; n++) {
+    pucch_plan_status_t status;
+    nr_pucch_radio_res_t res = size_pucch_radio_resources_symb(fs, bwp_size, scs, max_bits, reports_per_ue, srs_symb, n, &status);
+    if (status == PUCCH_PLAN_FULL)
+      return res;
+    // a reduced plan: keep the one serving the most UEs, then the most HARQ-ACK resources
+    if (status == PUCCH_PLAN_REDUCED
+        && (!found || res.max_served_ues > best.max_served_ues
+            || (res.max_served_ues == best.max_served_ues && res.nb_harq_res > best.nb_harq_res))) {
+      best = res;
+      found = true;
+    }
+  }
+  AssertFatal(found, "Couldn't configure PUCCH radio resources for BWP with size %d\n", bwp_size);
+  return best;
 }
 
 /* Place nb blocks of sz contiguous PRBs from *next on, skipping blacklisted PRBs. Blocks start on a multiple
@@ -2029,6 +2146,7 @@ nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs
                                                      int scs,
                                                      int max_bits,
                                                      int reports_per_ue,
+                                                     int srs_symb,
                                                      const uint16_t *ulprbbl)
 {
   int usable = 0;
@@ -2036,7 +2154,7 @@ nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs
     usable += !(ulprbbl && ulprbbl[bwp_start + p]);
   // blocks cannot straddle a blacklisted range: shrink the plan until it can be placed
   for (int size = usable; size > 0; size--) {
-    nr_pucch_radio_res_t res = size_pucch_radio_resources(fs, size, scs, max_bits, reports_per_ue);
+    nr_pucch_radio_res_t res = size_pucch_radio_resources(fs, size, scs, max_bits, reports_per_ue, srs_symb);
     if (place_pucch_radio_resources(&res, bwp_start, bwp_size, ulprbbl))
       return res;
   }
@@ -2044,7 +2162,7 @@ nr_pucch_radio_res_t configure_pucch_radio_resources(const frame_structure_t *fs
   return (nr_pucch_radio_res_t){0};
 }
 
-static NR_PUCCH_Resource_t *config_pucch_resource(int format, int id, int startPrb, int nbPrb)
+static NR_PUCCH_Resource_t *config_pucch_resource(int format, int id, int startPrb, int nbPrb, int symb)
 {
   NR_PUCCH_Resource_t *pucch = calloc(1, sizeof(*pucch));
   pucch->pucch_ResourceId = id;
@@ -2056,13 +2174,13 @@ static NR_PUCCH_Resource_t *config_pucch_resource(int format, int id, int startP
     pucch->format.choice.format0 = calloc(1, sizeof(*pucch->format.choice.format0));
     pucch->format.choice.format0->initialCyclicShift = 0;
     pucch->format.choice.format0->nrofSymbols = 1;
-    pucch->format.choice.format0->startingSymbolIndex = 13;
+    pucch->format.choice.format0->startingSymbolIndex = symb;
   } else if (format == 2) {
     pucch->format.present = NR_PUCCH_Resource__format_PR_format2;
     pucch->format.choice.format2 = calloc(1, sizeof(*pucch->format.choice.format2));
     pucch->format.choice.format2->nrofPRBs = nbPrb;
     pucch->format.choice.format2->nrofSymbols = 1;
-    pucch->format.choice.format2->startingSymbolIndex = 13;
+    pucch->format.choice.format2->startingSymbolIndex = symb;
   } else
     AssertFatal(false, "PUCCH format %d not supported yet\n", format);
 
@@ -2073,7 +2191,8 @@ static void config_pucch_resset(NR_PUCCH_Config_t *pucch_Config,
                                 int id_start,
                                 int set_id,
                                 int format,
-                                const nr_pucch_radio_res_t *pucch_res_config)
+                                const nr_pucch_radio_res_t *pucch_res_config,
+                                int symb)
 {
   NR_PUCCH_ResourceSet_t *pucchresset = calloc(1, sizeof(*pucchresset));
   pucchresset->pucch_ResourceSetId = set_id;
@@ -2085,7 +2204,7 @@ static void config_pucch_resset(NR_PUCCH_Config_t *pucch_Config,
     asn1cSeqAdd(&pucchresset->resourceList.list,pucchid);
     int start_prb = pucch_res_config->harq_start_prb[i];
     int prb_size = format == 0 ? 1 : pucch_res_config->nb_prb_harq_res;
-    NR_PUCCH_Resource_t *pucchres = config_pucch_resource(format, *pucchid, start_prb, prb_size);
+    NR_PUCCH_Resource_t *pucchres = config_pucch_resource(format, *pucchid, start_prb, prb_size, symb);
     asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres);
   }
   asn1cSeqAdd(&pucch_Config->resourceSetToAddModList->list, pucchresset);
@@ -2135,16 +2254,18 @@ static NR_PUCCH_Config_t *config_pucch(const nr_mac_config_t *configuration,
   // maxNrofPUCCH-ResourcesPerSet = 32 sets the max number of PUCCH resources per HARQ
   // we give ID starting from 0 (to nb_harq_res - 1) to set 0
   // we give ID starting from nb_harq_res to set 1
-  config_pucch_resset(pucch_Config, 0, 0, 0, pucch_res_config);
-  config_pucch_resset(pucch_Config, pucch_res_config->nb_harq_res, 1, 2, pucch_res_config);
+  // all the resources of the UE on its PUCCH symbol: the HARQ-ACK, SR and CSI PUCCHs of a slot always overlap and are
+  // multiplexed in one PUCCH, the UEs of different symbols share the PRBs
+  const pucch_place_t place = get_pucch_place(pucch_res_config, uid);
+  const int symb = pucch_res_config->symb[place.symb_idx];
+  config_pucch_resset(pucch_Config, 0, 0, 0, pucch_res_config, symb);
+  config_pucch_resset(pucch_Config, pucch_res_config->nb_harq_res, 1, 2, pucch_res_config, symb);
   // we give ID nb_harq_res * 2 to resource for SR and nb_harq_res * 2 + 1 to the one for CSI meas
-  int start_prb = pucch_res_config->periodic_start_prb[uid % pucch_res_config->nb_periodic_res];
-  NR_PUCCH_Resource_t *pucchres_sr = config_pucch_resource(0, pucch_res_config->nb_harq_res * 2, start_prb, 1);
+  int start_prb = pucch_res_config->periodic_start_prb[place.res];
+  NR_PUCCH_Resource_t *pucchres_sr = config_pucch_resource(0, pucch_res_config->nb_harq_res * 2, start_prb, 1, symb);
   asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres_sr);
-  NR_PUCCH_Resource_t *pucchres_csi = config_pucch_resource(2,
-                                                            get_csi_pucch_id(pucch_res_config),
-                                                            start_prb,
-                                                            pucch_res_config->nb_prb_periodic_res);
+  NR_PUCCH_Resource_t *pucchres_csi =
+      config_pucch_resource(2, get_csi_pucch_id(pucch_res_config), start_prb, pucch_res_config->nb_prb_periodic_res, symb);
   asn1cSeqAdd(&pucch_Config->resourceToAddModList->list, pucchres_csi);
   set_pucch_power_config(pucch_Config);
   scheduling_request_config(cell, pucch_Config, uid, pucch_res_config->nb_harq_res * 2, pucch_res_config);
@@ -2231,15 +2352,12 @@ static void set_csi_meas_periodicity(const frame_structure_t *fs,
                                      int uid,
                                      bool is_rsrp)
 {
-  // The CSI PUCCH resource of a UE is on PRB index uid % nb_periodic_res for both reports (config_pucch()), like its SR.
-  // The second report therefore takes the occasions after a whole block of ceil(max_served_ues / nb_periodic_res)
-  // occasions: with MAX_MOBILES_PER_GNB + uid, a block size that is not a multiple of nb_periodic_res put the second
-  // report of the first UEs on the occasion and PRB of the SR and first report of the last UEs, which then could
-  // never be scheduled.
-  const int nb = pucch_res->nb_periodic_res;
-  const int block = (pucch_res->max_served_ues + nb - 1) / nb;
-  int idx = is_rsrp ? uid / nb : block + uid / nb;
-  int offset = get_ul_slot_offset(fs, idx, true);
+  // The CSI PUCCH resource of a UE is on its periodic resource and PUCCH symbol for both reports (config_pucch()),
+  // like its SR. The k-th UE of a resource and symbol takes occasion k for the first report and the SR, and the
+  // occasion after the first reports of all the UEs of this resource and symbol for the second report.
+  const pucch_place_t p = get_pucch_place(pucch_res, uid);
+  int j = is_rsrp ? p.k : pucch_res->ue_per_symb[p.symb_idx] + p.k;
+  int offset = get_pucch_occasion_offset(fs, pucch_res, p.symb_idx, j);
   LOG_D(NR_MAC, "set_csi_meas_periodicity: uid = %d, offset = %d, ideal_period = %d\n", uid, offset, pucch_res->periodicity);
   // checked for validity in verify_radio_configuration
   AssertFatal(offset < 320, "Not enough UL slots to accomodate all possible UEs. Need to rework the implementation\n");

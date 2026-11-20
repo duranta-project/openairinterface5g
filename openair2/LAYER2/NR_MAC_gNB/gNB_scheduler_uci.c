@@ -1615,6 +1615,18 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
   nr_dci_format_t dci_format = NR_DL_DCI_FORMAT_1_0;
   if(is_common == 0)
    dci_format = UE->current_DL_BWP.dci_format;
+  // the dedicated PUCCH resources of a UE are all on its PUCCH symbol (config_pucch()), which is not UL in all the UL
+  // slots: the one of the first HARQ resource
+  int pucch_symb = -1;
+  if (r_pucch < 0 && pucch_Config && pucch_Config->resourceSetToAddModList
+      && pucch_Config->resourceSetToAddModList->list.count > 0) {
+    const NR_PUCCH_ResourceSet_t *set0 = pucch_Config->resourceSetToAddModList->list.array[0];
+    const NR_PUCCH_Resource_t *res0 =
+        set0->resourceList.list.count > 0 ? get_pucch_resource(pucch_Config, set0->resourceList.list.array[0]) : NULL;
+    if (res0 && res0->format.present == NR_PUCCH_Resource__format_PR_format0)
+      pucch_symb = res0->format.choice.format0->startingSymbolIndex;
+  }
+  const int srs_symb = cell->pucch_res_bwp[0].srs_symb;
   uint8_t pdsch_to_harq_feedback[8];
   int fb_size = get_pdsch_to_harq_feedback(pucch_Config, dci_format, pdsch_to_harq_feedback);
   for (int f = 0; f < fb_size; f++) {
@@ -1631,6 +1643,8 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
       if (r_pucch >= 0 && is_mixed_slot(mod_slot, fs) && pc->tdd_slot_bitmap[mod_slot].num_ul_symbols < 2)
         continue;
     }
+    if (pucch_symb >= 0 && !pucch_symb_usable(fs, srs_symb, frame_slot.s, pucch_symb))
+      continue;
     // we store PUCCH resources according to slot, TDD configuration and size of the vector containing PUCCH structures
     const int pucch_index = get_pucch_index(frame_slot.f, frame_slot.s, &cell->frame_structure, sched_ctrl->sched_pucch_size);
     NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];

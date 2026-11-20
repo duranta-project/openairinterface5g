@@ -1085,6 +1085,8 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
   // periodic PUCCH occasions per UE: the SSB (or CSI-RS) RSRP report with the SR, and the CQI/RI/PMI report with
   // periodic CSI-RS reports only; the aperiodic reports go on PUSCH, leaving the SR only
   const int reports_per_ue = config->do_CSIRS && !config->aperiodic_csi ? 2 : 1;
+  // no PUCCH on the SRS symbol of the full UL slots
+  const int srs_symb = cell->radio_config.do_SRS != NO_SRS ? NR_SYMBOLS_PER_SLOT - 1 - NR_SRS_START_POSITION : -1;
   int scs = *scc->ssbSubcarrierSpacing;
   int bwp_size = NRRIV2BW(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
   int bwp_start = NRRIV2PRBOFFSET(scc->uplinkConfigCommon->initialUplinkBWP->genericParameters.locationAndBandwidth, MAX_BWP_SIZE);
@@ -1094,6 +1096,7 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
                                                            scs,
                                                            max_csi_bits,
                                                            reports_per_ue,
+                                                           srs_symb,
                                                            cell->ulprbbl);
   LOG_I(NR_MAC,
         "BWP 0 PUCCH resource configuration: HARQ res %d HARQ res PRBs %d Periodic res %d Perioidc res PRBs %d periodicity %d\n",
@@ -1102,6 +1105,11 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
         cell->pucch_res_bwp[0].nb_periodic_res,
         cell->pucch_res_bwp[0].nb_prb_periodic_res,
         cell->pucch_res_bwp[0].periodicity);
+  LOG_I(NR_MAC,
+        "BWP 0 PUCCH: %d symbols, %d UEs per periodic resource, %d UEs served\n",
+        cell->pucch_res_bwp[0].nb_symb,
+        cell->pucch_res_bwp[0].ue_per_res,
+        cell->pucch_res_bwp[0].max_served_ues);
   LOG_I(NR_MAC,
         "BWP 0 PUCCH PRBs: HARQ from %d, periodic from %d to %d\n",
         cell->pucch_res_bwp[0].harq_start_prb[0],
@@ -1118,6 +1126,7 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
                                                              scs,
                                                              max_csi_bits,
                                                              reports_per_ue,
+                                                             srs_symb,
                                                              cell->ulprbbl);
     LOG_I(NR_MAC,
           "BWP %d PUCCH resource configuration: HARQ res %d HARQ res PRBs %d Periodic res %d Perioidc res PRBs %d periodicity %d\n",
@@ -1131,8 +1140,14 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
 
   if (!IS_SA_MODE(get_softmodem_params())) {
     bwp_size = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth;
-    cell->pucch_res_bwp[1] =
-        configure_pucch_radio_resources(&cell->frame_structure, 0, bwp_size, scs, max_csi_bits, reports_per_ue, cell->ulprbbl);
+    cell->pucch_res_bwp[1] = configure_pucch_radio_resources(&cell->frame_structure,
+                                                             0,
+                                                             bwp_size,
+                                                             scs,
+                                                             max_csi_bits,
+                                                             reports_per_ue,
+                                                             srs_symb,
+                                                             cell->ulprbbl);
   }
 
   find_SSB_and_RO_available(cell);
