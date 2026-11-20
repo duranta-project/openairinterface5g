@@ -30,5 +30,5 @@ set_tests_properties(nr_fapi_p7_bounds_test PROPERTIES LABELS "${Test_Labels}")
 # Add the dci label for the dci payload test
 set(dci_labels dci ${Test_Labels})
 set_tests_properties(nr_fapi_dci_inversion_test PROPERTIES LABELS "dci ${Test_Labels}")
-# Add the FAPI_BYTE_ORDERING_BIG_ENDIAN preprocessor define in order to test the invert/uninvert dci payload functions
-target_compile_definitions(nfapi_common PRIVATE FAPI_BYTE_ORDERING_BIG_ENDIAN)
+# Add the FAPI_BYTE_ORDERING_LITTLE_ENDIAN preprocessor define in order to test the invert/uninvert dci payload functions
+target_compile_definitions(nfapi_common PRIVATE FAPI_BYTE_ORDERING_LITTLE_ENDIAN)

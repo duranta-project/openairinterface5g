@@ -179,7 +179,8 @@ int phy_nr_rach_indication(nfapi_nr_rach_indication_t *ind)
 {
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     nfapi_nr_rach_indication_t *rach_ind = CALLOC(1, sizeof(*rach_ind));
-    copy_rach_indication(ind, rach_ind);
+    *rach_ind = *ind;
+    ind->pdu_list = NULL;
     if (!put_queue(&gnb_rach_ind_queue[ind->header.phy_id], rach_ind)) {
       LOG_E(NR_MAC, "Put_queue failed for rach_ind\n");
       free_rach_indication(rach_ind);
@@ -197,7 +198,8 @@ int phy_nr_uci_indication(nfapi_nr_uci_indication_t *ind)
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     nfapi_nr_uci_indication_t *uci_ind = CALLOC(1, sizeof(*uci_ind));
     AssertFatal(uci_ind, "Memory not allocated for uci_ind in phy_nr_uci_indication.");
-    copy_uci_indication(ind, uci_ind);
+    *uci_ind = *ind;
+    ind->uci_list = NULL;
     if (!put_queue(&gnb_uci_ind_queue[ind->header.phy_id], uci_ind)) {
       LOG_E(NR_MAC, "Put_queue failed for uci_ind\n");
       free_uci_indication(uci_ind);
@@ -216,7 +218,8 @@ int phy_nr_crc_indication(nfapi_nr_crc_indication_t *ind)
 
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     nfapi_nr_crc_indication_t *crc_ind = CALLOC(1, sizeof(*crc_ind));
-    copy_crc_indication(ind, crc_ind);
+    *crc_ind = *ind;
+    ind->crc_list = NULL;
     if (!put_queue(&gnb_crc_ind_queue[ind->header.phy_id], crc_ind)) {
       LOG_E(NR_MAC, "Put_queue failed for crc_ind\n");
       free_crc_indication(crc_ind);
@@ -240,7 +243,8 @@ int phy_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind)
 
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     nfapi_nr_rx_data_indication_t *rx_ind = CALLOC(1, sizeof(*rx_ind));
-    copy_rx_data_indication(ind, rx_ind);
+    *rx_ind = *ind;          // shallow copy: rx_ind now owns pdu_list and all pdu pointers
+    ind->number_of_pdus = 0; // free_rx_data_indication in the caller becomes a no-op
     if (!put_queue(&gnb_rx_ind_queue[ind->header.phy_id], rx_ind)) {
       LOG_E(NR_MAC, "Put_queue failed for rx_ind\n");
       free_rx_data_indication(rx_ind);
