@@ -11,15 +11,14 @@ flowchart TB
     msg:L1_tx_out --> RFin
 ```
 
-The main thread is `ru_thread()`. It blocks on reception of radio samples
-(either time domain or frequency domain).  In the case of an UL slot, it waits
+The main thread is `ru_thread()`. It blocks on reception of radio samples.
+In the case of an UL slot, it waits
 that no more than N UL jobs are scheduled (via `wait_free_rx_tti()`, which
 waits on queue `L1_rx_out`, cf. the RX L1 processing further below). Then:
 
 - if the radio is time domain-based, it performs RX front-end processing (RX
   FEP -> `fep_rx()`, i.e. DFT) to reach a frequency domain representation of
   the RX signal, as well as does DFT for PRACH.
-- if the radio is frequency domain-based, nothing is done.
 
 Afterwards, it triggers TX processing by pushing a message into the FIFO queue
 `L1_tx_out`, which asynchronously starts a TX job in `L1_tx_thread()` (see
@@ -32,7 +31,7 @@ flowchart TB
 
     subgraph tx_func
 
-        NR_slot_indication --> msg:resp_L1 --> phy_procedures_gNB_tx --> feptx_prec/feptx_ofdm --> fh_south_ctrl --> fh_south_out
+        NR_slot_indication --> msg:resp_L1 --> phy_procedures_gNB_tx --> feptx_ofdm --> fh_south_ctrl --> fh_south_out
         NR_slot_indication["run the scheduler:
           - monolithic: run_scheduler_monolithic()
           - nFAPI: send indication via pnf_send_slot_ind()"]
