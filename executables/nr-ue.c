@@ -462,7 +462,8 @@ void processSlotTX(void *arg)
         nr_uplink_indication_t ul_indication = {.module_id = UE->Mod_id,
                                                 .frame = proc->frame_tx,
                                                 .slot = proc->nr_slot_tx,
-                                                .phy_data = &phy_data};
+                                                .phy_data = &phy_data,
+                                                .empty_tx_slot = !UE->fd_ifdevice && !UE->sl_mode && rxtxD->writeBlockSize == 0};
 
         UE->if_inst->ul_indication(&ul_indication);
         stop_meas(&UE->ue_ul_indication_stats);
