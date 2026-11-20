@@ -57,6 +57,40 @@
   </testCase>
 
   <testCase>
+    <class>Custom_Command</class>
+    <desc>Check PSSCH MCS 9 on both sidelink UEs</desc>
+    <node>localhost</node>
+    <command><![CDATA[
+      docker logs rfsim5g-oai-nr-ue 2>&1 | grep -q 'Sidelink PSSCH MCS: 9$' &&
+      docker logs rfsim5g-oai-nr-ue2 2>&1 | grep -q 'Sidelink PSSCH MCS: 9$'
+    ]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Sidelink syncing UE to sync-ref (MCS 9/7Mbps/UDP/20 sec)</desc>
+    <iperf_args>-u -b 7M -l 1200 -t 20</iperf_args>
+    <id>rfsim5g_ue2</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ue</svr_id>
+    <svr_node>localhost</svr_node>
+    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Sidelink sync-ref to syncing UE (MCS 9/7Mbps/UDP/20 sec)</desc>
+    <iperf_args>-u -b 7M -l 1200 -t 20 -R</iperf_args>
+    <id>rfsim5g_ue2</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ue</svr_id>
+    <svr_node>localhost</svr_node>
+    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
     <class>Undeploy_Object</class>
     <always_exec>true</always_exec>
     <desc>Undeploy all OAI 5G stack</desc>
