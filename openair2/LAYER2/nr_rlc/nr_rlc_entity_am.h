@@ -32,6 +32,8 @@ typedef struct {
   int rx_next_highest;
 
   int status_triggered;
+  int cached_status_size;
+  int cached_status_maxsize;
 
   /* runtime tx */
   int tx_next;
