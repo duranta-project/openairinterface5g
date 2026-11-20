@@ -15,9 +15,9 @@ Ref :
   PUSCH inner-receiver : 150.0
   DL & UL scheduling timing : 5.0
   Slot Indication : 6.0
-  feprx : 44.0
-  feptx_ofdm (per port, half_slot) : 31
-  feptx_total : 43
+  feprx : 27.0
+  feptx_ofdm (per port, half_slot) : 20
+  feptx_total : 30
 DeviationThreshold :
   feprx : 0.25
   feptx_prec : 0.25
