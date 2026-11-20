@@ -549,7 +549,6 @@ bool pdcp_data_req(protocol_ctxt_t  *ctxt_pP,
   return ret;
 }
 
-
 //-----------------------------------------------------------------------------
 bool pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
                    const srb_flag_t srb_flagP,
@@ -976,7 +975,7 @@ bool pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
       uint8_t *gtp_buf = sdu_buffer_pP + payload_offset;
       size_t gtp_len = sdu_buffer_sizeP - payload_offset;
       LOG_D(PDCP, "Sending packet to GTP  ue %lx rab %ld len %ld\n", ue_id, rb_id + 4, gtp_len);
-      gtpv1uSendDirect(INSTANCE_DEFAULT, ue_id, rb_id + 4, gtp_buf, gtp_len, false, false);
+      gtpv1uSendDirect(INSTANCE_DEFAULT, ue_id, rb_id + 4, gtp_buf, gtp_len, false, false, false, 0);
       packet_forwarded = true;
     }
   } else {
