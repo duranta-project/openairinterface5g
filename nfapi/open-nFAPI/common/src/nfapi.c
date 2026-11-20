@@ -53,6 +53,13 @@
 #include <nfapi.h>
 #include <debug.h>
 
+// Check if the Byte Order we want matches the host, if yes, we can use memcpy, if not, we need to invert the bytes
+#if (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__) == defined(FAPI_BYTE_ORDERING_LITTLE_ENDIAN)
+#define FAPI_BYTES_NEEDS_BSWAP 0
+#else
+#define FAPI_BYTES_NEEDS_BSWAP 1
+#endif
+
 // What to do when an error happens (e.g., a push or pull fails)
 static inline void on_error()
 {
