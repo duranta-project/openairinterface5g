@@ -198,7 +198,8 @@ int phy_nr_uci_indication(nfapi_nr_uci_indication_t *ind)
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     nfapi_nr_uci_indication_t *uci_ind = CALLOC(1, sizeof(*uci_ind));
     AssertFatal(uci_ind, "Memory not allocated for uci_ind in phy_nr_uci_indication.");
-    copy_uci_indication(ind, uci_ind);
+    *uci_ind = *ind;
+    ind->uci_list = NULL;
     if (!put_queue(&gnb_uci_ind_queue[ind->header.phy_id], uci_ind)) {
       LOG_E(NR_MAC, "Put_queue failed for uci_ind\n");
       free_uci_indication(uci_ind);
