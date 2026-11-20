@@ -25,10 +25,17 @@ cat $CONFIGFILE
 
 new_args=()
 
-while [[ $# -gt 0 ]]; do
-  new_args+=("$1")
-  shift
-done
+if [[ -v ALT_CMD ]]; then
+  echo "Alternative command provided: ${ALT_CMD}"
+  for word in ${ALT_CMD}; do
+      new_args+=("$word")
+  done
+else
+  while [[ $# -gt 0 ]]; do
+    new_args+=("$1")
+    shift
+  done
+fi
 
 new_args+=("-O")
 new_args+=("$CONFIGFILE")
@@ -51,10 +58,6 @@ echo "=================================="
 echo "== Starting gNB soft modem"
 if [[ -v USE_ADDITIONAL_OPTIONS ]]; then
     echo "Additional option(s): ${USE_ADDITIONAL_OPTIONS}"
-    while [[ $# -gt 0 ]]; do
-        new_args+=("$1")
-        shift
-    done
     for word in ${USE_ADDITIONAL_OPTIONS}; do
         new_args+=("$word")
     done
