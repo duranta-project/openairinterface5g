@@ -73,7 +73,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
 void update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1, int num_sibs, int sibs[num_sibs]);
 int encode_sysinfo_ie(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len);
 void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1);
-int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size);
+int encode_SIB_NR(const NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size);
 void add_sib_to_systeminformation(NR_SystemInformation_IEs_t *si, struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type);
 NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc);
 

@@ -3108,7 +3108,7 @@ void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1)
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, sib1);
 }
 
-int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size)
+int encode_SIB_NR(const NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size)
 {
   AssertFatal(max_buffer_size <= NR_MAX_SIB_LENGTH / 8,
               "Maximum buffer size too large: 3GPP TS 38.331 section 5.2.1 - The physical layer imposes a limit to the "
@@ -4524,11 +4524,10 @@ int encode_measgap_config(const measgap_config_t *c, uint8_t *buf)
   return (int)((enc_rval_mgc.encoded + 7) >> 3);
 }
 
-#define NR_MAC_PRS_TX_POWER_DBM 0
-
 static void fill_prs_configuration(f1ap_prs_configuration_t *out,
                                    const nr_mac_prs_config_t *cfg,
-                                   const f1ap_served_cell_info_t *du_cell)
+                                   const f1ap_served_cell_info_t *du_cell,
+                                   int prs_power)
 {
   out->prs_resource_set_list_length = 1;
   out->prs_resource_set = calloc_or_fail(1, sizeof(*out->prs_resource_set));
@@ -4556,7 +4555,12 @@ static void fill_prs_configuration(f1ap_prs_configuration_t *out,
                 "PRS resources %d and 0 have different NumPRSSymbols: NRPPa has one value per resource set\n",
                 k);
   set->resource_number_of_symbols = pdu0->numSymbols;
-  set->prs_resource_transmit_power = NR_MAC_PRS_TX_POWER_DBM;
+  set->prs_resource_transmit_power = prs_power;
+  set->muting1_length = cfg->muting1_length;
+  set->muting1_repetition = cfg->muting1_repetition;
+  memcpy(set->muting1_bits, cfg->muting1_bits, sizeof(set->muting1_bits));
+  set->muting2_length = cfg->muting2_length;
+  memcpy(set->muting2_bits, cfg->muting2_bits, sizeof(set->muting2_bits));
 
   set->prs_resource_list_length = cfg->num_prs_resources;
   set->prs_resource = calloc_or_fail(cfg->num_prs_resources, sizeof(*set->prs_resource));
@@ -4614,7 +4618,10 @@ void create_trp_info_item(const f1ap_trp_information_req_t *req,
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_PRS_CONFIG:
         trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-        fill_prs_configuration(&trp_info_type_resp_item->choice.prs_configuration, mac->prs_config, du_cell);
+        /* The softmodem sends PRS and SSB with the same amplitude. */
+        nr_cell_sched_t *cell = nr_mac_get_cell_by_cgi(mac, du_cell->plmn, du_cell->nr_cellid);
+        fill_prs_configuration(&trp_info_type_resp_item->choice.prs_configuration, mac->prs_config, du_cell,
+                               cell->common_channels.ServingCellConfigCommon->ss_PBCH_BlockPower);
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_SSB_CONFIG:
         AssertFatal(false, "SSB config not supported\n");

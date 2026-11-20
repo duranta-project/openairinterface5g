@@ -348,6 +348,11 @@ typedef struct {
   /// used for otherSIB data
   uint8_t other_sib_bcch_pdu[2][NR_MAX_SIB_LENGTH / 8];
   int other_sib_bcch_length[2];
+  /// PosSI message carried on BCCH-DL-SCH
+  uint8_t pos_sib_bcch_pdu[NR_MAX_SIB_LENGTH / 8];
+  int pos_sib_bcch_length;
+  uint16_t pos_sib_periodicity;
+  bool pos_sib_active;
   /// VRB map for common channels
   uint16_t vrb_map[MAX_NUM_BEAM_PERIODS][275];
   /// VRB map for common channels and PUSCH, dynamically allocated because
@@ -1391,7 +1396,12 @@ typedef struct nr_mac_prs_config_s {
   uint8_t repetition;
   uint8_t time_gap;
   uint8_t num_prs_resources;
-  nr_mac_prs_resource_t resource[];
+  uint8_t muting1_length;
+  uint8_t muting1_bits[4];
+  uint8_t muting1_repetition;
+  uint8_t muting2_length;
+  uint8_t muting2_bits[4];
+  nr_mac_prs_resource_t resource[NR_MAC_MAX_PRS_RESOURCES];
 } nr_mac_prs_config_t;
 
 /*! \brief top level gNB MAC structure */
