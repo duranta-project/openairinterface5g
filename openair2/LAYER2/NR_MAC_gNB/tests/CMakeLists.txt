@@ -11,3 +11,11 @@ add_dependencies(tests test_nr_mac_gnb)
 include(GoogleTest)
 # one process per test, see test_nr_mac_gnb.cpp
 gtest_discover_tests(test_nr_mac_gnb)
+
+add_executable(test_si_window test_si_window.c)
+target_include_directories(test_si_window PRIVATE ${OPENAIR2_DIR}/LAYER2)
+target_compile_options(test_si_window PRIVATE -ffunction-sections -fdata-sections)
+target_link_options(test_si_window PRIVATE -Wl,--gc-sections,--no-export-dynamic)
+target_link_libraries(test_si_window PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs minimal_lib m)
+add_dependencies(tests test_si_window)
+add_test(NAME test_si_window COMMAND test_si_window)
