@@ -196,13 +196,8 @@ int CU_handle_UE_CONTEXT_MODIFICATION_REQUIRED(instance_t instance, sctp_assoc_t
                              false);
   if (ie != NULL) {
     F1AP_DUtoCURRCInformation_t *du2cu = &ie->value.choice.DUtoCURRCInformation;
-    required->du_to_cu_rrc_information = malloc(sizeof(*required->du_to_cu_rrc_information));
-    AssertFatal(required->du_to_cu_rrc_information != NULL, "memory allocation failed\n");
-
-    required->du_to_cu_rrc_information->cellGroupConfig = malloc(du2cu->cellGroupConfig.size);
-    AssertFatal(required->du_to_cu_rrc_information->cellGroupConfig != NULL, "memory allocation failed\n");
-    memcpy(required->du_to_cu_rrc_information->cellGroupConfig, du2cu->cellGroupConfig.buf, du2cu->cellGroupConfig.size);
-    required->du_to_cu_rrc_information->cellGroupConfig_length = du2cu->cellGroupConfig.size;
+    required->du_to_cu_rrc_information = calloc_or_fail(1, sizeof(*required->du_to_cu_rrc_information));
+    required->du_to_cu_rrc_information->cell_group_config = create_byte_array(du2cu->cellGroupConfig.size, du2cu->cellGroupConfig.buf);
 
     AssertFatal(du2cu->measGapConfig == NULL, "handling of measGapConfig not implemented\n");
     AssertFatal(du2cu->requestedP_MaxFR1 == NULL, "handling of requestedP_MaxFR1 not implemented\n");
@@ -326,12 +321,12 @@ int CU_send_UE_CONTEXT_MODIFICATION_CONFIRM(sctp_assoc_t assoc_id, f1ap_ue_conte
   /* not implemented*/
 
   /* optional: RRC Container */
-  if (confirm->rrc_container != NULL) {
+  if (confirm->rrc_container.len > 0) {
     asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationConfirmIEs_t, ie);
     ie->id = F1AP_ProtocolIE_ID_id_RRCContainer;
     ie->criticality = F1AP_Criticality_ignore;
     ie->value.present = F1AP_UEContextModificationConfirmIEs__value_PR_RRCContainer;
-    OCTET_STRING_fromBuf(&ie->value.choice.RRCContainer, (const char *)confirm->rrc_container, confirm->rrc_container_length);
+    OCTET_STRING_fromBuf(&ie->value.choice.RRCContainer, (const char *)confirm->rrc_container.buf, confirm->rrc_container.len);
   }
 
   /* optional: CriticalityDiagnostics */

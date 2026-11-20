@@ -989,7 +989,7 @@ void ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
 
     /* Encode CellGroupConfig for transparent forwarding in the DU to CU trasnfer IE
      * CU will forward these encoded bytes directly to UE without decode/re-encode cycles */
-    resp.du_to_cu_rrc_info = calloc_or_fail(1, sizeof(du_to_cu_rrc_information_t));
+    resp.du_to_cu_rrc_info = calloc_or_fail(1, sizeof(*resp.du_to_cu_rrc_info));
     resp.du_to_cu_rrc_info->cell_group_config = encode_cellgroup_config(new_CellGroup);
 
     // Replace reconfigCellGroup with new_CellGroup (now contains complete config with spCellConfig restored)
@@ -1055,9 +1055,9 @@ void ue_context_modification_confirm(const f1ap_ue_context_modif_confirm_t *conf
   UE->cm_info.trigger_info = NO_TRIGGER;
   NR_SCHED_UNLOCK(&mac->sched_lock);
 
-  if (confirm->rrc_container_length > 0) {
+  if (confirm->rrc_container.len > 0) {
     logical_chan_id_t id = 1;
-    nr_rlc_srb_recv_sdu(confirm->gNB_DU_ue_id, id, confirm->rrc_container, confirm->rrc_container_length);
+    nr_rlc_srb_recv_sdu(confirm->gNB_DU_ue_id, id, confirm->rrc_container.buf, confirm->rrc_container.len);
   }
 }
 

@@ -181,26 +181,19 @@ int DU_send_UE_CONTEXT_MODIFICATION_REQUIRED(sctp_assoc_t assoc_id, f1ap_ue_cont
     ie3->criticality = F1AP_Criticality_reject;
     ie3->value.present = F1AP_UEContextModificationRequiredIEs__value_PR_DUtoCURRCInformation;
 
-    const du_to_cu_rrc_information_t *du2cu = required->du_to_cu_rrc_information;
-    AssertFatal(du2cu->cellGroupConfig != NULL, "du2cu cellGroupConfig is mandatory!\n");
+    const f1ap_du_to_cu_rrc_info_t *du2cu = required->du_to_cu_rrc_information;
+    AssertFatal(du2cu->cell_group_config.buf != NULL, "du2cu cellGroupConfig is mandatory!\n");
 
     /* mandatorycellGroupConfig */
     OCTET_STRING_fromBuf(&ie3->value.choice.DUtoCURRCInformation.cellGroupConfig,
-                         (const char *)du2cu->cellGroupConfig,
-                         du2cu->cellGroupConfig_length);
+                         (const char *)du2cu->cell_group_config.buf,
+                         du2cu->cell_group_config.len);
 
     /* optional: measGapConfig */
-    if (du2cu->measGapConfig != NULL) {
+    if (du2cu->meas_gap_config != NULL) {
       OCTET_STRING_fromBuf(ie3->value.choice.DUtoCURRCInformation.measGapConfig,
-                           (const char *)du2cu->measGapConfig,
-                           du2cu->measGapConfig_length);
-    }
-
-    /* optional: requestedP_MaxFR1 */
-    if (du2cu->requestedP_MaxFR1 != NULL) {
-      OCTET_STRING_fromBuf(ie3->value.choice.DUtoCURRCInformation.requestedP_MaxFR1,
-                           (const char *)du2cu->requestedP_MaxFR1,
-                           du2cu->requestedP_MaxFR1_length);
+                           (const char *)du2cu->meas_gap_config->buf,
+                           du2cu->meas_gap_config->len);
     }
   }
 
@@ -303,10 +296,7 @@ int DU_handle_UE_CONTEXT_MODIFICATION_CONFIRM(instance_t instance, sctp_assoc_t 
   F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t, ie, container, F1AP_ProtocolIE_ID_id_RRCContainer, false);
   if (ie != NULL) {
     F1AP_RRCContainer_t *rrc_container = &ie->value.choice.RRCContainer;
-    confirm.rrc_container = malloc(rrc_container->size);
-    AssertFatal(confirm.rrc_container != NULL, "memory allocation failed\n");
-    memcpy(confirm.rrc_container, rrc_container->buf, rrc_container->size);
-    confirm.rrc_container_length = rrc_container->size;
+    confirm.rrc_container = create_byte_array(rrc_container->size, rrc_container->buf);
   }
 
   /* optional: Criticality Diagnostics */

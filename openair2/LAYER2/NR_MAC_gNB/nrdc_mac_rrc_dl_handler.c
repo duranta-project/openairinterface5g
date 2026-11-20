@@ -188,7 +188,7 @@ void nrdc_ue_context_modification_request(const f1ap_ue_context_mod_req_t *req)
     }
   };
 
-  resp.du_to_cu_rrc_info = calloc_or_fail(1, sizeof(du_to_cu_rrc_information_t));
+  resp.du_to_cu_rrc_info = calloc_or_fail(1, sizeof(*resp.du_to_cu_rrc_info));
   resp.du_to_cu_rrc_info->cell_group_config = encode_cellgroup_config(&cell_group);
 
   NR_SCHED_UNLOCK(&mac->sched_lock);

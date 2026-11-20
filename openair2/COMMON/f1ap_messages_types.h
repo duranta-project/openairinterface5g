@@ -393,15 +393,6 @@ typedef struct f1ap_du_to_cu_rrc_info_s {
   byte_array_t *meas_gap_config;
 } f1ap_du_to_cu_rrc_info_t;
 
-typedef struct du_to_cu_rrc_information_s {
-  uint8_t * cellGroupConfig;
-  uint32_t  cellGroupConfig_length;
-  uint8_t * measGapConfig;
-  uint32_t  measGapConfig_length;
-  uint8_t * requestedP_MaxFR1;
-  uint32_t  requestedP_MaxFR1_length;
-}du_to_cu_rrc_information_t;
-
 typedef enum ReconfigurationCompl_e {
   RRCreconf_info_not_present = 0,
   RRCreconf_failure          = 1,
@@ -589,7 +580,7 @@ typedef struct f1ap_ue_context_mod_resp_s {
 typedef struct f1ap_ue_context_modif_required_s {
   uint32_t gNB_CU_ue_id;
   uint32_t gNB_DU_ue_id;
-  du_to_cu_rrc_information_t *du_to_cu_rrc_information;
+  f1ap_du_to_cu_rrc_info_t *du_to_cu_rrc_information;
   f1ap_Cause_t cause;
   long cause_value;
 } f1ap_ue_context_modif_required_t;
@@ -597,8 +588,7 @@ typedef struct f1ap_ue_context_modif_required_s {
 typedef struct f1ap_ue_context_modif_confirm_s {
   uint32_t gNB_CU_ue_id;
   uint32_t gNB_DU_ue_id;
-  uint8_t *rrc_container;
-  int      rrc_container_length;
+  byte_array_t rrc_container;
 } f1ap_ue_context_modif_confirm_t;
 
 typedef struct f1ap_ue_context_modif_refuse_s {
