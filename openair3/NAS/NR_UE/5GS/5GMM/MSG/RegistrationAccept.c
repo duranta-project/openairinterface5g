@@ -18,7 +18,6 @@
 #include "ds/byte_array.h"
 #include "fgmm_lib.h"
 
-#define IEI_5G_GUTI 0x77
 #define FGS_REGISTRATION_RESULT_LEN 2
 #define REGISTRATION_ACCEPT_MIN_LEN FGS_REGISTRATION_RESULT_LEN // (5GS registration result) 2 octets
 
@@ -230,7 +229,7 @@ int encode_registration_accept(const registration_accept_msg *registration_accep
   encoded += encode_fgs_registration_result(ba, registration_accept);
 
   if (registration_accept->guti) {
-    int mi_enc = encode_5gs_mobile_identity(registration_accept->guti, 0x77, buffer + encoded, len - encoded);
+    int mi_enc = encode_5gs_mobile_identity(registration_accept->guti, IEI_5G_GUTI, buffer + encoded, len - encoded);
     if (mi_enc < 0)
       return mi_enc;
     encoded += mi_enc;
@@ -277,19 +276,8 @@ bool eq_fgmm_registration_accept(const registration_accept_msg *a, const registr
 
   // GUTI (optional)
   if (a->guti && b->guti) {
-    _EQ_CHECK_INT(a->guti->guti.spare, b->guti->guti.spare);
-    _EQ_CHECK_INT(a->guti->guti.oddeven, b->guti->guti.oddeven);
-    _EQ_CHECK_INT(a->guti->guti.typeofidentity, b->guti->guti.typeofidentity);
-    _EQ_CHECK_INT(a->guti->guti.mccdigit2, b->guti->guti.mccdigit2);
-    _EQ_CHECK_INT(a->guti->guti.mccdigit1, b->guti->guti.mccdigit1);
-    _EQ_CHECK_INT(a->guti->guti.mncdigit3, b->guti->guti.mncdigit3);
-    _EQ_CHECK_INT(a->guti->guti.mccdigit3, b->guti->guti.mccdigit3);
-    _EQ_CHECK_INT(a->guti->guti.mncdigit2, b->guti->guti.mncdigit2);
-    _EQ_CHECK_INT(a->guti->guti.mncdigit1, b->guti->guti.mncdigit1);
-    _EQ_CHECK_INT(a->guti->guti.amfregionid, b->guti->guti.amfregionid);
-    _EQ_CHECK_INT(a->guti->guti.amfsetid, b->guti->guti.amfsetid);
-    _EQ_CHECK_INT(a->guti->guti.amfpointer, b->guti->guti.amfpointer);
-    _EQ_CHECK_INT(a->guti->guti.tmsi, b->guti->guti.tmsi);
+    if (!eq_fgs_guti(&a->guti->guti, &b->guti->guti))
+      return false;
   } else if ((a->guti && !b->guti) || (!a->guti && b->guti)) {
     PRINT_ERROR("NAS Equality Check failure: One of the two GUTIs is NULL\n");
     return false;

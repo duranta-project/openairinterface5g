@@ -131,7 +131,14 @@ typedef union FGSMobileIdentity_tag {
 } FGSMobileIdentity;
 // clang-format on
 
+/// IEI of the 5G-GUTI in the messages that carry it as an optional IE (TS 24.501: Registration Accept 8.2.7,
+/// Configuration Update Command 8.2.19)
+#define IEI_5G_GUTI 0x77
+
 int encode_5gs_mobile_identity(const FGSMobileIdentity *fgsmobileidentity, uint8_t iei, uint8_t *buffer, uint32_t len);
+
+/** @brief Equality check of two 5G-GUTI mobile identities (all fields) */
+bool eq_fgs_guti(const Guti5GSMobileIdentity_t *a, const Guti5GSMobileIdentity_t *b);
 
 int decode_5gs_mobile_identity(FGSMobileIdentity *fgsmobileidentity, uint8_t iei, const uint8_t *buffer, uint32_t len);
 
