@@ -53,6 +53,10 @@
 #include <nfapi.h>
 #include <debug.h>
 
+#ifndef FAPI_TARGET_BYTE_ORDER
+#define FAPI_TARGET_BYTE_ORDER __ORDER_LITTLE_ENDIAN__
+#endif
+
 // What to do when an error happens (e.g., a push or pull fails)
 static inline void on_error()
 {
@@ -104,7 +108,7 @@ uint8_t push16(uint16_t in, uint8_t **out, uint8_t *end)
   uint8_t *pOut = *out;
 
   if ((end - pOut) >= 2) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
     pOut[1] = (in & 0xFF00) >> 8;
     pOut[0] = (in & 0xFF);
 #else
@@ -125,7 +129,7 @@ uint8_t pushs16(int16_t in, uint8_t **out, uint8_t *end)
   uint8_t *pOut = *out;
 
   if ((end - pOut) >= 2) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
     pOut[1] = (in & 0xFF00) >> 8;
     pOut[0] = (in & 0xFF);
 #else
@@ -146,7 +150,7 @@ uint8_t push32(uint32_t in, uint8_t **out, uint8_t *end)
   uint8_t *pOut = *out;
 
   if ((end - pOut) >= 4) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
     pOut[3] = (in & 0xFF000000) >> 24;
     pOut[2] = (in & 0xFF0000) >> 16;
     pOut[1] = (in & 0xFF00) >> 8;
@@ -171,7 +175,7 @@ uint8_t pushs32(int32_t in, uint8_t **out, uint8_t *end)
   uint8_t *pOut = *out;
 
   if ((end - pOut) >= 4) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
     pOut[3] = (in & 0xFF000000) >> 24;
     pOut[2] = (in & 0xFF0000) >> 16;
     pOut[1] = (in & 0xFF00) >> 8;
@@ -226,7 +230,7 @@ uint8_t pull16(uint8_t **in, uint16_t *out, uint8_t *end)
   uint8_t *pIn = *in;
 
   if ((end - pIn) >= 2) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
     *out = ((pIn[1]) << 8) | pIn[0];
 #else
     *out = ((pIn[0]) << 8) | pIn[1];
@@ -245,7 +249,7 @@ uint8_t pulls16(uint8_t **in, int16_t *out, uint8_t *end)
   uint8_t *pIn = *in;
 
   if ((end - pIn) >= 2) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
     *out = ((pIn[1]) << 8) | pIn[0];
 #else
     *out = ((pIn[0]) << 8) | pIn[1];
@@ -270,7 +274,7 @@ uint8_t pullx32(uint8_t length, uint8_t **in, uint32_t *out, uint8_t *end)
   if ((end - pIn) >= length) {
     uint32_t val = 0;
     for (int i = 0; i < length; i++) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
       val |= (uint32_t)pIn[i] << (8 * i);
 #else
       val |= (uint32_t)pIn[i] << (8 * (length - 1 - i));
@@ -291,7 +295,7 @@ uint8_t pull32(uint8_t **in, uint32_t *out, uint8_t *end)
   uint8_t *pIn = *in;
 
   if ((end - pIn) >= 4) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
     *out = ((uint32_t)pIn[3] << 24) | (pIn[2] << 16) | (pIn[1] << 8) | pIn[0];
 #else
     *out = ((uint32_t)pIn[0] << 24) | (pIn[1] << 16) | (pIn[2] << 8) | pIn[3];
@@ -310,7 +314,7 @@ uint8_t pulls32(uint8_t **in, int32_t *out, uint8_t *end)
   uint8_t *pIn = *in;
 
   if ((end - pIn) >= 4) {
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
     *out = (pIn[3] << 24) | (pIn[2] << 16) | (pIn[1] << 8) | pIn[0];
 #else
     *out = (pIn[0] << 24) | (pIn[1] << 16) | (pIn[2] << 8) | pIn[3];
@@ -648,7 +652,7 @@ uint8_t unpackarray(uint8_t **ppReadPackedMsg,
 uint32_t pack_dci_payload(uint8_t *payload, uint16_t payloadSizeBits, uint8_t **out, uint8_t *end)
 {
   uint8_t dci_byte_len = (payloadSizeBits + 7) / 8;
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
   // Helper vars for DCI Payload
   uint8_t dci_bytes_inverted[DCI_PAYLOAD_BYTE_LEN] = {0};
   uint8_t payload_internal[DCI_PAYLOAD_BYTE_LEN] = {0}; // Used to not edit the "outside" pointer
@@ -680,7 +684,7 @@ uint32_t unpack_dci_payload(uint8_t *payload, uint16_t payloadSizeBits, uint8_t 
   // Pull the inverted DCI and invert it back
   //  Helper vars for DCI Payload
   uint8_t dci_byte_len = (payloadSizeBits + 7) / 8;
-#ifdef FAPI_BYTE_ORDERING_BIG_ENDIAN
+#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
   uint8_t dci_bytes_inverted[DCI_PAYLOAD_BYTE_LEN] = {0};
   // Get DCI array inverted
   uint32_t pullresult = pullarray8(in, dci_bytes_inverted, DCI_PAYLOAD_BYTE_LEN, dci_byte_len, end);
