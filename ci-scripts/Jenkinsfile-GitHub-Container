@@ -58,6 +58,7 @@ def saORUStatus = ''
 def saHandoverStatus = ''
 def saAERIALOAIUEStatus = ''
 def saOAIUEStatus = ''
+def sidelinkOAIUEStatus = ''
 
 pipeline {
   agent {
@@ -899,6 +900,27 @@ pipeline {
               script {
                 currentBuild.result = 'FAILURE'
                 failingStages += saAERIALOAIUEStatus
+              }
+            }
+          }
+        }
+        stage ("Sidelink-OAIUE") {
+          when { expression {do5Gtest || do5GUeTest} }
+          steps {
+            script {
+              triggerDownstreamJob ('RAN-Sidelink-OAIUE')
+            }
+          }
+          post {
+            always {
+              script {
+                sidelinkOAIUEStatus = finalizeDownstreamJob('RAN-Sidelink-OAIUE')
+              }
+            }
+            failure {
+              script {
+                currentBuild.result = 'FAILURE'
+                failingStages += sidelinkOAIUEStatus
               }
             }
           }

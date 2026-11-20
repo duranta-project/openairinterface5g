@@ -17,7 +17,7 @@ services:
         devices:
             - /dev/net/tun:/dev/net/tun
         volumes:
-            - ../../../targets/PROJECTS/NR-SIDELINK/CONF/sl_sync_ref.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+            - ../../conf_files/sl_sync_ref.conf:/opt/oai-nr-ue/etc/nr-ue.conf
         healthcheck:
             test: /bin/bash -c "pgrep nr-uesoftmodem"
             start_period: 10s
@@ -44,7 +44,7 @@ services:
         devices:
              - /dev/net/tun:/dev/net/tun
         volumes:
-            - ../../../targets/PROJECTS/NR-SIDELINK/CONF/sl_ue1.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+            - ../../conf_files/sl_ue1.conf:/opt/oai-nr-ue/etc/nr-ue.conf
         healthcheck:
             test: /bin/bash -c "pgrep nr-uesoftmodem"
             start_period: 10s
