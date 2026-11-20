@@ -11,7 +11,7 @@
 //#include "CUnit/Console.h"
 
 #include "nfapi_interface.h"
-#include "nfapi_pnf_interface.h"
+#include "nfapi_lte_pnf_interface.h"
 #include "nfapi.h"
 #include <stdio.h>  // for printf
 #include <stdlib.h>

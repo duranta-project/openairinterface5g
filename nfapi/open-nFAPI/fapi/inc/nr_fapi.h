@@ -11,7 +11,6 @@
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
 #include "nfapi.h"
-#include "nfapi/oai_integration/vendor_ext.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include "assertions.h"

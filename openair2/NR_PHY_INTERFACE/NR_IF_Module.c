@@ -18,7 +18,7 @@
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "nfapi_interface.h"
 #include "utils.h"
-#include "nfapi/oai_integration/nfapi_pnf.h"
+#include "nfapi/oai_integration/pnf/nfapi_nr_pnf.h"
 
 #define MAX_IF_MODULES 100
 

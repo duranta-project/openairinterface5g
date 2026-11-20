@@ -5,7 +5,7 @@ add_library(nfapi_vnf_common_lib
         src/vnf_interface_common.c
         src/vnf_p7_common.c
         src/vnf_p7_interface_common.c)
-target_link_libraries(nfapi_vnf_common_lib PUBLIC nfapi_lte_lib)
+target_link_libraries(nfapi_vnf_common_lib PUBLIC nfapi_lte_lib nfapi_nr_lib)
 target_include_directories(nfapi_vnf_common_lib PUBLIC public_inc)
 target_include_directories(nfapi_vnf_common_lib PUBLIC inc)
 

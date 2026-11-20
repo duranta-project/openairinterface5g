@@ -9,7 +9,7 @@
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "openair1/PHY/LTE_TRANSPORT/transport_common.h"
 #include "vnf_lte.h"
-#include "nfapi/open-nFAPI/pnf/inc/pnf.h"
+#include "nfapi/open-nFAPI/pnf/inc/pnf_lte.h"
 int l1_north_init_gNB(void){return 0;}
 
 int slot_ahead = 6;
