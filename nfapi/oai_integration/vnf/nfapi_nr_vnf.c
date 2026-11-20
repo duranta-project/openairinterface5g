@@ -240,7 +240,8 @@ int phy_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind)
 
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     nfapi_nr_rx_data_indication_t *rx_ind = CALLOC(1, sizeof(*rx_ind));
-    copy_rx_data_indication(ind, rx_ind);
+    *rx_ind = *ind;          // shallow copy: rx_ind now owns pdu_list and all pdu pointers
+    ind->number_of_pdus = 0; // free_rx_data_indication in the caller becomes a no-op
     if (!put_queue(&gnb_rx_ind_queue[ind->header.phy_id], rx_ind)) {
       LOG_E(NR_MAC, "Put_queue failed for rx_ind\n");
       free_rx_data_indication(rx_ind);
