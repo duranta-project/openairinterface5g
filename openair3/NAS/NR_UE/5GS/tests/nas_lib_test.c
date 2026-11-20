@@ -16,6 +16,7 @@
 #include "fgmm_authentication_failure.h"
 #include "FGSNASSecurityModeReject.h"
 #include "fgmm_authentication_reject.h"
+#include "fgmm_configuration_update_command.h"
 #include "nr_nas_msg.h"
 
 configmodule_interface_t *uniqCfg = NULL;
@@ -486,6 +487,81 @@ static void test_msg_headers(void)
   AssertFatal(decode_5gsm_msg_header(&sm_header, sm, sizeof(sm) - 1) < 0, "decode_5gsm_msg_header() accepted a truncated header\n");
 }
 
+/**
+ * @brief Test NAS Configuration Update Command enc/dec, with IEs the UE skips
+ */
+static void test_configuration_update_command(void)
+{
+  fgmm_configuration_update_command_t orig = {
+      .ack_requested = true,
+      .guti = calloc_or_fail(1, sizeof(*orig.guti)),
+  };
+  orig.guti->guti.spare = 0b1111;
+  orig.guti->guti.typeofidentity = FGS_MOBILE_IDENTITY_5G_GUTI;
+  orig.guti->guti.mccdigit1 = 2;
+  orig.guti->guti.mccdigit2 = 0;
+  orig.guti->guti.mccdigit3 = 8;
+  orig.guti->guti.mncdigit1 = 9;
+  orig.guti->guti.mncdigit2 = 9;
+  orig.guti->guti.mncdigit3 = 0xf;
+  orig.guti->guti.amfregionid = 0x01;
+  orig.guti->guti.amfsetid = 0x01;
+  orig.guti->guti.amfpointer = 0x01;
+  orig.guti->guti.tmsi = 0x12345678;
+
+  uint8_t buf[64] = {0};
+  byte_array_t buffer = {.buf = buf, .len = sizeof(buf)};
+  int encoded_length = encode_fgmm_configuration_update_command(&buffer, &orig);
+  AssertFatal(encoded_length == 1 + 14, "encode_fgmm_configuration_update_command() failed (%d)\n", encoded_length);
+  AssertFatal(buf[0] == 0xd1, "Configuration update indication mismatch: 0x%02x\n", buf[0]);
+
+  // IEs not used by the UE: Local time zone (TV), Full name for network (TLV), LADN information (TLV-E)
+  const uint8_t skipped[] = {0x46, 0x40, 0x43, 0x02, 0xaa, 0xbb, 0x79, 0x00, 0x01, 0xcc};
+  memcpy(buf + encoded_length, skipped, sizeof(skipped));
+  buffer.len = encoded_length + sizeof(skipped);
+
+  fgmm_configuration_update_command_t dec = {0};
+  int decoded_length = decode_fgmm_configuration_update_command(&dec, &buffer);
+  AssertFatal(decoded_length == buffer.len, "decode_fgmm_configuration_update_command() failed (%d)\n", decoded_length);
+  AssertFatal(eq_fgmm_configuration_update_command(&orig, &dec),
+              "test_configuration_update_command() failed: original and decoded messages do not match\n");
+
+  // truncated last IE: it is treated as not present, the IEs before it are kept (TS 24.501 7.7.1)
+  buffer.len -= 1;
+  fgmm_configuration_update_command_t trunc = {0};
+  decoded_length = decode_fgmm_configuration_update_command(&trunc, &buffer);
+  AssertFatal(decoded_length == encoded_length + 6, "truncated IE: unexpected decoded length %d\n", decoded_length);
+  AssertFatal(eq_fgmm_configuration_update_command(&orig, &trunc), "truncated IE: the IEs before it were not kept\n");
+
+  // syntactically incorrect 5G-GUTI (type of identity SUCI): treated as not present, the indication is kept
+  uint8_t bad_guti[1 + 14];
+  memcpy(bad_guti, buf, sizeof(bad_guti));
+  bad_guti[1 + 3] = 0xf1;
+  byte_array_t bad_buffer = {.buf = bad_guti, .len = sizeof(bad_guti)};
+  fgmm_configuration_update_command_t bad = {0};
+  decoded_length = decode_fgmm_configuration_update_command(&bad, &bad_buffer);
+  AssertFatal(decoded_length == sizeof(bad_guti), "incorrect 5G-GUTI: unexpected decoded length %d\n", decoded_length);
+  AssertFatal(bad.ack_requested && !bad.registration_requested && bad.guti == NULL, "incorrect 5G-GUTI not treated as not present\n");
+
+  // repeated IEs: only the first one is handled (TS 24.501 7.6.3)
+  uint8_t rep[1 + 14 + 1 + 14];
+  memcpy(rep, buf, 1 + 14);
+  rep[1 + 14] = 0xd2; // second Configuration update indication: registration requested
+  memcpy(rep + 1 + 14 + 1, buf + 1, 14); // second 5G-GUTI with another TMSI
+  rep[sizeof(rep) - 1] ^= 0xff;
+  byte_array_t rep_buffer = {.buf = rep, .len = sizeof(rep)};
+  fgmm_configuration_update_command_t first = {0};
+  decoded_length = decode_fgmm_configuration_update_command(&first, &rep_buffer);
+  AssertFatal(decoded_length == sizeof(rep), "repeated IEs: unexpected decoded length %d\n", decoded_length);
+  AssertFatal(eq_fgmm_configuration_update_command(&orig, &first), "repeated IEs: the first occurrence was not kept\n");
+
+  free_fgmm_configuration_update_command(&first);
+  free_fgmm_configuration_update_command(&bad);
+  free_fgmm_configuration_update_command(&trunc);
+  free_fgmm_configuration_update_command(&dec);
+  free_fgmm_configuration_update_command(&orig);
+}
+
 int main()
 {
   // Initialize logging system
@@ -502,5 +578,6 @@ int main()
   test_auth_reject();
   test_security_mode_reject();
   test_msg_headers();
+  test_configuration_update_command();
   return 0;
 }

@@ -80,6 +80,9 @@ int mm_msg_encode(const fgmm_nas_message_plain_t *p, uint8_t *buffer, uint32_t l
     case FGS_SERVICE_REQUEST:
       enc_msg = encode_fgs_service_request(buffer, &p->mm_msg.service_request, len);
       break;
+    case FGS_CONFIGURATION_UPDATE_COMPLETE:
+      enc_msg = 0; // 5GMM header only (TS 24.501 8.2.20)
+      break;
     default:
       LOG_TRACE(ERROR, " Unexpected message type: 0x%x", p->header.message_type);
       enc_msg = TLV_ENCODE_WRONG_MESSAGE_TYPE;
