@@ -88,5 +88,7 @@
 #include "E1AP_PDU-Session-Resource-Activity-List.h"
 #include "E1AP_PDU-Session-Resource-Activity-Item.h"
 #include "E1AP_PDU-Session-Resource-Activity.h"
+// E1 DL Data Notification
+#include "E1AP_DLDataNotification.h"
 
 #endif /* E1AP_LIB_INCLUDES_H_ */

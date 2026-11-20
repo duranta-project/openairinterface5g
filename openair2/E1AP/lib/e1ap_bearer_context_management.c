@@ -3340,3 +3340,94 @@ void free_e1_bearer_context_inactivity_notification(const e1ap_bearer_context_in
 {
   free(msg->pduSessionActivity);
 }
+
+/* ====================================
+ *   E1AP DL Data Notification
+ * ==================================== */
+
+/** @brief Encode DL Data Notification (TS 38.463 clause 8.3.7 / 9.2.2.13)
+ *         gNB-CU-UP -> gNB-CU-CP */
+E1AP_E1AP_PDU_t *encode_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg)
+{
+  DevAssert(msg != NULL);
+
+  E1AP_E1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+  pdu->present = E1AP_E1AP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, initMsg);
+  initMsg->procedureCode = E1AP_ProcedureCode_id_dLDataNotification;
+  initMsg->criticality = E1AP_Criticality_ignore;
+  initMsg->value.present = E1AP_InitiatingMessage__value_PR_DLDataNotification;
+  E1AP_DLDataNotification_t *out = &pdu->choice.initiatingMessage->value.choice.DLDataNotification;
+
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_DLDataNotificationIEs_t, ie1);
+  ie1->id = E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID;
+  ie1->criticality = E1AP_Criticality_reject;
+  ie1->value.present = E1AP_DLDataNotificationIEs__value_PR_GNB_CU_CP_UE_E1AP_ID;
+  ie1->value.choice.GNB_CU_CP_UE_E1AP_ID = msg->gNB_cu_cp_ue_id;
+
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_DLDataNotificationIEs_t, ie2);
+  ie2->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID;
+  ie2->criticality = E1AP_Criticality_reject;
+  ie2->value.present = E1AP_DLDataNotificationIEs__value_PR_GNB_CU_UP_UE_E1AP_ID;
+  ie2->value.choice.GNB_CU_UP_UE_E1AP_ID = msg->gNB_cu_up_ue_id;
+
+  return pdu;
+}
+
+/** @brief Decode DL Data Notification (TS 38.463 clause 8.3.7 / 9.2.2.13) */
+bool decode_e1_dl_data_notification(e1ap_dl_data_notification_t *out, const E1AP_E1AP_PDU_t *pdu)
+{
+  DevAssert(out != NULL);
+  DevAssert(pdu != NULL);
+  _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_initiatingMessage);
+  E1AP_InitiatingMessage_t *type = pdu->choice.initiatingMessage;
+  _EQ_CHECK_LONG(type->procedureCode, E1AP_ProcedureCode_id_dLDataNotification);
+  _EQ_CHECK_INT(type->value.present, E1AP_InitiatingMessage__value_PR_DLDataNotification);
+  const E1AP_DLDataNotification_t *in = &type->value.choice.DLDataNotification;
+
+  E1AP_DLDataNotificationIEs_t *ie;
+  E1AP_LIB_FIND_IE(E1AP_DLDataNotificationIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID, true);
+  E1AP_LIB_FIND_IE(E1AP_DLDataNotificationIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    ie = in->protocolIEs.list.array[i];
+    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    switch (ie->id) {
+      case E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID:
+        _EQ_CHECK_INT(ie->value.present, E1AP_DLDataNotificationIEs__value_PR_GNB_CU_CP_UE_E1AP_ID);
+        out->gNB_cu_cp_ue_id = ie->value.choice.GNB_CU_CP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID:
+        _EQ_CHECK_INT(ie->value.present, E1AP_DLDataNotificationIEs__value_PR_GNB_CU_UP_UE_E1AP_ID);
+        out->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_PPI:
+      case E1AP_ProtocolIE_ID_id_PDU_Session_To_Notify_List:
+        /* optional IEs not decoded in this slice */
+        break;
+      default:
+        PRINT_ERROR("%s decoding failure: IE %ld is invalid\n", __func__, ie->id);
+        return false;
+    }
+  }
+  return true;
+}
+
+bool eq_e1_dl_data_notification(const e1ap_dl_data_notification_t *a, const e1ap_dl_data_notification_t *b)
+{
+  _EQ_CHECK_INT(a->gNB_cu_cp_ue_id, b->gNB_cu_cp_ue_id);
+  _EQ_CHECK_INT(a->gNB_cu_up_ue_id, b->gNB_cu_up_ue_id);
+  return true;
+}
+
+e1ap_dl_data_notification_t cp_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg)
+{
+  // Shallow copy only
+  e1ap_dl_data_notification_t cp = *msg;
+  return cp;
+}
+
+void free_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg)
+{
+  UNUSED(msg);
+}

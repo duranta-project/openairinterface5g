@@ -80,4 +80,10 @@ e1ap_bearer_context_inactivity_notification_t cp_bearer_context_inactivity_notif
     const e1ap_bearer_context_inactivity_notification_t *msg);
 void free_e1_bearer_context_inactivity_notification(const e1ap_bearer_context_inactivity_notification_t *msg);
 
+struct E1AP_E1AP_PDU *encode_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg);
+bool decode_e1_dl_data_notification(e1ap_dl_data_notification_t *out, const struct E1AP_E1AP_PDU *pdu);
+bool eq_e1_dl_data_notification(const e1ap_dl_data_notification_t *a, const e1ap_dl_data_notification_t *b);
+e1ap_dl_data_notification_t cp_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg);
+void free_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg);
+
 #endif /* E1AP_BEARER_CONTEXT_MANAGEMENT_H_ */

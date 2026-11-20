@@ -408,6 +408,30 @@ static void test_bearer_context_inactivity_notification(void)
   free_e1_bearer_context_inactivity_notification(&cp);
 }
 
+/** @brief Test E1AP DL Data Notification encoding/decoding (TS 38.463 8.3.7) */
+static void test_dl_data_notification(void)
+{
+  e1ap_dl_data_notification_t orig = {
+      .gNB_cu_cp_ue_id = 0x1234,
+      .gNB_cu_up_ue_id = 0x5678,
+  };
+
+  E1AP_E1AP_PDU_t *enc = encode_e1_dl_data_notification(&orig);
+  E1AP_E1AP_PDU_t *dec = e1ap_encode_decode(enc);
+  e1ap_msg_free(enc);
+
+  e1ap_dl_data_notification_t decoded = {0};
+  AssertFatal(decode_e1_dl_data_notification(&decoded, dec), "decode_e1_dl_data_notification failed");
+  e1ap_msg_free(dec);
+
+  AssertFatal(eq_e1_dl_data_notification(&orig, &decoded), "eq_e1_dl_data_notification: decoded message does not match original");
+  free_e1_dl_data_notification(&decoded);
+
+  e1ap_dl_data_notification_t cp = cp_e1_dl_data_notification(&orig);
+  AssertFatal(eq_e1_dl_data_notification(&orig, &cp), "eq_e1_dl_data_notification(): copied message doesn't match\n");
+  free_e1_dl_data_notification(&cp);
+}
+
 /** @brief Test E1AP Bearer Context Release Complete encoding/decoding */
 static void test_bearer_context_release_complete(void)
 {
@@ -1058,5 +1082,7 @@ int main()
   test_bearer_context_release_complete();
   // Bearer Context Inactivity Notification
   test_bearer_context_inactivity_notification();
+  // DL Data Notification
+  test_dl_data_notification();
   return 0;
 }

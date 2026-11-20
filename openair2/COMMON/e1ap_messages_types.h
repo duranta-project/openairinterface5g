@@ -716,4 +716,11 @@ typedef struct e1ap_bearer_context_inactivity_notification_s {
   e1ap_pdu_session_activity_item_t *pduSessionActivity;
 } e1ap_bearer_context_inactivity_notification_t;
 
+/** DL Data Notification (TS 38.463 clause 9.2.2.13 / 8.3.7)
+ * gNB-CU-UP -> gNB-CU-CP */
+typedef struct e1ap_dl_data_notification_s {
+  uint32_t gNB_cu_cp_ue_id;
+  uint32_t gNB_cu_up_ue_id;
+} e1ap_dl_data_notification_t;
+
 #endif /* E1AP_MESSAGES_TYPES_H */
