@@ -24,7 +24,8 @@ This document describes the minimal and performant system requirements for OpenA
 |Operating System |
 |-----------------|
 |Ubuntu 22/24/26  |
-|CentOS Stream 10 |
+|RHEL 9           |
+|CentOS Stream 9/10 |
 |Fedora 44        |
 |Debian 11        |
 |Rocky 9          |
