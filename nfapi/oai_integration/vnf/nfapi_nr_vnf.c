@@ -218,7 +218,8 @@ int phy_nr_crc_indication(nfapi_nr_crc_indication_t *ind)
 
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     nfapi_nr_crc_indication_t *crc_ind = CALLOC(1, sizeof(*crc_ind));
-    copy_crc_indication(ind, crc_ind);
+    *crc_ind = *ind;
+    ind->crc_list = NULL;
     if (!put_queue(&gnb_crc_ind_queue[ind->header.phy_id], crc_ind)) {
       LOG_E(NR_MAC, "Put_queue failed for crc_ind\n");
       free_crc_indication(crc_ind);
