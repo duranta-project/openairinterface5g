@@ -1,65 +1,199 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
+The slot pace is given by the fronthaul thread: `ru_thread()` for split 8 /
+IF5 (time domain), `split7_thread()` in the `fhi_72` library for split 7.2
+(frequency domain, through xran). Both feed the same L1 TX/RX pipeline. See
+[SW-archi-graph.md](./SW-archi-graph.md) for a per-thread description.
 
-## The main thread is in ru_thread()
-The infinite loop:
-### rx_rf()
-  Collect radio signal samples from RF board  
-    all SDR processing is triggered by I/Q sample reception and it's date (timestamp)  
-    TX I/Q samples will have a date in the future, compared to RX timestamp  
-    called for each 5G NR slot  
-    it blocks until data is available  
-    the internal time comes from the RF board sampling numbers  
-    (each sample has a incremental number representing a very accurate timing)  
-raw incoming data is in buffer called "rxdata"  
-    We derivate frame number, slot number, ... from the RX timestamp
+```mermaid
+flowchart TB
 
-#### NR_UL_indication()
-This block processes data already decoded and stored in structures behind UL_INFO
+subgraph fh8 ["split 8 / IF5: ru_thread"]
+    ru_thread --> RFin>"block fh_south_in: rx_rf / fh_if5_south_in"] --> ul8{"UL slot?"}
+    ul8 -- yes --> wait8[wait_free_rx_tti] --> feprx["feprx: DFT"] --> rx_nr_prach_ru
+    ul8 -- no --> push8
+    rx_nr_prach_ru --> push8[ru_push_tx_job]
+    push8 -- immediate return --> RFin
+end
 
+subgraph fh72 ["split 7.2: split7_thread (fhi_72 library)"]
+    xran_cb["oai_xran_fh_rx_callback: slot complete on all xran ports"] -- send_msg --> slot_fifo((slot_fifo))
+    split7_thread --> S72in>block oai_xran_wait_slot] --> ul72{"UL slot?"}
+    slot_fifo -.-> S72in
+    ul72 -- yes --> wait72[wait_free_rx_tti] --> process_ul_data
+    ul72 -- no --> push72
+    process_ul_data --> ulup[["ul_up_task per xran port/antenna: PUSCH to rxdataF, PRACH decompression"]] --> push72[ru_push_tx_job]
+    push72 -- immediate return --> S72in
+end
 
-* handle_nr_rach()  
-process data from RACH primary detection  
-if the input is a UE RACH detection
+push8 -- send_msg --> L1_tx_out>L1_tx_out]
+push72 -- send_msg --> L1_tx_out
+rx_nr_prach_ru -- spsc_q_put --> prach_q((prach_l1rx_queue))
+ulup -- spsc_q_put --> prach_q
 
-* handle_nr_uci()  
-handles uplink control information, i.e., for the moment HARQ feedback.
+L1_tx_out -- L1_tx_thread --> tx_func
 
-* handle_nr_ulsch()  
-handles ulsch data prepared by nr_fill_indication()
+subgraph txfunc [tx_func]
+    NR_slot_indication["NR_slot_indication: run scheduler"] -- send_msg --> resp_L1((resp_L1))
+    NR_slot_indication --> phy_procedures_gNB_TX
+    subgraph phy_procedures_gNB_TX
+       nr_common_signal_procedures
+       --> nr_generate_dci
+       --> nr_generate_csi_rs_gNB
+       --> nr_generate_pdsch
+    end
+    phy_procedures_gNB_TX --> split{"gNB->fhi72_transport?"}
+    subgraph tx_split8
+        feptx_ofdm["ru->feptx_ofdm: precoding + IDFT"]
+        --> fh_south_ctrl["ru->fh_south_ctrl: beams"]
+        --> fh_south_out["ru->fh_south_out: tx_rf / IF5"]
+    end
+    subgraph tx_split72
+        prec_bf["t->prec_bf: oran_prec_bf"]
+        --> cp["t->cp: oran_cp, UL/DL C-plane"]
+        --> dl_up[["t->dl_up: oran_dl_up, DL U-plane compression per xran port/antenna"]]
+    end
+    split -- NULL --> tx_split8
+    split -- split 7.2 --> tx_split72
+end
+tx_func --> txfunc
 
+resp_L1 -- L1_rx_thread --> rx_func
 
-#### phy_procedures_gNB_uespec_RX()
-* nr_decode_pucch0()  
-actual CCH channel decoding form rxdataF (rx data in frequency domain)  
-populates UL_INFO.uci_ind, actual uci data is in gNB->pucch  
+subgraph rxfunc [rx_func]
+    subgraph rxfuncbeg
+      L1_nr_prach_procedures
+      --> apply_nr_rotation_symbol_fftshifted_RX
+    end
+    subgraph phy_procedures_gNB_uespec_RX
+      fill_ul_rb_mask
+      --> handle_pucch["handle_pucch: per PUCCH job"]
+      --> pusch_demod["handle_pusch_rx_group_trigger: nr_rx_pusch_group_tp"]
+      --> pusch_sym[["nr_pusch_symbol_processing: symbols in parallel"]]
+      --> nr_ulsch_procedures["nr_ulsch_procedures: nr_uci_decoding, nr_ulsch_decoding"]
+      --> segInParallel[["all segments decode in parallel"]]
+      --> nr_fill_indication
+      --> handle_srs
+    end
+    subgraph NR_UL_indication
+      handle_nr_rach
+      --> handle_nr_uci
+      --> handle_nr_ulsch
+      --> handle_nr_srs
+    end
+    rxfuncbeg --> phy_procedures_gNB_uespec_RX
+    phy_procedures_gNB_uespec_RX --> NR_UL_indication
+    NR_UL_indication -- send_msg --> L1_rx_out((L1_rx_out))
+end
+rx_func --> rxfunc
+prach_q -.-> L1_nr_prach_procedures
+L1_rx_out -.-> wait8
+L1_rx_out -.-> wait72
+```
 
-* nr_ulsch_procedures()
+## Fronthaul threads
 
-    * actual ULsch decoding
+All SDR processing is triggered by the fronthaul. Frame and slot numbers are
+derived from the received data; TX is processed `sl_ahead` slots ahead of RX.
 
-   * nr_ulsch_decoding()
+### Split 8 / IF5: ru_thread()
 
-   * nr_fill_indication()   
+`ru_thread()` (`executables/nr-ru.c`) loops on:
 
+- `fh_south_in()` (`rx_rf()` for a local RF board, `fh_if5_south_in()` for
+  IF5): block until the time-domain samples of one slot are available in
+  `rxdata`. The RF board timestamp of the samples gives the frame and slot
+  numbers; TX samples are written with a timestamp in the future.
+- in UL slots, `wait_free_rx_tti()` then `ru_rx_slot()`: `feprx()` (DFT into
+  `rxdataF`, in the `RU_RX_SLOT_DEPTH` ring) and `rx_nr_prach_ru()` for the
+  PRACH occasions of this slot, handed to L1 through `prach_l1rx_queue`.
+- `ru_push_tx_job()`: push the TX job to `L1_tx_out`.
 
-#### phy_procedures_gNB_TX()
-* nr_common_signal_procedures()  
-generate common signals
+### Split 7.2: split7_thread()
 
-* nr_generate_dci()
-generate DCI: the scheduling informtion for each UE in both DL and UL
+`split7_thread()` (`radio/fhi_72/oran_isolate.c`) is started by
+`oran_fhi72_init()` and paced by xran: `oai_xran_wait_slot()` returns a slot
+once its UL deadline passed on all xran ports. In UL slots, it waits with
+`wait_free_rx_tti()` and reads PUSCH (into `rxdataF`) and PRACH from the xran
+buffers in `process_ul_data()`; then it pushes the TX job with
+`ru_push_tx_job()`. There is no time-domain processing nor timestamp.
 
-* nr_generate_pdsch()  
-generate DL shared channel (user data)
+## L1 TX: tx_func()
 
+Run by `L1_tx_thread()` for each `L1_tx_out` message.
 
-#### nr_feptx0
-do the inverse DFT
+### NR_slot_indication()
+Runs the MAC scheduler for the TX slot: `run_scheduler_monolithic()` calls
+`gNB_dlsch_ulsch_scheduler()`, see [Scheduler](#scheduler); with nFAPI,
+`pnf_send_slot_ind()` sends a Slot.indication to the VNF instead. The result
+(`NR_Sched_Rsp_t`) holds the FAPI DL_TTI, TX_data, UL_TTI and UL_DCI requests.
+UL_TTI is saved by `nr_save_ul_tti_req()` (PRACH, PUCCH, PUSCH and SRS jobs
+queued for the RX slot), then the RX job is pushed to `resp_L1`.
 
-#### tx_rf()
-send radio signal samples to the RF board  
-the samples numbers are the future time for these samples emission on-air
+### phy_procedures_gNB_TX()
+In DL and mixed slots, generates the slot in `txdataF` (frequency domain):
+
+* `nr_common_signal_procedures()`: SSB (PSS, SSS, PBCH)
+* `nr_generate_dci()`: PDCCH, the scheduling information for each UE in both
+  DL and UL
+* `nr_generate_csi_rs_gNB()`, `nr_generate_prs_gNB()`: CSI-RS, PRS
+* `nr_generate_pdsch()`: DL shared channel (user data)
+
+### Fronthaul TX
+Selected by `gNB->fhi72_transport`:
+
+* split 8, `tx_split8()`: `feptx_ofdm()` (`nr_feptx_tp()`: precoding, then
+  per-antenna IDFT and cyclic prefix in `nr_feptx0()`, on the RU thread pool),
+  `fh_south_ctrl()` for analog beams and `fh_south_out()` (`tx_rf()` or
+  `fh_if5_south_out()`), writing the samples with their TX timestamp.
+* split 7.2, `tx_split72()`: `prec_bf()` (precoding/beamforming into
+  `txdataF_BF`), `cp()` (C-plane for analog beams) and `dl_up()` (DL U-plane
+  compression per xran port and antenna). xran sends the packets at their air
+  time.
+
+## L1 RX: rx_func()
+
+Run by `L1_rx_thread()` for each `resp_L1` message, in UL and mixed slots. The
+results are collected in `UL_INFO`, local to `rx_func()`, and given to MAC at
+the end of the same slot.
+
+### L1_nr_prach_procedures()
+PRACH detection (`rx_nr_prach()`) for each occasion taken from
+`prach_l1rx_queue`; fills `UL_INFO.rach_ind`.
+
+### phy_procedures_gNB_uespec_RX()
+Takes the PUCCH, PUSCH and SRS jobs of this slot from their queues, then:
+
+* `fill_ul_rb_mask()`: PRBs used in this slot, for noise/interference
+  measurement
+* `handle_pucch()`: PUCCH decoding from `rxdataF` (`nr_decode_pucch0()`,
+  `nr_decode_pucch1()`, `nr_decode_pucch2()`), fills `UL_INFO.uci_ind`
+* PUSCH jobs are grouped (MU-MIMO) and demodulated by
+  `handle_pusch_rx_group_trigger()` -> `nr_rx_pusch_group_tp()`:
+    * `nr_pusch_channel_estimation()`, `nr_chest_time_domain_avg()`,
+      `nr_ptrs_run()`
+    * per symbol on the thread pool (`nr_pusch_symbol_processing()`):
+      `nr_ulsch_extract_rbs()`, `nr_channel_compensation()` / MMSE,
+      `nr_compute_llr()`, unscrambling and UCI demultiplexing
+* PUSCH without detected signal (DTX) is reported with a failed CRC by
+  `nr_fill_indication()`
+* `nr_ulsch_procedures()`: `nr_uci_decoding()` (UCI on PUSCH),
+  `nr_ulsch_decoding()` (LDPC, all segments in parallel), then
+  `nr_fill_indication()`, filling `UL_INFO.crc_ind` and `UL_INFO.rx_ind`
+* `handle_srs()`: SRS channel estimation, fills `UL_INFO.srs_ind`
+
+### NR_UL_indication()
+Hands `UL_INFO` to MAC (`NR_IF_Module.c`):
+
+* `handle_nr_rach()`: RACH detections, starts RA (Msg2 is scheduled later by
+  `nr_schedule_RA()`)
+* `handle_nr_uci()`: HARQ feedback, SR and CSI reports
+* `handle_nr_ulsch()`: CRC and UL data, given to RLC by
+  `nr_mac_rlc_data_ind()`
+* `handle_nr_srs()`: SRS measurements
+
+Finally, `rx_func()` releases the `rxdataF` slot to the fronthaul thread via
+`L1_rx_out`.
 
 
 ## Scheduler
