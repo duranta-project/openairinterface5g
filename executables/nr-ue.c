@@ -293,7 +293,16 @@ int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
   return NR_MIXED_SLOT;
 }
 
-static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **txp)
+static int sl_tx_window_slot_type(const sl_nr_phy_config_request_t *cfg, int slot)
+{
+  if (sl_nr_ue_slot_select(cfg, slot, TDD) != NR_SIDELINK_SLOT)
+    return NR_DOWNLINK_SLOT;
+  const int period = cfg->tdd_table.tdd_period_in_slots;
+  return cfg->tdd_table.max_tdd_periodicity_list[slot % period].num_dl_ul_symbols_list.num_dl
+             ? NR_MIXED_SLOT : NR_UPLINK_SLOT;
+}
+
+static void RU_write(nr_rxtx_thread_data_t *rxtxD, c16_t **txp)
 {
   int writeBlockSize = rxtxD->writeBlockSize;
   if (writeBlockSize == 0)
@@ -311,20 +320,19 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
 
   radio_tx_burst_flag_t flags = TX_BURST_INVALID;
 
-  const int curr_slot_type = nr_ue_slot_select(cfg, slot);
+  const bool sidelink = UE->sl_mode == SL_MODE2_SUPPORTED;
+  const sl_nr_phy_config_request_t *sl_cfg = &UE->SL_UE_PHY_PARAMS.sl_config;
+  const int curr_slot_type = sidelink ? sl_tx_window_slot_type(sl_cfg, slot) : nr_ue_slot_select(cfg, slot);
   if (UE->received_config_request) {
     if (fp->frame_type == FDD || get_softmodem_params()->continuous_tx) {
       flags = TX_BURST_MIDDLE;
-    // In case of Sidelink, USRP write needed only in case transmission
-    // needs to be done in this slot and not based on tdd ULDL configuration.
-    } else if (UE->sl_mode == SL_MODE2_SUPPORTED) {
-      if (sl_tx_action)
-        flags = TX_BURST_START_AND_END;
     } else {
       int slots_frame = fp->slots_per_frame;
       if (curr_slot_type != NR_DOWNLINK_SLOT) {
-        int next_slot = nr_ue_slot_select(cfg, (slot + 1) % slots_frame);
-        int prev_slot = nr_ue_slot_select(cfg, (slot + slots_frame - 1) % slots_frame);
+        int next_slot = sidelink ? sl_tx_window_slot_type(sl_cfg, (slot + 1) % slots_frame)
+                                 : nr_ue_slot_select(cfg, (slot + 1) % slots_frame);
+        int prev_slot = sidelink ? sl_tx_window_slot_type(sl_cfg, (slot + slots_frame - 1) % slots_frame)
+                                 : nr_ue_slot_select(cfg, (slot + slots_frame - 1) % slots_frame);
         if (prev_slot == NR_DOWNLINK_SLOT)
           flags = TX_BURST_START;
         else if (next_slot == NR_DOWNLINK_SLOT)
@@ -371,7 +379,10 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action, c16_t **tx
 
   // if mixed slot in TDD, set start of burst in first guard symbol.
   if (flags == TX_BURST_START && curr_slot_type == NR_MIXED_SLOT) {
-    const uint num_dl_symbols = num_dl_symbols_slot(cfg, slot);
+    const uint num_dl_symbols = sidelink
+        ? sl_cfg->tdd_table.max_tdd_periodicity_list[slot % sl_cfg->tdd_table.tdd_period_in_slots]
+              .num_dl_ul_symbols_list.num_dl
+        : num_dl_symbols_slot(cfg, slot);
     const uint num_zero_samples = get_samples_symbol_timestamp(fp, slot, num_dl_symbols);
     int tmp = nrue_ru_write_reorder(UE, writeTimestamp, (void **)txp, num_zero_samples, fp->nb_antennas_tx, TX_BURST_INVALID);
     AssertFatal(tmp == num_zero_samples, "write samples to reorder function failed %d", tmp);
@@ -409,7 +420,6 @@ void processSlotTX(void *arg)
   const UE_nr_rxtx_proc_t *proc = &rxtxD->proc;
   PHY_VARS_NR_UE *UE = rxtxD->UE;
   nr_phy_data_tx_t phy_data = {0};
-  bool sl_tx_action = false;
 
   if (UE->if_inst)
     UE->if_inst->slot_indication(UE->Mod_id, true);
@@ -440,6 +450,8 @@ void processSlotTX(void *arg)
         UE->if_inst->sl_indication(&sl_indication);
         stop_meas(&UE->ue_ul_indication_stats);
       }
+      dynamic_barrier_join(rxtxD->next_barrier);
+
       if (phy_data.sl_tx_action)
         AssertFatal((phy_data.sl_tx_action >= SL_NR_CONFIG_TYPE_TX_PSBCH &&
                      phy_data.sl_tx_action < SL_NR_CONFIG_TYPE_TX_MAXIMUM), "Incorrect SL TX Action Scheduled\n");
@@ -449,7 +461,6 @@ void processSlotTX(void *arg)
       // symbols we don't use), so we never re-radiate the stale waveform left in the
       // buffer by a previous frame. Mirrors the NR UL path.
       phy_procedures_nrUE_SL_TX(UE, proc, &phy_data, txp);
-      sl_tx_action = (phy_data.sl_tx_action != 0);
 
     } else {
       // trigger L2 to run ue_scheduler thru IF module
@@ -476,9 +487,7 @@ void processSlotTX(void *arg)
   // worked around with an explicit memset of txp; it is now handled by always
   // calling phy_procedures_nrUE_SL_TX() above, whose OFDM modulator zeros this
   // slot's txData when no channel is scheduled.
-  RU_write(rxtxD, sl_tx_action, txp);
-  if (UE->sl_mode == SL_MODE2_SUPPORTED && proc->tx_slot_type == NR_SIDELINK_SLOT)
-    dynamic_barrier_join(rxtxD->next_barrier);
+  RU_write(rxtxD, txp);
   TracyCZoneEnd(ctx);
 }
 

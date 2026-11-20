@@ -498,6 +498,17 @@ size_t sl_abs_slot_to_bit_pos(uint64_t abs_slot, size_t phy_map_sz)
   return (size_t)(abs_slot % phy_map_sz);
 }
 
+/* Count only meaningful MSB-first bitmap bits; padding is not part of the pool. */
+static size_t sl_count_pool_slots(const uint8_t *bitmap, size_t num_bits)
+{
+  size_t count = 0;
+  for (size_t byte = 0; byte < num_bits / 8; byte++)
+    count += __builtin_popcount((unsigned int)bitmap[byte]);
+  if (num_bits % 8)
+    count += __builtin_popcount((unsigned int)(bitmap[num_bits / 8] >> (8 - num_bits % 8)));
+  return count;
+}
+
 /* Return the global ordinal k of a resource-pool slot (TS 38.213 16.3), or -1
  * when abs_slot is not in the pool.  Unlike a bitmap-local index, k continues
  * across bitmap repetitions, so the PSFCH phase is not restarted every cycle. */
@@ -508,15 +519,8 @@ static int64_t sl_pool_slot_ordinal(const BIT_STRING_t *phy_sl_bitmap, size_t ph
   const size_t bit_pos = sl_abs_slot_to_bit_pos(abs_slot, phy_map_sz);
   if (!get_bit_from_map(phy_sl_bitmap->buf, bit_pos))
     return -1;
-  size_t slots_per_cycle = 0;
-  size_t slots_before = 0;
-  for (size_t p = 0; p < phy_map_sz; p++) {
-    if (get_bit_from_map(phy_sl_bitmap->buf, p)) {
-      slots_per_cycle++;
-      if (p < bit_pos)
-        slots_before++;
-    }
-  }
+  const size_t slots_per_cycle = sl_count_pool_slots(phy_sl_bitmap->buf, phy_map_sz);
+  const size_t slots_before = sl_count_pool_slots(phy_sl_bitmap->buf, bit_pos);
   return (int64_t)((abs_slot / phy_map_sz) * slots_per_cycle + slots_before);
 }
 
@@ -538,20 +542,21 @@ int64_t get_feedback_abs_slot(const BIT_STRING_t *phy_sl_bitmap, size_t phy_map_
 {
   if (psfch_period == 0 || phy_map_sz == 0)
     return -1;
-  size_t slots_per_cycle = 0;
-  for (size_t p = 0; p < phy_map_sz; p++)
-    slots_per_cycle += get_bit_from_map(phy_sl_bitmap->buf, p) != 0;
+  const size_t slots_per_cycle = sl_count_pool_slots(phy_sl_bitmap->buf, phy_map_sz);
   if (slots_per_cycle == 0)
     return -1;
   const size_t cycles = 1 + (min_time_gap + psfch_period) / slots_per_cycle;
+  // Carry the global pool ordinal forward instead of rescanning the bitmap for each candidate.
+  uint64_t next_ordinal = (tx_abs_slot / phy_map_sz) * slots_per_cycle
+                          + sl_count_pool_slots(phy_sl_bitmap->buf, tx_abs_slot % phy_map_sz + 1);
   size_t pool_slots_after_pssch = 0;
   for (size_t i = 1; i <= cycles * phy_map_sz; i++) {
     const uint64_t cand = tx_abs_slot + i;
-    if (sl_pool_slot_ordinal(phy_sl_bitmap, phy_map_sz, cand) < 0)
+    if (!get_bit_from_map(phy_sl_bitmap->buf, cand % phy_map_sz))
       continue;
+    const uint64_t ordinal = next_ordinal++;
     pool_slots_after_pssch++;
-    if (pool_slots_after_pssch >= min_time_gap
-        && sl_slot_carries_psfch(phy_sl_bitmap, phy_map_sz, cand, psfch_period))
+    if (pool_slots_after_pssch >= min_time_gap && ordinal % psfch_period == 0)
       return (int64_t)cand;
   }
   return -1;
@@ -906,6 +911,8 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                         resource);
     sl_nr_tx_config_pscch_pssch_pdu_t *pscch_pssch_pdu = &tx_config->tx_config_list[0].tx_pscch_pssch_config_pdu;
 
+    bool grant_changed = false;
+
     /* TS 38.214 8.1.3.2 / TS 38.321 5.22.1.3.1: for HARQ combining the
      * receiver derives TBS from the SCI grant, so every transmission of the
      * same TB must produce the same TBS.  When psfch_period is 2 or 4, some
@@ -923,19 +930,8 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     if (cur_harq->round == 0 && (psfch_period == 2 || psfch_period == 4) && !mac->sci1_pdu.psfch_overhead.val) {
       /* Step 1: compute worst-case TBS (PSFCH overhead present). */
       mac->sci1_pdu.psfch_overhead.val = 1;
-      sl_nr_tx_config_pscch_pssch_pdu_t worst_case_pdu = {0};
-      fill_pssch_pscch_pdu(sl_mac_params,
-                           &worst_case_pdu,
-                           sl_bwp,
-                           sl_res_pool,
-                           &mac->sci1_pdu,
-                           &mac->sci2_pdu,
-                           slsch_pdu_length_max,
-                           NR_SL_SCI_FORMAT_1A,
-                           NR_SL_SCI_FORMAT_2A,
-                           slot,
-                           resource);
-      const uint32_t worst_case_tbs = worst_case_pdu.tb_size;
+      const uint32_t worst_case_tbs =
+          nr_sl_compute_tbs(sl_mac_params, sl_bwp, sl_res_pool, &mac->sci1_pdu, &mac->sci2_pdu, pscch_pssch_pdu);
       mac->sci1_pdu.psfch_overhead.val = 0;
 
       /* Step 2: if the current slot yields a larger TBS, search for an MCS
@@ -945,22 +941,14 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
         bool found = false;
         for (int mcs = orig_mcs; mcs >= 0; mcs--) {
           mac->sci1_pdu.mcs = mcs;
-          fill_pssch_pscch_pdu(sl_mac_params,
-                               pscch_pssch_pdu,
-                               sl_bwp,
-                               sl_res_pool,
-                               &mac->sci1_pdu,
-                               &mac->sci2_pdu,
-                               slsch_pdu_length_max,
-                               NR_SL_SCI_FORMAT_1A,
-                               NR_SL_SCI_FORMAT_2A,
-                               slot,
-                               resource);
-          if (pscch_pssch_pdu->tb_size == worst_case_tbs) {
+          const uint32_t candidate_tbs =
+              nr_sl_compute_tbs(sl_mac_params, sl_bwp, sl_res_pool, &mac->sci1_pdu, &mac->sci2_pdu, pscch_pssch_pdu);
+          if (candidate_tbs == worst_case_tbs) {
             found = true;
+            grant_changed = true;
             break;
           }
-          if (pscch_pssch_pdu->tb_size < worst_case_tbs)
+          if (candidate_tbs < worst_case_tbs)
             break; /* TBS is monotonic in MCS; no point going lower. */
         }
         if (!found) {
@@ -989,7 +977,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
               frame,
               slot,
               mac->sci1_pdu.mcs,
-              pscch_pssch_pdu->tb_size);
+              worst_case_tbs);
       }
     }
 
@@ -1005,19 +993,11 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       bool matching_tbs = false;
       for (int mcs = 0; mcs <= max_mcs; mcs++) {
         mac->sci1_pdu.mcs = mcs;
-        fill_pssch_pscch_pdu(sl_mac_params,
-                             pscch_pssch_pdu,
-                             sl_bwp,
-                             sl_res_pool,
-                             &mac->sci1_pdu,
-                             &mac->sci2_pdu,
-                             slsch_pdu_length_max,
-                             NR_SL_SCI_FORMAT_1A,
-                             NR_SL_SCI_FORMAT_2A,
-                             slot,
-                             resource);
-        if (pscch_pssch_pdu->tb_size == required_tbs) {
+        const uint32_t candidate_tbs =
+            nr_sl_compute_tbs(sl_mac_params, sl_bwp, sl_res_pool, &mac->sci1_pdu, &mac->sci2_pdu, pscch_pssch_pdu);
+        if (candidate_tbs == required_tbs) {
           matching_tbs = true;
+          grant_changed = true;
           break;
         }
       }
@@ -1031,19 +1011,11 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
         mac->sci1_pdu.psfch_overhead.val = 1;
         for (int mcs = 0; mcs <= max_mcs; mcs++) {
           mac->sci1_pdu.mcs = mcs;
-          fill_pssch_pscch_pdu(sl_mac_params,
-                               pscch_pssch_pdu,
-                               sl_bwp,
-                               sl_res_pool,
-                               &mac->sci1_pdu,
-                               &mac->sci2_pdu,
-                               slsch_pdu_length_max,
-                               NR_SL_SCI_FORMAT_1A,
-                               NR_SL_SCI_FORMAT_2A,
-                               slot,
-                               resource);
-          if (pscch_pssch_pdu->tb_size == required_tbs) {
+          const uint32_t candidate_tbs =
+              nr_sl_compute_tbs(sl_mac_params, sl_bwp, sl_res_pool, &mac->sci1_pdu, &mac->sci2_pdu, pscch_pssch_pdu);
+          if (candidate_tbs == required_tbs) {
             matching_tbs = true;
+            grant_changed = true;
             LOG_D(NR_MAC,
                   "%4d.%2d HARQ PID %d round %u: reserved PSFCH overhead to preserve TBS %u\n",
                   frame,
@@ -1078,6 +1050,19 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
         continue;
       }
     }
+
+    if (grant_changed)
+      fill_pssch_pscch_pdu(sl_mac_params,
+                          pscch_pssch_pdu,
+                          sl_bwp,
+                          sl_res_pool,
+                          &mac->sci1_pdu,
+                          &mac->sci2_pdu,
+                          slsch_pdu_length_max,
+                          NR_SL_SCI_FORMAT_1A,
+                          NR_SL_SCI_FORMAT_2A,
+                          slot,
+                          resource);
 
     sched_pssch->R = pscch_pssch_pdu->target_coderate;
     sched_pssch->tb_size = pscch_pssch_pdu->tb_size;
@@ -1161,8 +1146,9 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       NR_SLSCH_MAC_SUBHEADER_FIXED *sl_sch_subheader = (NR_SLSCH_MAC_SUBHEADER_FIXED *) pdu;
       sl_sch_subheader->V = 0;
       sl_sch_subheader->R = 0;
-      sl_sch_subheader->SRC = mac->sci2_pdu.source_id;
-      sl_sch_subheader->DST = mac->sci2_pdu.dest_id;
+      // TS 38.321 section 6.1.6: SCI carries the lower identity bits.
+      sl_sch_subheader->SRC = ((uint32_t)mac->src_id >> 8) & 0xffff;
+      sl_sch_subheader->DST = ((uint32_t)UE->uid >> 16) & 0xff;
       pdu += sizeof(NR_SLSCH_MAC_SUBHEADER_FIXED);
       LOG_D(NR_MAC,
             "%4d.%2d Tx V %d, R %d, SRC %d, DST %d\n",
@@ -1732,7 +1718,8 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t
       mac->sl_prev_rx_slot = slot;
   }
 
-  const bool tx_slot_available = mac->is_synced && !is_psbch_slot && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX;
+  const bool sl_timing_ready = sl_mac->tx_sl_bch.status || sl_mac->rx_sl_bch.status;
+  const bool tx_slot_available = sl_timing_ready && !is_psbch_slot && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX;
   if (resource && tx_slot_available) {
     //Check if reserved slot or a sidelink resource configured in Rx/Tx resource pool timeresource bitmap
     nr_ue_sl_pssch_scheduler(mac, sl_ind, mac->sl_bwp, mac->sl_tx_res_pool, &tx_config, resource, &tti_action);
