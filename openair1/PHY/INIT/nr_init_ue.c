@@ -369,8 +369,6 @@ void free_nr_ue_dl_harq(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int
     for (int i = 0; i < number_of_processes; i++) {
 #ifdef LDPC_CUDA
       gpuFreeHost(harq_list[j][i].c);
-#else
-      free_and_zero(harq_list[j][i].c);
 #endif
       free_and_zero(harq_list[j][i].d);
     }
@@ -379,28 +377,8 @@ void free_nr_ue_dl_harq(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int
 
 void free_nr_ue_ul_harq(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb, int num_ant_tx)
 {
-  int max_layers = min(num_ant_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER*max_layers;  //number of segments to be allocated
-
-  if (num_rb != 273) {
-    a_segments = a_segments*num_rb;
-    a_segments = a_segments/273 +1;
-  }
-
   for (int i = 0; i < number_of_processes; i++) {
     free_and_zero(harq_list[i].payload_AB);
-#ifdef LDPC_CUDA
-    {
-      // nr_init_ul_harq_processes() makes single allocation(!)
-      gpuFreeHost(harq_list[i].c[0]);
-    }
-#else
-    for (int r = 0; r < a_segments; r++) {
-      free_and_zero(harq_list[i].c[r]);
-    }
-    free_and_zero(harq_list[i].c);
-#endif
-    free_and_zero(harq_list[i].f);
   }
 }
 
@@ -446,15 +424,31 @@ void term_nr_ue_sl_transport(PHY_VARS_NR_UE *ue)
   free_nr_ue_ul_harq(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, sl_fp->N_RB_SL, sl_fp->nb_antennas_tx);
 }
 
-void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb)
+/* Upper bound of the LDPC code blocks of a TB on num_rb PRB and layers, from TS 38.214 5.1.3.2 and 38.212 5.2.2, without
+ * the MAC TBS tables: at most 156 RE per PRB, 256QAM and code rate 948/1024 give N_info; the quantized N' exceeds N_info
+ * by less than N_info / 64, and the TBS with its CRC fits in ceil((N' + 24) / 8424) code blocks of BG1. */
+static int nr_max_ldpc_segments(int num_rb, int layers)
 {
-  int a_segments = MAX_NUM_NR_DLSCH_SEGMENTS; // number of segments to be allocated
-  if (num_rb != 273) {
-    a_segments = a_segments*num_rb;
-    a_segments = (a_segments/273)+1;
-  }
+  int64_t n_info = (int64_t)156 * num_rb * 8 * layers * 948 / 1024;
+  n_info += n_info / 64;
+  return (n_info + 24 + 8423) / 8424;
+}
 
-  for (int j=0; j<2; j++) {
+void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES],
+                               int number_of_processes,
+                               int num_rb,
+                               int max_layers)
+{
+  // UL-only simulators have no RX antennas, but CUDA still needs a nonempty mapped buffer.
+  int a_segments = 1;
+  if (max_layers > 0) {
+    // Keep the existing decoder limit; larger TBs are rejected by nr_dlsch_decoding().
+    a_segments = min(nr_max_ldpc_segments(num_rb, max_layers), MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers);
+  }
+  // the second codeword only exists above 4 layers (TS 38.211 Table 7.3.1.3-1)
+  const int num_cw = NR_MAX_NB_LAYERS > 4 ? 2 : 1;
+
+  for (int j = 0; j < num_cw; j++) {
     for (int i=0; i<number_of_processes; i++) {
       memset(harq_list[j] + i, 0, sizeof(NR_DL_UE_HARQ_t));
       init_downlink_harq_status(harq_list[j] + i);
@@ -462,10 +456,9 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
 #ifdef LDPC_CUDA
       harq_list[j][i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *) * 1056, gpuHostAllocMapped);
       harq_list[j][i].cdev = gpuHostGetDevicePointer_or_fail(harq_list[j][i].c);
-#else
-      harq_list[j][i].c = malloc16(a_segments * sizeof(*harq_list[j][i].c) * 1056);
 #endif
-      harq_list[j][i].d = malloc16(a_segments * sizeof(*harq_list[j][i].d) * 3 * 8448);
+      // segment r of d starts at r * Kc * Z (nrLDPC_coding_segment_decoder.c): Kc * Z is at most 68 * 384 (BG1)
+      harq_list[j][i].d = malloc16(a_segments * sizeof(*harq_list[j][i].d) * 68 * 384);
       init_abort(&harq_list[j][i].abort_decode);
       harq_list[j][i].status  = 0;
       harq_list[j][i].DLround = 0;
@@ -475,43 +468,16 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
 
 void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb, int num_ant_tx)
 {
-  int max_layers = min(num_ant_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER*max_layers;  //number of segments to be allocated
-
-  if (num_rb != 273) {
-    a_segments = a_segments * num_rb;
-    a_segments = a_segments / 273 + 1;
-  }
-
-  uint32_t ulsch_bytes = a_segments * 1056;
+  const int max_layers = max(1, min(num_ant_tx, NR_MAX_NB_LAYERS));
+  // the largest TB with its 24-bit CRC fits in these code blocks of 1056 bytes; keep the existing encoder limit,
+  // nr_ulsch_pre_encoding() rejects larger TBs
+  const int ulsch_bytes = min(nr_max_ldpc_segments(num_rb, max_layers), MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * max_layers) * 1056;
 
   for (int i = 0; i < number_of_processes; i++) {
     memset(&harq_list[i], 0, sizeof(NR_UL_UE_HARQ_t));
 
     harq_list[i].payload_AB = malloc16_clear(ulsch_bytes);
-
-#ifdef LDPC_CUDA
-    size_t total_c_size = a_segments * 8448;
-
-    uint8_t *tmp_c = gpuHostAlloc_or_fail(total_c_size, gpuHostAllocMapped);
-    memset(tmp_c, 0, total_c_size);
-
-    harq_list[i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *), gpuHostAllocMapped);
-
-    for (int r = 0; r < a_segments; r++) {
-      harq_list[i].c[r] = tmp_c + (r * 8448);
-    }
-
-#else
-    harq_list[i].c = malloc16(a_segments * sizeof(uint8_t *));
-
-    for (int r = 0; r < a_segments; r++) {
-      harq_list[i].c[r] = malloc16_clear(8448);
-    }
-#endif
-
-    uint32_t f_size = 14 * num_rb * 12 * 16;
-    harq_list[i].f = malloc16_clear(f_size);
+    harq_list[i].payload_AB_size = ulsch_bytes;
     harq_list[i].round = 0;
   }
 }
@@ -562,7 +528,10 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
 
 void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
 {
-  nr_init_dl_harq_processes(ue->dl_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_DL);
+  nr_init_dl_harq_processes(ue->dl_harq_processes,
+                            NR_MAX_HARQ_PROCESSES,
+                            ue->frame_parms.N_RB_DL,
+                            min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS));
   nr_init_ul_harq_processes(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_UL, ue->frame_parms.nb_antennas_tx);
   const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
   ue->pdsch_num_actors = num_actors;

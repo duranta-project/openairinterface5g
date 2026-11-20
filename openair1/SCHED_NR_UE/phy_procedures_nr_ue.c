@@ -449,6 +449,14 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     LOG_E(NR_PHY, "Handling of more than one CW not implemented\n");
     return -1;
   }
+  // the PDSCH scratch buffers and the HARQ soft buffers are sized for at most one layer per RX antenna: the gNB decides the
+  // rank, and the UE capability may advertise more layers than RX antennas, so drop such a PDSCH (no HARQ-ACK) instead of
+  // overflowing them
+  const int max_layers = min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS);
+  if (dlsch->cw_info.Nl > max_layers) {
+    LOG_E(NR_PHY, "PDSCH with %d layers, more than the %d RX antennas: not received\n", dlsch->cw_info.Nl, max_layers);
+    return -1;
+  }
 
   int harq_pid = dlschCfg->harq_process_nbr;
   const uint32_t dmrs_symb_bitmap = dlschCfg->dlDmrsSymbPos;
@@ -474,7 +482,6 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   pdsch_scratch_t *scratch = &ue->pdsch_scratch[actor_idx];
   const uint32_t pdsch_est_size = scratch->pdsch_est_size;
   const uint32_t pdsch_buf_size_max = scratch->pdsch_buf_size_max;
-  const int max_layers = min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS);
   int32_t (*pdsch_dl_ch_estimates)[pdsch_est_size] = (int32_t (*)[pdsch_est_size])scratch->pdsch_dl_ch_estimates;
   c16_t(*rxdataF_comp)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->rxdataF_comp;
   c16_t(*dl_ch_mag)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_mag;
