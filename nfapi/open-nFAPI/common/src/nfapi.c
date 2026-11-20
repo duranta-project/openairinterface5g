@@ -349,13 +349,15 @@ uint32_t pullarray16(uint8_t **in, uint16_t out[], uint32_t max_len, uint32_t le
   }
 
   if ((end - (*in)) >= sizeof(uint16_t) * len) {
-    uint32_t idx;
-
-    for (idx = 0; idx < len; ++idx) {
-      if (!pull16(in, &out[idx], end))
-        return 0;
+#if FAPI_BYTES_NEEDS_BSWAP
+    const uint16_t *src = (const uint16_t *)(*in);
+    for (uint32_t idx = 0; idx < len; ++idx) {
+      out[idx] = __builtin_bswap16(src[idx]);
     }
-
+#else
+    memcpy(out, *in, len * sizeof(uint16_t));
+#endif
+    *in += len * sizeof(uint16_t);
     return sizeof(uint16_t) * len;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s no space in buffer\n", __FUNCTION__);
@@ -376,14 +378,16 @@ uint32_t pullarrays16(uint8_t **in, int16_t out[], uint32_t max_len, uint32_t le
   }
 
   if ((end - (*in)) >= sizeof(uint16_t) * len) {
-    uint32_t idx;
-
-    for (idx = 0; idx < len; ++idx) {
-      if (!pulls16(in, &out[idx], end))
-        return 0;
+#if FAPI_BYTES_NEEDS_BSWAP
+    const int16_t *src = (const int16_t *)(*in);
+    for (uint32_t idx = 0; idx < len; ++idx) {
+      out[idx] = (int16_t)__builtin_bswap16(src[idx]);
     }
-
-    return sizeof(uint16_t) * len;
+#else
+    memcpy(out, *in, len * sizeof(int16_t));
+#endif
+    *in += len * sizeof(int16_t);
+    return sizeof(int16_t) * len;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s no space in buffer\n", __FUNCTION__);
     on_error();
@@ -402,13 +406,15 @@ uint32_t pusharray16(const uint16_t in[], uint32_t max_len, uint32_t len, uint8_
   }
 
   if ((end - (*out)) >= sizeof(uint16_t) * len) {
-    uint32_t idx;
-
-    for (idx = 0; idx < len; ++idx) {
-      if (!push16(in[idx], out, end))
-        return 0;
+#if FAPI_BYTES_NEEDS_BSWAP
+    uint16_t *dst = (uint16_t *)(*out);
+    for (uint32_t idx = 0; idx < len; ++idx) {
+      dst[idx] = __builtin_bswap16(in[idx]);
     }
-
+#else
+    memcpy(*out, in, len * sizeof(uint16_t));
+#endif
+    *out += len * sizeof(uint16_t);
     return sizeof(uint16_t) * len;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s no space in buffer\n", __FUNCTION__);
@@ -428,14 +434,16 @@ uint32_t pusharrays16(int16_t in[], uint32_t max_len, uint32_t len, uint8_t **ou
   }
 
   if ((end - (*out)) >= sizeof(uint16_t) * len) {
-    uint32_t idx;
-
-    for (idx = 0; idx < len; ++idx) {
-      if (!pushs16(in[idx], out, end))
-        return 0;
+#if FAPI_BYTES_NEEDS_BSWAP
+    int16_t *dst = (int16_t *)(*out);
+    for (uint32_t idx = 0; idx < len; ++idx) {
+      dst[idx] = (int16_t)__builtin_bswap16(in[idx]);
     }
-
-    return sizeof(uint16_t) * len;
+#else
+    memcpy(*out, in, len * sizeof(int16_t));
+#endif
+    *out += len * sizeof(int16_t);
+    return sizeof(int16_t) * len;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s no space in buffer\n", __FUNCTION__);
     on_error();
@@ -459,13 +467,15 @@ uint32_t pullarray32(uint8_t **values_to_pull,
   }
 
   if ((out_end - (*values_to_pull)) >= sizeof(uint32_t) * num_values_to_pull) {
-    uint32_t idx;
-
-    for (idx = 0; idx < num_values_to_pull; ++idx) {
-      if (!pull32(values_to_pull, &out[idx], out_end))
-        return 0;
+#if FAPI_BYTES_NEEDS_BSWAP
+    const uint32_t *src = (const uint32_t *)(*values_to_pull);
+    for (uint32_t idx = 0; idx < num_values_to_pull; ++idx) {
+      out[idx] = __builtin_bswap32(src[idx]);
     }
-
+#else
+    memcpy(out, *values_to_pull, num_values_to_pull * sizeof(uint32_t));
+#endif
+    *values_to_pull += num_values_to_pull * sizeof(uint32_t);
     return sizeof(uint32_t) * num_values_to_pull;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s no space in buffer\n", __FUNCTION__);
@@ -486,14 +496,16 @@ uint32_t pullarrays32(uint8_t **in, int32_t out[], uint32_t max_len, uint32_t le
   }
 
   if ((end - (*in)) >= sizeof(uint32_t) * len) {
-    uint32_t idx;
-
-    for (idx = 0; idx < len; ++idx) {
-      if (!pulls32(in, &out[idx], end))
-        return 0;
+#if FAPI_BYTES_NEEDS_BSWAP
+    const int32_t *src = (const int32_t *)(*in);
+    for (uint32_t idx = 0; idx < len; ++idx) {
+      out[idx] = (int32_t)__builtin_bswap32(src[idx]);
     }
-
-    return sizeof(uint32_t) * len;
+#else
+    memcpy(out, *in, len * sizeof(int32_t));
+#endif
+    *in += len * sizeof(int32_t);
+    return sizeof(int32_t) * len;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s no space in buffer\n", __FUNCTION__);
     on_error();
@@ -516,13 +528,15 @@ uint32_t pusharray32(const uint32_t *values_to_push,
   }
 
   if ((out_end - (*out)) >= sizeof(uint32_t) * num_values_to_push) {
-    uint32_t idx;
-
-    for (idx = 0; idx < num_values_to_push; ++idx) {
-      if (!push32(values_to_push[idx], out, out_end))
-        return 0;
+#if FAPI_BYTES_NEEDS_BSWAP
+    uint32_t *dst = (uint32_t *)(*out);
+    for (uint32_t idx = 0; idx < num_values_to_push; ++idx) {
+      dst[idx] = __builtin_bswap32(values_to_push[idx]);
     }
-
+#else
+    memcpy(*out, values_to_push, num_values_to_push * sizeof(uint32_t));
+#endif
+    *out += num_values_to_push * sizeof(uint32_t);
     return sizeof(uint32_t) * num_values_to_push;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s no space in buffer\n", __FUNCTION__);
@@ -542,14 +556,16 @@ uint32_t pusharrays32(int32_t in[], uint32_t max_len, uint32_t len, uint8_t **ou
   }
 
   if ((end - (*out)) >= sizeof(uint32_t) * len) {
-    uint32_t idx;
-
-    for (idx = 0; idx < len; ++idx) {
-      if (!pushs32(in[idx], out, end))
-        return 0;
+#if FAPI_BYTES_NEEDS_BSWAP
+    int32_t *dst = (int32_t *)(*out);
+    for (uint32_t idx = 0; idx < len; ++idx) {
+      dst[idx] = (int32_t)__builtin_bswap32(in[idx]);
     }
-
-    return sizeof(uint32_t) * len;
+#else
+    memcpy(*out, in, len * sizeof(int32_t));
+#endif
+    *out += len * sizeof(int32_t);
+    return sizeof(int32_t) * len;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s no space in buffer\n", __FUNCTION__);
     on_error();
