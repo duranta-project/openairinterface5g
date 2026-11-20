@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+
+services:
+  oai-sl-ue1:
+    image: ${REGISTRY-oaisoftwarealliance/}${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+    container_name: oai-sl-ue1
+    network_mode: host
+    cap_drop:
+    - ALL
+    cap_add:
+    - NET_ADMIN
+    - NET_RAW
+    - SYS_NICE
+    - IPC_LOCK
+    devices:
+    - /dev/net/tun:/dev/net/tun
+    ulimits:
+      core: -1
+    environment:
+      USE_ADDITIONAL_OPTIONS: --usrp-args addr=192.168.80.52 --ue-fo-compensation --sl-mode 2 --ue-rxgain 65 --ue-txgain
+        10 -A 90 --tune-offset 20000000 --log_config.global_log_options level,nocolor,time
+    volumes:
+    - ../../conf_files/sl_ue1.conf:/opt/oai-nr-ue/etc/nr-ue.conf:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pgrep nr-uesoftmodem
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 10

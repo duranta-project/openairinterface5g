@@ -283,6 +283,39 @@ static int get_nRECSI_RS(uint8_t freq_density, uint16_t nr_of_rbs, int nb_antenn
   return nr_rbs_w_csi_rs * subcarriers_used;
 }
 
+uint32_t nr_sl_compute_tbs(const sl_nr_ue_mac_params_t *sl_mac_params,
+                           const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                           const NR_SL_ResourcePool_r16_t *sl_res_pool,
+                           const nr_sci_pdu_t *sci_pdu,
+                           const nr_sci_pdu_t *sci2_pdu,
+                           const sl_nr_tx_config_pscch_pssch_pdu_t *pdu)
+{
+  const int mcs_table = sci_pdu->additional_mcs.nbits > 0 ? sci_pdu->additional_mcs.val : 0;
+  const int num_symbols = get_num_pssch_symbols(sl_bwp, sl_res_pool, sci_pdu);
+  const int overhead = sl_res_pool->sl_X_Overhead_r16 ? 3 * *sl_res_pool->sl_X_Overhead_r16 : 0;
+  const int dmrs_re = get_nREDMRS(sl_res_pool);
+  const int csi_re = sci2_pdu->csi_req
+                         ? get_nRECSI_RS(sl_mac_params->freq_density, sl_mac_params->nr_of_rbs,
+                                        get_nrUE_params()->nb_antennas_tx)
+                         : 0;
+  const int csi_re_per_rb = sci2_pdu->csi_req ? csi_re / sl_mac_params->nr_of_rbs : 0;
+  const int re_per_rb = 12 * num_symbols - overhead - dmrs_re - csi_re_per_rb;
+  const int sci1_re = 12 * pdu->pscch_numrbs * pdu->pscch_numsym;
+  const uint32_t code_rate = nr_get_code_rate_ul(sci_pdu->mcs, mcs_table);
+  const int sci2_re = get_NREsci2(pdu->sci2_alpha_times_100,
+                                 pdu->sci2_payload_len,
+                                 pdu->sci2_beta_offset,
+                                 num_symbols,
+                                 pdu->pscch_numsym,
+                                 pdu->pscch_numrbs,
+                                 pdu->l_subch,
+                                 pdu->subchannel_size,
+                                 code_rate);
+  const int num_re = re_per_rb * pdu->l_subch * pdu->subchannel_size - sci1_re - sci2_re;
+  return (nr_compute_tbs_sl(nr_get_Qm_ul(sci_pdu->mcs, mcs_table), code_rate,
+                            num_re, 1 + (sci_pdu->number_of_dmrs_port & 1)) + 7) >> 3;
+}
+
 void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
                           sl_nr_tx_config_pscch_pssch_pdu_t *nr_sl_pssch_pscch_pdu,
                           const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
@@ -419,39 +452,16 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
   if (sci_pdu->additional_mcs.nbits > 0)
     mcs_tb_ind = sci_pdu->additional_mcs.val;
   nr_sl_pssch_pscch_pdu->mcs = sci_pdu->mcs;
-  int nohPRB    = (sl_res_pool->sl_X_Overhead_r16) ? 3*(*sl_res_pool->sl_X_Overhead_r16) : 0;
-  int nREDMRS   = get_nREDMRS(sl_res_pool);
-  int num_CSI_REs= sci2_pdu->csi_req ? get_nRECSI_RS(sl_mac_params->freq_density, sl_mac_params->nr_of_rbs, get_nrUE_params()->nb_antennas_tx) : 0;
-  int num_CSI_REs_per_RB = sci2_pdu->csi_req ? (num_CSI_REs/sl_mac_params->nr_of_rbs) : 0;
-  int N_REprime = 12 * nr_sl_pssch_pscch_pdu->pssch_numsym - nohPRB - nREDMRS - num_CSI_REs_per_RB;
-  int N_REsci1  = 12*nr_sl_pssch_pscch_pdu->pscch_numrbs*nr_sl_pssch_pscch_pdu->pscch_numsym;
   AssertFatal(*sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_Scaling_r16 < 4, "Illegal index %d to alpha table\n",(int)*sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_Scaling_r16);
-  // difference 1?
-  /* TS 38.212/38.214 SCI-2 resource accounting uses the target code rate of
-   * the MCS signalled for this PSSCH, not a fixed MCS-1 code rate. */
-  uint32_t code_rate = nr_get_code_rate_ul(nr_sl_pssch_pscch_pdu->mcs, mcs_tb_ind);
-  int N_REsci2  = get_NREsci2(nr_sl_pssch_pscch_pdu->sci2_alpha_times_100,
-                              nr_sl_pssch_pscch_pdu->sci2_payload_len,
-                              nr_sl_pssch_pscch_pdu->sci2_beta_offset,
-                              nr_sl_pssch_pscch_pdu->pssch_numsym,
-                              nr_sl_pssch_pscch_pdu->pscch_numsym,
-                              nr_sl_pssch_pscch_pdu->pscch_numrbs,
-                              nr_sl_pssch_pscch_pdu->l_subch,
-                              nr_sl_pssch_pscch_pdu->subchannel_size,
-                              code_rate);
-  LOG_D(NR_MAC, "nREDMRS %d, num_CSI_REs %d, N_REprime %d, N_REsci1 %d, N_REsci2 %d\n", nREDMRS, num_CSI_REs, N_REprime, N_REsci1, N_REsci2);
-  int N_RE      = N_REprime*nr_sl_pssch_pscch_pdu->l_subch*nr_sl_pssch_pscch_pdu->subchannel_size - N_REsci1 - N_REsci2;
-
   nr_sl_pssch_pscch_pdu->mod_order = nr_get_Qm_ul(sci_pdu->mcs,mcs_tb_ind);
   nr_sl_pssch_pscch_pdu->target_coderate = nr_get_code_rate_ul(sci_pdu->mcs,mcs_tb_ind);
-  nr_sl_pssch_pscch_pdu->tb_size = (nr_compute_tbs_sl(nr_sl_pssch_pscch_pdu->mod_order,
-                                                     nr_sl_pssch_pscch_pdu->target_coderate,
-						     N_RE,1+(sci_pdu->number_of_dmrs_port&1))+7)>>3;
+  nr_sl_pssch_pscch_pdu->tb_size =
+      nr_sl_compute_tbs(sl_mac_params, sl_bwp, sl_res_pool, sci_pdu, sci2_pdu, nr_sl_pssch_pscch_pdu);
   nr_sl_pssch_pscch_pdu->mcs = sci_pdu->mcs;
   nr_sl_pssch_pscch_pdu->num_layers = sci_pdu->number_of_dmrs_port+1;
   if (slot % 10 == 6)
     LOG_D(NR_MAC,"PSSCH: mcs %d, coderate %d, Nl %d => tbs %d\n", sci_pdu->mcs,nr_sl_pssch_pscch_pdu->target_coderate,nr_sl_pssch_pscch_pdu->num_layers,nr_sl_pssch_pscch_pdu->tb_size);
-  nr_sl_pssch_pscch_pdu->tbslbrm = nr_compute_tbslbrm(mcs_tb_ind,NRRIV2BW(sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth,273),nr_sl_pssch_pscch_pdu->num_layers);
+  nr_sl_pssch_pscch_pdu->tbslbrm = 0; // TS 38.212 section 8.2: I_LBRM = 0.
   nr_sl_pssch_pscch_pdu->mcs_table=mcs_tb_ind;
   nr_sl_pssch_pscch_pdu->rv_index = sci2_pdu->rv_index;
   nr_sl_pssch_pscch_pdu->ndi = sci2_pdu->ndi;
@@ -832,9 +842,7 @@ void config_pssch_slsch_pdu_rx(sl_nr_rx_config_pssch_pdu_t *nr_sl_pssch_pdu,
   nr_sl_pssch_pdu->cast_type = sci_pdu->cast_type;
   nr_sl_pssch_pdu->harq_feedback = sci_pdu->harq_feedback;
   nr_sl_pssch_pdu->second_stage_sci_format = sci_pdu->second_stage_sci_format;
-  nr_sl_pssch_pdu->tbslbrm = nr_compute_tbslbrm(sci_pdu->additional_mcs.val,
-		                                NRRIV2BW(sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth,273),
-						nr_sl_pssch_pdu->num_layers);
+  nr_sl_pssch_pdu->tbslbrm = 0; // TS 38.212 section 8.2: I_LBRM = 0.
   int pssch_numsym = get_num_pssch_symbols(sl_bwp, sl_res_pool, sci_pdu);
   uint16_t l_subch;
   DevAssert(convNRFRIV(sci_pdu->frequency_resource_assignment.val,
@@ -988,6 +996,10 @@ int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac, module_id_t mod_id,
     return -1;
   }
   extract_pssch_sci_pdu((uint64_t *)sci->sci_payloadBits, sci->sci_payloadlen, sl_bwp, sl_res_pool, sci_pdu, sci2_format);
+  // TS 38.321 section 5.22.2.2.1: only interested identities enter the receiving HARQ entity.
+  if (!find_UE(mac, sci_pdu->source_id)
+      || (sci_pdu->cast_type == 2 && sci_pdu->dest_id != (uint16_t)mac->src_id))
+    return -1;
   LOG_D(NR_MAC,
         "SCI2 format %d: harq_pid %d ndi %d RV %d SRC %x DST %x HARQ_FB %d Cast %d CSI_Req %d\n",
         sci2_format,

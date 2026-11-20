@@ -585,3 +585,17 @@ rfsim5g_multiue10:
   IF: oaitun_ue10
   AttachScript: "true"
   DetachScript: "true"
+
+sl_ota_sync_ref:
+  Host: matix
+  NetworkScript: ip -4 a show dev oaitun_ue1
+  IF: oaitun_ue1
+  AttachScript: "true"
+  DetachScript: "true"
+
+sl_ota_ue1:
+  Host: avra
+  NetworkScript: ip -4 a show dev oaitun_ue1
+  IF: oaitun_ue1
+  AttachScript: "true"
+  DetachScript: "true"
