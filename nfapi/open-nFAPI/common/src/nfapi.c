@@ -57,6 +57,13 @@
 #define FAPI_TARGET_BYTE_ORDER __ORDER_LITTLE_ENDIAN__
 #endif
 
+// Check if the Byte Order we want matches the host, if yes, we can use memcpy, if not, we need to invert the bytes
+#if (FAPI_TARGET_BYTE_ORDER == __BYTE_ORDER__)
+#define FAPI_BYTES_NEEDS_BSWAP 0
+#else
+#define FAPI_BYTES_NEEDS_BSWAP 1
+#endif
+
 // What to do when an error happens (e.g., a push or pull fails)
 static inline void on_error()
 {
