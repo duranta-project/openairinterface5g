@@ -179,7 +179,8 @@ int phy_nr_rach_indication(nfapi_nr_rach_indication_t *ind)
 {
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL) {
     nfapi_nr_rach_indication_t *rach_ind = CALLOC(1, sizeof(*rach_ind));
-    copy_rach_indication(ind, rach_ind);
+    *rach_ind = *ind;
+    ind->pdu_list = NULL;
     if (!put_queue(&gnb_rach_ind_queue[ind->header.phy_id], rach_ind)) {
       LOG_E(NR_MAC, "Put_queue failed for rach_ind\n");
       free_rach_indication(rach_ind);
