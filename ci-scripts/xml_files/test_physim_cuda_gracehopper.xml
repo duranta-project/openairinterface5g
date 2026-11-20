@@ -17,7 +17,7 @@
          ones (ldpctest/nr_dlsim/nr_ulsim against libldpc_cuda.so) come from
          openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_cuda/CMakeLists.txt.
          They share the GPU, so run them serially. -->
-    <ctest-opt>-R "cuda.5g.physims|ldpc_cuda"</ctest-opt>
+    <script-opt>-R "cuda.5g.physims|ldpc_cuda"</script-opt>
   </testCase>
 
 </testCaseList>

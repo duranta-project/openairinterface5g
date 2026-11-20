@@ -16,7 +16,7 @@
     <script>scripts/source-deploy-physims.sh</script>
     <node>caracal</node>
     <!-- the double-dash is a delimiter to signal to the script that the rest are ctest options -->
-    <ctest-opt>-p 'numactl --cpunodebind=1 --membind=1' -- -R 5g-offload.*Aurora -j1</ctest-opt>
+    <script-opt>-p 'numactl --cpunodebind=1 --membind=1' -- -R 5g-offload.*Aurora -j1</script-opt>
   </testCase>
 
   <testCase>

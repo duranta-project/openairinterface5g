@@ -131,10 +131,10 @@ def ExecuteActionWithParam(action, test, ctx, node, oc, HTML):
 		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, options)
 
 	elif action == 'Build_Deploy_PhySim':
-		ctest_opt = test.findtext('ctest-opt') or ''
+		script_opt = test.findtext('script-opt') or ''
 		script = test.findtext('script')
 		workdir = ctx.g.workspace
-		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, ctest_opt)
+		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, script_opt)
 
 	elif action == 'DeployCoreNetwork' or action == 'UndeployCoreNetwork':
 		cn_id = test.findtext('cn_id')
