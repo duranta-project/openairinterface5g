@@ -46,7 +46,7 @@ In order to install the packages, run:
 
     dpkg -i liboai-common.deb liboai-usrp.deb oai-lte.deb oai-nr.deb oai-physim.deb
 
-### Rhel/Fedora
+### CentOS/Fedora
 
     rpm -i liboai-common.rpm liboai-usrp.rpm oai-lte.rpm oai-nr.rpm oai-physim.rpm
 
@@ -136,6 +136,6 @@ To uninstall packages and automatically stop and remove services in systemd, run
 
     dpkg -r liboai-common liboai-usrp oai-lte oai-nr oai-physim
 
-### Rhel/Fedora
+### CentOS/Fedora
 
     rpm -e liboai-common liboai-usrp oai-lte oai-nr oai-physim

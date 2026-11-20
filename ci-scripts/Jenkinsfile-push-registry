@@ -17,13 +17,17 @@ def DH_Account = params.DH_Account
 // Internal Registry to use
 def OAI_Registry = params.OAI_Registry
 
+// Shared by the Ubuntu and CentOS push stages
+def listOfImages = ["oai-enb", "oai-gnb", "oai-lte-ue", "oai-nr-ue", "oai-nr-cuup", "oai-gnb-fhi72"]
+def IMAGE_TAG = ""
+def COMMIT_SHA = ""
+
 pipeline {
   agent {
     label nodeExecutor
   }
   options {
     ansiColor('xterm')
-    lock(extra: lockResources)
   }
   stages {
     stage ("Verify Parameters") {
@@ -43,14 +47,17 @@ pipeline {
           if (!DH_Account || !OAI_Registry) {
             error "DH_Account and OAI_Registry parameters are required"
           }
+          if (!params.ElBuildNode || !params.ElBuildResource || !params.OC_Credentials || !params.OC_Url || !params.OC_ProjectName) {
+            error "ElBuildNode, ElBuildResource, OC_Credentials, OC_Url and OC_ProjectName parameters are required"
+          }
         }
       }
     }
-    stage ("Push to DockerHub") {
+    stage ("Push Ubuntu Images to DockerHub") {
+      options { lock(extra: lockResources) }
       steps {
         script {
-          def IMAGE_TAG = params.releaseTag?.trim() ?: params.weeklyTag?.trim()
-          def COMMIT_SHA
+          IMAGE_TAG = params.releaseTag?.trim() ?: params.weeklyTag?.trim()
           if (IMAGE_TAG) {
             // A given tag publishes the CI images built from the tagged commit
             sh "git fetch --force origin tag ${IMAGE_TAG} --no-tags"
@@ -65,7 +72,6 @@ pipeline {
             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password'],
             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.REGISTRY_Credentials}", usernameVariable: 'REGISTRY_Username', passwordVariable: 'REGISTRY_Password']
           ]) {
-            def listOfImages = ["oai-enb", "oai-gnb", "oai-lte-ue", "oai-nr-ue", "oai-nr-cuup", "oai-gnb-fhi72"]
             sh 'echo "$DH_Password" | docker login -u "$DH_Username" --password-stdin > /dev/null 2>&1'
             sh 'echo "$REGISTRY_Password" | docker login -u "$REGISTRY_Username" --password-stdin ' + OAI_Registry + ' > /dev/null 2>&1'
             listOfImages.each { item ->
@@ -84,13 +90,56 @@ pipeline {
           }
         }
       }
+      post {
+        always {
+          sh "docker logout ${OAI_Registry} > /dev/null 2>&1"
+          sh "docker logout > /dev/null 2>&1"
+        }
+      }
     }
-  }
-  post {
-    always {
-      script {
-        sh "docker logout ${OAI_Registry} > /dev/null 2>&1"
-        sh "docker logout > /dev/null 2>&1"
+    stage ("Push CentOS Stream Images to DockerHub") {
+      // CentOS Stream images are built on the OpenShift cluster: use its own node and resource
+      agent { label params.ElBuildNode }
+      options { lock(params.ElBuildResource) }
+      steps {
+        script {
+          withCredentials([
+            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.OC_Credentials}", usernameVariable: 'OC_Username', passwordVariable: 'OC_Password'],
+            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.DH_Credentials}", usernameVariable: 'DH_Username', passwordVariable: 'DH_Password']
+          ]) {
+            sh "oc login -u \$OC_Username -p \$OC_Password --server=${params.OC_Url} --insecure-skip-tls-verify > /dev/null"
+            def ocRegistry = sh(returnStdout: true, script: "oc registry info --public").trim()
+            if (!ocRegistry) {
+              error "The OpenShift registry has no public route, so the CentOS images cannot be copied to Docker Hub."
+            }
+            // Per-build auth file, so no registry credentials stay on the node
+            withEnv(["REGISTRY_AUTH_FILE=${env.WORKSPACE}/skopeo-auth.json", "OC_REGISTRY=${ocRegistry}"]) {
+              sh '''
+                set +x
+                oc whoami -t | skopeo login --tls-verify=false -u "$(oc whoami)" --password-stdin "$OC_REGISTRY"
+                echo "$DH_Password" | skopeo login -u "$DH_Username" --password-stdin docker.io
+              '''
+              def tags = ["${IMAGE_TAG}-centos"]
+              // Only the automatic run updates develop-centos, as for the Ubuntu images
+              if (!params.releaseTag?.trim() && !params.weeklyTag?.trim()) {
+                tags += "develop-centos"
+              }
+              listOfImages.each { item ->
+                tags.each { tag ->
+                  echo "Copying ${item}:develop-${COMMIT_SHA} to ${DH_Account}/${item}:${tag}"
+                  sh "set +x; skopeo copy --src-tls-verify=false docker://\$OC_REGISTRY/${params.OC_ProjectName}/${item}:develop-${COMMIT_SHA} " +
+                     "docker://docker.io/${DH_Account}/${item}:${tag}"
+                }
+              }
+            }
+          }
+        }
+      }
+      post {
+        always {
+          sh "rm -f ${env.WORKSPACE}/skopeo-auth.json"
+          sh "oc logout > /dev/null 2>&1 || true"
+        }
       }
     }
   }

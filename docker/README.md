@@ -22,7 +22,7 @@ For all platforms, the strategy for building docker/podman images is the same:
 *  Then from the `ran-build` shared image, we can build target images for:
    -  eNB
    -  gNB/DU (with UHD)
-   -  gNB/DU (with AW2S), only on RHEL9
+   -  gNB/DU (with AW2S), only on CentOS Stream 10
    -  lte-UE
    -  nr-UE
    -  nr-cuup
@@ -73,9 +73,8 @@ Targets can be:
 
 The currently-supported OS are:
 
-- `rhel9` for Red Hat Enterprise Linux and Openshift Universal Base Image
+- `centos` for CentOS Stream 10
 - `ubuntu` for Ubuntu 24.04 LTS
-- `rocky` for Rocky-Linux 9
 
 For more details regarding the build on an Openshift Cluster, see [OpenShift README](../openshift/README.md).
 
@@ -130,8 +129,6 @@ ran-base            latest              5c9c02a5b4a8        1 minute ago        
 ran-build-fhi72     latest              5190c06dbb4d        1 minute ago    6.86GB
 ...
 ```
-
-Note that the steps are identical for `rocky-linux`.
 
 ### 3.2.1. Additional build options
 
@@ -191,8 +188,6 @@ Do not forget to remove the temporary image:
 docker image prune --force
 ```
 
-Note that the steps are identical for `rocky-linux`.
-
 If you have used the sanitizer option, then you should also pass it when building the target image:
 
 ```bash
@@ -201,16 +196,16 @@ docker build --target oai-gnb --tag oai-gnb:latest --file docker/Dockerfile.gNB.
 
 Normally the target image will be around 200 Mbytes bigger.
 
-# 4. Building using `podman` under Red Hat Entreprise Linux 9.X #
+# 4. Building using `podman` under CentOS Stream 10 #
 
 Analogous to the above steps:
 
 ```bash
-podman build --target ran-base --tag ran-base:latest --file docker/Dockerfile.base.rhel9 .
+podman build --target ran-base --tag ran-base:latest --file docker/Dockerfile.base.centos .
 # if you want use USRP, AW2S and RFSimulator radios
-podman build --target ran-build --tag ran-build:latest --file docker/Dockerfile.build.rhel9 .
+podman build --target ran-build --tag ran-build:latest --file docker/Dockerfile.build.centos .
 # if you want to use front-haul 7.2 and RFSimulator radios
-podman build --tag ran-build-fhi72:latest --file docker/Dockerfile.build.fhi72.rhel9 .
+podman build --tag ran-build-fhi72:latest --file docker/Dockerfile.build.fhi72.centos .
 ```
 
 ## 4.1 Building target images
@@ -218,13 +213,13 @@ podman build --tag ran-build-fhi72:latest --file docker/Dockerfile.build.fhi72.r
 For example, the eNB:
 
 ```bash
-podman build --target oai-enb --tag oai-enb:latest --file docker/Dockerfile.eNB.rhel9 .
+podman build --target oai-enb --tag oai-enb:latest --file docker/Dockerfile.eNB.centos .
 ```
 
 To build gNB/DU with 7.2 fronthaul support:
 
 ```bash
-podman build --target oai-gnb-fhi72 --tag oai-gnb-fhi72:latest --file docker/Dockerfile.gNB.fhi72.rhel9  .
+podman build --target oai-gnb-fhi72 --tag oai-gnb-fhi72:latest --file docker/Dockerfile.gNB.fhi72.centos  .
 ```
 
 # 5. Running modems using `docker` under Ubuntu #
