@@ -996,6 +996,9 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
   pdsch_pdu->precodingAndBeamforming.dig_bf_interfaces = pdsch_pdu->param_v4.spatialStreamsCw[0].numSpatialStreamIndices;
   for (int i = 0; i < pdsch_pdu->param_v4.spatialStreamsCw[0].numSpatialStreamIndices; i++)
     pdsch_pdu->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[i].beam_idx = beam_index;
+  // TODO hardcoded to signal Aerial L1 to have PDSCH tx power to the same level as of SSB
+  pdsch_pdu->powerControlOffset = 8; // 0dB
+  pdsch_pdu->powerControlOffsetSS = 1; // 0dB
   return pdsch_pdu;
 }
 
