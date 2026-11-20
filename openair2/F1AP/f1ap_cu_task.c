@@ -16,6 +16,7 @@
 #include <openair3/ocp-gtpu/gtp_itf.h>
 #include "common_lib.h"
 #include "f1ap_cu_positioning.h"
+#include "lib/f1ap_positioning.h"
 
 static instance_t cu_task_create_gtpu_instance(const char *bind_addr, uint16_t local_port, uint16_t remote_port)
 {
@@ -190,6 +191,12 @@ void *F1AP_CU_task(void *arg)
 
       case F1AP_TRP_INFORMATION_REQ:
         CU_send_TRP_INFORMATION_REQUEST(assoc_id, &F1AP_TRP_INFORMATION_REQ(received_msg));
+        free_trp_information_req(&F1AP_TRP_INFORMATION_REQ(received_msg));
+        break;
+
+      case F1AP_POS_ASSISTANCE_CONTROL:
+        CU_send_POS_ASSISTANCE_CONTROL(assoc_id, &F1AP_POS_ASSISTANCE_CONTROL(received_msg));
+        free_pos_assistance_control(&F1AP_POS_ASSISTANCE_CONTROL(received_msg));
         break;
 
       case F1AP_POSITIONING_INFORMATION_REQ:

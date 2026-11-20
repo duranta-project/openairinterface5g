@@ -49,6 +49,9 @@ void trigger_f1_reset(struct gNB_RRC_INST_s *rrc, sctp_assoc_t du_assoc_id);
 void rrc_send_paging_to_dus(struct gNB_RRC_INST_s *rrc, const nr_tai_t tais[], uint8_t n_tai, f1ap_paging_t *f1ap_msg);
 
 void rrc_send_trp_information_request_to_dus(struct gNB_RRC_INST_s *rrc, struct f1ap_trp_information_req_s *msg);
+void rrc_handle_trp_information_response(struct gNB_RRC_INST_s *rrc, sctp_assoc_t assoc_id, f1ap_trp_information_resp_t *resp);
+void rrc_handle_trp_information_failure(struct gNB_RRC_INST_s *rrc, sctp_assoc_t assoc_id, f1ap_trp_information_failure_t *fail);
+void rrc_trp_transaction_tick(struct gNB_RRC_INST_s *rrc);
 void rrc_send_positioning_measurement_request_to_dus(struct gNB_RRC_INST_s *rrc, struct f1ap_measurement_req_s *msg);
 
 #endif /* RRC_GNB_DU_H_ */

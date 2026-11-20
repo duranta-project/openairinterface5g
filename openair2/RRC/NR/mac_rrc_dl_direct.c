@@ -90,6 +90,12 @@ static void trp_information_request_direct(sctp_assoc_t assoc_id, const f1ap_trp
   trp_information_request(req);
 }
 
+static void pos_assistance_control_direct(sctp_assoc_t assoc_id, const f1ap_pos_assistance_control_t *control)
+{
+  AssertFatal(assoc_id == -1, "illegal assoc_id %d\n", assoc_id);
+  pos_assistance_control(control);
+}
+
 static void positioning_information_request_direct(sctp_assoc_t assoc_id, const f1ap_positioning_information_req_t *req)
 {
   AssertFatal(assoc_id == -1, "illegal assoc_id %d\n", assoc_id);
@@ -123,6 +129,7 @@ void mac_rrc_dl_direct_init(nr_mac_rrc_dl_if_t *mac_rrc)
   mac_rrc->dl_rrc_message_transfer = dl_rrc_message_transfer_direct;
   mac_rrc->paging_transfer = f1_paging_transfer_direct;
   mac_rrc->trp_information_request = trp_information_request_direct;
+  mac_rrc->pos_assistance_control = pos_assistance_control_direct;
   mac_rrc->positioning_information_request = positioning_information_request_direct;
   mac_rrc->positioning_activation_request = positioning_activation_request_direct;
   mac_rrc->positioning_measurement_request = positioning_measurement_request_direct;

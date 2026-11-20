@@ -96,7 +96,7 @@ static nrppa_trp_information_resp_t fill_trp_resp(uint8_t transaction_id)
   list->trp_information_item_length = trp_info_item_len;
   list->trp_information_item = calloc_or_fail(trp_info_item_len, sizeof(*list->trp_information_item));
 
-  uint8_t resp_item_len = 3;
+  uint8_t resp_item_len = trp_info_config->has_coordinates ? 3 : 2;
   for (int i = 0; i < trp_info_item_len; i++) {
     nrppa_trp_information_t *tRPInformation = &list->trp_information_item[i];
     tRPInformation->trp_id = trp_info_config->trps[i].id;
@@ -115,6 +115,9 @@ static nrppa_trp_information_resp_t fill_trp_resp(uint8_t transaction_id)
     resp_item[1].choice.ng_ran_cgi.plmn.mnc = 01;
     resp_item[1].choice.ng_ran_cgi.plmn.mnc_digit_length = 2;
     resp_item[1].choice.ng_ran_cgi.nr_cellid = gnb_id << 8; // HACK: Made to work with lmf
+
+    if (!trp_info_config->has_coordinates)
+      continue;
 
     // geographicalCoordinates
     resp_item[2].present = NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_GEOGRAPHICALCOORDINATES;

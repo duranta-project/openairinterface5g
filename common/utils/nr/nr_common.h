@@ -214,6 +214,7 @@ typedef struct trp_s {
 typedef struct {
   trp_t trps[MAX_NUM_TRPs];
   uint8_t num_trp;
+  bool has_coordinates;
   // Serving gNB indicator
   bool is_serving_gNB;
 } trp_info_config_t;

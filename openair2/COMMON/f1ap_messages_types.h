@@ -54,6 +54,7 @@
 #define F1AP_PAGING(mSGpTR)                        (mSGpTR)->ittiMsg.f1ap_paging
 
 #define F1AP_TRP_INFORMATION_REQ(mSGpTR) (mSGpTR)->ittiMsg.f1ap_trp_information_req
+#define F1AP_POS_ASSISTANCE_CONTROL(mSGpTR) (mSGpTR)->ittiMsg.f1ap_pos_assistance_control
 #define F1AP_TRP_INFORMATION_RESP(mSGpTR) (mSGpTR)->ittiMsg.f1ap_trp_information_resp
 #define F1AP_TRP_INFORMATION_FAILURE(mSGpTR) (mSGpTR)->ittiMsg.f1ap_trp_information_failure
 #define F1AP_POSITIONING_INFORMATION_REQ(mSGpTR) (mSGpTR)->ittiMsg.f1ap_positioning_information_req
@@ -1258,12 +1259,29 @@ typedef struct f1ap_ng_ran_cgi_s {
   uint64_t nr_cellid;
 } f1ap_ng_ran_cgi_t;
 
+typedef struct f1ap_pos_assistance_control_s {
+  uint8_t transaction_id;
+  bool start;
+  bool has_cell;
+  f1ap_ng_ran_cgi_t cell;
+  uint8_t *assistance;
+  size_t assistance_length;
+} f1ap_pos_assistance_control_t;
+
 typedef struct f1ap_prs_resource_s {
   uint8_t prs_resource_id;
   uint16_t sequence_id;
   uint8_t re_offset;
   uint16_t resource_slot_offset;
   uint8_t resource_symbol_offset;
+  bool has_qcl_ssb;
+  uint16_t qcl_ssb_pci;
+  bool has_qcl_ssb_index;
+  uint8_t qcl_ssb_index;
+  bool has_qcl_prs;
+  uint8_t qcl_prs_set_id;
+  bool has_qcl_prs_resource_id;
+  uint8_t qcl_prs_resource_id;
 } f1ap_prs_resource_t;
 
 typedef struct f1ap_prs_resource_set_s {
@@ -1279,6 +1297,11 @@ typedef struct f1ap_prs_resource_set_s {
   uint8_t resource_repetition_factor;
   uint8_t resource_time_gap;
   uint8_t resource_number_of_symbols;
+  uint8_t muting1_length;
+  uint8_t muting1_bits[4];
+  uint8_t muting1_repetition;
+  uint8_t muting2_length;
+  uint8_t muting2_bits[4];
   int8_t prs_resource_transmit_power;
   uint8_t prs_resource_list_length;
   f1ap_prs_resource_t *prs_resource;
