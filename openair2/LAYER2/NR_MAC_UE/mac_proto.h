@@ -466,6 +466,13 @@ void extract_pssch_sci_pdu(uint64_t *sci2_payload,
                            nr_sci_pdu_t *sci_pdu,
                            nr_sci_format_t sci2_format);
 
+uint32_t nr_sl_compute_tbs(const sl_nr_ue_mac_params_t *sl_mac_params,
+                           const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                           const NR_SL_ResourcePool_r16_t *sl_res_pool,
+                           const nr_sci_pdu_t *sci_pdu,
+                           const nr_sci_pdu_t *sci2_pdu,
+                           const sl_nr_tx_config_pscch_pssch_pdu_t *pdu);
+
 void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
                           sl_nr_tx_config_pscch_pssch_pdu_t *nr_sl_pssch_pscch_pdu,
                           const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,

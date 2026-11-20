@@ -417,7 +417,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
    * PSFCH even when psfch_period > 0. */
   sci2_pdu->harq_feedback = (psfch_period > 0);
   LOG_D(NR_MAC, "%4d.%2d Comparing Setting harq_feedback %d bytes_in_buffer %d sl_harq_pid %d\n", frameP, slotP, sci2_pdu->harq_feedback, rlc_status->bytes_in_buffer, cur_harq ? cur_harq->sl_harq_pid : 0);
-  sci2_pdu->cast_type = 1;
+  sci2_pdu->cast_type = 2; // SCI-2A unicast for the configured per-peer link (TS 38.212 table 8.4.1.1-1).
   if (format2 == NR_SL_SCI_FORMAT_2C || format2 == NR_SL_SCI_FORMAT_2A) {
     sci2_pdu->csi_req = (csi_acq && csi_req_slot) ? 1 : 0;
     sci2_pdu->csi_req = (cur_harq->round > 0 || is_feedback_slot) ? 0 : sci2_pdu->csi_req;

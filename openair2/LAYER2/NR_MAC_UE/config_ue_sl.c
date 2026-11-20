@@ -116,7 +116,13 @@ void sl_set_tdd_config_nr_ue(fapi_nr_tdd_table_t *tdd_table,
   LOG_I(PHY,"UL slots:%d, symbols:%d, slots_per_period:%d\n",
                           nrofUplinkSlots, nrofUplinkSymbols, nb_slots_per_period);
 
-  tdd_table->max_tdd_periodicity_list = (fapi_nr_max_tdd_periodicity_t *) malloc(nb_slots_per_period * sizeof(fapi_nr_max_tdd_periodicity_t));
+  // TX burst selection also reads num_dl; unused symbol counts must remain zero.
+  tdd_table->max_tdd_periodicity_list = calloc_or_fail(nb_slots_per_period, sizeof(*tdd_table->max_tdd_periodicity_list));
+
+  for (int slot = 0; slot < pattern->nrofDownlinkSlots; slot++)
+    tdd_table->max_tdd_periodicity_list[slot].num_dl_ul_symbols_list.num_dl = NR_SYMBOLS_PER_SLOT;
+  if (pattern->nrofDownlinkSymbols > 0)
+    tdd_table->max_tdd_periodicity_list[pattern->nrofDownlinkSlots].num_dl_ul_symbols_list.num_dl = pattern->nrofDownlinkSymbols;
 
   // Fill UL slots.
   uint ul_slot_counter = 0;
