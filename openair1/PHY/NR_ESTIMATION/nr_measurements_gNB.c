@@ -130,7 +130,8 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
   PHY_MEASUREMENTS_gNB *measurements = &gNB->measurements;
   int nb_symb[MAX_BWP_SIZE] = {0};
 
-  unsigned int tmp_n0_subband[frame_parms->nb_antennas_rx][frame_parms->N_RB_UL];
+  // raw energy per antenna/RB, summed over symbols and subcarriers: normalized once below
+  float tmp_n0_subband[frame_parms->nb_antennas_rx][frame_parms->N_RB_UL];
   memset(tmp_n0_subband, 0, sizeof(tmp_n0_subband));
 
   /* Noise measurements is done on all spatial streams here. Later these
@@ -147,13 +148,11 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
           if (aarx == 0)
             nb_symb[rb]++;
           c16_t *ul_ch = &common_vars->rxdataF[aarx][offset];
-          int32_t signal_energy = signal_energy_nodc(ul_ch, 12);
-          // noise power per antenna/RB, symbols summed up
-          tmp_n0_subband[aarx][rb] += signal_energy;
-        } //antenna
-      }
-    } //rb
-  } // symb
+          tmp_n0_subband[aarx][rb] += signal_energy_prb_sum(ul_ch);
+        }
+      } // rb
+    } // symb
+  } // antenna
 
   int32_t n0_subband_tot_perANT[frame_parms->nb_antennas_rx];
   memset(n0_subband_tot_perANT, 0, sizeof(n0_subband_tot_perANT));
@@ -166,14 +165,14 @@ void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_sy
               frame_parms->N_RB_UL,
               false);
 
-  int32_t n0_subband_tot_perPRB [frame_parms->N_RB_UL];
+  int32_t n0_subband_tot_perPRB[frame_parms->N_RB_UL];
   memset(n0_subband_tot_perPRB, 0, sizeof(n0_subband_tot_perPRB));
   for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
     for (int rb = 0 ; rb<frame_parms->N_RB_UL;rb++) {
       if (nb_symb[rb] == 0)
         continue;
 
-      tmp_n0_subband[aarx][rb] /= nb_symb[rb];
+      tmp_n0_subband[aarx][rb] /= nb_symb[rb] * NR_NB_SC_PER_RB;
       // Initialize n0_subband_power from the first measurement before EMA
       if (init_meas)
         n0_subband_power[aarx][rb] = tmp_n0_subband[aarx][rb];

@@ -1241,6 +1241,8 @@ int32_t signal_energy(int32_t *,uint32_t);
 \brief Computes the signal energy per subcarrier, without DC removal
 */
 uint32_t signal_energy_nodc(const c16_t *input, uint32_t length);
+/// sum (not average) of |x|^2 over the NR_NB_SC_PER_RB samples of one PRB
+float signal_energy_prb_sum(const c16_t *input);
 
 int32_t signal_power(int32_t *,uint32_t);
 int32_t interference_power(int32_t *,uint32_t);
