@@ -46,6 +46,34 @@ prs_config = (
 );
 ```
 
+For `posSibType6-1` broadcasting, configure PRS and one TRP on the DU, and add
+a `pos_sib` entry on the CU. In a monolithic gNB, both sections are in the same
+file. For example:
+
+```
+positioning_config = ({ NumTRPs = 1; TRPIDs = [1]; });
+pos_sib = ({ cell_id = 12345678L; trp_id = 1; periodicity = 16; });
+```
+
+`TRPxAxis`, `TRPyAxis`, `TRPzAxis`, and `Units` are optional for PosSIB.
+If coordinates are needed for TRP geographical information, provide all four
+arrays with `NumTRPs` entries each. Without them, geographical-coordinate
+requests are rejected rather than reporting an artificial origin.
+
+`cell_id` must match the DU's `nr_cellid`, and `trp_id` must match the DU's
+TRP. The CU sends an F1 TRP Information Request after setup and supplies the
+generated assistance to that DU using Positioning Assistance Information
+Control. The periodicity is in radio frames and must be 8, 16, 32, 64, 128,
+256, or 512. With no `pos_sib` entry, broadcasting is disabled. The CU must
+also configure at least one ordinary SIB2–SIB14, for example `cu_sibs = [2]`.
+
+The OAI DU currently reports PRS for one cell, one TRP and one resource set.
+It rejects configured muting because its transmitter does not apply it. The
+CU accepts muting received from a capable DU. PRS-to-PRS QCL is accepted when
+the source resource is identified in the same set; SSB QCL is rejected because
+F1 does not provide the LPP QCL type. Segmentation, on-demand delivery and
+LMF-originated PosSIB are not implemented.
+
 The nrUE config has `Active_gNBs` to specify the number of active gNBs
 transmitting PRS simultaneously. Help strings for all PRS parameters are
 documented in `openair2/COMMON/prs_nr_paramdef.h`.
