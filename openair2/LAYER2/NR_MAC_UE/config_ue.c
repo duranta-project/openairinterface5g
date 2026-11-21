@@ -2183,14 +2183,14 @@ static void configure_pcch_config(NR_UE_MAC_INST_t *mac, const NR_ServingCellCon
  * - RRC_INACTIVE:                                same as above (UE also has fullI-RNTI).
  * The "no 5G-S-TMSI" window between MIB/SIB1 reception and NAS_5GMM_IND is legitimate per spec,
  * the UE must still monitor PF/PO with UE_ID = 0 for broadcast-style notifications.
- * @note Pass UINT64_MAX to invalidate (no 5G-S-TMSI). */
+ * @note Pass NO_5G_S_TMSI to invalidate (no 5G-S-TMSI). */
 void nr_rrc_mac_config_req_paging_ue_id(module_id_t module_id, uint64_t fiveG_S_TMSI)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
   /* TS 38.304 §7.1: UE_ID = 5G-S-TMSI mod 1024, or 0 when no 5G-S-TMSI is allocated. */
-  mac->paging_cfg.ue_id = (fiveG_S_TMSI == UINT64_MAX) ? 0 : fiveG_S_TMSI % 1024;
+  mac->paging_cfg.ue_id = (fiveG_S_TMSI == NO_5G_S_TMSI) ? 0 : fiveG_S_TMSI % 1024;
   LOG_I(NR_MAC, "[UE %d] paging UE_ID=%u\n", mac->ue_id, mac->paging_cfg.ue_id);
   pthread_mutex_unlock(&mac->if_mutex);
 }

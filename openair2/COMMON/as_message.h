@@ -386,6 +386,7 @@ typedef struct nas_detach_req_s {
  * @brief 5GS mobility management information
  * @ref   clause 9.11.3 of 3GPP TS 24.501
  */
+#define NO_5G_S_TMSI UINT64_MAX
 typedef struct nas_5gmm_ind_s {
   uint64_t fiveG_STMSI;
 } nas_5gmm_ind_t;
