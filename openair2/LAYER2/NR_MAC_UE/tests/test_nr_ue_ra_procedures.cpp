@@ -221,6 +221,60 @@ TEST(test_init_ra, four_step_cfra)
   EXPECT_EQ(mac.ra.cfra, 1);
 }
 
+TEST(test_init_ra, format_seqlen_mismatch)
+{
+  NR_UE_MAC_INST_t mac = {0};
+  NR_RACH_ConfigCommon_t nr_rach_ConfigCommon = {0};
+  NR_RACH_ConfigGeneric_t rach_ConfigGeneric = {0};
+  NR_UE_UL_BWP_t current_bwp = {0};
+  NR_UE_DL_BWP_t dl_bwp = {0};
+  mac.current_UL_BWP = &current_bwp;
+  mac.current_DL_BWP = &dl_bwp;
+  long scs = 1;
+  current_bwp.scs = scs;
+  nr_rach_ConfigCommon.msg1_SubcarrierSpacing = &scs;
+  rach_ConfigGeneric.prach_ConfigurationIndex = 0; // Format 0 (long sequence)
+  nr_rach_ConfigCommon.rach_ConfigGeneric = rach_ConfigGeneric;
+  // Inconsistent: format 0 (long) paired with short sequence length (l139)
+  nr_rach_ConfigCommon.prach_RootSequenceIndex.present = NR_RACH_ConfigCommon__prach_RootSequenceIndex_PR_l139;
+  current_bwp.rach_ConfigCommon = &nr_rach_ConfigCommon;
+  mac.nr_band = 78;
+  mac.frame_structure.frame_type = TDD;
+  mac.frequency_range = FR1;
+
+  EXPECT_FALSE(init_RA(&mac));
+}
+
+TEST(test_init_ra, format_seqlen_match_updates_prach_config)
+{
+  NR_UE_MAC_INST_t mac = {0};
+  NR_RACH_ConfigCommon_t nr_rach_ConfigCommon = {0};
+  NR_RACH_ConfigGeneric_t rach_ConfigGeneric = {0};
+  NR_UE_UL_BWP_t current_bwp = {0};
+  NR_UE_DL_BWP_t dl_bwp = {0};
+  mac.current_UL_BWP = &current_bwp;
+  mac.current_DL_BWP = &dl_bwp;
+  long scs = 1;
+  current_bwp.scs = scs;
+  current_bwp.channel_bandwidth = 40;
+  nr_rach_ConfigCommon.msg1_SubcarrierSpacing = &scs;
+  rach_ConfigGeneric.prach_ConfigurationIndex = 0; // Format 0 (long sequence)
+  nr_rach_ConfigCommon.rach_ConfigGeneric = rach_ConfigGeneric;
+  nr_rach_ConfigCommon.prach_RootSequenceIndex.present = NR_RACH_ConfigCommon__prach_RootSequenceIndex_PR_l839;
+  current_bwp.rach_ConfigCommon = &nr_rach_ConfigCommon;
+  mac.p_Max = 23;
+  mac.nr_band = 78;
+  mac.frame_structure.frame_type = TDD;
+  mac.frame_structure.numb_slots_frame = 20;
+  mac.frequency_range = FR1;
+
+  // Stale sequence length in PHY config (e.g. 1 from SIB1)
+  mac.phy_config.config_req.prach_config.prach_sequence_length = 1;
+
+  EXPECT_TRUE(init_RA(&mac));
+  EXPECT_EQ(mac.phy_config.config_req.prach_config.prach_sequence_length, 0);
+}
+
 int main(int argc, char **argv)
 {
   logInit();

@@ -769,13 +769,32 @@ bool init_RA(NR_UE_MAC_INST_t *mac)
   NR_SubcarrierSpacing_t prach_scs;
   int scs_for_pcmax; // for long prach the UL BWP SCS is used for calculating RA_PCMAX
   NR_RACH_ConfigGeneric_t *rach_ConfigGeneric = &nr_rach_ConfigCommon->rach_ConfigGeneric;
+  const unsigned int index = rach_ConfigGeneric->prach_ConfigurationIndex;
+  const unsigned int unpaired = mac->phy_config.config_req.cell_config.frame_duplex_type;
+  const unsigned int format = get_format0(index, unpaired, mac->frequency_range);
+  if (nr_rach_ConfigCommon->prach_RootSequenceIndex.present != 0) {
+    const int seq_len = nr_rach_ConfigCommon->prach_RootSequenceIndex.present - 1;
+    const bool is_long_format = (format <= 3);
+    const bool is_long_seq = (seq_len == 0);
+    if (is_long_format != is_long_seq) {
+      LOG_E(NR_MAC,
+            "Cannot initialize RA: PRACH format %u (%s) incompatible with sequence length %d (%s)\n",
+            format,
+            is_long_format ? "long" : "short",
+            seq_len,
+            is_long_seq ? "l839" : "l139");
+      return false;
+    }
+    if (mac->phy_config.config_req.prach_config.prach_sequence_length != seq_len) {
+      configure_prach(mac, nr_rach_ConfigCommon, current_UL_BWP->BWPStart, current_UL_BWP->scs);
+      if (mac->if_module != NULL && mac->if_module->phy_config_request != NULL)
+        mac->if_module->phy_config_request(&mac->phy_config);
+    }
+  }
   if (nr_rach_ConfigCommon->msg1_SubcarrierSpacing) {
     prach_scs = *nr_rach_ConfigCommon->msg1_SubcarrierSpacing;
     scs_for_pcmax = prach_scs;
   } else {
-    const unsigned int index = rach_ConfigGeneric->prach_ConfigurationIndex;
-    const unsigned int unpaired = mac->phy_config.config_req.cell_config.frame_duplex_type;
-    const unsigned int format = get_format0(index, unpaired, mac->frequency_range);
     prach_scs = get_delta_f_RA_long(format);
     scs_for_pcmax = mac->current_UL_BWP->scs;
   }
