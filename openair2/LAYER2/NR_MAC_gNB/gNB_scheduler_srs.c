@@ -457,7 +457,15 @@ static void nr_configure_srs(gNB_MAC_INST *nrmac,
   NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
 
   srs_pdu->rnti = UE->rnti;
+#ifdef ENABLE_AERIAL
+  // cuBB SCF_FAPI_10_04 stores the channel estimate in the per-cell buffer named by
+  // handle bits 8-23 and drops an SRS PDU whose buffer is still in flight (until its
+  // SRS.indication): give each UE its own. Connected UEs have uid < MAX_MOBILES_PER_GNB,
+  // inside cuBB's default pool of 256.
+  srs_pdu->handle = UE->uid << 8;
+#else
   srs_pdu->handle = 0;
+#endif
   srs_pdu->bwp_size = current_BWP->BWPSize;
   srs_pdu->bwp_start = current_BWP->BWPStart;
   srs_pdu->subcarrier_spacing = current_BWP->scs;
