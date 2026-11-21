@@ -319,16 +319,20 @@ static bool e1_decode_snssai(e1ap_nssai_t *out, const E1AP_SNSSAI_t *in)
  */
 static int decode_dl_up_parameters(up_params_t *dl_up_param, const E1AP_UP_Parameters_t *dl_up_paramList)
 {
+  if (dl_up_paramList->list.count > E1AP_MAX_NUM_UP_PARAM) {
+    PRINT_ERROR("UP Parameters count %d exceeds maximum %d\n", dl_up_paramList->list.count, E1AP_MAX_NUM_UP_PARAM);
+    return -1;
+  }
   for (int k = 0; k < dl_up_paramList->list.count; k++) {
-    dl_up_param = dl_up_param + k;
+    up_params_t *param = &dl_up_param[k];
     E1AP_UP_Parameters_Item_t *dl_up_param_in = dl_up_paramList->list.array[k];
     // GTP tunnel
-    if (!e1_decode_up_tnl_info(&dl_up_param->tl_info, &dl_up_param_in->uP_TNL_Information)) {
+    if (!e1_decode_up_tnl_info(&param->tl_info, &dl_up_param_in->uP_TNL_Information)) {
       PRINT_ERROR("GTP tunnel decoding failed\n");
       return -1;
     }
     // Cell group ID
-    dl_up_param->cell_group_id = dl_up_param_in->cell_Group_ID;
+    param->cell_group_id = dl_up_param_in->cell_Group_ID;
   }
   return dl_up_paramList->list.count;
 }
@@ -342,6 +346,7 @@ static E1AP_UP_Parameters_t encode_dl_up_parameters(const int numUpParam, const 
   for (const up_params_t *k = in; k < in + numUpParam; k++) {
     asn1cSequenceAdd(out.list, E1AP_UP_Parameters_Item_t, ieC3_1_1_1);
     ieC3_1_1_1->uP_TNL_Information = e1_encode_up_tnl_info(&k->tl_info);
+    ieC3_1_1_1->cell_Group_ID = k->cell_group_id;
   }
   return out;
 }
@@ -529,6 +534,15 @@ static bool eq_up_tl_info(const UP_TL_information_t *a, const UP_TL_information_
 {
   _EQ_CHECK_INT(a->tlAddress, b->tlAddress);
   _EQ_CHECK_UINT32(a->teId, b->teId);
+  return true;
+}
+
+/** @brief Equality check for UP Parameter (3GPP TS 38.463 9.3.2.2) */
+static bool eq_up_param(const up_params_t *a, const up_params_t *b)
+{
+  if (!eq_up_tl_info(&a->tl_info, &b->tl_info))
+    return false;
+  _EQ_CHECK_INT(a->cell_group_id, b->cell_group_id);
   return true;
 }
 
@@ -1098,6 +1112,10 @@ bool eq_bearer_context_setup_response(const e1ap_bearer_setup_resp_t *a, const e
       const DRB_nGRAN_setup_t *drb_b = &ps_b->DRBnGRanList[j];
       _EQ_CHECK_LONG(drb_a->id, drb_b->id);
       _EQ_CHECK_INT(drb_a->numUpParam, drb_b->numUpParam);
+      for (int k = 0; k < drb_a->numUpParam; k++) {
+        if (!eq_up_param(&drb_a->UpParamList[k], &drb_b->UpParamList[k]))
+          return false;
+      }
       _EQ_CHECK_INT(drb_a->numQosFlowSetup, drb_b->numQosFlowSetup);
     }
     // Check DRB Failed
@@ -2065,8 +2083,7 @@ static bool eq_drb_to_mod(const DRB_nGRAN_to_mod_t *a, const DRB_nGRAN_to_mod_t 
   }
   _EQ_CHECK_INT(a->numDlUpParam, b->numDlUpParam);
   for (int i = 0; i < a->numDlUpParam; i++) {
-    _EQ_CHECK_INT(a->DlUpParamList[i].cell_group_id, b->DlUpParamList[i].cell_group_id);
-    if (!eq_up_tl_info(&a->DlUpParamList[i].tl_info, &b->DlUpParamList[i].tl_info))
+    if (!eq_up_param(&a->DlUpParamList[i], &b->DlUpParamList[i]))
       return false;
   }
   _EQ_CHECK_OPTIONAL_PTR(a, b, pdcp_config);
@@ -2484,18 +2501,23 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
               drbMod->id = drbIE->dRB_ID;
               // UL UP Parameters (M)
               if (drbIE->uL_UP_Transport_Parameters.list.count) {
-                drbMod->numUpParam = decode_dl_up_parameters(drbMod->UpParamList, &drbIE->uL_UP_Transport_Parameters);
+                if ((drbMod->numUpParam = decode_dl_up_parameters(drbMod->UpParamList, &drbIE->uL_UP_Transport_Parameters)) < 0) {
+                  PRINT_ERROR("UL UP Parameters decoding failed\n");
+                  return false;
+                }
               }
-              // Flow Setup List (O)
+              // Flow Failed List (O)
               if (drbIE->flow_Failed_List) {
                 drbMod->numQosFlowFailed = drbIE->flow_Failed_List->list.count;
-                for (int i = 0; i < drbMod->numQosFlowSetup; i++) {
+                DevAssert(drbMod->numQosFlowFailed <= E1AP_MAX_NUM_QOS_FLOWS);
+                for (int i = 0; i < drbMod->numQosFlowFailed; i++) {
                   drbMod->qosFlowsFailed[i] = decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[i]);
                 }
               }
               // Flow Setup List (M)
               if (drbIE->flow_Setup_List.list.count) {
                 drbMod->numQosFlowSetup = drbIE->flow_Setup_List.list.count;
+                DevAssert(drbMod->numQosFlowSetup <= E1AP_MAX_NUM_QOS_FLOWS);
                 for (int i = 0; i < drbMod->numQosFlowSetup; i++)
                   drbMod->qosFlows[i].qfi = drbIE->flow_Setup_List.list.array[i]->qoS_Flow_Identifier;
               }
@@ -2519,7 +2541,10 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
               drbMod->id = drbIE->dRB_ID;
               // UL UP Parameters (O)
               if (drbIE->uL_UP_Transport_Parameters) {
-                drbMod->numUpParam = decode_dl_up_parameters(drbMod->ul_UP_Params, drbIE->uL_UP_Transport_Parameters);
+                if ((drbMod->numUpParam = decode_dl_up_parameters(drbMod->ul_UP_Params, drbIE->uL_UP_Transport_Parameters)) < 0) {
+                  PRINT_ERROR("UL UP Parameters decoding failed\n");
+                  return false;
+                }
               }
               // Flow Setup List (O)
               if (drbIE->flow_Setup_List) {
@@ -2647,9 +2672,20 @@ bool eq_bearer_context_mod_response(const e1ap_bearer_modif_resp_t *a, const e1a
       const DRB_nGRAN_setup_t *drbSetupB = &pduB->DRBnGRanSetupList[j];
 
       _EQ_CHECK_LONG(drbSetupA->id, drbSetupB->id);
+      _EQ_CHECK_INT(drbSetupA->numUpParam, drbSetupB->numUpParam);
+      for (int k = 0; k < drbSetupA->numUpParam; k++) {
+        if (!eq_up_param(&drbSetupA->UpParamList[k], &drbSetupB->UpParamList[k]))
+          return false;
+      }
       _EQ_CHECK_INT(drbSetupA->numQosFlowSetup, drbSetupB->numQosFlowSetup);
-      for (int j = 0; j < drbSetupA->numQosFlowSetup; j++) {
-        _EQ_CHECK_LONG(drbSetupA->qosFlows[j].qfi, drbSetupB->qosFlows[j].qfi);
+      for (int k = 0; k < drbSetupA->numQosFlowSetup; k++) {
+        _EQ_CHECK_LONG(drbSetupA->qosFlows[k].qfi, drbSetupB->qosFlows[k].qfi);
+      }
+      _EQ_CHECK_INT(drbSetupA->numQosFlowFailed, drbSetupB->numQosFlowFailed);
+      for (int k = 0; k < drbSetupA->numQosFlowFailed; k++) {
+        _EQ_CHECK_LONG(drbSetupA->qosFlowsFailed[k].qfi, drbSetupB->qosFlowsFailed[k].qfi);
+        _EQ_CHECK_INT(drbSetupA->qosFlowsFailed[k].cause.type, drbSetupB->qosFlowsFailed[k].cause.type);
+        _EQ_CHECK_INT(drbSetupA->qosFlowsFailed[k].cause.value, drbSetupB->qosFlowsFailed[k].cause.value);
       }
     }
 
