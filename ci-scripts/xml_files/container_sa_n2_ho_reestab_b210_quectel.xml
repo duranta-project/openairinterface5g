@@ -1,0 +1,280 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabName>Monolithic N2 Handover Reestablishment 20 MHz TDD SA</htmlTabName>
+
+  <testCase>
+    <class>DeployCoreNetwork</class>
+    <desc>Initialize 5G Core</desc>
+    <cn_id>oc-cn5g-00103-ho</cn_id>
+  </testCase>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <images>oai-gnb</images>
+    <node>groot</node>
+  </testCase>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <images>oai-gnb</images>
+    <node>rocket</node>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace for groot</desc>
+    <node>groot</node>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace for rocket</desc>
+    <node>rocket</node>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Set initial attenuation on target gNB</desc>
+    <node>rocket</node>
+    <command>python3 %%workspace%%/ci-scripts/attenuatorctl.py -s 1,2 0 -s 3,4 25</command>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy Monolithic gNB-PCI0 (TDD/Band77/20MHz/B210) in a container</desc>
+    <yaml_path>ci-scripts/yaml_files/5g_sa_n2_ho_b210</yaml_path>
+    <node>groot</node>
+    <services>oai-gnb-pci0</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy Monolithic gNB-PCI1 (TDD/Band77/20MHz/rfsim) in a container</desc>
+    <yaml_path>ci-scripts/yaml_files/5g_sa_n2_ho_b210</yaml_path>
+    <node>rocket</node>
+    <services>oai-gnb-pci1-rfsim</services>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Attach Quectel</desc>
+    <id>raspix</id>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>UE connected to gNB-PCI0?</desc>
+    <node>groot</node>
+    <command>echo ci fetch_du_by_ue_id | ncat 127.0.0.1 9090 | grep "3584"</command>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping: 100pings in 20sec</desc>
+    <id>raspix</id>
+    <svr_id>oc-cn5g-00103-ho</svr_id>
+    <ping_args>-c 100 -i 0.2</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <!-- TC1: N2 HO to the rfsim gNB-PCI1 fails (T304 expiry), UE reestablishes on the source gNB-PCI0 -->
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Trigger N2 Handover to gNB-PCI1</desc>
+    <node>groot</node>
+    <command>echo ci trigger_n2_ho 1,1 | ncat 127.0.0.1 9090</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>HO failed, rollback to source gNB-PCI0</desc>
+    <node>groot</node>
+    <command><![CDATA[for i in $(seq 1 30); do docker logs oai-gnb-pci0 2>&1 | grep -qE "handover for UE [0-9]+/RNTI [0-9a-f]{4} failed, rollback to original cell" && exit 0; sleep 1; done; exit 1]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>HO Command was sent to the UE (on gNB-PCI0)</desc>
+    <node>groot</node>
+    <command>[ $(docker logs oai-gnb-pci0 2>&amp;1 | grep -E "Send reconfiguration \(HO Command\) to UE" | wc -l) -eq 1 ]</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Reestablishment with cause Handover Failure (on gNB-PCI0)</desc>
+    <node>groot</node>
+    <command>[ $(docker logs oai-gnb-pci0 2>&amp;1 | grep -E "Reestablishment RNTI [0-9a-f]{4} req C-RNTI [0-9a-f]{4} physCellId 0 cause Handover Failure" | wc -l) -eq 1 ]</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>NGAP Handover Cancel sent (on gNB-PCI0)</desc>
+    <node>groot</node>
+    <command>[ $(docker logs oai-gnb-pci0 2>&amp;1 | grep -E "Triggering NGAP Handover Cancel" | wc -l) -eq 1 ]</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>NGAP Handover Cancel Acknowledge received (on gNB-PCI0)</desc>
+    <node>groot</node>
+    <command><![CDATA[for i in $(seq 1 10); do docker logs oai-gnb-pci0 2>&1 | grep -q "Received NG Handover Cancel Acknowledge" && exit 0; sleep 1; done; exit 1]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Handover Request received (on gNB-PCI1)</desc>
+    <node>rocket</node>
+    <command>[ $(docker logs oai-gnb-pci1-rfsim 2>&amp;1 | grep -E "Received Handover Request" | wc -l) -eq 1 ]</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Target UE context released (on gNB-PCI1)</desc>
+    <node>rocket</node>
+    <command><![CDATA[for i in $(seq 1 10); do echo ci fetch_du_by_ue_id | ncat 127.0.0.1 9091 | grep -q "no single UE in RRC present" && exit 0; sleep 1; done; exit 1]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>UE connected to gNB-PCI0?</desc>
+    <node>groot</node>
+    <command>echo ci fetch_du_by_ue_id | ncat 127.0.0.1 9090 | grep "3584"</command>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping: 50pings in 10sec</desc>
+    <id>raspix</id>
+    <svr_id>oc-cn5g-00103-ho</svr_id>
+    <ping_args>-c 50 -i 0.2</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <desc>Undeploy rfsim gNB-PCI1</desc>
+    <node>rocket</node>
+    <yaml_path>ci-scripts/yaml_files/5g_sa_n2_ho_b210</yaml_path>
+    <analysis>
+      <services>oai-gnb-pci1-rfsim=EndsWithBye</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy Monolithic gNB-PCI1 (TDD/Band77/20MHz/B210) in a container</desc>
+    <yaml_path>ci-scripts/yaml_files/5g_sa_n2_ho_b210</yaml_path>
+    <node>rocket</node>
+    <services>oai-gnb-pci1</services>
+  </testCase>
+
+  <!-- TC2: gNB-PCI0 stopped (RLF), UE requests reestablishment on gNB-PCI1, which falls back to RRCSetup -->
+  <testCase>
+    <class>Stop_Object</class>
+    <desc>Stop gNB-PCI0 to trigger RLF</desc>
+    <yaml_path>ci-scripts/yaml_files/5g_sa_n2_ho_b210</yaml_path>
+    <node>groot</node>
+    <services>oai-gnb-pci0</services>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Remove attenuation on gNB-PCI1</desc>
+    <node>rocket</node>
+    <command>python3 %%workspace%%/ci-scripts/attenuatorctl.py -s 3,4 0</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Reestablishment falls back to RRCSetup (on gNB-PCI1)</desc>
+    <node>rocket</node>
+    <command><![CDATA[for i in $(seq 1 30); do docker logs oai-gnb-pci1 2>&1 | grep -q "NR_RRCReestablishmentRequest without UE context, fallback to RRC setup" && exit 0; sleep 1; done; exit 1]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Reestablishment with cause Other Failure (on gNB-PCI1)</desc>
+    <node>rocket</node>
+    <command>[ $(docker logs oai-gnb-pci1 2>&amp;1 | grep -E "Reestablishment RNTI [0-9a-f]{4} req C-RNTI [0-9a-f]{4} physCellId 0 cause Other Failure" | wc -l) -eq 1 ]</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>UE connected to gNB-PCI1?</desc>
+    <node>rocket</node>
+    <command>echo ci fetch_du_by_ue_id | ncat 127.0.0.1 9090 | grep "3585"</command>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping: 50pings in 10sec</desc>
+    <id>raspix</id>
+    <svr_id>oc-cn5g-00103-ho</svr_id>
+    <ping_args>-c 50 -i 0.2</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Detach_UE</class>
+    <always_exec>true</always_exec>
+    <desc>Detach Quectel</desc>
+    <id>raspix</id>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy Monolithic gNB-PCI0</desc>
+    <node>groot</node>
+    <yaml_path>ci-scripts/yaml_files/5g_sa_n2_ho_b210</yaml_path>
+    <analysis>
+      <services>oai-gnb-pci0=EndsWithBye</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy Monolithic gNB-PCI1</desc>
+    <node>rocket</node>
+    <yaml_path>ci-scripts/yaml_files/5g_sa_n2_ho_b210</yaml_path>
+    <analysis>
+      <services>oai-gnb-pci1=EndsWithBye</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <always_exec>true</always_exec>
+    <desc>Reset all attenuators to 0dB</desc>
+    <node>rocket</node>
+    <command>python3 %%workspace%%/ci-scripts/attenuatorctl.py -s 1-4 0</command>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>groot</node>
+    <images>oai-gnb</images>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>rocket</node>
+    <images>oai-gnb</images>
+  </testCase>
+
+  <testCase>
+    <class>UndeployCoreNetwork</class>
+    <always_exec>true</always_exec>
+    <desc>Terminate 5G Core</desc>
+    <cn_id>oc-cn5g-00103-ho</cn_id>
+  </testCase>
+
+</testCaseList>
