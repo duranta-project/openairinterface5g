@@ -10,12 +10,22 @@
 // runtime error in case IDFT implementation uses AVX-512.
 #define IDFT_OUTPUT_BUFFER_ALIGNMENT 64
 
-void PHY_ofdm_mod(const int *input, /// pointer to complex input
-                  int *output, /// pointer to complex output
-                  int fftsize, /// FFT_SIZE
-                  unsigned char nb_symbols, /// number of OFDM symbols
-                  unsigned short nb_prefix_samples, /// cyclic prefix length
-                  Extension_t etype) /// type of extension
+/* IDFT of one symbol: full (nbins == 0) or band-limited on the fftshifted layout of nbins subcarriers */
+static inline void ofdm_mod_idft(idft_size_idx_t idft_size, int fftsize, int nbins, const int *in, int16_t *out)
+{
+  if (nbins)
+    idft_pruned(idft_size, (int16_t *)in, out, fftsize - nbins / 2, nbins, DFT_PRUNE_PACKED);
+  else
+    idft(idft_size, (int16_t *)in, out, 1);
+}
+
+static void ofdm_mod_layout(const int *input, /// pointer to complex input
+                            int *output, /// pointer to complex output
+                            int fftsize, /// FFT_SIZE
+                            unsigned char nb_symbols, /// number of OFDM symbols
+                            unsigned short nb_prefix_samples, /// cyclic prefix length
+                            Extension_t etype, /// type of extension
+                            int nbins) /// 0: natural-order input, > 0: fftshifted input of nbins subcarriers
 {
   if (nb_symbols == 0)
     return;
@@ -53,11 +63,11 @@ void PHY_ofdm_mod(const int *input, /// pointer to complex input
         // Current idft implementation uses AVX-256: Check if buffer is already aligned to 256 bits (32 bytes)
         if ((uintptr_t)output_ptr % 32 == 0) {
           // output ptr is aligned, do ifft inplace
-          idft(idft_size, (int16_t *)&input[i * fftsize], (int16_t *)output_ptr, 1);
+          ofdm_mod_idft(idft_size, fftsize, nbins, &input[i * fftsize], (int16_t *)output_ptr);
         } else {
           // output ptr is not aligned, needs an extra memcpy
           c16_t temp[fftsize] __attribute__((aligned(IDFT_OUTPUT_BUFFER_ALIGNMENT)));
-          idft(idft_size, (int16_t *)&input[i * fftsize], (int16_t *)temp, 1);
+          ofdm_mod_idft(idft_size, fftsize, nbins, &input[i * fftsize], (int16_t *)temp);
           memcpy((void *)output_ptr, (void *)temp, sizeof(temp));
         }
         // perform cyclic prefix insertion
@@ -68,7 +78,7 @@ void PHY_ofdm_mod(const int *input, /// pointer to complex input
       case CYCLIC_SUFFIX: {
         // Use alignment of 64 bytes
         c16_t temp[fftsize] __attribute__((aligned(IDFT_OUTPUT_BUFFER_ALIGNMENT)));
-        idft(idft_size, (int16_t *)&input[i * fftsize], (int16_t *)temp, 1);
+        ofdm_mod_idft(idft_size, fftsize, nbins, &input[i * fftsize], (int16_t *)temp);
         int *output_ptr = &output[(i * fftsize) + (i * nb_prefix_samples)];
         memcpy(output_ptr, temp, sizeof(temp));
         memcpy(&output_ptr[fftsize], temp, nb_prefix_samples * sizeof(c16_t));
@@ -80,7 +90,7 @@ void PHY_ofdm_mod(const int *input, /// pointer to complex input
 
       case NONE: {
         c16_t temp[fftsize] __attribute__((aligned(IDFT_OUTPUT_BUFFER_ALIGNMENT)));
-        idft(idft_size, (int16_t *)&input[i * fftsize], (int16_t *)temp, 1);
+        ofdm_mod_idft(idft_size, fftsize, nbins, &input[i * fftsize], (int16_t *)temp);
         int *output_ptr = &output[i * fftsize];
         memcpy(output_ptr, temp, sizeof(temp));
         break;
@@ -90,4 +100,25 @@ void PHY_ofdm_mod(const int *input, /// pointer to complex input
         break;
     }
   }
+}
+
+void PHY_ofdm_mod(const int *input,
+                  int *output,
+                  int fftsize,
+                  unsigned char nb_symbols,
+                  unsigned short nb_prefix_samples,
+                  Extension_t etype)
+{
+  ofdm_mod_layout(input, output, fftsize, nb_symbols, nb_prefix_samples, etype, 0);
+}
+
+void PHY_ofdm_mod_shifted(const int *input,
+                          int *output,
+                          int fftsize,
+                          unsigned char nb_symbols,
+                          unsigned short nb_prefix_samples,
+                          Extension_t etype,
+                          int nbins)
+{
+  ofdm_mod_layout(input, output, fftsize, nb_symbols, nb_prefix_samples, etype, nbins);
 }
