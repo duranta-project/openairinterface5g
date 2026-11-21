@@ -117,6 +117,7 @@ static void set_UE_security_key(gNB_RRC_UE_t *UE, uint8_t *security_key_pP)
   /* 3GPP TS 33.501 §6.9.2.1.1: On Initial Context Setup, AMF does not send NH;
    * gNB shall initialize NCC to 0. */
   UE->nh_ncc = 0;
+  UE->kgnb_ncc = 0;
 
   char ascii_buffer[65];
   for (i = 0; i < 32; i++) {
@@ -1487,6 +1488,7 @@ int rrc_gNB_process_Handover_Request(gNB_RRC_INST *rrc, ngap_handover_request_t 
   const nr_rrc_cell_info_t *cell_info = &cell->info;
   uint32_t ssb_arfcn = get_ssb_arfcn(cell);
   nr_derive_key_ng_ran_star(cell_info->pci, ssb_arfcn, UE->nh, UE->kgnb);
+  UE->kgnb_ncc = UE->nh_ncc;
   UE->as_security_active = true;
   // Activate SRBs
   activate_srb(UE, SRB1);
