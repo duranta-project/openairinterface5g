@@ -671,6 +671,26 @@ static void finish_nr_ul_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
   id_list_push_back(&sched_ctrl->available_ul_harq, harq_pid);
 }
 
+static void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl)
+{
+  int harq;
+  while ((harq = sched_ctrl->feedback_ul_harq.head) >= 0) {
+    id_list_pop_front(&sched_ctrl->feedback_ul_harq);
+    finish_nr_ul_harq(sched_ctrl, harq);
+  }
+
+  while ((harq = sched_ctrl->retrans_ul_harq.head) >= 0) {
+    id_list_pop_front(&sched_ctrl->retrans_ul_harq);
+    finish_nr_ul_harq(sched_ctrl, harq);
+  }
+
+  for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
+    sched_ctrl->ul_harq_processes[i].feedback_slot = -1;
+    sched_ctrl->ul_harq_processes[i].round = 0;
+    sched_ctrl->ul_harq_processes[i].is_waiting = false;
+  }
+}
+
 static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
 {
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -922,6 +942,8 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
     // Reset HARQ processes
     reset_dl_harq_list(&old_UE->UE_sched_ctrl);
     reset_ul_harq_list(&old_UE->UE_sched_ctrl);
+    // Recovery needs a fresh UL grant even if the previous buffer estimate is empty.
+    old_UE->UE_sched_ctrl.ul_recovery_grant_pending = true;
 
     // Only trigger RRCReconfiguration if UE is not performing RRCReestablishment
     // The RRCReconfiguration will be triggered by the RRCReestablishmentComplete
@@ -2518,6 +2540,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
   }
   NR_UE_ul_harq_t *cur_harq = &sched_ctrl->ul_harq_processes[harq_id];
   DevAssert(!cur_harq->is_waiting);
+  const bool new_ul_transmission = cur_harq->round == 0;
   if (cell->radio_config.disable_harq) {
     finish_nr_ul_harq(sched_ctrl, harq_id);
   } else {
@@ -2700,7 +2723,8 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac,
                      coreset,
                      UE->pdsch_HARQ_ACK_Codebook,
                      cell->cset0_bwp_size);
-
+  if (new_ul_transmission)
+    sched_ctrl->ul_recovery_grant_pending = false;
 }
 
 /* Slots elapsed since the UE was last scheduled in UL. */
@@ -2828,11 +2852,11 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
     const int inactivity = nr_ue_ul_inactivity_slots(fs, sched_ctrl, sched_frame, sched_slot);
     const bool long_inactivity = inactivity >= max_inactivity;
 
-    /* Consider the UE if (1) we think it has more bytes awaiting than what we
-     * scheduled, (2) it requested a grant through SR, or (3) we did not schedule
-     * it for too long, in which case we give it a default grant so that it can
-     * send a BSR. */
-    if ((B == 0 && sched_ctrl->sr_cnt == 0 && !long_inactivity) || nr_timer_is_active(&sched_ctrl->transm_interrupt))
+    /* Consider the UE if it has pending bytes, requested a grant through SR or
+     * C-RNTI recovery, or was not scheduled for too long. The latter cases need
+     * a default grant so that the UE can send a BSR. */
+    if ((B == 0 && sched_ctrl->sr_cnt == 0 && !sched_ctrl->ul_recovery_grant_pending && !long_inactivity)
+        || nr_timer_is_active(&sched_ctrl->transm_interrupt))
       continue;
 
     /* Update BLER stats; MCS adaptation is done by ul_mcs_select pipeline stage */
@@ -2848,6 +2872,7 @@ static int collect_ul_candidates(gNB_MAC_INST *mac,
       cand.sched_srs = 0;
     cand.retx_harq_pid = -1;
     cand.sched_long_inactivity = long_inactivity;
+    cand.ul_recovery_grant_pending = sched_ctrl->ul_recovery_grant_pending;
     cand.pending_bytes = B;
     cand.bler = sched_ctrl->ul_bler_stats.bler;
     cand.bler_updated = bler_updated;
