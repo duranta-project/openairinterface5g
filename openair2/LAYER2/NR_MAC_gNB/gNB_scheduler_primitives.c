@@ -4370,9 +4370,8 @@ void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, nr_cell_sched_t *
     remove_csi_release_lists(cellGroup_for_UE);
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   UE->reconfigCellGroup = cellGroup_for_UE;
-  du_to_cu_rrc_information_t du2cu = {
-    .cellGroupConfig = buf,
-    .cellGroupConfig_length = (enc_rval.encoded + 7) >> 3,
+  f1ap_du_to_cu_rrc_info_t du2cu = {
+    .cell_group_config = {.buf = buf, .len = (enc_rval.encoded + 7) >> 3},
   };
   f1_ue_data_t ue_data = du_get_f1_ue_data(UE->rnti);
   f1ap_ue_context_modif_required_t required = {

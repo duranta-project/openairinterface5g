@@ -181,6 +181,7 @@ void *F1AP_CU_task(void *arg)
       case F1AP_UE_CONTEXT_MODIFICATION_CONFIRM:
         CU_send_UE_CONTEXT_MODIFICATION_CONFIRM(assoc_id,
                                                 &F1AP_UE_CONTEXT_MODIFICATION_CONFIRM(received_msg));
+        free_ue_context_modif_confirm(&F1AP_UE_CONTEXT_MODIFICATION_CONFIRM(received_msg));
         break;
 
       case F1AP_UE_CONTEXT_MODIFICATION_REFUSE:
