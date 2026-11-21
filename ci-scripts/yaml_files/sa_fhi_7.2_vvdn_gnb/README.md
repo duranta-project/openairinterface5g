@@ -2,7 +2,7 @@
 
 OAI O-RAN 7.2 Front-haul Docker Compose
 
-![Docker deploy 7.2](../../../doc/images/docker-deploy-oai-7-2.png)
+![Docker deploy 7.2](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/docker-deploy-oai-7-2.png)
 
 This docker-compose is designed to use `OAI-gNB` with a 7.2 compatible Radio Unit. Before using this docker compose you have to configure
 the host machine as per the [ORAN_FHI7.2_Tutorial](../../../doc/ORAN_FHI7.2_Tutorial.md). The container image used by the docker compose file is tested only on `Ubuntu 22.04` and `RHEL 9.4` docker host.

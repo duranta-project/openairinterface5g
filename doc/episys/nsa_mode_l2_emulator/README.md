@@ -9,7 +9,7 @@ channel modeling capabilty has been added in the LTE UE `phy_stub_ue.c` file. To
 the interfaces between the different components associated with NSA mode, the following image
 has been provided.
 
-![Functional diagram - NSA](../functional_diagram_proxy_nsa.png)
+![Functional diagram - NSA](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/functional_diagram_proxy_nsa.png)
 
 This functionality allows the user to plug in their own channel model and emulate the packet dropping procedure
 in real time. The channel modeling has not been provided by EpiSci, but the OAI code
@@ -19,7 +19,7 @@ Any uplink channel modeling must be conducted in some sort of proxy, which would
 between the UEs and eNB/gNB. (A description of the downlink channel modeling is shown in the
 image below).
 
-![Downlink Channel Modeling](../Channel_Abstraction_UE_Handling_LTE.PNG)
+![Downlink Channel Modeling](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/Channel_Abstraction_UE_Handling_LTE.PNG)
 
 The updates to the OAI code base removed some latent bugs, added multi-UE scalability,
 and were tested with a standard bypass proxy between the UE(s) and eNB/gNB. The bypass proxy is

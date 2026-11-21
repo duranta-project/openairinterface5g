@@ -77,7 +77,7 @@ While `wireshark` is running, you do:
 
 In `wireshark` you should see something similar to the following:
 
-![wireshark window with dissected MAC PDUs](wireshark.png)
+![wireshark window with dissected MAC PDUs](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/wireshark.png)
 
 ## Configure wireshark for LTE
 

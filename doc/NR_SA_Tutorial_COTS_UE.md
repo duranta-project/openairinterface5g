@@ -224,7 +224,7 @@ The value passed to this option should be ideally equal to half the operational 
 
 A visual representation of the impact of tune-offset with a 120 MHz bandwidth daughterboard:
 
-![Tune_Offset](./images/USRP_tune_offset.png)
+![Tune_Offset](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/USRP_tune_offset.png)
 
 ### 6.3.2 UL PRBs Blacklist
 

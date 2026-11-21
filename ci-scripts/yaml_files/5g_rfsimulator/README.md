@@ -42,7 +42,7 @@ $ docker logout
 
 # 2. Deploy containers #
 
-![Deployment](./oai-end-to-end.jpg)
+![Deployment](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/oai-end-to-end.jpg)
 
 **CAUTION: this SHALL be done in multiple steps.**
 

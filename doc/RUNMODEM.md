@@ -250,7 +250,7 @@ In order to enable DL-MIMO in OAI 5G softmodem, the prerequisite is to have `do_
 
 The following step is to set the number of PDSCH logical antenna ports. These needs to be larger or equal to the maximum number of MIMO layers requested (for 2-layer MIMO it is necessary to have at least two logical antenna ports).
 
-![mimo_antenna_ports](./images/mimo_antenna_ports.png)
+![mimo_antenna_ports](https://raw.githubusercontent.com/duranta-project/assets/92564035bd1a5764d6ecb566ec673200ceefef8e/openairinterface5g/images/mimo_antenna_ports.png)
 
 This image shows an example of gNB 5G MIMO logical antenna port configuration. It has to be noted that logical antenna ports might not directly correspond to physical antenna ports and each logical antenna port might consist of a sub-array of antennas.
 

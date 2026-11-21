@@ -419,7 +419,7 @@ static NR_CG_Config_t *generate_CG_Config(const NR_RRCReconfiguration_t *reconfi
   cgc_ie->scg_RB_Config->size = encoded;
 
   if (get_softmodem_params()->phy_test == 1 || get_softmodem_params()->do_ra > 0) {
-    // This is for phytest only, emulate first X2 message if uecap.raw file is present
+    // phy-test/do-ra has no eNB/X2 path: the UE reads these files via --reconfig-file/--rbconfig-file
     LOG_I(RRC, "Dumping NR_RRCReconfiguration message (%jd bytes) to reconfig.raw\n", cgc_ie->scg_CellGroupConfig->size);
     FILE *fd = fopen("reconfig.raw", "w");
     AssertFatal(fd != NULL, "could not open reconig.raw for writing: %d, %s\n", errno, strerror(errno));
