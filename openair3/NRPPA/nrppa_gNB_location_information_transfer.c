@@ -1070,6 +1070,22 @@ void free_nrppa_positioning_activation_request(nrppa_positioning_activation_req_
   }
 }
 
+static int reject_trp_information_request(const nrppa_gnb_ue_info_t *nrppa_msg_info, MessageDef *req_msg, const char *reason)
+{
+  nrppa_trp_information_req_t *req = &NRPPA_TRP_INFORMATION_REQ(req_msg);
+  LOG_E(NRPPA, "TRP Information Request: %s, sending TRP Information Failure\n", reason);
+  nrppa_store_ue_context(nrppa_msg_info, req->transaction_id);
+  MessageDef *msg_fail = itti_alloc_new_message(TASK_RRC_GNB, 0, NRPPA_TRP_INFORMATION_FAILURE);
+  nrppa_trp_information_failure_t *fail = &NRPPA_TRP_INFORMATION_FAILURE(msg_fail);
+  fail->transaction_id = req->transaction_id;
+  fail->cause = (nrppa_cause_t){.type = NRPPA_CAUSE_PROTOCOL, .value = NRPPA_CauseProtocol_semantic_error};
+  LOG_I(NRPPA, "Sending NRPPA_TRP_INFORMATION_FAILURE to TASK_NRPPA\n");
+  itti_send_msg_to_task(TASK_NRPPA, 0, msg_fail);
+  free_nrppa_trp_information_request(req);
+  itti_free(ITTI_MSG_ORIGIN_ID(req_msg), req_msg);
+  return -1;
+}
+
 int nrppa_gNB_handle_trp_information_request(nrppa_gnb_ue_info_t *nrppa_msg_info, const NRPPA_NRPPA_PDU_t *pdu)
 {
   LOG_I(NRPPA, "Processing Received TRP Information Request \n");
@@ -1102,7 +1118,8 @@ int nrppa_gNB_handle_trp_information_request(nrppa_gnb_ue_info_t *nrppa_msg_info
   } else {
     req->has_trp_list = true;
     uint32_t trp_list_len = ie->value.choice.TRPList.list.count;
-    AssertError(trp_list_len > 0, return false, "at least 1 TRP must be present");
+    if (trp_list_len == 0)
+      return reject_trp_information_request(nrppa_msg_info, msg, "at least 1 TRP must be present in the TRP List");
     nrppa_trp_list_t *trp_list = &req->trp_list;
     trp_list->trp_list_length = trp_list_len;
     trp_list->trp_list_item = calloc_or_fail(trp_list_len, sizeof(*trp_list->trp_list_item));
@@ -1124,7 +1141,8 @@ int nrppa_gNB_handle_trp_information_request(nrppa_gnb_ue_info_t *nrppa_msg_info
     LOG_W(NRPPA, "TRPInformationRequest IE TRP Information Type List is mandatory but not handled\n");
   } else {
     uint8_t trp_info_list_len = ie->value.choice.TRPInformationTypeListTRPReq.list.count;
-    AssertError(trp_info_list_len > 0, return false, "at least 1 TRP Information Type must be present");
+    if (trp_info_list_len == 0)
+      return reject_trp_information_request(nrppa_msg_info, msg, "at least 1 TRP Information Type must be present");
     nrppa_trp_information_type_list_t *trp_info_list = &req->trp_information_type_list;
     trp_info_list->trp_information_type_list_length = trp_info_list_len;
     trp_info_list->trp_information_type_item = calloc_or_fail(trp_info_list_len, sizeof(*trp_info_list->trp_information_type_item));

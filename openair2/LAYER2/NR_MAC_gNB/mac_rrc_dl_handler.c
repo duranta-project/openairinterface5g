@@ -1299,8 +1299,8 @@ void f1_paging(const f1ap_paging_t *paging)
 void trp_information_request(const f1ap_trp_information_req_t *req)
 {
   gNB_MAC_INST *mac = RC.nrmac[0];
-  positioning_config_t *positioning_config = mac->positioning_config;
-  if (positioning_config == NULL) {
+  trp_info_config_t *trp_info_config = mac->trp_info_config;
+  if (trp_info_config == NULL) {
     LOG_E(NR_PHY, "No TRPs configured for positioning in the configuration file\n");
     f1ap_trp_information_failure_t fail = {.transaction_id = req->transaction_id};
     fail.cause = F1AP_CAUSE_RADIO_NETWORK;
@@ -1332,7 +1332,7 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
     }
   }
 
-  uint8_t NumTRPs = positioning_config->num_trp;
+  uint8_t NumTRPs = trp_info_config->num_trp;
   f1ap_trp_information_resp_t resp = {0};
 
   resp.transaction_id = req->transaction_id;
@@ -1345,10 +1345,10 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
         calloc_or_fail(trp_list_length, sizeof(*resp.trp_information_list.trp_information_item));
     for (int i = 0; i < trp_list_length; i++) {
       for (int j = 0; j < NumTRPs; j++) {
-        if (positioning_config->trps[j].id == req->trp_list.trp_list_item[i].trp_id) {
+        if (trp_info_config->trps[j].id == req->trp_list.trp_list_item[i].trp_id) {
           f1ap_trp_information_t *trp_info_item = &resp.trp_information_list.trp_information_item[trp_resp_len];
-          trp_info_item->trp_id = positioning_config->trps[j].id;
-          create_trp_info_item(req, trp_info_item, positioning_config, j);
+          trp_info_item->trp_id = trp_info_config->trps[j].id;
+          create_trp_info_item(req, trp_info_item, trp_info_config, j);
           trp_resp_len++;
         }
       }
@@ -1359,8 +1359,8 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
         calloc_or_fail(NumTRPs, sizeof(*resp.trp_information_list.trp_information_item));
     for (int i = 0; i < NumTRPs; i++) {
       f1ap_trp_information_t *trp_info_item = &resp.trp_information_list.trp_information_item[i];
-      trp_info_item->trp_id = positioning_config->trps[i].id;
-      create_trp_info_item(req, trp_info_item, positioning_config, i);
+      trp_info_item->trp_id = trp_info_config->trps[i].id;
+      create_trp_info_item(req, trp_info_item, trp_info_config, i);
     }
     resp.trp_information_list.trp_information_item_length = NumTRPs;
   }

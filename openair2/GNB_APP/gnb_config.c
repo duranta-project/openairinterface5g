@@ -58,7 +58,7 @@
 #include "utils.h"
 #include "x2ap_messages_types.h"
 #include "gnb_config_common.h"
-#include "positioning_nr_paramdef.h"
+#include "trp_info_nr_paramdef.h"
 #include "f1ap_cu_task.h"
 #include "openair3/NRPPA/nrppa_gNB_config.h"
 
@@ -656,117 +656,58 @@ void RCconfig_verify(configmodule_interface_t *cfg, ngran_node_t node_type)
   /* other possible verifications: PNF, VNF, CU-CP, CU-UP, ...? */
 }
 
-void RCconfig_nr_prs(void)
+static nr_mac_prs_config_t *get_mac_prs_config(void)
 {
-  uint16_t  j = 0, k = 0;
-  prs_config_t *prs_config = NULL;
-  char str[7][100] = {0};
-
-  AssertFatal(RC.gNB != NULL, "gNB context is null, cannot complete PRS configuration\n");
-
   GET_PARAMS_LIST(PRS_ParamList, PRS_Params, PRS_PARAMS_DESC, CONFIG_STRING_PRS_CONFIG, NULL);
-
-  if (PRS_ParamList.numelt > 0) {
-    for (j = 0; j < RC.nb_nr_L1_inst; j++) {
-      AssertFatal(RC.gNB[j] != NULL, "gNB L1 instance is null at index %d, cannot complete L1 configuration\n", j);
-
-      RC.gNB[j]->prs_vars.NumPRSResources = *(PRS_ParamList.paramarray[j][NUM_PRS_RESOURCES].uptr);
-      for (k = 0; k < RC.gNB[j]->prs_vars.NumPRSResources; k++)
-      {
-        prs_config = &RC.gNB[j]->prs_vars.prs_cfg[k];
-        prs_config->PRSResourceSetPeriod[0]  = PRS_ParamList.paramarray[j][PRS_RESOURCE_SET_PERIOD_LIST].uptr[0];
-        prs_config->PRSResourceSetPeriod[1]  = PRS_ParamList.paramarray[j][PRS_RESOURCE_SET_PERIOD_LIST].uptr[1];
-        // per PRS resources parameters
-        prs_config->SymbolStart              = PRS_ParamList.paramarray[j][PRS_SYMBOL_START_LIST].uptr[k];
-        prs_config->NumPRSSymbols            = PRS_ParamList.paramarray[j][PRS_NUM_SYMBOLS_LIST].uptr[k];
-        prs_config->REOffset                 = PRS_ParamList.paramarray[j][PRS_RE_OFFSET_LIST].uptr[k];
-        prs_config->PRSResourceOffset        = PRS_ParamList.paramarray[j][PRS_RESOURCE_OFFSET_LIST].uptr[k];
-        prs_config->NPRSID                   = PRS_ParamList.paramarray[j][PRS_ID_LIST].uptr[k];
-        // Common parameters to all PRS resources
-        prs_config->NumRB                    = *(PRS_ParamList.paramarray[j][PRS_NUM_RB].uptr);
-        prs_config->RBOffset                 = *(PRS_ParamList.paramarray[j][PRS_RB_OFFSET].uptr);
-        prs_config->CombSize                 = *(PRS_ParamList.paramarray[j][PRS_COMB_SIZE].uptr);
-        prs_config->PRSResourceRepetition    = *(PRS_ParamList.paramarray[j][PRS_RESOURCE_REPETITION].uptr);
-        prs_config->PRSResourceTimeGap       = *(PRS_ParamList.paramarray[j][PRS_RESOURCE_TIME_GAP].uptr);
-        prs_config->MutingBitRepetition      = *(PRS_ParamList.paramarray[j][PRS_MUTING_BIT_REPETITION].uptr);
-        for (int l = 0; l < PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].numelt; l++)
-        {
-          prs_config->MutingPattern1[l]      = PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN1_LIST].uptr[l];
-          if (k == 0) // print only for 0th resource
-            snprintf(str[5]+strlen(str[5]),sizeof(str[5])-strlen(str[5]),"%d, ",prs_config->MutingPattern1[l]);
-        }
-        for (int l = 0; l < PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].numelt; l++)
-        {
-          prs_config->MutingPattern2[l]      = PRS_ParamList.paramarray[j][PRS_MUTING_PATTERN2_LIST].uptr[l];
-          if (k == 0) // print only for 0th resource
-            snprintf(str[6]+strlen(str[6]),sizeof(str[6])-strlen(str[6]),"%d, ",prs_config->MutingPattern2[l]);
-        }
-
-        // print to buffer
-        snprintf(str[0]+strlen(str[0]),sizeof(str[0])-strlen(str[0]),"%d, ",prs_config->SymbolStart);
-        snprintf(str[1]+strlen(str[1]),sizeof(str[1])-strlen(str[1]),"%d, ",prs_config->NumPRSSymbols);
-        snprintf(str[2]+strlen(str[2]),sizeof(str[2])-strlen(str[2]),"%d, ",prs_config->REOffset);
-        snprintf(str[3]+strlen(str[3]),sizeof(str[3])-strlen(str[3]),"%d, ",prs_config->PRSResourceOffset);
-        snprintf(str[4]+strlen(str[4]),sizeof(str[4])-strlen(str[4]),"%d, ",prs_config->NPRSID);
-      } // for k
-
-      prs_config = &RC.gNB[j]->prs_vars.prs_cfg[0];
-      LOG_I(PHY, "-----------------------------------------\n");
-      LOG_I(PHY, "PRS Config for gNB_id %d @ %p\n", j, prs_config);
-      LOG_I(PHY, "-----------------------------------------\n");
-      LOG_I(PHY, "NumPRSResources \t%d\n", RC.gNB[j]->prs_vars.NumPRSResources);
-      LOG_I(PHY, "PRSResourceSetPeriod \t[%d, %d]\n", prs_config->PRSResourceSetPeriod[0], prs_config->PRSResourceSetPeriod[1]);
-      LOG_I(PHY, "NumRB \t\t\t%d\n", prs_config->NumRB);
-      LOG_I(PHY, "RBOffset \t\t%d\n", prs_config->RBOffset);
-      LOG_I(PHY, "CombSize \t\t%d\n", prs_config->CombSize);
-      LOG_I(PHY, "PRSResourceRepetition \t%d\n", prs_config->PRSResourceRepetition);
-      LOG_I(PHY, "PRSResourceTimeGap \t%d\n", prs_config->PRSResourceTimeGap);
-      LOG_I(PHY, "MutingBitRepetition \t%d\n", prs_config->MutingBitRepetition);
-      LOG_I(PHY, "SymbolStart \t\t[%s\b\b]\n", str[0]);
-      LOG_I(PHY, "NumPRSSymbols \t\t[%s\b\b]\n", str[1]);
-      LOG_I(PHY, "REOffset \t\t[%s\b\b]\n", str[2]);
-      LOG_I(PHY, "PRSResourceOffset \t[%s\b\b]\n", str[3]);
-      LOG_I(PHY, "NPRS_ID \t\t[%s\b\b]\n", str[4]);
-      LOG_I(PHY, "MutingPattern1 \t\t[%s\b\b]\n", str[5]);
-      LOG_I(PHY, "MutingPattern2 \t\t[%s\b\b]\n", str[6]);
-      LOG_I(PHY, "-----------------------------------------\n");
-      LOG_I(PHY, "PRS is transmitted according to this configuration, not from FAPI DL_TTI.request PRS PDUs of the MAC\n");
-    } // for j
-  }
-  else
-  {
-    LOG_I(PHY,"No " CONFIG_STRING_PRS_CONFIG " configuration found..!!\n");
-  }
-}
-
-static nr_mac_prs_config_t *get_l1_prs_config(void)
-{
-  if (RC.nb_nr_L1_inst == 0 || RC.gNB == NULL || RC.gNB[0]->prs_vars.NumPRSResources == 0) {
-    LOG_I(GNB_APP, "No L1 PRS configuration: PRS cannot be reported over NRPPa\n");
+  if (PRS_ParamList.numelt == 0) {
+    LOG_I(GNB_APP, "No " CONFIG_STRING_PRS_CONFIG " configuration: PRS cannot be reported over NRPPa\n");
     return NULL;
   }
-  const NR_gNB_PRS *prs = &RC.gNB[0]->prs_vars;
-  AssertFatal(prs->NumPRSResources <= NR_MAC_MAX_PRS_RESOURCES, "Too many PRS resources (%d)\n", prs->NumPRSResources);
+  paramdef_t *p = PRS_ParamList.paramarray[0];
+  uint32_t num = *p[NUM_PRS_RESOURCES].uptr;
+  if (num == 0)
+    return NULL;
+  AssertFatal(num <= NR_MAC_MAX_PRS_RESOURCES, "Too many PRS resources (%d)\n", num);
+  AssertFatal(p[PRS_RESOURCE_SET_PERIOD_LIST].numelt == 2, "PRSResourceSetPeriod needs [period, offset]\n");
+  const int per_resource[] = {PRS_SYMBOL_START_LIST,
+                              PRS_NUM_SYMBOLS_LIST,
+                              PRS_RE_OFFSET_LIST,
+                              PRS_RESOURCE_OFFSET_LIST,
+                              PRS_ID_LIST};
+  for (int i = 0; i < sizeofArray(per_resource); i++)
+    AssertFatal(p[per_resource[i]].numelt >= num,
+                "PRS list %s has fewer than NumPRSResources (%d) entries\n",
+                p[per_resource[i]].optname,
+                num);
 
-  const prs_config_t *c = &prs->prs_cfg[0];
-  nr_mac_prs_config_t *out = calloc_or_fail(1, sizeof(*out));
-  out->period = c->PRSResourceSetPeriod[0];
-  out->offset = c->PRSResourceSetPeriod[1];
-  out->num_rb = c->NumRB;
-  out->rb_offset = c->RBOffset;
-  out->comb_size = c->CombSize;
-  out->repetition = c->PRSResourceRepetition;
-  out->time_gap = c->PRSResourceTimeGap;
-  out->num_prs_resources = prs->NumPRSResources;
-  for (int k = 0; k < prs->NumPRSResources; k++) {
-    const prs_config_t *rc = &prs->prs_cfg[k];
+  nr_mac_prs_config_t *out = calloc_or_fail(1, sizeof(*out) + num * sizeof(out->resource[0]));
+  out->period = p[PRS_RESOURCE_SET_PERIOD_LIST].uptr[0];
+  out->offset = p[PRS_RESOURCE_SET_PERIOD_LIST].uptr[1];
+  out->repetition = *p[PRS_RESOURCE_REPETITION].uptr;
+  out->time_gap = *p[PRS_RESOURCE_TIME_GAP].uptr;
+  out->num_prs_resources = num;
+  for (int k = 0; k < num; k++) {
     nr_mac_prs_resource_t *r = &out->resource[k];
-    r->sequence_id = rc->NPRSID;
-    r->re_offset = rc->REOffset;
-    r->slot_offset = rc->PRSResourceOffset;
-    r->symbol_start = rc->SymbolStart;
-    r->num_symbols = rc->NumPRSSymbols;
+    r->slot_offset = p[PRS_RESOURCE_OFFSET_LIST].uptr[k];
+    r->pdu = (nfapi_nr_dl_tti_prs_pdu_rel16_t){.nIdPrs = p[PRS_ID_LIST].uptr[k],
+                                               .combSize = *p[PRS_COMB_SIZE].uptr,
+                                               .combOffset = p[PRS_RE_OFFSET_LIST].uptr[k],
+                                               .numSymbols = p[PRS_NUM_SYMBOLS_LIST].uptr[k],
+                                               .firstSymbol = p[PRS_SYMBOL_START_LIST].uptr[k],
+                                               .numRbs = *p[PRS_NUM_RB].uptr,
+                                               .startRb = *p[PRS_RB_OFFSET].uptr,
+                                               .symbolPuncturingBitmap = 0x3FFF};
   }
+  LOG_I(GNB_APP,
+        "PRS: %d resources, period %d slots, offset %d, comb size %d, %d RBs from RB %d, repetition %d, time gap %d\n",
+        num,
+        out->period,
+        out->offset,
+        out->resource[0].pdu.combSize,
+        out->resource[0].pdu.numRbs,
+        out->resource[0].pdu.startRb,
+        out->repetition,
+        out->time_gap);
   return out;
 }
 
@@ -2022,8 +1963,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
     }
 
   }
-  nrmac->positioning_config = RCconfig_nr_positioning();
-  nrmac->prs_config = get_l1_prs_config();
+  nrmac->trp_info_config = RCconfig_nr_trp_info();
+  nrmac->prs_config = get_mac_prs_config();
 
   // Transport related parameters we only read from the first MACRLC instance
   macrlc_p = MacRLC_ParamList.paramarray[0];

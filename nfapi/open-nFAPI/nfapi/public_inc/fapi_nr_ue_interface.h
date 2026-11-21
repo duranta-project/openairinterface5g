@@ -567,6 +567,8 @@ typedef struct {
 } fapi_nr_dl_config_prs_pdu_rel16_t;
 
 typedef struct {
+  uint8_t gnb_id;
+  uint8_t rsc_id;
   fapi_nr_dl_config_prs_pdu_rel16_t prs_config_rel16;
 } fapi_nr_dl_config_prs_pdu;
 
