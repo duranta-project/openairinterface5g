@@ -28,6 +28,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/eventfd.h>
@@ -231,6 +232,60 @@ static void usr_shutdown_atexit(void)
     usleep(200000);
 }
 
+/* AssertFatal() ends in abort(), and abort() and a crash skip atexit(), so the
+ * shutdown above never runs on exactly the exits that leave the CU stuck. On a
+ * fatal signal, ABORT every association instead: SO_LINGER {1, 0} makes
+ * usrsctp_close() send an SCTP ABORT from this thread, with no handshake that
+ * needs the rest of the process alive. The CU then drops the DU's F1
+ * association and accepts the next F1 Setup.
+ *
+ * Not async-signal-safe, so best effort: trylock, so a crash inside the table
+ * lock does not deadlock here, and alarm(), so a crash inside usrsctp's own
+ * locks still terminates within 2 s. Afterwards the previous disposition is
+ * restored and the signal raised again, so the exit status and any core dump
+ * are unchanged. */
+static const int usr_fatal_sigs[] = {SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL};
+static struct sigaction usr_old_act[sizeof(usr_fatal_sigs) / sizeof(usr_fatal_sigs[0])];
+
+static void usr_fatal_signal(int sig)
+{
+  signal(SIGALRM, SIG_DFL);
+  alarm(2);
+
+  const bool locked = pthread_mutex_trylock(&g_tbl_lock) == 0;
+  bool any = false;
+  for (unsigned i = 0; i < USR_MAX_SOCKETS; i++) {
+    struct socket *so = g_socks[i].so;
+    if (so != NULL) {
+      const struct linger l = {.l_onoff = 1, .l_linger = 0};
+      usrsctp_setsockopt(so, SOL_SOCKET, SO_LINGER, &l, sizeof l);
+      usrsctp_close(so);
+      g_socks[i].so = NULL;
+      any = true;
+    }
+  }
+  if (locked)
+    pthread_mutex_unlock(&g_tbl_lock);
+  if (any)
+    usleep(50000);
+
+  for (unsigned i = 0; i < sizeof(usr_fatal_sigs) / sizeof(usr_fatal_sigs[0]); i++)
+    if (usr_fatal_sigs[i] == sig)
+      sigaction(sig, &usr_old_act[i], NULL);
+  raise(sig);
+}
+
+static void usr_install_fatal_handlers(void)
+{
+  struct sigaction act;
+  memset(&act, 0, sizeof act);
+  act.sa_handler = usr_fatal_signal;
+  sigemptyset(&act.sa_mask);
+  act.sa_flags = SA_RESETHAND;
+  for (unsigned i = 0; i < sizeof(usr_fatal_sigs) / sizeof(usr_fatal_sigs[0]); i++)
+    sigaction(usr_fatal_sigs[i], &act, &usr_old_act[i]);
+}
+
 /* ------------------------------------------------------------------- init */
 
 static void *usr_boot(void *arg)
@@ -292,6 +347,7 @@ int oai_sctp_usr_init(void)
     pthread_mutex_init(&g_socks[i].lock, NULL);
 
   atexit(usr_shutdown_atexit);
+  usr_install_fatal_handlers();
   g_inited = true;
   pthread_mutex_unlock(&g_tbl_lock);
   return 0;
