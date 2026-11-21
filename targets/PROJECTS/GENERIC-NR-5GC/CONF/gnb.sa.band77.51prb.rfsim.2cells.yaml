@@ -45,7 +45,6 @@ gNBs:
           dl_offstToCarrier: 0
           dl_subcarrierSpacing: 1
           dl_carrierBandwidth: 51
-          initialDLBWPlocationAndBandwidth: 13750
           initialDLBWPsubcarrierSpacing: 1
           initialDLBWPcontrolResourceSetZero: 10
           initialDLBWPsearchSpaceZero: 0
@@ -55,7 +54,6 @@ gNBs:
           ul_subcarrierSpacing: 1
           ul_carrierBandwidth: 51
           pMax: 24
-          initialULBWPlocationAndBandwidth: 13750
           initialULBWPsubcarrierSpacing: 1
           prach_ConfigurationIndex: 148
           prach_msg1_FDM: 0
@@ -140,7 +138,6 @@ gNBs:
           dl_offstToCarrier: 0
           dl_subcarrierSpacing: 1
           dl_carrierBandwidth: 51
-          initialDLBWPlocationAndBandwidth: 13750
           initialDLBWPsubcarrierSpacing: 1
           initialDLBWPcontrolResourceSetZero: 10
           initialDLBWPsearchSpaceZero: 0
@@ -150,7 +147,6 @@ gNBs:
           ul_subcarrierSpacing: 1
           ul_carrierBandwidth: 51
           pMax: 24
-          initialULBWPlocationAndBandwidth: 13750
           initialULBWPsubcarrierSpacing: 1
           prach_ConfigurationIndex: 148
           prach_msg1_FDM: 0
