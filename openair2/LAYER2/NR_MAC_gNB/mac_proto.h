@@ -500,6 +500,11 @@ uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,
                                    const NR_tda_info_t *tda_info,
                                    const NR_ServingCellConfigCommon_t *scc,
                                    uint16_t max_rbSize);
+bool select_dl_retx_tda(nr_dl_candidate_t *cand,
+                        const NR_ServingCellConfigCommon_t *scc,
+                        int max_dl_symbols,
+                        const uint16_t *vrb_map,
+                        int preferred_tda);
 bool nr_dl_validate_cce_pucch(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand);
 bool commit_alloc(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand);
 
