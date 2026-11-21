@@ -1396,6 +1396,8 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
   int n_srs = spsc_q_get_while(&gNB->srs_queue, get_current_srs, &now, srs, sizeof(*srs), MAX_NUM_NR_SRS_PDUS);
 
   LOG_D(PHY,"phy_procedures_gNB_uespec_RX frame %d, slot %d\n",frame_rx,slot_rx);
+  int slot_type = nr_slot_select(&gNB->gNB_config, frame_rx, slot_rx);
+  START_MEAS_FULL_SLOT(&gNB->i0_meas, slot_type, NR_UPLINK_SLOT);
   {
     // Mask of occupied RBs, per symbol and PRB
     uint32_t rb_mask_ul[14][MAX_BWP_SIZE] = {0};
@@ -1416,8 +1418,8 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
     }
     gNB_I0_measurements(gNB, slot_rx, first_symb, num_symb, rb_mask_ul);
   }
+  STOP_MEAS_FULL_SLOT(&gNB->i0_meas, slot_type, NR_UPLINK_SLOT);
 
-  int slot_type = nr_slot_select(&gNB->gNB_config, frame_rx, slot_rx);
   START_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
   uci_ind->header.transmit_timestamp = 0;
   uci_ind->sfn = frame_rx;
