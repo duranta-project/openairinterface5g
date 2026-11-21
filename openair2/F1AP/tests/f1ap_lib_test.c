@@ -13,6 +13,8 @@
 #include "f1ap_messages_types.h"
 #include "F1AP_F1AP-PDU.h"
 #include "F1AP_TimeToWait.h"
+#include "F1AP_InitiatingMessage.h"
+#include "F1AP_ProtocolIE-Field.h"
 
 #include "f1ap_lib_common.h"
 #include "f1ap_rrc_message_transfer.h"
@@ -2096,6 +2098,12 @@ static void test_f1ap_trp_information_response()
     prs_set->resource_repetition_factor = 2;
     prs_set->resource_time_gap = 1;
     prs_set->resource_number_of_symbols = 12;
+    prs_set->muting1_length = 6;
+    prs_set->muting1_bits[0] = 0xa8;
+    prs_set->muting1_repetition = 4;
+    prs_set->muting2_length = 16;
+    prs_set->muting2_bits[0] = 0x55;
+    prs_set->muting2_bits[1] = 0x7e;
     prs_set->prs_resource_transmit_power = -10 + i;
     prs_set->prs_resource_list_length = 2;
     prs_set->prs_resource = calloc_or_fail(prs_set->prs_resource_list_length, sizeof(*prs_set->prs_resource));
@@ -2106,6 +2114,10 @@ static void test_f1ap_trp_information_response()
       prs_res->re_offset = k;
       prs_res->resource_slot_offset = 2 * k;
       prs_res->resource_symbol_offset = 1;
+      prs_res->has_qcl_ssb = true;
+      prs_res->qcl_ssb_pci = 123 + i;
+      prs_res->has_qcl_ssb_index = k == 1;
+      prs_res->qcl_ssb_index = k == 1 ? 3 : 0;
     }
   }
 
@@ -2631,6 +2643,55 @@ static void test_f1ap_paging(void)
   printf("%s() successful\n", __func__);
 }
 
+static void test_pos_assistance_control(void)
+{
+  uint8_t assistance[] = {0x01, 0x42, 0xfe, 0x00};
+  f1ap_pos_assistance_control_t original = {
+      .transaction_id = 23,
+      .start = true,
+      .has_cell = true,
+      .cell = {.plmn = {.mcc = 208, .mnc = 95, .mnc_digit_length = 2}, .nr_cellid = 0x123456789},
+      .assistance = assistance,
+      .assistance_length = sizeof(assistance),
+  };
+  for (int start = 0; start < 2; ++start) {
+    original.start = start;
+    original.assistance = start ? assistance : NULL;
+    original.assistance_length = start ? sizeof(assistance) : 0;
+    F1AP_F1AP_PDU_t *encoded = encode_pos_assistance_control(&original);
+    AssertFatal(encoded != NULL, "could not encode control\n");
+    F1AP_F1AP_PDU_t *decoded_pdu = f1ap_encode_decode(encoded);
+    f1ap_msg_free(encoded);
+    f1ap_pos_assistance_control_t decoded = {0};
+    AssertFatal(decode_pos_assistance_control(decoded_pdu, &decoded), "could not decode control\n");
+    AssertFatal(eq_pos_assistance_control(&original, &decoded), "control changed during round trip\n");
+    f1ap_pos_assistance_control_t copied = cp_pos_assistance_control(&decoded);
+    AssertFatal(eq_pos_assistance_control(&original, &copied), "control copy differs\n");
+    if (start)
+      AssertFatal(copied.assistance != decoded.assistance, "assistance was not copied\n");
+    free_pos_assistance_control(&decoded);
+    free_pos_assistance_control(&copied);
+    f1ap_msg_free(decoded_pdu);
+  }
+  original.start = true;
+  original.assistance = NULL;
+  original.assistance_length = 0;
+  AssertFatal(!encode_pos_assistance_control(&original), "start without assistance accepted\n");
+  original.assistance = assistance;
+  original.assistance_length = sizeof(assistance);
+  for (int missing = 1; missing <= 2; ++missing) {
+    F1AP_F1AP_PDU_t *pdu = encode_pos_assistance_control(&original);
+    F1AP_PositioningAssistanceInformationControl_t *control =
+        &pdu->choice.initiatingMessage->value.choice.PositioningAssistanceInformationControl;
+    F1AP_PositioningAssistanceInformationControlIEs_t *removed = control->protocolIEs.list.array[missing];
+    asn_sequence_del(&control->protocolIEs.list, missing, 0);
+    f1ap_pos_assistance_control_t decoded = {0};
+    AssertFatal(!decode_pos_assistance_control(pdu, &decoded), "control missing a required field was accepted\n");
+    ASN_STRUCT_FREE(asn_DEF_F1AP_PositioningAssistanceInformationControlIEs, removed);
+    f1ap_msg_free(pdu);
+  }
+}
+
 int main()
 {
   test_initial_ul_rrc_message_transfer();
@@ -2668,6 +2729,7 @@ int main()
   test_f1ap_trp_information_request();
   test_f1ap_trp_information_response();
   test_f1ap_trp_information_failure();
+  test_pos_assistance_control();
   test_f1ap_positioning_measurement_request();
   test_f1ap_positioning_measurement_response();
   test_f1ap_positioning_measurement_failure();

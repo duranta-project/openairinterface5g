@@ -463,6 +463,7 @@ typedef struct nr_mac_rrc_dl_if_s {
   dl_rrc_message_transfer_func_t dl_rrc_message_transfer;
   f1_paging_transfer_func_t paging_transfer;
   trp_information_request_func_t trp_information_request;
+  pos_assistance_control_func_t pos_assistance_control;
   positioning_information_request_func_t positioning_information_request;
   positioning_activation_request_func_t positioning_activation_request;
   positioning_measurement_request_func_t positioning_measurement_request;
@@ -517,6 +518,7 @@ typedef struct nr_rrc_cell_container_t {
   NR_SIB1_t *sib1;
   /* MeasurementTimingConfiguration inter-node (TS 38.331) */
   NR_MeasurementTimingConfiguration_t *mtc;
+  bool possib_control_sent;
 } nr_rrc_cell_container_t;
 
 typedef struct nr_rrc_du_container_t {
@@ -533,7 +535,22 @@ typedef struct nr_rrc_du_container_t {
   uint8_t rrc_ver[3];
   /* Cells, indexed by cell_id */
   seq_arr_t cells; /* nr_rrc_cell_container_t* */
+  struct {
+    uint8_t kind;
+    uint8_t nrppa_transaction_id;
+    uint16_t trp_id;
+    uint64_t cell_id;
+    uint32_t period_frames;
+    uint64_t expires_at;
+    uint64_t reusable_at;
+  } trp_transactions[256];
 } nr_rrc_du_container_t;
+
+typedef struct {
+  uint64_t cell_id;
+  uint16_t trp_id;
+  uint32_t period_frames;
+} nr_possib_policy_t;
 
 typedef struct nr_rrc_cuup_container_t {
   /* Tree-related data */
@@ -666,6 +683,7 @@ typedef struct gNB_RRC_INST_s {
   // RRC configuration
   nr_rrc_config_t configuration;
   seq_arr_t *SIBs;
+  seq_arr_t possib_policies; /* nr_possib_policy_t */
   // SIB2 configuration for cell reselection parameters
   sib2_config_t sib2_config;
 

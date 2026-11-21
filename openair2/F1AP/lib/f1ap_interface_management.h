@@ -9,6 +9,7 @@
 #include "f1ap_messages_types.h"
 
 struct F1AP_F1AP_PDU;
+f1ap_served_cell_info_t copy_f1ap_served_cell_info(const f1ap_served_cell_info_t *src);
 
 /* F1 Reset */
 struct F1AP_F1AP_PDU *encode_f1ap_reset(const f1ap_reset_t *msg);

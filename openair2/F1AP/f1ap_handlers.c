@@ -68,13 +68,13 @@ static const f1ap_message_processing_t f1ap_messages_processing[][3] = {
     {0, 0, 0}, /* accessSuccess */
     {0, 0, 0}, /* cellTrafficTrace */
     {DU_handle_POSITIONING_MEASUREMENT_REQUEST, CU_handle_POSITIONING_MEASUREMENT_RESPONSE, 0}, /* PositioningMeasurementExchange */
-    {0, 0, 0}, /* PositioningAssistanceInformationControl */
+    {DU_handle_POS_ASSISTANCE_CONTROL, 0, 0}, /* PositioningAssistanceInformationControl */
     {0, 0, 0}, /* PositioningAssistanceInformationFeedback */
     {0, 0, 0}, /* PositioningMeasurementReport */
     {0, 0, 0}, /* PositioningMeasurementAbort */
     {0, 0, 0}, /* PositioningMeasurementFailureIndication */
     {0, 0, 0}, /* PositioningMeasurementUpdate */
-    {DU_handle_TRP_INFORMATION_REQUEST, CU_handle_TRP_INFORMATION_RESPONSE, 0}, /* TRPInformationExchange */
+    {DU_handle_TRP_INFORMATION_REQUEST, CU_handle_TRP_INFORMATION_RESPONSE, CU_handle_TRP_INFORMATION_FAILURE},
     {DU_handle_POSITIONING_INFORMATION_REQUEST, CU_handle_POSITIONING_INFORMATION_RESPONSE, 0}, /* PositioningInformationExchange */
     {DU_handle_POSITIONING_ACTIVATION_REQUEST, CU_handle_POSITIONING_ACTIVATION_RESPONSE, 0}, /* PositioningActivation */
     {0, 0, 0}, /* PositioningDeactivation */

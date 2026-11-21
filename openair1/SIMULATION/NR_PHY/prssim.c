@@ -345,7 +345,6 @@ int main(int argc, char *argv[])
   UE = calloc_or_fail(1, sizeof(PHY_VARS_NR_UE));
   memcpy(&UE->frame_parms, fp, sizeof(NR_DL_FRAME_PARMS)); // setting same frame parameters as gNB
   UE->is_synchronized = 1;
-  UE->prs_active_gNBs = n_gnb;
   if (init_nr_ue_signal(UE, 1) != 0) {
     printf("Error at UE NR initialisation\n");
     exit(-1);
@@ -422,7 +421,6 @@ int main(int argc, char *argv[])
   fapi_nr_dl_config_prs_pdu_rel16_t prs_config_pdu[MAX_PRS_GNBS][MAX_PRS_RSC];
   prs_meas_t **prs_meas[MAX_PRS_GNBS][MAX_PRS_RSC];
   for (int g = 0; g < n_gnb; g++) {
-    UE->prs_vars[g]->NumPRSResources = n_rsc;
     for (int r = 0; r < n_rsc; r++) {
       // gNB side: FAPI DL_TTI.request PRS PDU
       prs_pdu[g][r] = (nfapi_nr_dl_tti_prs_pdu_rel16_t){.subcarrierSpacing = mu,

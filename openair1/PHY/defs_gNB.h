@@ -116,11 +116,6 @@ typedef struct {
 } NR_gNB_DLSCH_t;
 
 typedef struct {
-  uint8_t NumPRSResources;
-  prs_config_t prs_cfg[NR_MAX_PRS_RESOURCES_PER_SET];
-} NR_gNB_PRS;
-
-typedef struct {
   /// Nfapi ULSCH PDU
   nfapi_nr_pusch_pdu_t ulsch_pdu;
   /// Index of current HARQ round for this DLSCH
@@ -373,7 +368,6 @@ typedef struct PHY_VARS_gNB_s {
   nr_prach_rb_mask_t prach_rb_mask[NR_PRACH_RB_MASK_SLOTS];
   // TODO: can we remove c from NR_gNB_DLSCH_t and put it on the stack?
   NR_gNB_DLSCH_t *dlsch;
-  NR_gNB_PRS prs_vars;
   NR_gNB_PUSCH *pusch_vars;
   spsc_q_t pucch_queue;
   spsc_q_t pusch_queue;

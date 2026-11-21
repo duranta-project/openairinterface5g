@@ -31,7 +31,7 @@ prs_config = (
   PRSResourceSetPeriod  = [20, 2];
   SymbolStart           = [7];
   NumPRSSymbols         = [6];
-  NumRB                 = 106;
+  NumRB                 = 104;
   RBOffset              = 0;
   CombSize              = 4;
   REOffset              = [0];
@@ -46,9 +46,37 @@ prs_config = (
 );
 ```
 
+For `posSibType6-1` broadcasting, configure PRS and one TRP on the DU, and add
+a `pos_sib` entry on the CU. In a monolithic gNB, both sections are in the same
+file. For example:
+
+```
+positioning_config = ({ NumTRPs = 1; TRPIDs = [1]; TRPxAxis = [0]; TRPyAxis = [0]; TRPzAxis = [0]; Units = [1]; });
+pos_sib = ({ cell_id = 12345678L; trp_id = 1; periodicity = 16; });
+```
+
+`cell_id` must match the DU's `nr_cellid`, and `trp_id` must match the DU's
+TRP. The CU sends an F1 TRP Information Request after setup and supplies the
+generated assistance to that DU using Positioning Assistance Information
+Control. The periodicity is in radio frames and must be 8, 16, 32, 64, 128,
+256, or 512. With no `pos_sib` entry, broadcasting is disabled. The CU must
+also configure at least one ordinary SIB2–SIB14, for example `cu_sibs = [2]`.
+
+The OAI DU currently reports PRS for one cell, one TRP and one resource set.
+It rejects configured muting because its transmitter does not apply it. The
+CU accepts muting received from a capable DU. PRS-to-PRS QCL is accepted when
+the source resource is identified in the same set; SSB QCL is rejected because
+F1 does not provide the LPP QCL type. Segmentation, on-demand delivery and
+LMF-originated PosSIB are not implemented.
+
 The nrUE config has `Active_gNBs` to specify the number of active gNBs
 transmitting PRS simultaneously. Help strings for all PRS parameters are
 documented in `openair2/COMMON/prs_nr_paramdef.h`.
+
+`NumRB` has to be a multiple of 4 between 24 and 272, as the PRS bandwidth is
+signalled in steps of 4 PRBs (TS 38.473 §9.3.1.176). `CombSize`,
+`PRSResourceRepetition` and `PRSResourceTimeGap` are restricted to the values
+allowed by the specification.
 
 > Note: PRS transmission and reception can only be validated in `phy-test` mode.
 

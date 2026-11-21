@@ -1,0 +1,37 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+<testCaseList>
+  <htmlTabName>F1 split with PosSIB</htmlTabName>
+  <testCase>
+    <class>Pull_Local_Registry</class><desc>Pull local images</desc><node>localhost</node>
+    <images>oai-gnb-asan oai-nr-ue-asan</images>
+  </testCase>
+  <testCase><class>Create_Workspace</class><desc>Create workspace</desc><node>localhost</node></testCase>
+  <testCase>
+    <class>Deploy_Object</class><desc>Deploy core</desc><node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_f1_rfsimulator_possib</yaml_path>
+    <services>mysql oai-amf oai-smf oai-upf oai-ext-dn</services>
+  </testCase>
+  <testCase>
+    <class>Deploy_Object</class><desc>Deploy split CU, DU and UE</desc><node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_f1_rfsimulator_possib</yaml_path>
+    <services>oai-cu oai-du-pci0 oai-nr-ue</services>
+  </testCase>
+  <testCase><class>Attach_UE</class><desc>Attach UE</desc><id>rfsim5g_ue</id><node>localhost</node></testCase>
+  <testCase>
+    <class>Custom_Script</class><desc>Verify F1 PosSIB delivery and PRS application</desc><node>localhost</node>
+    <script>scripts/verify-possib-f1-prs.sh</script>
+  </testCase>
+  <testCase>
+    <class>Custom_Script</class><desc>Verify PosSIB refresh after CU restart</desc><node>localhost</node>
+    <script>scripts/verify-possib-f1-reconnect.sh</script>
+  </testCase>
+  <testCase>
+    <class>Undeploy_Object</class><always_exec>true</always_exec><desc>Undeploy stack</desc><node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_f1_rfsimulator_possib</yaml_path>
+    <analysis><services>oai-cu oai-du-pci0 oai-nr-ue</services></analysis>
+  </testCase>
+  <testCase>
+    <class>Clean_Test_Server_Images</class><always_exec>true</always_exec><desc>Clean test images</desc><node>localhost</node>
+    <images>oai-gnb-asan oai-nr-ue-asan</images>
+  </testCase>
+</testCaseList>

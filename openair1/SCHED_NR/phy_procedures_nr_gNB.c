@@ -348,18 +348,6 @@ static void nr_generate_csi_rs_gNB(PHY_VARS_gNB *gNB, int slot, const nfapi_nr_d
                               prb_mask_words);
 }
 
-static nfapi_nr_dl_tti_prs_pdu_rel16_t get_prs_pdu(const prs_config_t *prs_config)
-{
-  return (nfapi_nr_dl_tti_prs_pdu_rel16_t){.combSize = prs_config->CombSize,
-                                           .combOffset = prs_config->REOffset,
-                                           .nIdPrs = prs_config->NPRSID,
-                                           .numSymbols = prs_config->NumPRSSymbols,
-                                           .firstSymbol = prs_config->SymbolStart,
-                                           .numRbs = prs_config->NumRB,
-                                           .startRb = prs_config->RBOffset,
-                                           .symbolPuncturingBitmap = 0x3FFF};
-}
-
 static void nr_generate_prs_gNB(PHY_VARS_gNB *gNB,
                                 int slot,
                                 int slot_prs,
@@ -402,22 +390,6 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
   // clear the transmit data array and beam index for the current slot
   for (int aa = 0; aa < fp->nb_antennas_tx; aa++) {
     memset(gNB->common_vars.txdataF[aa], 0, fp->samples_per_slot_wCP * sizeof(**gNB->common_vars.txdataF));
-  }
-
-  // Check for PRS slot - section 7.4.1.7.4 in 3GPP rel16 38.211
-  for(int rsc_id = 0; rsc_id < gNB->prs_vars.NumPRSResources; rsc_id++)
-  {
-    prs_config_t *prs_config = &gNB->prs_vars.prs_cfg[rsc_id];
-    for (int i = 0; i < prs_config->PRSResourceRepetition; i++)
-    {
-      if( (((frame*fp->slots_per_frame + slot) - (prs_config->PRSResourceSetPeriod[1] + prs_config->PRSResourceOffset)+prs_config->PRSResourceSetPeriod[0])%prs_config->PRSResourceSetPeriod[0]) == i*prs_config->PRSResourceTimeGap )
-      {
-        int slot_prs = (slot - i * prs_config->PRSResourceTimeGap + fp->slots_per_frame) % fp->slots_per_frame;
-        LOG_D(PHY,"gNB_TX: frame %d, slot %d, slot_prs %d, PRS Resource ID %d\n",frame, slot, slot_prs, rsc_id);
-        const nfapi_nr_dl_tti_prs_pdu_rel16_t prs_pdu = get_prs_pdu(prs_config);
-        nr_generate_prs_gNB(gNB, slot, slot_prs, &prs_pdu, prb_mask_words);
-      }
-    }
   }
 
   for (int i = 0; i < UL_dci_req->numPdus; ++i)

@@ -3921,7 +3921,9 @@ void *rrc_gnb_task(void *args_p)
   instance_t instance;
   int result;
 
-  long stats_timer_id = 1;
+  long stats_timer_id = -1;
+  long trp_timer_id = 0;
+  timer_setup(1, 0, TASK_RRC_GNB, 0, TIMER_PERIODIC, NULL, &trp_timer_id);
   if (!IS_SOFTMODEM_NOSTATS) {
     /* timer to write stats to file */
     timer_setup(1, 0, TASK_RRC_GNB, 0, TIMER_PERIODIC, NULL, &stats_timer_id);
@@ -3943,7 +3945,9 @@ void *rrc_gnb_task(void *args_p)
     switch (ITTI_MSG_ID(msg_p)) {
       case TERMINATE_MESSAGE:
         LOG_W(NR_RRC, " *** Exiting NR_RRC thread\n");
-        timer_remove(stats_timer_id);
+        if (stats_timer_id >= 0)
+          timer_remove(stats_timer_id);
+        timer_remove(trp_timer_id);
         itti_exit_task();
         break;
 
@@ -3956,6 +3960,8 @@ void *rrc_gnb_task(void *args_p)
           nr_rrc_sample_conn_count(RC.nrrrc[0]);
           if (!write_rrc_stats(RC.nrrrc[0]))
             timer_remove(stats_timer_id);
+        } else if (TIMER_HAS_EXPIRED(msg_p).timer_id == trp_timer_id) {
+          rrc_trp_transaction_tick(RC.nrrrc[0]);
         } else {
           itti_send_msg_to_task(TASK_RRC_GNB, 0, TIMER_HAS_EXPIRED(msg_p).arg); /* see rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ() */
         }
@@ -4135,12 +4141,15 @@ void *rrc_gnb_task(void *args_p)
         break;
 
       case F1AP_TRP_INFORMATION_RESP:
-        rrc_CU_process_trp_information_response(&F1AP_TRP_INFORMATION_RESP(msg_p));
+        rrc_handle_trp_information_response(RC.nrrrc[instance], msg_p->ittiMsgHeader.originInstance,
+                                            &F1AP_TRP_INFORMATION_RESP(msg_p));
         free_trp_information_resp(&F1AP_TRP_INFORMATION_RESP(msg_p));
         break;
 
       case F1AP_TRP_INFORMATION_FAILURE:
-        rrc_CU_process_trp_information_failure(&F1AP_TRP_INFORMATION_FAILURE(msg_p));
+        rrc_handle_trp_information_failure(RC.nrrrc[instance], msg_p->ittiMsgHeader.originInstance,
+                                           &F1AP_TRP_INFORMATION_FAILURE(msg_p));
+        free_trp_information_failure(&F1AP_TRP_INFORMATION_FAILURE(msg_p));
         break;
 
       case NRPPA_POSITIONING_INFORMATION_REQ:

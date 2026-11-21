@@ -8,6 +8,25 @@
 #include "lib/f1ap_positioning.h"
 #include "common/utils/ds/byte_array.h"
 
+int CU_send_POS_ASSISTANCE_CONTROL(sctp_assoc_t assoc_id, const f1ap_pos_assistance_control_t *control)
+{
+  F1AP_F1AP_PDU_t *pdu = encode_pos_assistance_control(control);
+  if (!pdu) {
+    LOG_E(F1AP, "Invalid positioning assistance control\n");
+    return -1;
+  }
+  uint8_t *buffer = NULL;
+  uint32_t len = 0;
+  int ret = f1ap_encode_pdu(pdu, &buffer, &len);
+  ASN_STRUCT_FREE(asn_DEF_F1AP_F1AP_PDU, pdu);
+  if (ret < 0) {
+    LOG_E(F1AP, "Failed to encode positioning assistance control\n");
+    return -1;
+  }
+  f1ap_itti_send_sctp_data_req(assoc_id, buffer, len);
+  return 0;
+}
+
 int CU_send_TRP_INFORMATION_REQUEST(sctp_assoc_t assoc_id, f1ap_trp_information_req_t *req)
 {
   F1AP_F1AP_PDU_t *pdu = encode_trp_information_req(req);

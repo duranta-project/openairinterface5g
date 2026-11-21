@@ -91,6 +91,7 @@ void nr_rrc_mac_start_ra(module_id_t module_id, nr_mac_ra_start_cause_t cause);
 
 struct position; /* forward declaration */
 void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19_r17, int hfn, int frame, bool can_start_ra);
+void nr_rrc_mac_config_prs(module_id_t module_id, const nr_ue_prs_configuration_t *configuration);
 void nr_rrc_mac_resume_rb(module_id_t module_id, bool is_srb, int rb_id);
 void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t cause);
 
@@ -108,6 +109,7 @@ NR_UE_MAC_INST_t * nr_l2_init_ue(int nb_inst, int numerology, int rx2tx_capabili
 /**\brief fetch MAC instance by module_id
    \param module_id index of MAC instance(s)*/
 NR_UE_MAC_INST_t *get_mac_inst(module_id_t module_id);
+void nr_ue_free_prs_config(NR_UE_MAC_INST_t *mac);
 
 void reset_mac_inst(NR_UE_MAC_INST_t *nr_mac);
 void reset_ra(NR_UE_MAC_INST_t *nr_mac, bool free_prach);

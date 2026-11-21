@@ -51,6 +51,7 @@ MESSAGE_DEF(F1AP_PAGING, MESSAGE_PRIORITY_MED, f1ap_paging_t, f1ap_paging)
 
 /* CU -> DU*/
 MESSAGE_DEF(F1AP_TRP_INFORMATION_REQ, MESSAGE_PRIORITY_MED, f1ap_trp_information_req_t, f1ap_trp_information_req)
+MESSAGE_DEF(F1AP_POS_ASSISTANCE_CONTROL, MESSAGE_PRIORITY_MED, f1ap_pos_assistance_control_t, f1ap_pos_assistance_control)
 MESSAGE_DEF(F1AP_POSITIONING_INFORMATION_REQ,
             MESSAGE_PRIORITY_MED,
             f1ap_positioning_information_req_t,
