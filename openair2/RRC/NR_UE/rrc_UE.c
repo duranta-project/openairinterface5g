@@ -1176,7 +1176,6 @@ static bool nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
                                               bool dedicatedsib1,
                                               bool *reconf_with_sync_scc)
 {
-  AssertFatal(!fullConfig, "fullConfig not supported yet\n");
   NR_CellGroupConfig_t *cellGroupConfig = NULL;
   asn_dec_rval_t dec_rval = uper_decode(NULL,
                                         &asn_DEF_NR_CellGroupConfig, //might be added prefix later
@@ -1206,16 +1205,50 @@ static bool nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
   mac_msg->UE_NR_Capability = rrc->UECap.UE_NR_Capability;
   mac_msg->hfn = rrc->current_hfn;
   mac_msg->frame = rrc->current_frame;
+  // with fullConfig, MAC releases its dedicated configuration before applying this one (TS 38.331 5.3.5.11)
+  mac_msg->full_config = fullConfig != NULL;
   nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
   return true;
 }
 
+static void nr_rrc_release_meas_config(NR_UE_RRC_INST_t *rrc);
+
+/** @brief Full configuration (TS 38.331 5.3.5.11): what goes before the new configuration is applied
+ * The C-RNTI, the AS security context and SRB1 are kept. SRB2 and the DRBs are released, so that the radioBearerConfig
+ * of the same message sets them up as new ones: the network side of a full configuration (a node that retrieved the
+ * context, or a handover target) holds new PDCP entities for them. The SDAP entity of a PDU session is kept, so its
+ * TUN stays bound: the PDU session anchors the released DRBs and the ones set up again (5.3.5.11, NOTE 3), and the
+ * re-added DRBs map onto it. MAC releases its part together with the new CellGroupConfig (full_config), so that no
+ * slot runs between the two. */
+static void nr_rrc_full_config_release(NR_UE_RRC_INST_t *rrc, bool master_cell_group)
+{
+  RRCLOG_I("RRCReconfiguration with fullConfig: releasing the dedicated configuration\n");
+  // the dedicated radio configuration includes MeasConfig (5.3.5.11, NOTE 1)
+  nr_rrc_release_meas_config(rrc);
+  for (int i = 1; i <= MAX_DRBS_PER_UE; i++) {
+    if (get_DRB_status(rrc, i) != RB_NOT_PRESENT) {
+      set_DRB_status(rrc, i, RB_NOT_PRESENT);
+      nr_pdcp_release_drb(rrc->ue_id, i);
+    }
+  }
+  for (int i = 2; i < NR_NUM_SRB; i++) {
+    if (rrc->Srb[i] != RB_NOT_PRESENT) {
+      rrc->Srb[i] = RB_NOT_PRESENT;
+      nr_pdcp_release_srb(rrc->ue_id, i);
+    }
+  }
+  // every RLC entity but SRB1's (logical channel 1)
+  for (int i = 2; i < NR_MAX_NUM_LCID; i++)
+    nr_rrc_release_rlc_entity(rrc, i);
+  // T310, T311, N310 and N311 back to their defaults, unless the new spCellConfig sets them
+  if (master_cell_group)
+    set_rlf_sib1_timers_and_constants(&rrc->timers_and_constants, rrc->timers_and_constants.sib1_TimersAndConstants);
+}
+
 static bool nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCReconfiguration_v1530_IEs_t *rec_1530, int gNB_index)
 {
-  if (rec_1530->fullConfig) {
-    // TODO perform the full configuration procedure as specified in 5.3.5.11 of 331
-    RRCLOG_E("RRCReconfiguration includes fullConfig but this is not implemented yet\n");
-  }
+  if (rec_1530->fullConfig)
+    nr_rrc_full_config_release(rrc, rec_1530->masterCellGroup != NULL);
 
   bool reconf_with_sync_scc = false;
   const bool dedicatedsib1 = rec_1530->dedicatedSIB1_Delivery != NULL;

@@ -446,6 +446,7 @@ typedef struct {
   NR_UE_NR_Capability_t *UE_NR_Capability;
   int hfn;
   int frame;
+  bool full_config; // RRCReconfiguration with fullConfig (TS 38.331 5.3.5.11)
 } nr_mac_rrc_config_cg_t;
 typedef struct {
   NR_BCCH_BCH_Message_t *bcch;
