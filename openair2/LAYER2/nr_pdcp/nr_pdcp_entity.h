@@ -116,12 +116,14 @@ typedef struct nr_pdcp_entity_s {
   int pdusession_id;
   bool has_sdap_rx;
   bool has_sdap_tx;
-  int sn_size;                  /* SN size, in bits */
+  int sn_size_tx;               /* TX SN size, in bits (12 or 18) */
+  int sn_size_rx;               /* RX SN size, in bits (12 or 18) */
   int t_reordering;             /* unit: ms, -1 for infinity */
   int discard_timer;            /* unit: ms, -1 for infinity */
 
-  int sn_max;                   /* (2^SN_size) - 1 */
-  int window_size;              /* 2^(SN_size - 1) */
+  int tx_sn_max;                /* (2^sn_size_tx) - 1 */
+  int rx_sn_max;                /* (2^sn_size_rx) - 1 */
+  int window_size;              /* 2^(sn_size_rx - 1) */
 
   /* state variables */
   uint32_t tx_next;
@@ -194,7 +196,8 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
     void *deliver_sdu_data,
     void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id),
     void *deliver_pdu_data,
-    int sn_size,
+    int sn_size_ul,
+    int sn_size_dl,
     int t_reordering,
     int discard_timer,
     const nr_pdcp_entity_security_keys_and_algos_t *security_parameters);

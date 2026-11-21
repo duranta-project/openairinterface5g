@@ -502,15 +502,16 @@ void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req)
       // PDCP Status received (from source CU-UP)
       if (to_modif->pdcp_status) {
         DevAssert(to_modif->pdcp_config);
-        DevAssert(to_modif->pdcp_config->pDCP_SN_Size_DL == to_modif->pdcp_config->pDCP_SN_Size_UL);
-        bool is_sn_len_18 = to_modif->pdcp_config->pDCP_SN_Size_DL == NR_PDCP_Config__drb__pdcp_SN_SizeDL_len18bits;
+        bool is_dl_sn_len_18 = to_modif->pdcp_config->pDCP_SN_Size_DL == NR_PDCP_Config__drb__pdcp_SN_SizeDL_len18bits;
+        bool is_ul_sn_len_18 = to_modif->pdcp_config->pDCP_SN_Size_UL == NR_PDCP_Config__drb__pdcp_SN_SizeUL_len18bits;
         nr_pdcp_count_t dl_count = { .hfn = to_modif->pdcp_status->dl_count.hfn, .sn = to_modif->pdcp_status->dl_count.sn};
         nr_pdcp_count_t ul_count = { .hfn = to_modif->pdcp_status->ul_count.hfn, .sn = to_modif->pdcp_status->ul_count.sn};
         nr_pdcp_count_update(req->gNB_cu_cp_ue_id,
                              to_modif->id,
                              dl_count,
                              ul_count,
-                             is_sn_len_18 ? LONG_SN_SIZE : SHORT_SN_SIZE);
+                             is_dl_sn_len_18 ? LONG_SN_SIZE : SHORT_SN_SIZE,
+                             is_ul_sn_len_18 ? LONG_SN_SIZE : SHORT_SN_SIZE);
       }
 
       if (f1inst < 0) // no F1-U?
