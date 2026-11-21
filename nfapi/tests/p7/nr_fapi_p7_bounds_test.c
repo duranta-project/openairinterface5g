@@ -22,7 +22,7 @@ configmodule_interface_t *uniqCfg = NULL;
 
 /* small append helpers over a flat byte buffer */
 typedef struct {
-  uint8_t buf[256];
+  uint8_t buf[4608];
   size_t pos;
 } body_t;
 
@@ -58,6 +58,30 @@ static void pad(body_t *b, size_t n)
     }                                                                  \
     printf("OK: %s rejected an out-of-range count\n", #unpack_fn);     \
   } while (0)
+
+/* Same as EXPECT_REJECT, for a count or length that the message is too short to hold: the
+ * unpacker must reject it before allocating for it, so list must still be NULL. */
+#define EXPECT_REJECT_NO_ALLOC(unpack_fn, body, type, list, cleanup)                    \
+  do {                                                                                  \
+    type *msg = calloc(1, sizeof(*msg));                                                \
+    uint8_t *read = (body).buf;                                                         \
+    uint8_t *end = (body).buf + (body).pos;                                             \
+    uint8_t rc = unpack_fn(&read, end, msg);                                            \
+    const bool allocated = (list) != NULL;                                              \
+    cleanup;                                                                            \
+    free(msg);                                                                          \
+    if (rc != 0 || allocated) {                                                         \
+      printf("FAIL: %s %s %s\n", #unpack_fn, rc ? "accepted" : "allocated for", #list); \
+      return 1;                                                                         \
+    }                                                                                   \
+    printf("OK: %s rejected %s before allocating it\n", #unpack_fn, #list);             \
+  } while (0)
+
+static void put32(body_t *b, uint32_t v)
+{
+  put16(b, v >> 16);
+  put16(b, v & 0xffff);
+}
 
 static int test_ul_tti_n_group(void)
 {
@@ -154,6 +178,73 @@ static int test_srs_toa_num_ta(void)
   return 0;
 }
 
+/* The counts below are the same in either byte order. Each message is far shorter than the
+ * count it declares. */
+static int test_rx_data_number_of_pdus(void)
+{
+  body_t b = {0};
+  put16(&b, 0); /* sfn */
+  put16(&b, 0); /* slot */
+  put16(&b, 0xffff); /* number_of_pdus */
+  pad(&b, 64);
+  EXPECT_REJECT_NO_ALLOC(unpack_nr_rx_data_indication, b, nfapi_nr_rx_data_indication_t, msg->pdu_list, free(msg->pdu_list));
+  return 0;
+}
+
+static int test_rx_data_pdu_length(void)
+{
+  body_t b = {0};
+  put16(&b, 0); /* sfn */
+  put16(&b, 0); /* slot */
+  put16(&b, 0x0101); /* number_of_pdus = 257, which the 4 kB message can hold */
+  put32(&b, 0); /* handle */
+  put16(&b, 0); /* rnti */
+  put8(&b, 0); /* harq_id */
+  put32(&b, 0xffffffff); /* pdu_length: 4 GB */
+  put8(&b, 0); /* ul_cqi */
+  put16(&b, 0); /* timing_advance */
+  put16(&b, 0); /* rssi */
+  pad(&b, 257 * 16);
+  EXPECT_REJECT_NO_ALLOC(
+      unpack_nr_rx_data_indication, b, nfapi_nr_rx_data_indication_t, msg->pdu_list[0].pdu, free(msg->pdu_list[0].pdu);
+      free(msg->pdu_list));
+  return 0;
+}
+
+static int test_crc_number_crcs(void)
+{
+  body_t b = {0};
+  put16(&b, 0); /* sfn */
+  put16(&b, 0); /* slot */
+  put16(&b, 0xffff); /* number_crcs */
+  pad(&b, 64);
+  EXPECT_REJECT_NO_ALLOC(unpack_nr_crc_indication, b, nfapi_nr_crc_indication_t, msg->crc_list, free(msg->crc_list));
+  return 0;
+}
+
+static int test_uci_num_ucis(void)
+{
+  body_t b = {0};
+  put16(&b, 0); /* sfn */
+  put16(&b, 0); /* slot */
+  put16(&b, 0xffff); /* num_ucis */
+  pad(&b, 64);
+  EXPECT_REJECT_NO_ALLOC(unpack_nr_uci_indication, b, nfapi_nr_uci_indication_t, msg->uci_list, free(msg->uci_list));
+  return 0;
+}
+
+static int test_srs_number_of_pdus(void)
+{
+  body_t b = {0};
+  put16(&b, 0); /* sfn */
+  put16(&b, 0); /* slot */
+  put16(&b, 0); /* control_length */
+  put8(&b, 0xff); /* number_of_pdus */
+  pad(&b, 64);
+  EXPECT_REJECT_NO_ALLOC(unpack_nr_srs_indication, b, nfapi_nr_srs_indication_t, msg->pdu_list, free(msg->pdu_list));
+  return 0;
+}
+
 int main(void)
 {
   fapi_test_init();
@@ -171,6 +262,16 @@ int main(void)
   if (test_rach_num_preamble())
     return 1;
   if (test_srs_toa_num_ta())
+    return 1;
+  if (test_rx_data_number_of_pdus())
+    return 1;
+  if (test_rx_data_pdu_length())
+    return 1;
+  if (test_crc_number_crcs())
+    return 1;
+  if (test_uci_num_ucis())
+    return 1;
+  if (test_srs_number_of_pdus())
     return 1;
 
   printf("All P7 bounds tests passed\n");

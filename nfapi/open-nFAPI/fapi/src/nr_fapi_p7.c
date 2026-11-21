@@ -18,6 +18,22 @@
     }                                                                                                               \
   } while (0)
 
+/* Allocate count elements for a list decoded from a P7 message. Each element takes at least min_size
+ * bytes in the message: reject a count that the rest of the buffer cannot hold before allocating for
+ * it, so that the allocation stays bounded by the message size. */
+#define NR_FAPI_ALLOC_LIST(list, count, min_size, ppReadPackedMsg, end)                                  \
+  do {                                                                                                   \
+    if ((uint64_t)(count) * (min_size) > (uint64_t)((end) - *(ppReadPackedMsg))) {                       \
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s %u exceeds the message size\n", #count, (unsigned int)(count)); \
+      return 0;                                                                                          \
+    }                                                                                                    \
+    (list) = calloc((count), sizeof(*(list)));                                                           \
+    if ((count) > 0 && !(list)) {                                                                        \
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "failed to allocate %s\n", #list);                                  \
+      return 0;                                                                                          \
+    }                                                                                                    \
+  } while (0)
+
 uint8_t fapi_nr_p7_message_body_pack(nfapi_nr_p7_message_header_t *header,
                                      uint8_t **ppWritePackedMsg,
                                      uint8_t *end,
@@ -1896,7 +1912,7 @@ static uint8_t unpack_nr_rx_data_indication_body(nfapi_nr_rx_data_pdu_t *value, 
     return 0;
 
   const uint32_t length = value->pdu_length;
-  value->pdu = calloc(length, sizeof(*value->pdu));
+  NR_FAPI_ALLOC_LIST(value->pdu, length, 1, ppReadPackedMsg, end);
   if (pullarray8(ppReadPackedMsg, value->pdu, length, length, end) == 0) {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s pullarray8 failure\n", __FUNCTION__);
     return 0;
@@ -1913,7 +1929,8 @@ uint8_t unpack_nr_rx_data_indication(uint8_t **ppReadPackedMsg, uint8_t *end, vo
     return 0;
 
   if (pNfapiMsg->number_of_pdus > 0) {
-    pNfapiMsg->pdu_list = calloc(pNfapiMsg->number_of_pdus, sizeof(*pNfapiMsg->pdu_list));
+    // each PDU takes at least 16 bytes: handle, RNTI, HARQ ID, PDU length, UL CQI, TA, RSSI
+    NR_FAPI_ALLOC_LIST(pNfapiMsg->pdu_list, pNfapiMsg->number_of_pdus, 16, ppReadPackedMsg, end);
   }
 
   for (int i = 0; i < pNfapiMsg->number_of_pdus; i++) {
@@ -1993,7 +2010,8 @@ uint8_t unpack_nr_crc_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *
 
   pNfapiMsg->crc_list = NULL;
   if (pNfapiMsg->number_crcs > 0) {
-    pNfapiMsg->crc_list = calloc(pNfapiMsg->number_crcs, sizeof(*pNfapiMsg->crc_list));
+    // each CRC takes at least 15 bytes: handle, RNTI, HARQ ID, TB CRC status, NumCb, UL CQI, TA, RSSI
+    NR_FAPI_ALLOC_LIST(pNfapiMsg->crc_list, pNfapiMsg->number_crcs, 15, ppReadPackedMsg, end);
   }
 
   for (int i = 0; i < pNfapiMsg->number_crcs; i++) {
@@ -2436,7 +2454,8 @@ uint8_t unpack_nr_uci_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *
   if (!pull16(ppReadPackedMsg, &pNfapiMsg->num_ucis, end))
     return 0;
 
-  pNfapiMsg->uci_list = calloc(pNfapiMsg->num_ucis, sizeof(*pNfapiMsg->uci_list));
+  // each UCI takes at least 4 bytes: PDU type and size
+  NR_FAPI_ALLOC_LIST(pNfapiMsg->uci_list, pNfapiMsg->num_ucis, 4, ppReadPackedMsg, end);
   for (int i = 0; i < pNfapiMsg->num_ucis; i++) {
     if (!unpack_nr_uci_indication_body(&pNfapiMsg->uci_list[i], ppReadPackedMsg, end))
       return 0;
@@ -2608,7 +2627,8 @@ uint8_t unpack_nr_srs_indication(uint8_t **ppReadPackedMsg, uint8_t *end, void *
         && pull16(ppReadPackedMsg, &pNfapiMsg->control_length, end) && pull8(ppReadPackedMsg, &pNfapiMsg->number_of_pdus, end))) {
     return 0;
   }
-  pNfapiMsg->pdu_list = calloc(pNfapiMsg->number_of_pdus, sizeof(*pNfapiMsg->pdu_list));
+  // each PDU takes at least 18 bytes: handle, RNTI, TA offsets, usage, report type, report tag and length
+  NR_FAPI_ALLOC_LIST(pNfapiMsg->pdu_list, pNfapiMsg->number_of_pdus, 18, ppReadPackedMsg, end);
   for (int i = 0; i < pNfapiMsg->number_of_pdus; i++) {
     if (!unpack_nr_srs_indication_body(&pNfapiMsg->pdu_list[i], ppReadPackedMsg, end)) {
       return 0;
