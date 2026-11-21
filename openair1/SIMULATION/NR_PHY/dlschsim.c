@@ -359,7 +359,7 @@ int main(int argc, char **argv)
 
   NR_UE_DLSCH_t dlsch_ue[NR_MAX_NB_LAYERS > 4 ? 2 : 1] = {0};
   int num_codeword = NR_MAX_NB_LAYERS > 4 ? 2 : 1;
-  nr_ue_dlsch_init(dlsch_ue, num_codeword, 5);
+  nr_ue_dlsch_init(dlsch_ue, num_codeword, 6);
   for (int i=0; i < num_codeword; i++)
     dlsch_ue[0].rnti = n_rnti;
   nr_init_dl_harq_processes(UE->dl_harq_processes, 8, nb_rb);
