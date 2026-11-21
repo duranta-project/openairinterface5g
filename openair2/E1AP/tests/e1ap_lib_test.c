@@ -248,13 +248,20 @@ static void test_bearer_context_setup_response(void)
   orig.pduSession[0].tl_info = create_up_tl_info(0x2345);
   orig.pduSession[0].DRBnGRanList[0].id = 1;
   orig.pduSession[0].DRBnGRanList[0].qosFlows[0].qfi = 1;
+  orig.pduSession[0].DRBnGRanList[0].numUpParam = 3;
   orig.pduSession[0].DRBnGRanList[0].UpParamList[0].tl_info = create_up_tl_info(0x2345);
+  orig.pduSession[0].DRBnGRanList[0].UpParamList[0].cell_group_id = MCG;
+  orig.pduSession[0].DRBnGRanList[0].UpParamList[1].tl_info = create_up_tl_info(0x3456);
+  orig.pduSession[0].DRBnGRanList[0].UpParamList[1].cell_group_id = SCG;
+  orig.pduSession[0].DRBnGRanList[0].UpParamList[2].tl_info = create_up_tl_info(0x4567);
+  orig.pduSession[0].DRBnGRanList[0].UpParamList[2].cell_group_id = MCG;
 
   orig.pduSession[1] = pdu_session_setup_resp_template(2);
   orig.pduSession[1].tl_info = create_up_tl_info(0x9999);
   orig.pduSession[1].DRBnGRanList[0].id = 2;
   orig.pduSession[1].DRBnGRanList[0].qosFlows[0].qfi = 2;
   orig.pduSession[1].DRBnGRanList[0].UpParamList[0].tl_info = orig.pduSession[1].tl_info;
+  orig.pduSession[1].DRBnGRanList[0].UpParamList[0].cell_group_id = MCG;
   // E1AP encode the original message
   E1AP_E1AP_PDU_t *enc = encode_E1_bearer_context_setup_response(&orig);
 
