@@ -70,20 +70,18 @@ bool tap_config(const char* ifname);
  * work around net.ipv4.conf.all.rp_filter=2 (strict source filtering would filter out
  * responses of packets going out through interface to another IP address not
  * in same subnet).
- * \param[in] ifname name of the interface
- * \param[in] instance_id unique instance number, used to create the table
- * \param[in] pdu_session_id PDU session ID, used to create the table
+ * \param[in] ifname name of the interface, its index gives the table
  * \param[in] ipv4 IPv4 address of the UE
+ * \return the routing table, to pass to remove_ue_ipv4_route(), or -1 if the interface does not exist
  */
-void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id, const char *ipv4);
+int setup_ue_ipv4_route(const char *ifname, const char *ipv4);
 
 /*!
  * \brief Remove IPv4 policy rules and routes for a UE PDU session.
- * \param[in] instance_id unique UE instance number
- * \param[in] pdu_session_id PDU session ID
+ * \param[in] table_id routing table returned by setup_ue_ipv4_route()
  * \return true when both rule and route cleanup succeed
  */
-bool remove_ue_ipv4_route(int instance_id, int pdu_session_id);
+bool remove_ue_ipv4_route(int table_id);
 
 /*!
  * \brief This function allocates a TUN or TAP interface

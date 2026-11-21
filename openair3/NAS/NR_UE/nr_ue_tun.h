@@ -15,7 +15,7 @@ typedef struct nas_ue_pdu_tun_s {
   char ifname[IFNAMSIZ];
   int qfi; /* -1 = unset */
   bool ipv4_route_cleanup_pending;
-  int ipv4_route_pdu_id;
+  int ipv4_route_table; /* policy routing table of the IPv4 address */
   /** TUN reader (idle or connected)
    * lifecycle managed via RRC */
   pthread_t reader_thread;

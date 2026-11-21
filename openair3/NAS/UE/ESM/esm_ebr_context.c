@@ -57,7 +57,7 @@ static int _esm_ebr_context_check_precedence(const network_tft_t *,
 
 static void cleanup_ipv4_route(esm_data_t *esm_data, int pid)
 {
-  if (esm_data->pdn[pid].ipv4_route_cleanup_pending && remove_ue_ipv4_route(0, pid))
+  if (esm_data->pdn[pid].ipv4_route_cleanup_pending && remove_ue_ipv4_route(esm_data->pdn[pid].ipv4_route_table))
     esm_data->pdn[pid].ipv4_route_cleanup_pending = false;
 }
 
@@ -202,8 +202,8 @@ int esm_ebr_context_create(
               char ifname[IFNAMSIZ];
               tun_generate_ifname(ifname, ifn, 0);
               tun_config(ifname, ip, NULL);
-              esm_ctx->pdn[pid].ipv4_route_cleanup_pending = true;
-              setup_ue_ipv4_route(ifname, 0, pid, ip);
+              esm_ctx->pdn[pid].ipv4_route_table = setup_ue_ipv4_route(ifname, ip);
+              esm_ctx->pdn[pid].ipv4_route_cleanup_pending = esm_ctx->pdn[pid].ipv4_route_table >= 0;
             } break;
 
             case NET_PDN_TYPE_IPV6:

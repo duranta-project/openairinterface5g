@@ -350,16 +350,21 @@ bool tap_config(const char* ifname)
   return success;
 }
 
-static int get_ue_ipv4_route_table_id(int instance_id, int pdu_session_id)
+/* One table per interface, numbered from its index: the index is unique on the host, while the UE instance and the
+   PDU session IDs are unique in one UE process only, and several UE processes can run on one host */
+static int get_ue_ipv4_route_table_id(const char *ifname)
 {
-  /* This needs to be unique per (instance_id, pdu_session_id) */
-  // UE0, PDU1 = 10001, UE1, PDU1 = 10101, UE15, PDU15 = 11515 ...
-  return 10000 + instance_id * 100 + pdu_session_id;
+  const unsigned int ifindex = if_nametoindex(ifname);
+  return ifindex > 0 ? 100000 + ifindex : -1;
 }
 
-void setup_ue_ipv4_route(const char *ifname, int instance_id, int pdu_session_id, const char *ipv4)
+int setup_ue_ipv4_route(const char *ifname, const char *ipv4)
 {
-  int table_id = get_ue_ipv4_route_table_id(instance_id, pdu_session_id);
+  const int table_id = get_ue_ipv4_route_table_id(ifname);
+  if (table_id < 0) {
+    LOG_E(UTIL, "No interface %s for the IPv4 policy routing of %s\n", ifname, ipv4);
+    return -1;
+  }
 
   /* the rules of a previous UE with this address or this table (a process killed, a new PDU session) are removed
      first: they are never deleted otherwise, and every packet of the host walks the rule list */
@@ -384,15 +389,14 @@ void setup_ue_ipv4_route(const char *ifname, int instance_id, int pdu_session_id
 
   if (res < 0 || res >= sizeof(command_line)) {
     LOG_E(UTIL, "Could not create ip rule/route commands string\n");
-    return;
+    return -1;
   }
   background_system(command_line);
+  return table_id;
 }
 
-bool remove_ue_ipv4_route(int instance_id, int pdu_session_id)
+bool remove_ue_ipv4_route(int table_id)
 {
-  const int table_id = get_ue_ipv4_route_table_id(instance_id, pdu_session_id);
-
   // Removing routes does not remove the policy rules that select this table.
   char command_line[500];
   const int res = snprintf(command_line,
