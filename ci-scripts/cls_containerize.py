@@ -28,6 +28,11 @@ from cls_ci_helper import archiveArtifact
 #-----------------------------------------------------------
 IMAGES = ['oai-enb', 'oai-lte-ru', 'oai-lte-ue', 'oai-gnb', 'oai-nr-cuup', 'oai-gnb-aw2s', 'oai-nr-ue', 'oai-enb-asan', 'oai-gnb-asan', 'oai-lte-ue-asan', 'oai-nr-ue-asan', 'oai-nr-cuup-asan', 'oai-gnb-aerial', 'oai-gnb-fhi72', 'oai-gnb-fhi72-t2', 'oai-nr-oru']
 DEFAULT_REGISTRY = "gracehopper3-oai.sboai.cs.eurecom.fr"
+# unique per Jenkins build, so concurrent jobs on one host don't use each others name
+SFX = '-' + re.sub(r'[^A-Za-z0-9_.-]', '-', os.environ['BUILD_TAG']).lower() if 'BUILD_TAG' in os.environ else ''
+# drop the failed build's exited container, unless another build is running (it may be theirs);
+# "[d]ocker" keeps pgrep from matching this shell's own command line
+RM_EXITED_CONTAINER = 'pgrep -f "[d]ocker build" > /dev/null || docker ps --quiet --filter "status=exited" -n1 | xargs --no-run-if-empty docker rm -f'
 
 def CreateWorkspace(host, sourcePath, repository, branch):
 	script = "scripts/create_workspace.sh"
@@ -170,7 +175,7 @@ class Containerize():
 		baseTag = 'develop'
 		buildImage = 'ran-build'
 		forceBaseImageBuild = False
-		imageTag = 'develop'
+		imageTag = f'develop{SFX}'
 
 		result = re.search('native_cuda_armv8', image_kind)
 		if result is not None:
@@ -231,18 +236,18 @@ class Containerize():
 		cmd.cd(lSourcePath)
 
 		if ctx.g.merge:
-			imageTag = 'ci-temp'
+			imageTag = f'ci-temp{SFX}'
 			if ctx.g.targetBranch == 'develop':
 				cmd.run(f'git diff HEAD..origin/develop -- cmake_targets/build_oai cmake_targets/tools/build_helper docker/Dockerfile.base{dockerfileprefix} | grep --colour=never -i INDEX')
 				result = re.search('index', cmd.getBefore())
 				if result is not None:
 					forceBaseImageBuild = True
-					baseTag = 'ci-temp'
+					baseTag = f'ci-temp{SFX}'
 			# if the branch name contains integration_20xx_wyy, let rebuild ran-base
 			result = re.search('integration_20([0-9]{2})_w([0-9]{2})', ctx.g.branch)
 			if not forceBaseImageBuild and result is not None:
 				forceBaseImageBuild = True
-				baseTag = 'ci-temp'
+				baseTag = f'ci-temp{SFX}'
 		else:
 			forceBaseImageBuild = True
 
@@ -269,7 +274,7 @@ class Containerize():
 		if ret.returncode != 0:
 			logging.error(f'\u001B[1m Could not build properly {baseImage}\u001B[0m')
 			# Recover the name of the failed container?
-			cmd.run(f"docker ps --quiet --filter \"status=exited\" -n1 | xargs --no-run-if-empty docker rm -f")
+			cmd.run(RM_EXITED_CONTAINER)
 			cmd.run(f"docker image prune --force")
 			cmd.close()
 			logging.error('\u001B[1m Building OAI Images Failed\u001B[0m')
@@ -320,7 +325,7 @@ class Containerize():
 				logging.error('\u001B[1m Could not build properly ' + name + '\u001B[0m')
 				status = False
 				# Here we should check if the last container corresponds to a failed command and destroy it
-				cmd.run(f"docker ps --quiet --filter \"status=exited\" -n1 | xargs --no-run-if-empty docker rm -f")
+				cmd.run(RM_EXITED_CONTAINER)
 				allImagesSize[name] = 'N/A -- Build Failed'
 				break
 			else:
@@ -377,7 +382,7 @@ class Containerize():
 				cmd.run(f'git diff HEAD..origin/develop -- cmake_targets/build_oai cmake_targets/tools/build_helper docker/Dockerfile.base.ubuntu | grep --colour=never -i INDEX')
 				result = re.search('index', cmd.getBefore())
 				if result is not None:
-					baseTag = 'ci-temp'
+					baseTag = f'ci-temp{SFX}'
 		ret = cmd.run(f"docker image inspect --format=\'Size = {{{{.Size}}}} bytes\' {baseImage}:{baseTag}")
 		if ret.returncode != 0:
 			logging.error(f'No {baseImage} image present, cannot build tests')
@@ -403,13 +408,13 @@ class Containerize():
 		# I would like to run it with --rm and mount the ctest result directory to avoid 'docker cp'
 		# below, but then permissions are messed up and we can't remove the directory without sudo
 		# making the next pipeline fail
-		cmd.run('docker rm --force --volumes ran-unittests')
-		ret = cmd.run(f'docker run -a STDOUT {runtime_opt} --shm-size=2g --workdir /oai-ran/build/ --env LD_LIBRARY_PATH=/oai-ran/build/ --name ran-unittests ran-unittests:{baseTag} ctest --no-label-summary -j$(nproc) {ctest_opt}')
-		cmd.run('docker cp ran-unittests:/oai-ran/build/Testing/Temporary/LastTest.log .')
+		cmd.run(f'docker rm --force --volumes ran-unittests{SFX}')
+		ret = cmd.run(f'docker run -a STDOUT {runtime_opt} --shm-size=2g --workdir /oai-ran/build/ --env LD_LIBRARY_PATH=/oai-ran/build/ --name ran-unittests{SFX} ran-unittests:{baseTag} ctest --no-label-summary -j$(nproc) {ctest_opt}')
+		cmd.run(f'docker cp ran-unittests{SFX}:/oai-ran/build/Testing/Temporary/LastTest.log .')
 		archiveArtifact(cmd, ctx, f'{lSourcePath}/LastTest.log')
-		cmd.run('docker cp ran-unittests:/oai-ran/build/Testing/Temporary/LastTestsFailed.log .')
+		cmd.run(f'docker cp ran-unittests{SFX}:/oai-ran/build/Testing/Temporary/LastTestsFailed.log .')
 		archiveArtifact(cmd, ctx, f'{lSourcePath}/LastTestsFailed.log')
-		cmd.run('docker rm ran-unittests')
+		cmd.run(f'docker rm ran-unittests{SFX}')
 		cmd.run(f'docker image rm ran-unittests:{baseTag}')
 		cmd.run(f"docker volume prune --force")
 		cmd.run(f"docker buildx prune --filter until=1h --force")
@@ -436,9 +441,9 @@ class Containerize():
 			HTML.CreateHtmlTestRowQueue(msg, 'KO', [])
 			return False
 
-		orgTag = 'develop'
+		orgTag = f'develop{SFX}'
 		if ctx.g.merge:
-			orgTag = 'ci-temp'
+			orgTag = f'ci-temp{SFX}'
 		for image in IMAGES:
 			tagToUse = tag_prefix + ctx.g.branch
 			imageTag = f"{image}:{tagToUse}"
