@@ -229,6 +229,8 @@ typedef struct nr_mac_config_s {
   bool force_UL256qam_off;
   bool use_deltaMCS;
   int maxMIMO_layers;
+  /// PDSCH DMRS maxLength (mapping type A): 1, or 2 for double-symbol DMRS (ports 4..7 of type 1)
+  int pdsch_dmrs_max_length;
   bool disable_harq;
   nr_power_config_t pusch;
   /// SNR threshold needed to put or not a PRB in the black list
@@ -520,6 +522,8 @@ typedef struct NR_pdsch_dmrs {
   uint8_t N_PRB_DMRS;
   uint8_t N_DMRS_SLOT;
   uint16_t dl_dmrs_symb_pos;
+  /// front-loaded DMRS symbols (2: double-symbol DMRS, maxLength 2)
+  uint8_t n_front_load_symb;
   uint8_t numDmrsCdmGrpsNoData;
   uint32_t scrambling_id;
   int n_scid;

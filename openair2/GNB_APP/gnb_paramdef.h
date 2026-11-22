@@ -101,10 +101,12 @@ typedef enum {
 #define GNB_CONFIG_STRING_CONFIG_REP                    "CSI_report_type"
 #define GNB_CONFIG_STRING_1ST_ACTIVE_BWP                "first_active_bwp"
 #define GNB_CONFIG_STRING_LIMIT_RSRP_REPORT             "max_num_RSRP_reported"
+#define GNB_CONFIG_STRING_PDSCH_DMRS_MAX_LENGTH         "pdsch_dmrs_max_length"
 
 #define GNB_CONFIG_HLP_STRING_ENABLE_SDAP               "set sdap-HeaderUL/DL present in RRC SDAP-Config (false = both absent)\n"
 #define GNB_CONFIG_HLP_FORCE256QAMOFF                   "suppress activation of 256 QAM despite UE support"
 #define GNB_CONFIG_HLP_MAXMIMOLAYERS                    "limit on maxMIMO-layers for DL"
+#define GNB_CONFIG_HLP_PDSCH_DMRS_MAX_LENGTH            "PDSCH DMRS maxLength (mapping type A): 2 allows double-symbol DMRS, e.g. ports 4..7 of type 1"
 #define GNB_CONFIG_HLP_DISABLE_HARQ                     "disable feedback for all HARQ processes (REL17 feature)"
 #define GNB_CONFIG_HLP_GNB_DU_ID                        "defines the gNB-DU ID (only applicable for DU)"
 #define GNB_CONFIG_HLP_GNB_CU_UP_ID                     "defines the gNB-CU-UP ID (only applicable for CU-UP)"
@@ -163,6 +165,7 @@ typedef enum {
 {GNB_CONFIG_STRING_CONFIG_REP, GNB_CONFIG_HLP_CONFIG_REP, 0,          .strptr=NULL, .defstrval="ssb_rsrp",        TYPE_STRING,    0},  \
 {GNB_CONFIG_STRING_1ST_ACTIVE_BWP,               NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
 {GNB_CONFIG_STRING_LIMIT_RSRP_REPORT,            NULL,   0,            .iptr=NULL,  .defintval=0,                 TYPE_INT,       0},  \
+{GNB_CONFIG_STRING_PDSCH_DMRS_MAX_LENGTH, GNB_CONFIG_HLP_PDSCH_DMRS_MAX_LENGTH, 0, .iptr=NULL, .defintval=1,     TYPE_INT,       0},  \
 }
 // clang-format on
 
@@ -207,6 +210,7 @@ typedef enum {
 #define GNB_CONFIG_REP_IDX              37
 #define GNB_1ST_ACTIVE_BWP_IDX          38
 #define GNB_LIMIT_RSRP_REPORT_IDX       39
+#define GNB_PDSCH_DMRS_MAX_LENGTH_IDX   40
 
 #define TRACKING_AREA_CODE_OKRANGE {0x0001,0xFFFD}
 #define NUM_DL_HARQ_OKVALUES {2,4,6,8,10,12,16,32}
@@ -259,6 +263,7 @@ typedef enum {
              3 } }, \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
+  { .s2 = { config_check_intrange, {1, 2} } },                    \
 }
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------*/

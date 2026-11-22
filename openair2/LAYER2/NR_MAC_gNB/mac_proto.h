@@ -412,8 +412,9 @@ NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
                                    const int Layers);
 
 /// Override the DMRS ports of a DCI 1_1 PDSCH, e.g. for orthogonal ports of co-scheduled
-/// (MU-MIMO) UEs. Only dmrs-Type 1 with maxLength 1 (TS 38.212 Table 7.3.1.2.2-1) is
-/// supported. dmrs_ports is a bitmap of ports 1000+i with one bit per layer. n_scid (0 or 1)
+/// (MU-MIMO) UEs. Only dmrs-Type 1 is supported: TS 38.212 Table 7.3.1.2.2-1 (maxLength 1), or
+/// Table 7.3.1.2.2-2 with maxLength 2, where front_load_symb 2 (double-symbol DMRS) also gives
+/// ports 4..7. dmrs_ports is a bitmap of ports 1000+i with one bit per layer. n_scid (0 or 1)
 /// selects the DMRS scrambling, e.g. for UEs reusing the same ports (quasi-orthogonal).
 /// Returns false, leaving dmrs unchanged, if the combination is not in the table.
 bool set_dl_dmrs_ports(NR_pdsch_dmrs_t *dmrs,
@@ -423,7 +424,8 @@ bool set_dl_dmrs_ports(NR_pdsch_dmrs_t *dmrs,
                        int layers,
                        uint16_t dmrs_ports,
                        uint8_t num_cdm_grps_no_data,
-                       int n_scid);
+                       int n_scid,
+                       int front_load_symb);
 
 uint16_t get_pm_index(const nr_cell_sched_t *cell,
                       const NR_UE_info_t *UE,
@@ -521,12 +523,13 @@ bool nr_dl_validate_cce_pucch(const nr_dl_sched_params_t *params, nr_dl_candidat
 /// CDM group 0 = ports 0,1 (0x3), group 1 = ports 2,3 (0xc); with 2 CDM groups without data,
 /// e.g. 2x rank 1: 0x1 / 0x4, 2x rank 2: 0x3 / 0xc. A retx gets its retx_rbSize refitted
 /// to keep its TBS. Returns false (candidate unchanged) if not in TS 38.212 Table 7.3.1.2.2-1
-/// or the retx TBS cannot be kept. n_scid as for set_dl_dmrs_ports().
+/// or the retx TBS cannot be kept. n_scid and front_load_symb as for set_dl_dmrs_ports().
 bool nr_dl_set_dmrs_ports(const nr_dl_sched_params_t *params,
                           nr_dl_candidate_t *cand,
                           uint16_t dmrs_ports,
                           uint8_t num_cdm_grps_no_data,
-                          int n_scid);
+                          int n_scid,
+                          int front_load_symb);
 bool commit_alloc(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand);
 
 // Use inside the policy loops: sets RB/MCS on candidate, validates CCE/PUCCH,

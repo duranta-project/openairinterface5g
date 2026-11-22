@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 
-# TDD phy-test; the PDSCH DMRS is on port 1002 with nSCID 1 and 2 CDM groups without data,
-# as for one UE of a DL MU-MIMO group (DCI 1_1 antenna-ports value 5)
+# TDD phy-test; the PDSCH DMRS is on port 1004 with nSCID 1: double-symbol DMRS (maxLength 2, time-domain
+# OCC -1 on the second symbol) and 2 CDM groups without data, as for one UE of a DL MU-MIMO group
+# (DCI 1_1 antenna-ports value 16)
 services:
     oai-gnb:
         image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb}:${TAG:-develop}
@@ -12,7 +13,7 @@ services:
             - NET_ADMIN  # for interface bringup
             - NET_RAW    # for ping
         environment:
-            USE_ADDITIONAL_OPTIONS: --phy-test --dl-dmrs-ports 0x4 --dl-dmrs-nscid 1 --rfsim --rfsimulator.[0].wait_timeout 20 --noS1 --log_config.global_log_options level,nocolor,time
+            USE_ADDITIONAL_OPTIONS: --phy-test --gNBs.[0].pdsch_dmrs_max_length 2 --dl-dmrs-ports 0x10 --dl-dmrs-nscid 1 --rfsim --rfsimulator.[0].wait_timeout 20 --noS1 --log_config.global_log_options level,nocolor,time
             ASAN_OPTIONS: detect_leaks=0
         networks:
             public_net:

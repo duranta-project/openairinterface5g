@@ -362,18 +362,24 @@ NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
   }
   dmrs.scrambling_id = scramblingID ? *scramblingID : *scc->physCellId;
   dmrs.N_PRB_DMRS = dmrs.numDmrsCdmGrpsNoData * (dmrs.dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 6 : 4);
+  dmrs.n_front_load_symb = frontloaded_symb;
   dmrs.dl_dmrs_symb_pos = fill_dmrs_mask(pdsch_Config, dci_format, scc->dmrs_TypeA_Position, tda_info->nrOfSymbols, tda_info->startSymbolIndex, tda_info->mapping_type, frontloaded_symb);
   dmrs.N_DMRS_SLOT = get_num_dmrs(dmrs.dl_dmrs_symb_pos);
   LOG_D(NR_MAC,"Filling dmrs info, ps->N_PRB_DMRS %d, ps->dl_dmrs_symb_pos %x, ps->N_DMRS_SLOT %d\n",dmrs.N_PRB_DMRS,dmrs.dl_dmrs_symb_pos,dmrs.N_DMRS_SLOT);
   return dmrs;
 }
 
-// TS 38.212 Table 7.3.1.2.2-1 (dmrs-Type=1, maxLength=1): CDM groups without data, DMRS ports bitmap
+// TS 38.212 Table 7.3.1.2.2-2 (dmrs-Type=1, maxLength=2, one codeword): CDM groups without data, DMRS
+// ports bitmap, front-loaded DMRS symbols. Its first 12 values are Table 7.3.1.2.2-1 (maxLength=1).
 static const struct {
   uint8_t cdm_grps_no_data;
   uint8_t ports;
-} dl_ant_ports_type1_len1[12] = {
-    {1, 0x1}, {1, 0x2}, {1, 0x3}, {2, 0x1}, {2, 0x2}, {2, 0x4}, {2, 0x8}, {2, 0x3}, {2, 0xc}, {2, 0x7}, {2, 0xf}, {2, 0x5},
+  uint8_t front_load_symb;
+} dl_ant_ports_type1[31] = {
+    {1, 0x01, 1}, {1, 0x02, 1}, {1, 0x03, 1}, {2, 0x01, 1}, {2, 0x02, 1}, {2, 0x04, 1}, {2, 0x08, 1}, {2, 0x03, 1},
+    {2, 0x0c, 1}, {2, 0x07, 1}, {2, 0x0f, 1}, {2, 0x05, 1}, {2, 0x01, 2}, {2, 0x02, 2}, {2, 0x04, 2}, {2, 0x08, 2},
+    {2, 0x10, 2}, {2, 0x20, 2}, {2, 0x40, 2}, {2, 0x80, 2}, {2, 0x03, 2}, {2, 0x0c, 2}, {2, 0x30, 2}, {2, 0xc0, 2},
+    {2, 0x11, 2}, {2, 0x44, 2}, {2, 0x13, 2}, {2, 0x4c, 2}, {2, 0x33, 2}, {2, 0xcc, 2}, {2, 0x55, 2},
 };
 
 bool set_dl_dmrs_ports(NR_pdsch_dmrs_t *dmrs,
@@ -383,7 +389,8 @@ bool set_dl_dmrs_ports(NR_pdsch_dmrs_t *dmrs,
                        int layers,
                        uint16_t dmrs_ports,
                        uint8_t num_cdm_grps_no_data,
-                       int n_scid)
+                       int n_scid,
+                       int front_load_symb)
 {
   if (!dl_bwp || dl_bwp->dci_format != NR_DL_DCI_FORMAT_1_1 || !dl_bwp->pdsch_Config)
     return false;
@@ -391,17 +398,30 @@ bool set_dl_dmrs_ports(NR_pdsch_dmrs_t *dmrs,
   const NR_DMRS_DownlinkConfig_t *dmrs_Config = tda_info->mapping_type == typeB
                                                     ? pdsch_Config->dmrs_DownlinkForPDSCH_MappingTypeB->choice.setup
                                                     : pdsch_Config->dmrs_DownlinkForPDSCH_MappingTypeA->choice.setup;
-  if (dmrs_Config->maxLength || dmrs->dmrsConfigType != NFAPI_NR_DMRS_TYPE1)
+  if (dmrs->dmrsConfigType != NFAPI_NR_DMRS_TYPE1)
     return false;
-  if (__builtin_popcount(dmrs_ports) != layers || n_scid < 0 || n_scid > 1)
+  if (__builtin_popcount(dmrs_ports) != layers || n_scid < 0 || n_scid > 1 || front_load_symb < 1 || front_load_symb > 2)
     return false;
-  for (int i = 0; i < sizeofArray(dl_ant_ports_type1_len1); i++) {
-    if (dl_ant_ports_type1_len1[i].ports != dmrs_ports || dl_ant_ports_type1_len1[i].cdm_grps_no_data != num_cdm_grps_no_data)
+  const int n_values = dmrs_Config->maxLength ? sizeofArray(dl_ant_ports_type1) : 12;
+  for (int i = 0; i < n_values; i++) {
+    if (dl_ant_ports_type1[i].ports != dmrs_ports || dl_ant_ports_type1[i].cdm_grps_no_data != num_cdm_grps_no_data
+        || dl_ant_ports_type1[i].front_load_symb != front_load_symb)
       continue;
     dmrs->dmrs_ports_id = i;
     dmrs->dmrs_ports = dmrs_ports;
     dmrs->numDmrsCdmGrpsNoData = num_cdm_grps_no_data;
     dmrs->N_PRB_DMRS = num_cdm_grps_no_data * 6;
+    if (dmrs->n_front_load_symb != front_load_symb) {
+      dmrs->n_front_load_symb = front_load_symb;
+      dmrs->dl_dmrs_symb_pos = fill_dmrs_mask(pdsch_Config,
+                                              dl_bwp->dci_format,
+                                              scc->dmrs_TypeA_Position,
+                                              tda_info->nrOfSymbols,
+                                              tda_info->startSymbolIndex,
+                                              tda_info->mapping_type,
+                                              front_load_symb);
+      dmrs->N_DMRS_SLOT = get_num_dmrs(dmrs->dl_dmrs_symb_pos);
+    }
     // TS 38.211 7.4.1.1.1: N_ID^nSCID from scramblingID0/1, else the PCI as in get_dl_dmrs_params()
     const long *scramblingID = n_scid ? dmrs_Config->scramblingID1 : dmrs_Config->scramblingID0;
     dmrs->scrambling_id = scramblingID ? *scramblingID : *scc->physCellId;

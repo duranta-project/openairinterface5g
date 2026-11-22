@@ -1749,7 +1749,12 @@ static NR_SetupRelease_PDSCH_Config_t *config_pdsch(uint64_t ssb_bitmap, int bwp
     dmrs_DownlinkForPDSCH_MappingTypeA->phaseTrackingRS = phaseTrackingRS;
   }
   dmrs_DownlinkForPDSCH_MappingTypeA->dmrs_Type = NULL;
-  dmrs_DownlinkForPDSCH_MappingTypeA->maxLength = NULL;
+  if (configuration->pdsch_dmrs_max_length == 2) { // double-symbol DMRS allowed (TS 38.211 7.4.1.1.2)
+    dmrs_DownlinkForPDSCH_MappingTypeA->maxLength = calloc_or_fail(1, sizeof(*dmrs_DownlinkForPDSCH_MappingTypeA->maxLength));
+    *dmrs_DownlinkForPDSCH_MappingTypeA->maxLength = NR_DMRS_DownlinkConfig__maxLength_len2;
+  } else {
+    dmrs_DownlinkForPDSCH_MappingTypeA->maxLength = NULL;
+  }
   dmrs_DownlinkForPDSCH_MappingTypeA->scramblingID0 = NULL;
   dmrs_DownlinkForPDSCH_MappingTypeA->scramblingID1 = NULL;
   dmrs_DownlinkForPDSCH_MappingTypeA->dmrs_AdditionalPosition = calloc(1, sizeof(*dmrs_DownlinkForPDSCH_MappingTypeA->dmrs_AdditionalPosition));

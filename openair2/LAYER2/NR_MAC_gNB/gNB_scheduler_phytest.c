@@ -41,6 +41,7 @@ uint32_t target_dl_Nl = 1;
 uint32_t target_dl_pmi = 0;
 uint32_t target_dl_dmrs_ports = 0; // 0: default DMRS ports
 uint32_t target_dl_dmrs_nscid = 0;
+uint32_t target_dl_dmrs_symbols = 0; // 0: 2 for ports 4..7, else 1
 uint32_t target_dl_bw = 50;
 uint64_t dlsch_slot_bitmap = (1<<1);
 uint32_t dlsch_slot_modval = 0;
@@ -173,13 +174,16 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_proc
       .time_domain_allocation = tda,
       .tda_info = tda_info,
   };
-  if (target_dl_dmrs_ports != 0 || target_dl_dmrs_nscid != 0) {
+  if (target_dl_dmrs_ports != 0 || target_dl_dmrs_nscid != 0 || target_dl_dmrs_symbols != 0) {
     // e.g. the DMRS of one UE of a DL MU-MIMO group: both CDM groups carry DMRS
     const uint16_t ports = target_dl_dmrs_ports ? target_dl_dmrs_ports : sched_pdsch.dmrs_parms.dmrs_ports;
-    AssertFatal(set_dl_dmrs_ports(&sched_pdsch.dmrs_parms, scc, dl_bwp, &tda_info, target_dl_Nl, ports, 2, target_dl_dmrs_nscid),
-                "DL DMRS ports 0x%x nSCID %d with 2 CDM groups without data invalid for %d layers (TS 38.212 Table 7.3.1.2.2-1)\n",
+    const int symbols = target_dl_dmrs_symbols ? target_dl_dmrs_symbols : (ports & 0xf0) ? 2 : 1;
+    AssertFatal(set_dl_dmrs_ports(&sched_pdsch.dmrs_parms, scc, dl_bwp, &tda_info, target_dl_Nl, ports, 2, target_dl_dmrs_nscid, symbols),
+                "DL DMRS ports 0x%x nSCID %d with 2 CDM groups without data, %d front-loaded symbols invalid for %d layers "
+                "(TS 38.212 Table 7.3.1.2.2-1/2; 2 symbols and ports 4..7 need pdsch_dmrs_max_length 2)\n",
                 ports,
                 target_dl_dmrs_nscid,
+                symbols,
                 target_dl_Nl);
   }
   // Map antenna ports for this UE

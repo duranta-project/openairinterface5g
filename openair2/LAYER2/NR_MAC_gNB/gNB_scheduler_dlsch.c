@@ -601,8 +601,17 @@ static NR_pdsch_dmrs_t get_dl_retx_dmrs_params(const NR_ServingCellConfigCommon_
 {
   NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, tda_info, orig->nrOfLayers);
   const NR_pdsch_dmrs_t *o = &orig->dmrs_parms;
-  if (o->dmrs_ports != dmrs.dmrs_ports || o->numDmrsCdmGrpsNoData != dmrs.numDmrsCdmGrpsNoData || o->n_scid != dmrs.n_scid)
-    set_dl_dmrs_ports(&dmrs, scc, dl_bwp, tda_info, orig->nrOfLayers, o->dmrs_ports, o->numDmrsCdmGrpsNoData, o->n_scid);
+  if (o->dmrs_ports != dmrs.dmrs_ports || o->numDmrsCdmGrpsNoData != dmrs.numDmrsCdmGrpsNoData || o->n_scid != dmrs.n_scid
+      || o->n_front_load_symb != dmrs.n_front_load_symb)
+    set_dl_dmrs_ports(&dmrs,
+                      scc,
+                      dl_bwp,
+                      tda_info,
+                      orig->nrOfLayers,
+                      o->dmrs_ports,
+                      o->numDmrsCdmGrpsNoData,
+                      o->n_scid,
+                      o->n_front_load_symb);
   return dmrs;
 }
 
@@ -662,22 +671,32 @@ bool nr_dl_set_dmrs_ports(const nr_dl_sched_params_t *params,
                           nr_dl_candidate_t *cand,
                           uint16_t dmrs_ports,
                           uint8_t num_cdm_grps_no_data,
-                          int n_scid)
+                          int n_scid,
+                          int front_load_symb)
 {
   NR_sched_pdsch_t *sp = &cand->sched_pdsch;
   NR_pdsch_dmrs_t dmrs = sp->dmrs_parms;
   const NR_ServingCellConfigCommon_t *scc = params->cell->common_channels.ServingCellConfigCommon;
-  if (!set_dl_dmrs_ports(&dmrs, scc, &cand->UE->current_DL_BWP, &sp->tda_info, sp->nrOfLayers, dmrs_ports, num_cdm_grps_no_data, n_scid)) {
+  if (!set_dl_dmrs_ports(&dmrs,
+                         scc,
+                         &cand->UE->current_DL_BWP,
+                         &sp->tda_info,
+                         sp->nrOfLayers,
+                         dmrs_ports,
+                         num_cdm_grps_no_data,
+                         n_scid,
+                         front_load_symb)) {
     LOG_W(NR_MAC,
-          "[UE %04x] DMRS ports 0x%x nSCID %d with %d CDM groups without data invalid for %d layers\n",
+          "[UE %04x] DMRS ports 0x%x nSCID %d with %d CDM groups without data, %d front-loaded symbols invalid for %d layers\n",
           cand->rnti,
           dmrs_ports,
           n_scid,
           num_cdm_grps_no_data,
+          front_load_symb,
           sp->nrOfLayers);
     return false;
   }
-  if (cand->is_retx && dmrs.N_PRB_DMRS != sp->dmrs_parms.N_PRB_DMRS) {
+  if (cand->is_retx && dmrs.N_PRB_DMRS * dmrs.N_DMRS_SLOT != sp->dmrs_parms.N_PRB_DMRS * sp->dmrs_parms.N_DMRS_SLOT) {
     uint16_t new_rbSize = refit_dl_retx_rbSize(cand, &sp->tda_info, &dmrs, cand->bwp_size);
     if (!new_rbSize)
       return false;

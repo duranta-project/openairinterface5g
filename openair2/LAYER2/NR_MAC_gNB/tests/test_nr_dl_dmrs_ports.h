@@ -14,6 +14,8 @@ typedef struct {
   int ports; // bitmap, bit i = port 1000+i
   int cdm_grps_no_data;
   int n_scid;
+  int front_load_symb; // 0: 1
+  int initial_front_load_symb; // front-loaded symbols of the DMRS before the call, 0: 1
   bool max_length_2; // dmrs-DownlinkForPDSCH-MappingTypeA maxLength len2
   bool dmrs_type_2;
   bool dci_1_0;
@@ -28,6 +30,9 @@ typedef struct {
   int n_prb_dmrs;
   int n_scid;
   int scrambling_id;
+  int front_load_symb;
+  int dmrs_symb_pos; // bitmap of DMRS symbols in the slot
+  int n_dmrs_slot; // number of DMRS symbols in the slot
 } dl_dmrs_ports_out_t;
 
 // values of the DMRS before set_dl_dmrs_ports(), to check it leaves them unchanged on failure

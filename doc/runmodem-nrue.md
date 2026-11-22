@@ -286,7 +286,7 @@ The OAI UE can also be used in front of a OAI gNB without the support of eNB or 
  - the MAC uses a pre-configured allocation of PDSCH and PUSCH with randomly generated payload instead of the standard scheduler. The options `-m`, `-l`, `-t`, `-M`, `-T`, `-D`, and `-U` can be used to configure this scheduler.
  - Options `-Dmod`, and `-Umod` were introduced to enable scheduling PDSCH/PUSCH on slots >= 64 in phy-test mode. (in case of >= 120Khz subcarrier spacing and FDD)
  - For ex: `-Dmod 2' / '-Umod 2` allocates every 2nd slot for PDSCH or PUSCH respectively.
- - Options `--dl-dmrs-ports` and `--dl-dmrs-nscid` set the PDSCH DMRS ports (bitmap, bit i = port 1000+i) and nSCID, with 2 CDM groups without data, as for one UE of a DL MU-MIMO group. For ex: `-l 1 --dl-dmrs-ports 0x4 --dl-dmrs-nscid 1` puts the PDSCH on port 1002 with nSCID 1.
+ - Options `--dl-dmrs-ports` and `--dl-dmrs-nscid` set the PDSCH DMRS ports (bitmap, bit i = port 1000+i) and nSCID, with 2 CDM groups without data, as for one UE of a DL MU-MIMO group. For ex: `-l 1 --dl-dmrs-ports 0x4 --dl-dmrs-nscid 1` puts the PDSCH on port 1002 with nSCID 1. With `pdsch_dmrs_max_length = 2` in the `gNBs` section, ports 4..7 (e.g. `--dl-dmrs-ports 0x10`, port 1004) use double-symbol DMRS; `--dl-dmrs-symbols 2` also gives ports 0..3 two front-loaded DMRS symbols.
  - See `./nr-softmodem -h` for more information.
 
 At the UE, the `--phy-test` flag will read the binary files `rbconfig.raw` and `reconfig.raw` from the current directory and process them. If you wish to provide a different path for these files, please use the options `--reconfig-file` and `--rbconfig-file`.
