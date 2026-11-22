@@ -824,6 +824,16 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
     // we configure the UE using dedicated search space: In SA (CFRA used for
     // handover) and NSA (or do-ra), the UE has the full config already.
     int ss_type = NR_SearchSpace__searchSpaceType_PR_ue_Specific;
+    // Handover: the UE applied the CellGroup of the handover command, i.e. reconfigCellGroup (updated with the UE
+    // capabilities in ue_context_setup_request()), not the initial one in CellGroup. The RRCReconfiguration was sent
+    // by the source DU, so ack_reconfig() never applies it here: apply it now, or the UE and this DU use different
+    // configurations (e.g. SRS ports, UL rank, hence DCI sizes) and the UE cannot send RRCReconfigurationComplete.
+    if (UE->reconfigCellGroup) {
+      ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
+      UE->CellGroup = UE->reconfigCellGroup;
+      UE->reconfigCellGroup = NULL;
+      clean_bwp_structures(UE->CellGroup->spCellConfig);
+    }
     configure_UE_BWP(cell, scc, UE, false, ss_type, -1, -1);
     // initialize ta_frame in case there is no Msg3 received
     UE->UE_sched_ctrl.ta_frame = (frame + 100) % MAX_FRAME_NUMBER;
