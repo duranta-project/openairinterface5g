@@ -515,6 +515,8 @@ typedef struct NR_sched_pusch {
 
 typedef struct NR_pdsch_dmrs {
   uint8_t dmrs_ports_id;
+  /// DMRS ports bitmap (bit i = port 1000+i), consistent with dmrs_ports_id
+  uint16_t dmrs_ports;
   uint8_t N_PRB_DMRS;
   uint8_t N_DMRS_SLOT;
   uint16_t dl_dmrs_symb_pos;

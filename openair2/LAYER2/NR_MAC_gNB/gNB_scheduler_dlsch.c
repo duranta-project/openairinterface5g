@@ -592,6 +592,48 @@ static int compare_beam_idx(const void *a, const void *b)
   return ((const nr_dl_candidate_t *)a)->alloc_beam_idx - ((const nr_dl_candidate_t *)b)->alloc_beam_idx;
 }
 
+/* DMRS of a retransmission on tda_info: keeps the DMRS ports of the original
+ * transmission (e.g. MU-MIMO ports), falls back to the SU default. */
+static NR_pdsch_dmrs_t get_dl_retx_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
+                                               const NR_UE_DL_BWP_t *dl_bwp,
+                                               const NR_tda_info_t *tda_info,
+                                               const NR_sched_pdsch_t *orig)
+{
+  NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, tda_info, orig->nrOfLayers);
+  const NR_pdsch_dmrs_t *o = &orig->dmrs_parms;
+  if (o->dmrs_ports != dmrs.dmrs_ports || o->numDmrsCdmGrpsNoData != dmrs.numDmrsCdmGrpsNoData || o->n_scid != dmrs.n_scid)
+    set_dl_dmrs_ports(&dmrs, scc, dl_bwp, tda_info, orig->nrOfLayers, o->dmrs_ports, o->numDmrsCdmGrpsNoData, o->n_scid);
+  return dmrs;
+}
+
+/* rbSize that carries the original TBS of a retransmission with the given
+ * symbols and DMRS, or 0 if the TBS cannot be preserved. */
+static uint16_t refit_dl_retx_rbSize(const nr_dl_candidate_t *cand,
+                                     const NR_tda_info_t *tda_info,
+                                     const NR_pdsch_dmrs_t *dmrs,
+                                     uint16_t max_rbSize)
+{
+  const NR_sched_pdsch_t *orig = &cand->UE->UE_sched_ctrl.harq_processes[cand->retx_harq_pid].sched_pdsch;
+  uint32_t new_tbs;
+  uint16_t new_rbSize;
+  bool ok = nr_find_nb_rb(orig->Qm,
+                          orig->R,
+                          1,
+                          orig->nrOfLayers,
+                          tda_info->nrOfSymbols,
+                          dmrs->N_PRB_DMRS * dmrs->N_DMRS_SLOT,
+                          orig->tb_size,
+                          1,
+                          max_rbSize,
+                          &new_tbs,
+                          &new_rbSize);
+  if (!ok || new_tbs != orig->tb_size) {
+    LOG_D(NR_MAC, "[UE %04x] retx refit infeasible: new TBS %d != old TBS %d\n", cand->rnti, new_tbs, orig->tb_size);
+    return 0;
+  }
+  return new_rbSize;
+}
+
 /* Check retx feasibility against a new TDA.
  * Refits rbSize via nr_find_nb_rb so the new TDA preserves TBS.
  * Returns the new rbSize needed (>0), or 0 if infeasible. */
@@ -601,28 +643,11 @@ uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,
                                    const NR_ServingCellConfigCommon_t *scc,
                                    uint16_t max_rbSize)
 {
-  NR_UE_sched_ctrl_t *sched_ctrl = &cand->UE->UE_sched_ctrl;
-  NR_UE_DL_BWP_t *dl_bwp = &cand->UE->current_DL_BWP;
-  const NR_sched_pdsch_t *orig = &sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
-
-  NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, tda_info, orig->nrOfLayers);
-  uint32_t new_tbs;
-  uint16_t new_rbSize;
-  bool ok = nr_find_nb_rb(orig->Qm,
-                          orig->R,
-                          1,
-                          orig->nrOfLayers,
-                          tda_info->nrOfSymbols,
-                          dmrs.N_PRB_DMRS * dmrs.N_DMRS_SLOT,
-                          orig->tb_size,
-                          1,
-                          max_rbSize,
-                          &new_tbs,
-                          &new_rbSize);
-  if (!ok || new_tbs != orig->tb_size) {
-    LOG_D(NR_MAC, "[UE %04x] retx TDA change infeasible: new TBS %d != old TBS %d\n", cand->rnti, new_tbs, orig->tb_size);
+  const NR_sched_pdsch_t *orig = &cand->UE->UE_sched_ctrl.harq_processes[cand->retx_harq_pid].sched_pdsch;
+  NR_pdsch_dmrs_t dmrs = get_dl_retx_dmrs_params(scc, &cand->UE->current_DL_BWP, tda_info, orig);
+  uint16_t new_rbSize = refit_dl_retx_rbSize(cand, tda_info, &dmrs, max_rbSize);
+  if (!new_rbSize)
     return 0;
-  }
   LOG_D(NR_MAC,
         "retx TDA change %d->%d feasible: rbSize %d->%d (TBS %d preserved)\n",
         orig->time_domain_allocation,
@@ -631,6 +656,35 @@ uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,
         new_rbSize,
         orig->tb_size);
   return new_rbSize;
+}
+
+bool nr_dl_set_dmrs_ports(const nr_dl_sched_params_t *params,
+                          nr_dl_candidate_t *cand,
+                          uint16_t dmrs_ports,
+                          uint8_t num_cdm_grps_no_data,
+                          int n_scid)
+{
+  NR_sched_pdsch_t *sp = &cand->sched_pdsch;
+  NR_pdsch_dmrs_t dmrs = sp->dmrs_parms;
+  const NR_ServingCellConfigCommon_t *scc = params->cell->common_channels.ServingCellConfigCommon;
+  if (!set_dl_dmrs_ports(&dmrs, scc, &cand->UE->current_DL_BWP, &sp->tda_info, sp->nrOfLayers, dmrs_ports, num_cdm_grps_no_data, n_scid)) {
+    LOG_W(NR_MAC,
+          "[UE %04x] DMRS ports 0x%x nSCID %d with %d CDM groups without data invalid for %d layers\n",
+          cand->rnti,
+          dmrs_ports,
+          n_scid,
+          num_cdm_grps_no_data,
+          sp->nrOfLayers);
+    return false;
+  }
+  if (cand->is_retx && dmrs.N_PRB_DMRS != sp->dmrs_parms.N_PRB_DMRS) {
+    uint16_t new_rbSize = refit_dl_retx_rbSize(cand, &sp->tda_info, &dmrs, cand->bwp_size);
+    if (!new_rbSize)
+      return false;
+    cand->retx_rbSize = new_rbSize;
+  }
+  sp->dmrs_parms = dmrs;
+  return true;
 }
 
 /* ---- CCE/PUCCH validation, called from inside the scheduling policy ---- */
@@ -751,6 +805,25 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
   if (n_valid == 0)
     return;
 
+  /* Step 4b: Default (SU) DMRS on the selected TDA; a retx keeps the DMRS
+   * ports of its first transmission. The RB allocation policy may override
+   * the ports, e.g. of co-scheduled UEs, with nr_dl_set_dmrs_ports(). */
+  FOR_EACH_CANDIDATE(cand, candidates, n)
+  {
+    if (cand->skipped)
+      continue;
+    NR_UE_DL_BWP_t *dl_bwp = &cand->UE->current_DL_BWP;
+    if (cand->is_retx) {
+      const NR_sched_pdsch_t *orig = &cand->UE->UE_sched_ctrl.harq_processes[cand->retx_harq_pid].sched_pdsch;
+      bool tda_changed = cand->sched_pdsch.tda_info.startSymbolIndex != orig->tda_info.startSymbolIndex
+                         || cand->sched_pdsch.tda_info.nrOfSymbols != orig->tda_info.nrOfSymbols;
+      cand->sched_pdsch.dmrs_parms =
+          tda_changed ? get_dl_retx_dmrs_params(scc, dl_bwp, &cand->sched_pdsch.tda_info, orig) : orig->dmrs_parms;
+    } else {
+      cand->sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &cand->sched_pdsch.tda_info, cand->sched_pdsch.nrOfLayers);
+    }
+  }
+
   /* Step 5: MCS adaptation — sets sched_pdsch.mcs from BLER state for all candidates.
    * Placed after beam allocation so a custom dl_mcs_select can factor in alloc_beam_dir
    * (e.g. use beam RSRP/SINR to bias the MCS target). Also persists the decision so
@@ -821,32 +894,24 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
 
     if (cand->is_retx) {
       /* Retransmission: merge HARQ state (R, Qm, tb_size) with policy placement.
-       * DMRS must match the current TDA (recomputed by dl_tda_select when TDA
-       * changed; original otherwise). */
+       * DMRS comes from the candidate (matches the current TDA). */
       NR_sched_pdsch_t harq_pdsch = sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
       sched_pdsch.R = harq_pdsch.R;
       sched_pdsch.Qm = harq_pdsch.Qm;
       sched_pdsch.tb_size = harq_pdsch.tb_size;
       sched_pdsch.dl_harq_pid = cand->retx_harq_pid;
       sched_pdsch.ant_port_idx = harq_pdsch.ant_port_idx;
-      bool tda_changed = sched_pdsch.tda_info.startSymbolIndex != harq_pdsch.tda_info.startSymbolIndex
-                         || sched_pdsch.tda_info.nrOfSymbols != harq_pdsch.tda_info.nrOfSymbols;
-      if (tda_changed)
-        sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers);
-      else
-        sched_pdsch.dmrs_parms = harq_pdsch.dmrs_parms;
     } else {
       /* New transmission: compute TBS-related fields */
       int l = sched_pdsch.nrOfLayers;
       int mcs = sched_pdsch.mcs;
       uint8_t Qm = nr_get_Qm_dl(mcs, dl_bwp->mcsTableIdx);
       uint16_t R = nr_get_code_rate_dl(mcs, dl_bwp->mcsTableIdx);
-      NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, l);
+      const NR_pdsch_dmrs_t dmrs = sched_pdsch.dmrs_parms;
 
       sched_pdsch.R = R;
       sched_pdsch.Qm = Qm;
       sched_pdsch.dl_harq_pid = sched_ctrl->available_dl_harq.head;
-      sched_pdsch.dmrs_parms = dmrs;
 
       sched_pdsch.action = NULL;
       int srb1 = 1;
@@ -954,7 +1019,7 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
   pdsch_pdu->SCID = dmrs_parms->n_scid;
   pdsch_pdu->dlDmrsScramblingId = dmrs_parms->scrambling_id;
   pdsch_pdu->numDmrsCdmGrpsNoData = dmrs_parms->numDmrsCdmGrpsNoData;
-  pdsch_pdu->dmrsPorts = (1 << sched_pdsch->nrOfLayers) - 1;  // FIXME with a better implementation
+  pdsch_pdu->dmrsPorts = dmrs_parms->dmrs_ports;
   // Pdsch Allocation in frequency domain
   pdsch_pdu->resourceAlloc = sched_pdsch->alloc_type;
   if (sched_pdsch->alloc_type == PDSCH_TYPE1) {
