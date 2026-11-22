@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: MIT
+
+# TDD phy-test; the PDSCH DMRS is on port 1002 with nSCID 1 and 2 CDM groups without data,
+# as for one UE of a DL MU-MIMO group (DCI 1_1 antenna-ports value 5)
+services:
+    oai-gnb:
+        image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb}:${TAG:-develop}
+        container_name: rfsim5g-oai-gnb
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+        environment:
+            USE_ADDITIONAL_OPTIONS: --phy-test --dl-dmrs-ports 0x4 --dl-dmrs-nscid 1 --rfsim --rfsimulator.[0].wait_timeout 20 --noS1 --log_config.global_log_options level,nocolor,time
+            ASAN_OPTIONS: detect_leaks=0
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.140
+        devices:
+            - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/gnb.band78.106prb.rfsim.phytest-dora.conf:/opt/oai-gnb/etc/gnb.conf
+            - rrc.config:/opt/oai-gnb/
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-softmodem"
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+    oai-nr-ue:
+        image: ${REGISTRY-oaisoftwarealliance/}${NRUE_IMG:-oai-nr-ue}:${TAG:-develop}
+        container_name: rfsim5g-oai-nr-ue
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_ADMIN  # for interface bringup
+            - NET_RAW    # for ping
+        environment:
+            USE_ADDITIONAL_OPTIONS: --phy-test --rfsim --noS1 --reconfig-file etc/rrc/reconfig.raw --rbconfig-file etc/rrc/rbconfig.raw --rfsimulator.[0].serveraddr 192.168.71.140 --log_config.global_log_options level,nocolor,time
+            ASAN_OPTIONS: detect_leaks=0
+        devices:
+            - /dev/net/tun:/dev/net/tun
+        volumes:
+            - ../../conf_files/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+            - rrc.config:/opt/oai-nr-ue/etc/rrc/
+        depends_on:
+            - oai-gnb
+        networks:
+            public_net:
+                ipv4_address: 192.168.71.150
+        healthcheck:
+            test: /bin/bash -c "pgrep nr-uesoftmodem"
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+volumes:
+    rrc.config:
+
+networks:
+    public_net:
+        driver: bridge
+        name: rfsim5g-oai-public-net
+        ipam:
+            config:
+                - subnet: 192.168.71.128/26
+        driver_opts:
+            com.docker.network.bridge.name: "rfsim5g-public"

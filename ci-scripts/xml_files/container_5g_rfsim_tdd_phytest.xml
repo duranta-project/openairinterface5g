@@ -1,0 +1,107 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabName>Monolithic TDD phytest gNB, DMRS port 1002 nSCID 1</htmlTabName>
+
+  <testCase>
+    <class>Pull_Local_Registry</class>
+    <desc>Pull Images from Local Registry</desc>
+    <node>localhost</node>
+    <images>oai-gnb-asan oai-nr-ue-asan</images>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace</desc>
+    <node>localhost</node>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Clean-Up any residual volume</desc>
+    <node>localhost</node>
+    <command>docker volume rm 5g_rfsimulator_tdd_phytest_rrc.config -f</command>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G gNB RF sim SA</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_tdd_phytest</yaml_path>
+    <services>oai-gnb</services>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy OAI 5G NR-UE RF sim SA</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_tdd_phytest</yaml_path>
+    <services>oai-nr-ue</services>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping gNB from NR-UE</desc>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_gnb_nos1</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c20 -i0.2</ping_args>
+    <ping_packetloss_threshold>0</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping NR-UE from gNB</desc>
+    <id>rfsim5g_gnb_nos1</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_ue</svr_id>
+    <svr_node>localhost</svr_node>
+    <ping_args>-c20 -i0.2</ping_args>
+    <ping_packetloss_threshold>0</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Iperf (DL/30kbps/UDP)(20 sec)</desc>
+    <iperf_args>-u -b 0.03M -t 20 -R -c 10.0.1.1</iperf_args>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_gnb_nos1</svr_id>
+    <svr_node>localhost</svr_node>
+    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Iperf (UL/30kbps/UDP)(20 sec)</desc>
+    <iperf_args>-u -b 0.03M -t 20 -c 10.0.1.1</iperf_args>
+    <id>rfsim5g_ue</id>
+    <node>localhost</node>
+    <svr_id>rfsim5g_gnb_nos1</svr_id>
+    <svr_node>localhost</svr_node>
+    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <always_exec>true</always_exec>
+    <desc>Undeploy all OAI 5G stack</desc>
+    <node>localhost</node>
+    <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_tdd_phytest</yaml_path>
+    <analysis>
+      <services>oai-gnb=RetxCheck=10,100,100,100 oai-gnb=EndsWithBye oai-nr-ue</services>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <always_exec>true</always_exec>
+    <desc>Clean Test Images on Test Server</desc>
+    <node>localhost</node>
+    <images>oai-gnb-asan oai-nr-ue-asan</images>
+  </testCase>
+
+</testCaseList>

@@ -24,6 +24,8 @@
   {"l" ,                    CONFIG_HLP_DLNL_PHYTEST,   0,                .uptr=&target_dl_Nl,                 .defintval=0,                     TYPE_UINT,   0},        \
   {"L" ,                    CONFIG_HLP_ULNL_PHYTEST,   0,                .uptr=&target_ul_Nl,                 .defintval=0,                     TYPE_UINT,   0},        \
   {"p" ,                    CONFIG_HLP_DLPMI_PHYTEST,  0,                .uptr=&target_dl_pmi,                .defintval=0,                     TYPE_UINT,   0},        \
+  {"dl-dmrs-ports" ,        CONFIG_HLP_DLDMRSPORTS_PHYTEST, 0,           .uptr=&target_dl_dmrs_ports,         .defintval=0,                     TYPE_UINT,   0},        \
+  {"dl-dmrs-nscid" ,        CONFIG_HLP_DLNSCID_PHYTEST, 0,               .uptr=&target_dl_dmrs_nscid,         .defintval=0,                     TYPE_UINT,   0},        \
   {"m" ,                    CONFIG_HLP_DLMCS_PHYTEST,  0,                .uptr=&target_dl_mcs,                .defintval=0,                     TYPE_UINT,   0},        \
   {"n" ,                    CONFIG_HLP_DLMCST_PHYTEST, 0,                .uptr=&target_dl_mcs_table_index,    .defintval=0,                     TYPE_UINT,   0},        \
   {"t" ,                    CONFIG_HLP_ULMCS_PHYTEST,  0,                .uptr=&target_ul_mcs,                .defintval=0,                     TYPE_UINT,   0},        \
@@ -42,6 +44,8 @@
 extern uint32_t target_dl_Nl;
 extern uint32_t target_ul_Nl;
 extern uint32_t target_dl_pmi;
+extern uint32_t target_dl_dmrs_ports;
+extern uint32_t target_dl_dmrs_nscid;
 extern uint32_t target_dl_mcs;
 extern uint32_t target_dl_mcs_table_index;
 extern uint32_t target_ul_mcs;

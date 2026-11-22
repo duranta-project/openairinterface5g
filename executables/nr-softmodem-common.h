@@ -35,6 +35,8 @@
 #define CONFIG_HLP_DLMCST_PHYTEST "Set the downlink MCS table index for PHYTEST mode\n"
 #define CONFIG_HLP_DLNL_PHYTEST   "Set the downlink nrOfLayers for PHYTEST mode\n"
 #define CONFIG_HLP_DLPMI_PHYTEST  "Set the downlink Precoding Matrix Index for PHYTEST mode\n"
+#define CONFIG_HLP_DLDMRSPORTS_PHYTEST "Set the downlink DMRS ports bitmap (bit i = port 1000+i) for PHYTEST mode, with 2 CDM groups without data as for MU-MIMO; 0: default ports\n"
+#define CONFIG_HLP_DLNSCID_PHYTEST "Set the downlink DMRS nSCID (0 or 1) for PHYTEST mode\n"
 #define CONFIG_HLP_ULNL_PHYTEST   "Set the uplink nrOfLayers for PHYTEST mode\n"
 #define CONFIG_HLP_DLBW_PHYTEST   "Set the number of PRBs used for DLSCH in PHYTEST mode\n"
 #define CONFIG_HLP_ULBW_PHYTEST   "Set the number of PRBs used for ULSCH in PHYTEST mode\n"
