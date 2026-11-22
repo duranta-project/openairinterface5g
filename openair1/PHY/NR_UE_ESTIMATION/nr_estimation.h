@@ -57,6 +57,15 @@ int nr_pbch_channel_estimation(const NR_DL_FRAME_PARMS *frame_parms,
                                bool sidelink,
                                uint Nid);
 
+/// Double-symbol DMRS (n_front_load_symb 2): average the estimates of the two symbols of each
+/// front-loaded pair, estimated with l' = 0 and 1, which removes the port of the other time-domain OCC.
+void nr_pdsch_dmrs_tdocc_combine(const NR_DL_FRAME_PARMS *fp,
+                                 uint16_t dmrs_symb_pos,
+                                 int n_front_load_symb,
+                                 int n_layers,
+                                 uint32_t pdsch_est_size,
+                                 int32_t dl_ch_estimates[][pdsch_est_size]);
+
 void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
                                  const UE_nr_rxtx_proc_t *proc,
                                  const fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch,

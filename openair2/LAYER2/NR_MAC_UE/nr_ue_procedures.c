@@ -934,6 +934,7 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_pdu = &dl_conf_req->dlsch_config_pdu.dlsch_config_rel15;
 
   dlsch_pdu->pduBitmap = 0;
+  dlsch_pdu->n_front_load_symb = 1; // DCI 1_0: single-symbol DMRS, the PDU may hold a former DCI 1_1's
   NR_UE_DL_BWP_t *current_DL_BWP = mac->current_DL_BWP;
   nr_rnti_type_t rnti_type = get_rnti_type(mac, dci_ind->rnti);
   /* Dedicated PDSCH-Config does not apply to P-RNTI PCCH or SIB1 acquisition: use common defaults. */

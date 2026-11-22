@@ -1146,7 +1146,10 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
   int16_t dmrs_scaling = (int16_t)((1 / beta_dmrs_pdsch) * (1 << 14));
   const uint32_t *gold =
       nr_gold_pdsch(frame_parms->N_RB_DL, frame_parms->symbols_per_slot, dlsch->dlDmrsScramblingId, dlsch->nscid, slot, symbol);
-  nr_pdsch_dmrs_rx(frame_parms->Ncp, gold, pilot, 1000 + p, 0, nb_rb_pdsch + rb_offset, config_type, dmrs_scaling);
+  // Double-symbol DMRS: l' = 1 on the second symbol of a front-loaded pair, where ports 4..7 (type 1)
+  // have the time-domain OCC w_t = -1; nr_pdsch_dmrs_tdocc_combine() then cancels the other OCC port.
+  const int l_prime = dlsch->n_front_load_symb == 2 && symbol > 0 && (dlsch->dlDmrsSymbPos >> (symbol - 1)) & 1;
+  nr_pdsch_dmrs_rx(frame_parms->Ncp, gold, pilot, 1000 + p, l_prime, nb_rb_pdsch + rb_offset, config_type, dmrs_scaling);
 
   for (int aarx = 0; aarx < frame_parms->nb_antennas_rx; aarx++) {
 #ifdef DEBUG_PDSCH
@@ -1199,5 +1202,32 @@ void nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
       printf("%2d\n", idxP);
     }
 #endif
+  }
+}
+
+void nr_pdsch_dmrs_tdocc_combine(const NR_DL_FRAME_PARMS *fp,
+                                 uint16_t dmrs_symb_pos,
+                                 int n_front_load_symb,
+                                 int n_layers,
+                                 uint32_t pdsch_est_size,
+                                 int32_t dl_ch_estimates[][pdsch_est_size])
+{
+  if (n_front_load_symb != 2)
+    return;
+  const int symb_sz = fp->ofdm_symbol_size;
+  for (int s = 1; s < NR_SYMBOLS_PER_SLOT; s++) {
+    if (!((dmrs_symb_pos >> s) & 1) || !((dmrs_symb_pos >> (s - 1)) & 1))
+      continue;
+    // s - 1, s: one double-symbol DMRS occasion. The channel is the same on both, the port sharing
+    // the CDM group with the other time-domain OCC has opposite signs: the mean keeps only ours.
+    for (int i = 0; i < n_layers * fp->nb_antennas_rx; i++) {
+      c16_t *a = (c16_t *)&dl_ch_estimates[i][symb_sz * (s - 1)];
+      c16_t *b = (c16_t *)&dl_ch_estimates[i][symb_sz * s];
+      for (int k = 0; k < symb_sz; k++) {
+        const c16_t m = {.r = (a[k].r + b[k].r) >> 1, .i = (a[k].i + b[k].i) >> 1};
+        a[k] = b[k] = m;
+      }
+    }
+    s++; // pairs do not overlap
   }
 }
