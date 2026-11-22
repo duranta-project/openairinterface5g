@@ -737,16 +737,14 @@ static void nr_rrc_process_dedicatedNAS_MessageList(NR_UE_RRC_INST_t *rrc, NR_RR
   }
 }
 
-/** @brief RRC notifies SDAP to stop the reader for all active PSI
- * @note Fetch pdu_tun from NAS */
+/** @brief RRC notifies SDAP to stop the reader of every PSI
+ * @note Fetch pdu_tun from NAS. Do not check the PSI status: a PSI that NAS already marked released keeps its reader
+ * until RRC handles the NAS_TUN_RELEASE_PDU_SESSION request. A handle of 0 is a no-op. */
 static void nr_rrc_ue_tun_stop_readers(ue_id_t ue_id)
 {
   nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
-  for (int psi = 1; psi < MAX_NUM_PSI; psi++) {
-    nas_ue_pdu_tun_t *t = &nas->pdu_tun[psi];
-    if (nas->psi_status[psi] != PDU_SESSION_INACTIVE && t->sock >= 0)
-      nr_sdap_tun_stop_reader(&t->reader_thread);
-  }
+  for (int psi = 1; psi < MAX_NUM_PSI; psi++)
+    nr_sdap_tun_stop_reader(&nas->pdu_tun[psi].reader_thread);
 }
 
 /** @brief RRC notifies SDAP to start the idle listener for all active PSI
@@ -784,6 +782,21 @@ static void nr_rrc_ue_tun_start_user_plane(ue_id_t ue_id, int pdusession_id, int
   char name[64];
   snprintf(name, sizeof(name), "ue_tun_read_%ld_p%d", ue_id, pdusession_id);
   nr_sdap_tun_start_reader(entity, reader_thread, name);
+}
+
+/** @brief Release the user plane of one PDU session released by NAS
+ * Stop the reader before the SDAP entity is deleted (the connected reader holds the entity pointer) and before the
+ * TUN fd is closed (close() may not wake a blocked read()). Closing the fd removes the interface. */
+static void nr_rrc_ue_tun_release_pdu_session(ue_id_t ue_id, const nas_tun_psi_t *p)
+{
+  DevAssert(p->pdusession_id > 0 && p->pdusession_id < MAX_NUM_PSI);
+  nr_sdap_tun_stop_reader(p->reader_thread);
+  // no entity if the network released the bearers first, or if the session had no user plane
+  if (nr_sdap_get_entity(ue_id, p->pdusession_id))
+    nr_sdap_delete_entity(ue_id, p->pdusession_id);
+  if (p->sock >= 0)
+    close(p->sock);
+  LOG_I(NR_RRC, "[UE %ld] PDU session %d: user plane released\n", ue_id, p->pdusession_id);
 }
 
 /** @brief Add bearer in PDCP/SDAP for 5GC association (SA) */
@@ -3616,6 +3629,9 @@ void *rrc_nrue(void *notUsed)
     } else if (req->action == NAS_TUN_START_IDLE_LISTENER) {
       nr_rrc_ue_tun_stop_readers(rrc->ue_id);
       nr_rrc_ue_tun_start_idle_listeners(rrc->ue_id);
+    } else if (req->action == NAS_TUN_RELEASE_PDU_SESSION) {
+      for (int i = 0; i < req->n_psi; i++)
+        nr_rrc_ue_tun_release_pdu_session(rrc->ue_id, &req->psi[i]);
     } else {
       AssertFatal(false, "unknown NAS_TUN_REQ action %d\n", req->action);
     }

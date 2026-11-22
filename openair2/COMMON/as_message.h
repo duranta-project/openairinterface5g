@@ -481,6 +481,8 @@ typedef struct nas_tun_psi_s {
 typedef enum {
   NAS_TUN_START_USER_PLANE = 0,
   NAS_TUN_START_IDLE_LISTENER,
+  /* stop the reader, delete the SDAP entity and close the TUN fd of each listed PSI: NAS hands the fd over */
+  NAS_TUN_RELEASE_PDU_SESSION,
 } nas_tun_req_action_t;
 
 typedef struct nas_tun_req_s {
