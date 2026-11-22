@@ -1886,22 +1886,14 @@ static void send_nas_uplink_data_req(nr_ue_nas_t *nas, const as_nas_info_t *init
   itti_send_msg_to_task(TASK_RRC_NRUE, nas->UE_id, msg);
 }
 
-static void generatePduSessionModificationComplete(nr_ue_nas_t *nas,
-                                                   as_nas_info_t *responseMsg,
-                                                   uint8_t pdu_session_id,
-                                                   uint8_t pti)
+/** @brief Build a ciphered and integrity protected UL NAS Transport that carries a 5GSM message (TS 24.501 8.2.10) */
+static void generate_5gsm_ul_nas_transport(nr_ue_nas_t *nas,
+                                           as_nas_info_t *responseMsg,
+                                           uint8_t pdu_session_id,
+                                           uint8_t *req_buffer,
+                                           uint16_t req_length)
 {
   int size = 0;
-
-  // Setup PDU session modification complete message
-  uint16_t req_length = 4;
-  uint8_t *req_buffer = malloc_or_fail(req_length);
-  pdu_session_modification_complete_msg pdu_session_mod_complete;
-  pdu_session_mod_complete.protocoldiscriminator = FGS_SESSION_MANAGEMENT_MESSAGE;
-  pdu_session_mod_complete.pdusessionid = pdu_session_id;
-  pdu_session_mod_complete.pti = pti;
-  pdu_session_mod_complete.pdusessionmodificationcompletemsgtype = FGS_PDU_SESSION_MODIFICATION_COMPLETE;
-  encode_pdu_session_modification_complete(&pdu_session_mod_complete, req_buffer, req_length);
 
   nas_stream_cipher_t stream_cipher = {0};
   uint8_t mac[NAS_INTEGRITY_SIZE];
@@ -1939,9 +1931,6 @@ static void generatePduSessionModificationComplete(nr_ue_nas_t *nas,
       security_header_len
       + mm_msg_encode(plain, (uint8_t *)(responseMsg->nas_data + security_header_len), size - security_header_len);
 
-  // Free allocated memory after encode
-  free(req_buffer);
-
   /* ciphering */
   uint8_t buf[responseMsg->length - 7];
   stream_cipher.context = nas->security_container->ciphering_context;
@@ -1966,6 +1955,22 @@ static void generatePduSessionModificationComplete(nr_ue_nas_t *nas,
   for (int i = 0; i < 4; i++) {
     responseMsg->nas_data[2 + i] = mac[i];
   }
+}
+
+static void generatePduSessionModificationComplete(nr_ue_nas_t *nas,
+                                                   as_nas_info_t *responseMsg,
+                                                   uint8_t pdu_session_id,
+                                                   uint8_t pti)
+{
+  uint16_t req_length = 4;
+  uint8_t req_buffer[4];
+  pdu_session_modification_complete_msg pdu_session_mod_complete;
+  pdu_session_mod_complete.protocoldiscriminator = FGS_SESSION_MANAGEMENT_MESSAGE;
+  pdu_session_mod_complete.pdusessionid = pdu_session_id;
+  pdu_session_mod_complete.pti = pti;
+  pdu_session_mod_complete.pdusessionmodificationcompletemsgtype = FGS_PDU_SESSION_MODIFICATION_COMPLETE;
+  encode_pdu_session_modification_complete(&pdu_session_mod_complete, req_buffer, req_length);
+  generate_5gsm_ul_nas_transport(nas, responseMsg, pdu_session_id, req_buffer, req_length);
 }
 
 /**
