@@ -1314,6 +1314,12 @@ static void rrc_gNB_process_RRCReestablishmentComplete(gNB_RRC_INST *rrc, gNB_RR
 {
   LOG_I(NR_RRC, "UE %d Processing NR_RRCReestablishmentComplete from UE\n", ue_p->rrc_ue_id);
 
+  if (xid >= NR_RRC_TRANSACTION_IDENTIFIER_NUMBER) {
+    LOG_E(NR_RRC, "UE %d: invalid transaction identifier %u (expected 0..%d)\n",
+          ue_p->rrc_ue_id, xid, NR_RRC_TRANSACTION_IDENTIFIER_NUMBER - 1);
+    return;
+  }
+
   ue_p->xids[xid] = RRC_ACTION_NONE;
 
   f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_p->rrc_ue_id);
@@ -2046,7 +2052,14 @@ static void handle_rrcReestablishmentComplete(gNB_RRC_INST *rrc,
     return;
   }
 
-  rrc_gNB_process_RRCReestablishmentComplete(rrc, UE, cplt->rrc_TransactionIdentifier);
+  const long xid = cplt->rrc_TransactionIdentifier;
+  if (xid < 0 || xid >= NR_RRC_TRANSACTION_IDENTIFIER_NUMBER) {
+    LOG_E(NR_RRC, "UE %d: invalid transaction identifier %ld (expected 0..%d)\n",
+          UE->rrc_ue_id, xid, NR_RRC_TRANSACTION_IDENTIFIER_NUMBER - 1);
+    return;
+  }
+
+  rrc_gNB_process_RRCReestablishmentComplete(rrc, UE, xid);
 
   UE->ue_reestablishment_counter++;
 }
@@ -2084,7 +2097,12 @@ void rrc_forward_ue_nas_message(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
 
 static void handle_ueCapabilityInformation(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const NR_UECapabilityInformation_t *ue_cap_info)
 {
-  int xid = ue_cap_info->rrc_TransactionIdentifier;
+  const long xid = ue_cap_info->rrc_TransactionIdentifier;
+  if (xid < 0 || xid >= NR_RRC_TRANSACTION_IDENTIFIER_NUMBER) {
+    LOG_E(NR_RRC, "UE %d: invalid transaction identifier %ld (expected 0..%d)\n",
+          UE->rrc_ue_id, xid, NR_RRC_TRANSACTION_IDENTIFIER_NUMBER - 1);
+    return;
+  }
   rrc_action_t a = UE->xids[xid];
   UE->xids[xid] = RRC_ACTION_NONE;
 
@@ -2221,7 +2239,13 @@ static void handle_ueCapabilityInformation(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, 
 
 static void handle_rrcSetupComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const NR_RRCSetupComplete_t *setup_complete)
 {
-  uint8_t xid = setup_complete->rrc_TransactionIdentifier;
+  const long raw_xid = setup_complete->rrc_TransactionIdentifier;
+  if (raw_xid < 0 || raw_xid >= NR_RRC_TRANSACTION_IDENTIFIER_NUMBER) {
+    LOG_E(NR_RRC, "UE %d: invalid transaction identifier %ld (expected 0..%d)\n",
+          UE->rrc_ue_id, raw_xid, NR_RRC_TRANSACTION_IDENTIFIER_NUMBER - 1);
+    return;
+  }
+  uint8_t xid = (uint8_t)raw_xid;
   UE->xids[xid] = RRC_ACTION_NONE;
 
   if (setup_complete->criticalExtensions.present != NR_RRCSetupComplete__criticalExtensions_PR_rrcSetupComplete) {
@@ -2293,7 +2317,13 @@ static void handle_rrcSetupComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const N
 
 static void handle_rrcReconfigurationComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const NR_RRCReconfigurationComplete_t *reconfig_complete)
 {
-  uint8_t xid = reconfig_complete->rrc_TransactionIdentifier;
+  const long raw_xid = reconfig_complete->rrc_TransactionIdentifier;
+  if (raw_xid < 0 || raw_xid >= NR_RRC_TRANSACTION_IDENTIFIER_NUMBER) {
+    LOG_E(NR_RRC, "UE %d: invalid transaction identifier %ld (expected 0..%d)\n",
+          UE->rrc_ue_id, raw_xid, NR_RRC_TRANSACTION_IDENTIFIER_NUMBER - 1);
+    return;
+  }
+  uint8_t xid = (uint8_t)raw_xid;
   UE->ue_reconfiguration_counter++;
   UE->ongoing_reconfiguration = false;
 
@@ -2466,6 +2496,11 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
         LOG_UE_UL_EVENT(UE, "Received Security Mode Complete\n");
         /* only accept the answer to a SecurityModeCommand we sent */
         const long xid = ul_dcch_msg->message.choice.c1->choice.securityModeComplete->rrc_TransactionIdentifier;
+        if (xid < 0 || xid >= NR_RRC_TRANSACTION_IDENTIFIER_NUMBER) {
+          LOG_E(NR_RRC, "UE %d: invalid transaction identifier %ld (expected 0..%d)\n",
+                UE->rrc_ue_id, xid, NR_RRC_TRANSACTION_IDENTIFIER_NUMBER - 1);
+          break;
+        }
         if (UE->xids[xid] != RRC_SECURITY_MODE_COMMAND) {
           LOG_E(NR_RRC, "UE %d: SecurityModeComplete with xid %ld without SecurityModeCommand, ignoring\n", UE->rrc_ue_id, xid);
           break;
@@ -3714,7 +3749,7 @@ void rrc_gNB_process_e1_bearer_context_modif_resp(const e1ap_bearer_modif_resp_t
     rrc_gNB_generate_dedicatedRRCReconfiguration(rrc, ue, false);
   } else {
     /* No F1 changes and no RRC update required: complete modify directly. */
-    if (mod_xid < 0 || ue->xids[mod_xid] == RRC_PDUSESSION_MODIFY)
+    if (mod_xid < 0 || mod_xid >= NR_RRC_TRANSACTION_IDENTIFIER_NUMBER || ue->xids[mod_xid] == RRC_PDUSESSION_MODIFY)
       return;
     LOG_I(NR_RRC, "UE %d: send NGAP Modify Response after PDU Session Modify (xid %d)\n", ue->rrc_ue_id, mod_xid);
     rrc_gNB_send_NGAP_PDUSESSION_MODIFY_RESP(rrc, ue, mod_xid);
