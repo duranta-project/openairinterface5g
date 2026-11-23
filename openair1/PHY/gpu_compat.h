@@ -110,6 +110,7 @@ typedef cudaEvent_t    gpuEvent_t;
 #define gpuDevAttrPageableMemoryAccessUsesHostPageTables hipDeviceAttributePageableMemoryAccessUsesHostPageTables
 #define gpuDevAttrHostRegisterSupported hipDeviceAttributeHostRegisterSupported
 #define gpuDevAttrIntegrated hipDeviceAttributeIntegrated
+#define gpuDevAttrMultiProcessorCount hipDeviceAttributeMultiprocessorCount
 
 
 #define gpuStreamDestroy       hipStreamDestroy
@@ -156,6 +157,7 @@ typedef cudaEvent_t    gpuEvent_t;
 #define gpuDevAttrPageableMemoryAccessUsesHostPageTables cudaDevAttrPageableMemoryAccessUsesHostPageTables
 #define gpuDevAttrHostRegisterSupported cudaDevAttrHostRegisterSupported
 #define gpuDevAttrIntegrated   cudaDevAttrIntegrated
+#define gpuDevAttrMultiProcessorCount cudaDevAttrMultiProcessorCount
 
 #define gpuMalloc              cudaMalloc
 #define gpuFree                cudaFree

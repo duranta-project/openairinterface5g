@@ -7,10 +7,17 @@
 #
 #---------------------------------------------------------------------
 ARG UBUNTU_IMAGE=ubuntu:noble
+ARG BASE_IMAGE=ran-base:latest
+# e.g. ran-build-fhi72-cuda:<tag>, Dockerfile.build.fhi72.ubuntu built with ENABLE_CUDA=true
+ARG BUILD_IMAGE=ran-build-fhi72:latest
 
-FROM ran-base:latest AS gnb-base
+FROM ${BASE_IMAGE} AS gnb-base
 
-FROM ran-build-fhi72:latest AS gnb-build
+FROM ${BUILD_IMAGE} AS gnb-build
+
+# DPDK installs into /usr/local/lib/<arch>-linux-gnu; COPY can't keep a wildcard directory, so stage it
+FROM gnb-build AS dpdk-libs
+RUN mkdir /dpdk && cp -a /usr/local/lib/*-linux-gnu /dpdk/
 
 
 #start from scratch for target executable
@@ -42,7 +49,10 @@ RUN apt-get update && \
         python3-six \
         python3-requests \
         libatomic1 \
-        libyaml-cpp-dev && \
+        libyaml-cpp-dev \
+        # mlx5 PMD (Mellanox/NVIDIA NICs)
+        libibverbs1 \
+        ibverbs-providers && \
 # if the --sanitize option was used to build, additional packages are required
     /bin/bash -c 'if [[ "$BUILD_OPTION" = "--sanitize" ]]; then DEBIAN_FRONTEND=noninteractive apt-get install --yes \
         libasan8 \
@@ -58,7 +68,8 @@ COPY ./docker/scripts/check-prach-io.sh ./check-prach-io.sh
 COPY --from=gnb-build \
     /oai-ran/cmake_targets/ran_build/build/librfsimulator.so \
     /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g.so \
-    /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g_mplane.so \
+    # wildcards: M-plane (libyang/libnetconf2) and ArmRAL are only in some build images
+    /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g_mplane*.so \
     /oai-ran/cmake_targets/ran_build/build/libcoding.so \
     /oai-ran/cmake_targets/ran_build/build/libparams_libconfig.so \
     /oai-ran/cmake_targets/ran_build/build/libdfts.so \
@@ -66,8 +77,9 @@ COPY --from=gnb-build \
     /oai-ran/cmake_targets/ran_build/build/libtelnetsrv.so \
     /oai-ran/cmake_targets/ran_build/build/libtelnetsrv_ci.so \
     /oai-ran/cmake_targets/ran_build/build/libparams_yaml.so \
-    /usr/local/lib/libnetconf2.so \
-    /usr/local/lib/libyang.so \
+    /usr/local/lib/libnetconf2.so* \
+    /usr/local/lib/libyang.so* \
+    /opt/ral/build/libarmral.so* \
     /usr/local/lib
 
 # default is CUS (no M plane)
@@ -83,7 +95,7 @@ COPY --from=gnb-build \
     /opt/phy/fhi_lib/lib/build/
 
 ## Copy all DPDK libraries as liboran_fhlib_5g.so require most of them
-COPY --from=gnb-build /usr/local/lib/x86_64-linux-gnu /usr/local/lib/x86_64-linux-gnu/
+COPY --from=dpdk-libs /dpdk/ /usr/local/lib/
 
 ## Copy E2 SM models
 COPY --from=gnb-build /usr/local/lib/flexric /usr/local/lib/flexric
