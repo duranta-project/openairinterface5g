@@ -84,6 +84,30 @@ nr_guami_t decode_xnap_guami(const XNAP_GUAMI_t *in)
   return out;
 }
 
+XNAP_NR_CGI_t xnap_encode_nr_cgi(const xnap_ngran_cgi_t *in)
+{
+  DevAssert(in != NULL);
+
+  XNAP_NR_CGI_t out = {0};
+  const plmn_id_t *plmn_id = &in->plmn_id;
+  MCC_MNC_TO_PLMNID(plmn_id->mcc, plmn_id->mnc, plmn_id->mnc_digit_length, &out.plmn_id);
+  NR_CELL_ID_TO_BIT_STRING(in->nrcell_id, &out.nr_CI);
+
+  return out;
+}
+
+bool xnap_decode_nr_cgi(const XNAP_NR_CGI_t *in, xnap_ngran_cgi_t *out)
+{
+  DevAssert(in != NULL);
+  DevAssert(out != NULL);
+
+  plmn_id_t *plmn_id = &out->plmn_id;
+  PLMNID_TO_MCC_MNC(&in->plmn_id, plmn_id->mcc, plmn_id->mnc, plmn_id->mnc_digit_length);
+  BIT_STRING_TO_NR_CELL_IDENTITY(&in->nr_CI, out->nrcell_id);
+
+  return true;
+}
+
 XNAP_Target_CGI_t xnap_encode_target_cgi(const xnap_ngran_cgi_t *in)
 {
   DevAssert(in != NULL);
@@ -91,9 +115,7 @@ XNAP_Target_CGI_t xnap_encode_target_cgi(const xnap_ngran_cgi_t *in)
   XNAP_Target_CGI_t out = {0};
   out.present = XNAP_Target_CGI_PR_nr;
   asn1cCalloc(out.choice.nr, nr);
-  const plmn_id_t *plmn_id = &in->plmn_id;
-  MCC_MNC_TO_PLMNID(plmn_id->mcc, plmn_id->mnc, plmn_id->mnc_digit_length, &nr->plmn_id);
-  NR_CELL_ID_TO_BIT_STRING(in->nrcell_id, &nr->nr_CI);
+  *nr = xnap_encode_nr_cgi(in);
 
   return out;
 }
@@ -108,13 +130,7 @@ bool xnap_decode_target_cgi(const XNAP_Target_CGI_t *in, xnap_ngran_cgi_t *out)
   if (in->present != XNAP_Target_CGI_PR_nr || in->choice.nr == NULL)
     return false;
 
-  const XNAP_NR_CGI_t *nr = in->choice.nr;
-  plmn_id_t *plmn_id = &out->plmn_id;
-  PLMNID_TO_MCC_MNC(&nr->plmn_id, plmn_id->mcc, plmn_id->mnc, plmn_id->mnc_digit_length);
-
-  BIT_STRING_TO_NR_CELL_IDENTITY(&nr->nr_CI, out->nrcell_id);
-
-  return true;
+  return xnap_decode_nr_cgi(in->choice.nr, out);
 }
 
 XNAP_S_NSSAI_t xnap_encode_snssai(const nssai_t *in)

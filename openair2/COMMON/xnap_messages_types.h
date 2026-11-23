@@ -473,6 +473,22 @@ typedef struct {
   xnap_ngran_cgi_t target_cgi;
 } xnap_handover_success_t;
 
+/* maxnoofCHOcells, TS 38.423 §9.3.7 */
+#define XNAP_MAX_NB_CHO_CELLS 8
+
+/* 3GPP TS 38.423 9.1.1.13 – Conditional Handover Cancel */
+typedef struct {
+  /* Source NG-RAN node UE XnAP ID (M) */
+  uint32_t s_ng_node_ue_xnap_id;
+  /* Target NG-RAN node UE XnAP ID (M) */
+  uint32_t t_ng_node_ue_xnap_id;
+  /* Candidate/Target Cells To Cancel (O): 0 = absent, all candidate cells cancelled (TS 38.423 §8.2.9.2) */
+  uint8_t nb_target_cells;
+  xnap_ngran_cgi_t target_cells[XNAP_MAX_NB_CHO_CELLS];
+  /* Cause (M) */
+  xnap_cause_t cause;
+} xnap_conditional_handover_cancel_t;
+
 /* Procedure Stage choice of Early Status Transfer */
 typedef enum {
   XNAP_PROCEDURE_STAGE_FIRST_DL_COUNT = 0,

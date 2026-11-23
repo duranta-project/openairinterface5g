@@ -52,6 +52,9 @@ xnap_cause_t decode_xnap_cause(const XNAP_Cause_t *in);
 XNAP_S_NSSAI_t xnap_encode_snssai(const nssai_t *in);
 bool decode_xnap_snssai(const XNAP_S_NSSAI_t *in, nssai_t *out);
 
+XNAP_NR_CGI_t xnap_encode_nr_cgi(const xnap_ngran_cgi_t *in);
+bool xnap_decode_nr_cgi(const XNAP_NR_CGI_t *in, xnap_ngran_cgi_t *out);
+
 XNAP_Target_CGI_t xnap_encode_target_cgi(const xnap_ngran_cgi_t *in);
 bool xnap_decode_target_cgi(const XNAP_Target_CGI_t *in, xnap_ngran_cgi_t *out);
 

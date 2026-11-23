@@ -46,6 +46,7 @@
 #include "XNAP_DLDiscarding.h"
 #include "XNAP_DRBsSubjectToEarlyStatusTransfer-Item.h"
 #include "XNAP_DRBsSubjectToDLDiscarding-Item.h"
+#include "XNAP_TargetCellList-Item.h"
 
 #include "XNAP_UEIdentityIndexValue.h"
 #include "XNAP_UERANPagingIdentity.h"
