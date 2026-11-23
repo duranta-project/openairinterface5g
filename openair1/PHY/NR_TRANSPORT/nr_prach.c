@@ -12,19 +12,7 @@
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_prach.h"
 
-typedef struct {
-  int reps;
-  int Ncp;
-  int dftlen;
-  int N_ZC;
-  int k;
-  dft_size_idx_t dftsize;
-  int sample_offset_slot;
-} prach_ru_params_t;
-
-static prach_ru_params_t get_prach_ru_params(prach_item_t *p,
-                                             int prachStartSymbol,
-                                             NR_DL_FRAME_PARMS *fp)
+prach_ru_params_t get_prach_ru_params(prach_item_t *p, int prachStartSymbol, NR_DL_FRAME_PARMS *fp)
 {
   prach_ru_params_t par = {0};
   const int sum = fp->ofdm_symbol_size + fp->nb_prefix_samples;

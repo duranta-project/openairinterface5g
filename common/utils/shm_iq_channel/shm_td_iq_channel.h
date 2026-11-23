@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <semaphore.h>
+#include "shm_iq_channel.h"
 
 #define SHM_MAGIC_NUMBER 0x12345678
 
@@ -26,14 +27,7 @@
  * The timestamps used in the API are in absolute samples from the time the client/server connection started.
  */
 
-typedef enum IQChannelType { IQ_CHANNEL_TYPE_SERVER, IQ_CHANNEL_TYPE_CLIENT } IQChannelType;
 typedef uint32_t sample_t;
-typedef enum IQChannelErrorType {
-  CHANNEL_NO_ERROR,
-  CHANNEL_ERROR_TOO_LATE,
-  CHANNEL_ERROR_TOO_EARLY,
-  CHANNEL_ERROR_NOT_CONNECTED
-} IQChannelErrorType;
 
 typedef struct ShmTDIQChannel_s ShmTDIQChannel;
 
