@@ -36,6 +36,19 @@
   </testCase>
 
   <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create new Workspace on rocket</desc>
+    <node>jetson2-oai</node>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Start NTN GEO emulation</desc>
+    <node>jetson2-oai</node>
+    <command>python3 %%workspace%%/ci-scripts/celeos_channel_emulation.py --env /opt/celeos-emulation-client/.env OAI_GEO_band254</command>
+  </testCase>
+
+  <testCase>
     <class>Deploy_Object</class>
     <desc>Deploy gNB in a container</desc>
     <yaml_path>ci-scripts/yaml_files/5g_sa_celeos_ntn_geo</yaml_path>
@@ -86,6 +99,14 @@
     <analysis>
       <services>oai-nr-ue=EndsWithBye</services>
     </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <always_exec>true</always_exec>
+    <desc>Stop NTN GEO emulation</desc>
+    <node>jetson2-oai</node>
+    <command>python3 %%workspace%%/ci-scripts/celeos_channel_emulation.py --stop --logs --output %%log_dir%% --env /opt/celeos-emulation-client/.env</command>
   </testCase>
 
   <testCase>
