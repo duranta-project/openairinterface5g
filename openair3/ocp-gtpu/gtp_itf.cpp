@@ -784,10 +784,10 @@ int gtpv1u_create_s1u_tunnel(instance_t instance,
   pthread_mutex_unlock(&globGtp.gtp_lock);
 
   for (int i = 0; i < create_tunnel_req->num_tunnels; i++) {
-    AssertFatal(create_tunnel_req->eps_bearer_id[i] > 4,
-                "From legacy code not clear, seems impossible (bearer=%d)\n",
-                create_tunnel_req->eps_bearer_id[i]);
-    int incoming_rb_id = create_tunnel_req->eps_bearer_id[i] - 4;
+    /* The DRB identity is local to the UE context (1..5, RLC/QoS limits) and is
+     * not a function of the E-RAB ID (see rrc_eNB_get_drb_identity()): use the
+     * identity carried by the request. */
+    const int incoming_rb_id = create_tunnel_req->rb_id[i];
     teid_t teid = newGtpuCreateTunnel(compatInst(instance),
                                       create_tunnel_req->rnti,
                                       incoming_rb_id,
