@@ -350,11 +350,16 @@ bool tap_config(const char* ifname)
   return success;
 }
 
-void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id, const char *ipv4)
+void setup_ue_ipv4_route(const char *ifname, const char *ipv4)
 {
-  /* This needs to be unique per (instance_id, pdu_session_id) */
-  // UE0, PDU1 = 10001, UE1, PDU1 = 10101, UE15, PDU15 = 11515 ...
-  int table_id = 10000 + instance_id * 100 + pdu_session_id;
+  /* One table per interface, numbered from its index: the index is unique on the host, while the UE instance and the
+     PDU session ID are unique in one UE process only, and several UE processes can run on one host */
+  const unsigned int ifindex = if_nametoindex(ifname);
+  if (ifindex == 0) {
+    LOG_E(UTIL, "No interface %s for the IPv4 policy routing of %s\n", ifname, ipv4);
+    return;
+  }
+  const int table_id = 100000 + ifindex;
 
   /* the rules of a previous UE with this address or this table (a process killed, a new PDU session) are removed
      first: they are never deleted otherwise, and every packet of the host walks the rule list */

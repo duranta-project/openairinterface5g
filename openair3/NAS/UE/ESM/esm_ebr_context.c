@@ -190,7 +190,7 @@ int esm_ebr_context_create(
               char ifname[IFNAMSIZ];
               tun_generate_ifname(ifname, ifn, 0);
               tun_config(ifname, ip, NULL);
-              setup_ue_ipv4_route(ifname, 0, pid, ip);
+              setup_ue_ipv4_route(ifname, ip);
             } break;
 
             case NET_PDN_TYPE_IPV6:
