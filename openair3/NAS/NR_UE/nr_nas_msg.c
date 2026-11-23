@@ -1035,7 +1035,7 @@ void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas,
   }
 }
 
-void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, bool mo_ul_data)
+void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, uint8_t service_type, bool mo_ul_data)
 {
   LOG_I(NAS, "Generate initial NAS message: Service Request\n");
   int size = 0;
@@ -1050,7 +1050,7 @@ void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, bool
   // Set plain FGMM Service Request
   fgs_service_request_msg_t *mm_msg = &plain.mm_msg.service_request;
   // Service Type
-  mm_msg->serviceType = SERVICE_TYPE_DATA;
+  mm_msg->serviceType = service_type;
   // NAS key set identifier
   mm_msg->naskeysetidentifier.tsc = NAS_KEY_SET_IDENTIFIER_NATIVE;
   mm_msg->naskeysetidentifier.naskeysetidentifier = set_fgs_ksi(nas);
@@ -2335,6 +2335,16 @@ static void generatePduSessionEstablishRequest(nr_ue_nas_t *nas, as_nas_info_t *
   }
 }
 
+static void send_pdu_session_establish_request(nr_ue_nas_t *nas, nas_pdu_session_req_t *pdu_req)
+{
+  as_nas_info_t pduEstablishMsg = {0};
+  generatePduSessionEstablishRequest(nas, &pduEstablishMsg, pdu_req);
+  if (pduEstablishMsg.length > 0) {
+    send_nas_uplink_data_req(nas, &pduEstablishMsg);
+    LOG_I(NAS, "Send NAS_UPLINK_DATA_REQ message(PduSessionEstablishRequest)\n");
+  }
+}
+
 /** Send initial NAS to RRC as NAS_INITIAL_UL_TRANSFER_REQ (e.g. paging Service Request, TS 24.501 §5.6.1).
  *  RRC buffers for RRCSetupComplete dedicatedNAS when no SRB (TS 38.331 §5.3.3.4). */
 static void send_nas_initial_ul_transfer_req(nr_ue_nas_t *nas, const as_nas_info_t *initial_nas_msg)
@@ -2348,8 +2358,8 @@ static void send_nas_initial_ul_transfer_req(nr_ue_nas_t *nas, const as_nas_info
 }
 
 /** @brief Initiate Service Request and send it as initial NAS UL to RRC
- * Used for MT paging and MO UL-data indication */
-static bool initiate_service_request(nr_ue_nas_t *nas, bool mo_ul_data)
+ * Used for MT paging, MO UL-data indication and a PDU session request from 5GMM-IDLE */
+static bool initiate_service_request(nr_ue_nas_t *nas, uint8_t service_type, bool mo_ul_data)
 {
   if (!nas->guti) {
     LOG_W(NAS, "[UE %ld] no GUTI available, cannot generate Service Request\n", nas->UE_id);
@@ -2375,7 +2385,7 @@ static bool initiate_service_request(nr_ue_nas_t *nas, bool mo_ul_data)
   }
 
   as_nas_info_t initialNasMsg = {0};
-  generateServiceRequest(&initialNasMsg, nas, mo_ul_data);
+  generateServiceRequest(&initialNasMsg, nas, service_type, mo_ul_data);
   if (initialNasMsg.length <= 0) {
     LOG_E(NAS, "[UE %ld] Failed to generate Service Request\n", nas->UE_id);
     return false;
@@ -2560,6 +2570,13 @@ static void abort_service_request(nr_ue_nas_t *nas)
   DevAssert(nas != NULL);
   if (nas->fiveGMM_state == FGS_SERVICE_REQUEST_INITIATED)
     nas->fiveGMM_state = FGS_REGISTERED;
+  if (nas->pdu_session_req_pending) {
+    LOG_W(NAS,
+          "[UE %ld] Service Request failed, dropping the request for PDU session %d\n",
+          nas->UE_id,
+          nas->pending_pdu_session_req.pdusession_id);
+    nas->pdu_session_req_pending = false;
+  }
 }
 
 static void handle_service_accept(nr_ue_nas_t *nas, const byte_array_t *buffer)
@@ -2579,6 +2596,10 @@ static void handle_service_accept(nr_ue_nas_t *nas, const byte_array_t *buffer)
           msg.cause->pdu_session_id,
           print_info(msg.cause->cause, cause_text_info, sizeofArray(cause_text_info)));
   send_nas_tun_req_action(nas, NAS_TUN_START_USER_PLANE);
+  if (nas->pdu_session_req_pending) {
+    nas->pdu_session_req_pending = false;
+    send_pdu_session_establish_request(nas, &nas->pending_pdu_session_req);
+  }
 }
 
 static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
@@ -2747,7 +2768,7 @@ void *nas_nrue(void *args_p)
          *  - Add explicit "suspend indication" handling for the 5GMM-IDLE-with-suspend case
          *    as per TS 24.501 §5.6.2.2.1 ("proceed as specified in subclause 5.3.1.5") */
         LOG_I(NAS, "[UE %ld] Paging: initiate Service Request\n", nas->UE_id);
-        initiate_service_request(nas, false);
+        initiate_service_request(nas, SERVICE_TYPE_DATA, false);
         break;
       }
 
@@ -2755,17 +2776,35 @@ void *nas_nrue(void *args_p)
         /** MO Service Request for pending UL user data (TS 24.501 clause 5.6.1 case d)
          * initiate Service Request and include Uplink data status */
         LOG_D(NAS, "[UE %ld] MO UL data: request Service Request\n", nas->UE_id);
-        initiate_service_request(nas, true);
+        initiate_service_request(nas, SERVICE_TYPE_DATA, true);
         break;
       }
 
       case NAS_PDU_SESSION_REQ: {
-        as_nas_info_t pduEstablishMsg = {0};
         nas_pdu_session_req_t *pduReq = &NAS_PDU_SESSION_REQ(msg_p);
-        generatePduSessionEstablishRequest(nas, &pduEstablishMsg, pduReq);
-        if (pduEstablishMsg.length > 0) {
-          send_nas_uplink_data_req(nas, &pduEstablishMsg);
-          LOG_I(NAS, "Send NAS_UPLINK_DATA_REQ message(PduSessionEstablishRequest)\n");
+        if (nas->fiveGMM_mode != FGS_IDLE) {
+          send_pdu_session_establish_request(nas, pduReq);
+          break;
+        }
+        /* TS 24.501 5.6.1.1 case c), 5.6.1.2.1: from 5GMM-IDLE, send a Service Request with service type "signalling"
+         * first, and the request after the Service Accept. Encode it only then, so its NAS COUNT follows the Service
+         * Request. */
+        if (nas->pdu_session_req_pending) {
+          LOG_W(NAS,
+                "[UE %ld] PDU session %d request already waits for the Service Request, dropping the request for PDU session %d\n",
+                nas->UE_id,
+                nas->pending_pdu_session_req.pdusession_id,
+                pduReq->pdusession_id);
+          break;
+        }
+        nas->pending_pdu_session_req = *pduReq;
+        nas->pdu_session_req_pending = true;
+        if (!initiate_service_request(nas, SERVICE_TYPE_SIGNALLING, false) && nas->fiveGMM_state != FGS_SERVICE_REQUEST_INITIATED) {
+          LOG_E(NAS,
+                "[UE %ld] cannot send a Service Request, dropping the request for PDU session %d\n",
+                nas->UE_id,
+                pduReq->pdusession_id);
+          nas->pdu_session_req_pending = false;
         }
         break;
       }
