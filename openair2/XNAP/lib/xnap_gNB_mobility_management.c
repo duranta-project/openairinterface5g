@@ -2354,3 +2354,226 @@ void free_xnap_retrieve_ue_context_failure(xnap_retrieve_ue_context_failure_t *m
 {
   free_byte_array(msg->old_to_new_resume_container);
 }
+
+/**
+ * @brief XnAP DL COUNT choice encoding (12/18-bit PDCP SN)
+ */
+static XNAP_DLCountChoice_t xnap_encode_dl_count(const xnap_drb_count_value_t *in)
+{
+  XNAP_DLCountChoice_t out = {0};
+
+  if (in->sn_len == XNAP_SN_LENGTH_18) {
+    out.present = XNAP_DLCountChoice_PR_count18bits;
+    asn1cCalloc(out.choice.count18bits, c18);
+    c18->pdcp_SN18 = in->pdcp_sn;
+    c18->hfn_PDCP_SN18 = in->hfn;
+  } else {
+    out.present = XNAP_DLCountChoice_PR_count12bits;
+    asn1cCalloc(out.choice.count12bits, c12);
+    c12->pdcp_SN12 = in->pdcp_sn;
+    c12->hfn_PDCP_SN12 = in->hfn;
+  }
+
+  return out;
+}
+
+/**
+ * @brief XnAP DL COUNT choice decoding (12/18-bit PDCP SN)
+ */
+static bool decode_xnap_dl_count(const XNAP_DLCountChoice_t *in, xnap_drb_count_value_t *out)
+{
+  switch (in->present) {
+    case XNAP_DLCountChoice_PR_count18bits:
+      out->sn_len = XNAP_SN_LENGTH_18;
+      out->pdcp_sn = in->choice.count18bits->pdcp_SN18;
+      out->hfn = in->choice.count18bits->hfn_PDCP_SN18;
+      break;
+
+    case XNAP_DLCountChoice_PR_count12bits:
+      out->sn_len = XNAP_SN_LENGTH_12;
+      out->pdcp_sn = in->choice.count12bits->pdcp_SN12;
+      out->hfn = in->choice.count12bits->hfn_PDCP_SN12;
+      break;
+
+    default:
+      PRINT_ERROR("Unknown DLCountChoice.present=%d\n", in->present);
+      return false;
+  }
+
+  return true;
+}
+
+/**
+ * @brief XnAP Early Status Transfer (9.1.1.14) encoding
+ */
+XNAP_XnAP_PDU_t *encode_xnap_early_status_transfer(const xnap_early_status_transfer_t *msg)
+{
+  AssertFatal(msg->nb_drb >= 1 && msg->nb_drb <= MAX_DRBS_PER_UE, "invalid nb_drb %d\n", msg->nb_drb);
+
+  XNAP_XnAP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+
+  pdu->present = XNAP_XnAP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, initMsg);
+  initMsg->procedureCode = XNAP_ProcedureCode_id_earlyStatusTransfer;
+  initMsg->criticality = XNAP_Criticality_ignore;
+  initMsg->value.present = XNAP_InitiatingMessage__value_PR_EarlyStatusTransfer;
+
+  XNAP_EarlyStatusTransfer_t *out = &initMsg->value.choice.EarlyStatusTransfer;
+
+  /* Source NG-RAN node UE XnAP ID (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_EarlyStatusTransfer_IEs_t, ie1);
+  ie1->id = XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID;
+  ie1->criticality = XNAP_Criticality_reject;
+  ie1->value.present = XNAP_EarlyStatusTransfer_IEs__value_PR_NG_RANnodeUEXnAPID;
+  ie1->value.choice.NG_RANnodeUEXnAPID = msg->s_ng_node_ue_xnap_id;
+
+  /* Target NG-RAN node UE XnAP ID (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_EarlyStatusTransfer_IEs_t, ie2);
+  ie2->id = XNAP_ProtocolIE_ID_id_targetNG_RANnodeUEXnAPID;
+  ie2->criticality = XNAP_Criticality_reject;
+  ie2->value.present = XNAP_EarlyStatusTransfer_IEs__value_PR_NG_RANnodeUEXnAPID_1;
+  ie2->value.choice.NG_RANnodeUEXnAPID_1 = msg->t_ng_node_ue_xnap_id;
+
+  /* Procedure Stage (M) */
+  asn1cSequenceAdd(out->protocolIEs.list, XNAP_EarlyStatusTransfer_IEs_t, ie3);
+  ie3->id = XNAP_ProtocolIE_ID_id_procedureStage;
+  ie3->criticality = XNAP_Criticality_reject;
+  ie3->value.present = XNAP_EarlyStatusTransfer_IEs__value_PR_ProcedureStageChoice;
+  XNAP_ProcedureStageChoice_t *stage = &ie3->value.choice.ProcedureStageChoice;
+
+  switch (msg->procedure_stage) {
+    case XNAP_PROCEDURE_STAGE_FIRST_DL_COUNT: {
+      stage->present = XNAP_ProcedureStageChoice_PR_first_dl_count;
+      asn1cCalloc(stage->choice.first_dl_count, first);
+      for (int i = 0; i < msg->nb_drb; i++) {
+        asn1cSequenceAdd(first->dRBsSubjectToEarlyStatusTransfer.list, XNAP_DRBsSubjectToEarlyStatusTransfer_Item_t, item);
+        item->drbID = msg->drb_list[i].drb_id;
+        item->dlCount = xnap_encode_dl_count(&msg->drb_list[i].dl_count);
+      }
+    } break;
+
+    case XNAP_PROCEDURE_STAGE_DL_DISCARDING: {
+      stage->present = XNAP_ProcedureStageChoice_PR_dl_discarding;
+      asn1cCalloc(stage->choice.dl_discarding, discard);
+      for (int i = 0; i < msg->nb_drb; i++) {
+        asn1cSequenceAdd(discard->dRBsSubjectToDLDiscarding.list, XNAP_DRBsSubjectToDLDiscarding_Item_t, item);
+        item->drbID = msg->drb_list[i].drb_id;
+        item->dlCount = xnap_encode_dl_count(&msg->drb_list[i].dl_count);
+      }
+    } break;
+
+    default:
+      AssertFatal(false, "unknown procedure stage %d\n", msg->procedure_stage);
+  }
+
+  return pdu;
+}
+
+/**
+ * @brief XnAP Early Status Transfer (9.1.1.14) decoding
+ */
+bool decode_xnap_early_status_transfer(xnap_early_status_transfer_t *out, const XNAP_XnAP_PDU_t *pdu)
+{
+  _EQ_CHECK_INT(pdu->present, XNAP_XnAP_PDU_PR_initiatingMessage);
+  AssertError(pdu->choice.initiatingMessage != NULL, return false, "initiatingMessage is NULL");
+  _EQ_CHECK_LONG(pdu->choice.initiatingMessage->procedureCode, XNAP_ProcedureCode_id_earlyStatusTransfer);
+  _EQ_CHECK_INT(pdu->choice.initiatingMessage->value.present, XNAP_InitiatingMessage__value_PR_EarlyStatusTransfer);
+
+  XNAP_EarlyStatusTransfer_t *in = &pdu->choice.initiatingMessage->value.choice.EarlyStatusTransfer;
+  XNAP_EarlyStatusTransfer_IEs_t *ie;
+
+  XNAP_LIB_FIND_IE(XNAP_EarlyStatusTransfer_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID, true);
+  XNAP_LIB_FIND_IE(XNAP_EarlyStatusTransfer_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_targetNG_RANnodeUEXnAPID, true);
+  XNAP_LIB_FIND_IE(XNAP_EarlyStatusTransfer_IEs_t, ie, &in->protocolIEs.list, XNAP_ProtocolIE_ID_id_procedureStage, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    DevAssert(in->protocolIEs.list.array[i]);
+    ie = in->protocolIEs.list.array[i];
+
+    switch (ie->id) {
+      case XNAP_ProtocolIE_ID_id_sourceNG_RANnodeUEXnAPID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_EarlyStatusTransfer_IEs__value_PR_NG_RANnodeUEXnAPID);
+        out->s_ng_node_ue_xnap_id = ie->value.choice.NG_RANnodeUEXnAPID;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_targetNG_RANnodeUEXnAPID: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_EarlyStatusTransfer_IEs__value_PR_NG_RANnodeUEXnAPID_1);
+        out->t_ng_node_ue_xnap_id = ie->value.choice.NG_RANnodeUEXnAPID_1;
+      } break;
+
+      case XNAP_ProtocolIE_ID_id_procedureStage: {
+        _EQ_CHECK_INT(ie->value.present, XNAP_EarlyStatusTransfer_IEs__value_PR_ProcedureStageChoice);
+        const XNAP_ProcedureStageChoice_t *stage = &ie->value.choice.ProcedureStageChoice;
+
+        switch (stage->present) {
+          case XNAP_ProcedureStageChoice_PR_first_dl_count: {
+            const XNAP_DRBsSubjectToEarlyStatusTransfer_List_t *list =
+                &stage->choice.first_dl_count->dRBsSubjectToEarlyStatusTransfer;
+            AssertError(list->list.count >= 1 && list->list.count <= MAX_DRBS_PER_UE,
+                        return false,
+                        "invalid DRB list size %d\n",
+                        list->list.count);
+            out->procedure_stage = XNAP_PROCEDURE_STAGE_FIRST_DL_COUNT;
+            out->nb_drb = list->list.count;
+            for (int j = 0; j < list->list.count; j++) {
+              out->drb_list[j].drb_id = list->list.array[j]->drbID;
+              if (!decode_xnap_dl_count(&list->list.array[j]->dlCount, &out->drb_list[j].dl_count))
+                return false;
+            }
+          } break;
+
+          case XNAP_ProcedureStageChoice_PR_dl_discarding: {
+            const XNAP_DRBsSubjectToDLDiscarding_List_t *list = &stage->choice.dl_discarding->dRBsSubjectToDLDiscarding;
+            AssertError(list->list.count >= 1 && list->list.count <= MAX_DRBS_PER_UE,
+                        return false,
+                        "invalid DRB list size %d\n",
+                        list->list.count);
+            out->procedure_stage = XNAP_PROCEDURE_STAGE_DL_DISCARDING;
+            out->nb_drb = list->list.count;
+            for (int j = 0; j < list->list.count; j++) {
+              out->drb_list[j].drb_id = list->list.array[j]->drbID;
+              if (!decode_xnap_dl_count(&list->list.array[j]->dlCount, &out->drb_list[j].dl_count))
+                return false;
+            }
+          } break;
+
+          default:
+            PRINT_ERROR("Unknown ProcedureStageChoice.present=%d\n", stage->present);
+            return false;
+        }
+      } break;
+
+      default:
+        PRINT_ERROR("XNAP_ProtocolIE_ID_id %ld unknown, skipping\n", ie->id);
+        break;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * @brief XnAP Early Status Transfer (9.1.1.14) equality function
+ */
+bool eq_xnap_early_status_transfer(const xnap_early_status_transfer_t *a, const xnap_early_status_transfer_t *b)
+{
+  _EQ_CHECK_UINT32(a->s_ng_node_ue_xnap_id, b->s_ng_node_ue_xnap_id);
+  _EQ_CHECK_UINT32(a->t_ng_node_ue_xnap_id, b->t_ng_node_ue_xnap_id);
+  _EQ_CHECK_INT(a->procedure_stage, b->procedure_stage);
+  _EQ_CHECK_INT(a->nb_drb, b->nb_drb);
+  for (int i = 0; i < a->nb_drb; i++) {
+    _EQ_CHECK_INT(a->drb_list[i].drb_id, b->drb_list[i].drb_id);
+    if (!eq_xnap_drb_count_value(&a->drb_list[i].dl_count, &b->drb_list[i].dl_count))
+      return false;
+  }
+  return true;
+}
+
+/**
+ * @brief XnAP Early Status Transfer (9.1.1.14) memory management
+ */
+void free_xnap_early_status_transfer(xnap_early_status_transfer_t *msg)
+{
+  // Nothing to free
+  UNUSED(msg);
+}
