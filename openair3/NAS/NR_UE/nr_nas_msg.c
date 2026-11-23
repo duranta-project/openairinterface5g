@@ -28,6 +28,8 @@
 #include "PduSessionEstablishmentAccept.h"
 #include "PduSessionModificationCommand.h"
 #include "PduSessionModificationComplete.h"
+#include "PduSessionReleaseCommand.h"
+#include "PduSessionReleaseComplete.h"
 #include "RegistrationAccept.h"
 #include "SORTransparentContainer.h"
 #include "FGSIdentityResponse.h"
@@ -1886,22 +1888,14 @@ static void send_nas_uplink_data_req(nr_ue_nas_t *nas, const as_nas_info_t *init
   itti_send_msg_to_task(TASK_RRC_NRUE, nas->UE_id, msg);
 }
 
-static void generatePduSessionModificationComplete(nr_ue_nas_t *nas,
-                                                   as_nas_info_t *responseMsg,
-                                                   uint8_t pdu_session_id,
-                                                   uint8_t pti)
+/** @brief Build a ciphered and integrity protected UL NAS Transport that carries a 5GSM message (TS 24.501 8.2.10) */
+static void generate_5gsm_ul_nas_transport(nr_ue_nas_t *nas,
+                                           as_nas_info_t *responseMsg,
+                                           uint8_t pdu_session_id,
+                                           uint8_t *req_buffer,
+                                           uint16_t req_length)
 {
   int size = 0;
-
-  // Setup PDU session modification complete message
-  uint16_t req_length = 4;
-  uint8_t *req_buffer = malloc_or_fail(req_length);
-  pdu_session_modification_complete_msg pdu_session_mod_complete;
-  pdu_session_mod_complete.protocoldiscriminator = FGS_SESSION_MANAGEMENT_MESSAGE;
-  pdu_session_mod_complete.pdusessionid = pdu_session_id;
-  pdu_session_mod_complete.pti = pti;
-  pdu_session_mod_complete.pdusessionmodificationcompletemsgtype = FGS_PDU_SESSION_MODIFICATION_COMPLETE;
-  encode_pdu_session_modification_complete(&pdu_session_mod_complete, req_buffer, req_length);
 
   nas_stream_cipher_t stream_cipher = {0};
   uint8_t mac[NAS_INTEGRITY_SIZE];
@@ -1939,9 +1933,6 @@ static void generatePduSessionModificationComplete(nr_ue_nas_t *nas,
       security_header_len
       + mm_msg_encode(plain, (uint8_t *)(responseMsg->nas_data + security_header_len), size - security_header_len);
 
-  // Free allocated memory after encode
-  free(req_buffer);
-
   /* ciphering */
   uint8_t buf[responseMsg->length - 7];
   stream_cipher.context = nas->security_container->ciphering_context;
@@ -1966,6 +1957,22 @@ static void generatePduSessionModificationComplete(nr_ue_nas_t *nas,
   for (int i = 0; i < 4; i++) {
     responseMsg->nas_data[2 + i] = mac[i];
   }
+}
+
+static void generatePduSessionModificationComplete(nr_ue_nas_t *nas,
+                                                   as_nas_info_t *responseMsg,
+                                                   uint8_t pdu_session_id,
+                                                   uint8_t pti)
+{
+  uint16_t req_length = 4;
+  uint8_t req_buffer[4];
+  pdu_session_modification_complete_msg pdu_session_mod_complete;
+  pdu_session_mod_complete.protocoldiscriminator = FGS_SESSION_MANAGEMENT_MESSAGE;
+  pdu_session_mod_complete.pdusessionid = pdu_session_id;
+  pdu_session_mod_complete.pti = pti;
+  pdu_session_mod_complete.pdusessionmodificationcompletemsgtype = FGS_PDU_SESSION_MODIFICATION_COMPLETE;
+  encode_pdu_session_modification_complete(&pdu_session_mod_complete, req_buffer, req_length);
+  generate_5gsm_ul_nas_transport(nas, responseMsg, pdu_session_id, req_buffer, req_length);
 }
 
 /**
@@ -2144,6 +2151,100 @@ static void handle_pdu_session_modification_command(nr_ue_nas_t *nas, uint8_t *p
   LOG_I(NAS, "Send NAS_UPLINK_DATA_REQ message(PduSessionModificationComplete)\n");
 }
 
+static void generatePduSessionReleaseComplete(nr_ue_nas_t *nas, as_nas_info_t *responseMsg, uint8_t pdu_session_id, uint8_t pti)
+{
+  uint8_t req_buffer[4];
+  byte_array_t ba = {.buf = req_buffer, .len = sizeof(req_buffer)};
+  const pdu_session_release_complete_msg_t complete = {.pdu_session_id = pdu_session_id, .pti = pti};
+  int req_length = encode_pdu_session_release_complete(&ba, &complete);
+  DevAssert(req_length > 0);
+  generate_5gsm_ul_nas_transport(nas, responseMsg, pdu_session_id, req_buffer, req_length);
+}
+
+/** @brief Release a PDU session locally: ask RRC to release its user plane, then forget it in NAS */
+static void release_pdu_session(nr_ue_nas_t *nas, int pdu_session_id)
+{
+  DevAssert(pdu_session_id > 0 && pdu_session_id < MAX_NUM_PSI);
+  nas_ue_pdu_tun_t *t = &nas->pdu_tun[pdu_session_id];
+  MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, nas->UE_id, NAS_TUN_REQ);
+  nas_tun_req_t *req = &NAS_TUN_REQ(msg);
+  req->action = NAS_TUN_RELEASE_PDU_SESSION;
+  req->n_psi = 1;
+  nas_tun_psi_set(&req->psi[0], pdu_session_id, t);
+  itti_send_msg_to_task(TASK_RRC_NRUE, nas->UE_id, msg);
+  // RRC now owns the fd
+  t->sock = -1;
+  t->qfi = -1;
+  memset(t->ifname, 0, sizeof(t->ifname));
+  nas->psi_status[pdu_session_id] = PDU_SESSION_INACTIVE;
+}
+
+/**
+ * @brief Handle PDU Session Release Command: network-requested PDU session release (TS 24.501 6.3.3.3)
+ */
+static void handle_pdu_session_release_command(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uint32_t msg_length)
+{
+  int size = 0;
+  int decoded = 0;
+
+  // Security protected NAS header (7 bytes)
+  fgs_nas_message_security_header_t sec_nas_hdr = {0};
+  if ((decoded = decode_5gs_security_protected_header(&sec_nas_hdr, pdu_buffer, msg_length)) < 0) {
+    LOG_E(NAS, "decode_5gs_security_protected_header failure in PDU Session Release Command decoding\n");
+    return;
+  }
+  size += decoded;
+
+  // decode plain 5GMM message header
+  fgmm_msg_header_t mm_header = {0};
+  if ((decoded = decode_5gmm_msg_header(&mm_header, pdu_buffer + size, msg_length - size)) < 0) {
+    LOG_E(NAS, "decode_5gmm_msg_header failure in PDU Session Release Command decoding\n");
+    return;
+  }
+  size += decoded;
+
+  /* Process container (5GSM message) */
+  // Payload container type and spare (1 octet)
+  size++;
+  // Payload container length
+  uint16_t iei_len = 0;
+  GET_SHORT(pdu_buffer + size, iei_len);
+  size += sizeof(iei_len);
+  // decode plain 5GSM message header
+  fgsm_msg_header_t sm_header = {0};
+  if ((decoded = decode_5gsm_msg_header(&sm_header, pdu_buffer + size, msg_length - size)) < 0) {
+    LOG_E(NAS, "decode_5gsm_msg_header failure in PDU Session Release Command decoding\n");
+    return;
+  }
+  size += decoded;
+
+  if (iei_len < decoded || size + (iei_len - decoded) > msg_length) {
+    LOG_E(NAS, "Invalid payload container length in PDU Session Release Command\n");
+    return;
+  }
+  pdu_session_release_command_msg_t msg = {0};
+  const byte_array_t body = {.buf = pdu_buffer + size, .len = iei_len - decoded};
+  if (decode_pdu_session_release_command(&msg, &body) < 0) {
+    LOG_E(NAS, "decode_pdu_session_release_command failure\n");
+    return;
+  }
+
+  const int psi = sm_header.pdu_session_id;
+  if (psi <= 0 || psi >= MAX_NUM_PSI || nas->psi_status[psi] == PDU_SESSION_INACTIVE) {
+    // TS 24.501 6.3.3.6 a) asks for a 5GSM STATUS with cause #43, which the UE does not implement
+    LOG_W(NAS, "PDU Session Release Command for inactive PDU session %d, ignoring it\n", psi);
+    return;
+  }
+  LOG_A(NAS, "PDU session %d released by the network, 5GSM cause %d\n", psi, msg.cause);
+  // Send the Release Complete before the local release: RRC handles both in order, and stopping the TUN reader
+  // can take some ms. When this was the last DRB, the gNB soon releases the RRC connection.
+  as_nas_info_t response_msg = {0};
+  generatePduSessionReleaseComplete(nas, &response_msg, psi, sm_header.pti);
+  send_nas_uplink_data_req(nas, &response_msg);
+  LOG_I(NAS, "Send NAS_UPLINK_DATA_REQ message(PduSessionReleaseComplete)\n");
+  release_pdu_session(nas, psi);
+}
+
 /**
  * @brief Handle DL NAS Transport and process piggybacked 5GSM messages
  */
@@ -2160,6 +2261,9 @@ void handleDownlinkNASTransport(nr_ue_nas_t *nas, uint8_t *pdu_buffer, int pdu_l
   } else if (msg_type == FGS_PDU_SESSION_MODIFICATION_COMMAND) {
     LOG_A(NAS, "Received PDU Session Modification Command in DL NAS Transport\n");
     handle_pdu_session_modification_command(nas, pdu_buffer, pdu_length);
+  } else if (msg_type == FGS_PDU_SESSION_RELEASE_COMMAND) {
+    LOG_A(NAS, "Received PDU Session Release Command in DL NAS Transport\n");
+    handle_pdu_session_release_command(nas, pdu_buffer, pdu_length);
   } else {
     LOG_E(NAS, "Received unexpected message in DLinformationTransfer %d\n", msg_type);
   }
@@ -2809,6 +2913,8 @@ void *nas_nrue(void *args_p)
           handle_service_accept(nas, &ba);
         } else if (msg_type == FGS_PDU_SESSION_MODIFICATION_COMMAND) {
           handle_pdu_session_modification_command(nas, ba.buf, ba.len);
+        } else if (msg_type == FGS_PDU_SESSION_RELEASE_COMMAND) {
+          handle_pdu_session_release_command(nas, ba.buf, ba.len);
         }
 
         // Free NAS buffer memory after use (coming from RRC)
@@ -2922,6 +3028,9 @@ void *nas_nrue(void *args_p)
             break;
           case FGS_PDU_SESSION_MODIFICATION_COMMAND:
             handle_pdu_session_modification_command(nas, pdu_buffer, pdu_length);
+            break;
+          case FGS_PDU_SESSION_RELEASE_COMMAND:
+            handle_pdu_session_release_command(nas, pdu_buffer, pdu_length);
             break;
           case FGS_REGISTRATION_REJECT:
             handle_registration_reject(nas, &buffer);
