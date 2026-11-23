@@ -667,6 +667,8 @@ int trx_usrp_write_init(openair0_device_t *device)
   usrp_state_t *s = (usrp_state_t *)device->priv;
   const int channels = std::min(device->openair0_cfg->tx_num_channels, MAX_WRITE_THREAD_BUFFER_SIZE);
   s->tx_queue_channels = channels;
+  // UHD handles transport packets. One subframe per request avoids filling the queue with pieces of one slot.
+  device->reOrder.single_writer_max_samples = static_cast<int>(std::ceil(s->sample_rate / 1000));
   // Each queue slot and the worker have room for a full radio frame per channel.
   s->tx_queue_capacity = std::max(static_cast<int>(std::ceil(s->sample_rate / 100)), device->reOrder.sz);
   if (channels > 0) {
