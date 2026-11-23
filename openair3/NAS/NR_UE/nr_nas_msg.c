@@ -2568,16 +2568,41 @@ static void handle_service_accept(nr_ue_nas_t *nas, const byte_array_t *buffer)
   /** TS 24.501 §5.6.1.4: SERVICE ACCEPT - successful service request,
    * exit 5GMM-SERVICE-REQUEST-INITIATED, enter 5GMM-REGISTERED (§5.1.3.2.1.2.6). */
   nas->fiveGMM_state = FGS_REGISTERED;
+  // The buffer is the whole NAS PDU: skip the security protected header, if any, and the 5GMM header.
+  uint8_t *pdu = buffer->buf;
+  const uint8_t *end = buffer->buf + buffer->len;
+  if (buffer->len > 1 && pdu[1] != PLAIN_5GS_MSG) {
+    fgs_nas_message_security_header_t sp_header = {0};
+    const int decoded = decode_5gs_security_protected_header(&sp_header, pdu, end - pdu);
+    if (decoded < 0) {
+      LOG_E(NAS, "Service Accept: failed to decode security protected header\n");
+      return;
+    }
+    pdu += decoded;
+  }
+  fgmm_msg_header_t mm_header = {0};
+  const int decoded = decode_5gmm_msg_header(&mm_header, pdu, end - pdu);
+  if (decoded < 0) {
+    LOG_E(NAS, "Service Accept: failed to decode NAS message header\n");
+    return;
+  }
+  pdu += decoded;
+  const byte_array_t ba = {.buf = pdu, .len = end - pdu};
   fgs_service_accept_msg_t msg = {0};
-  decode_fgs_service_accept(&msg, buffer);
-  // Extract timer t3448 in seconds (optional IE)
-  nas->t3448 = process_gprs_timer(msg.t3448);
-  // Extract possible reactivation errors
-  for (int i = 0; i < msg.num_errors; i++)
-    LOG_E(NAS,
-          "Received PDU Session %d reactivation result error cause %s\n",
-          msg.cause->pdu_session_id,
-          print_info(msg.cause->cause, cause_text_info, sizeofArray(cause_text_info)));
+  // All IEs of the Service Accept are optional, so the body can be empty
+  if (ba.len > 0 && decode_fgs_service_accept(&msg, &ba) < 0) {
+    LOG_E(NAS, "Service Accept: failed to decode NAS message body\n");
+  } else {
+    // Extract timer t3448 in seconds (optional IE)
+    nas->t3448 = process_gprs_timer(msg.t3448);
+    // Extract possible reactivation errors
+    for (int i = 0; i < msg.num_errors; i++)
+      LOG_E(NAS,
+            "Received PDU Session %d reactivation result error cause %s\n",
+            msg.cause[i].pdu_session_id,
+            print_info(msg.cause[i].cause, cause_text_info, sizeofArray(cause_text_info)));
+  }
+  free_fgs_service_accept(&msg);
   send_nas_tun_req_action(nas, NAS_TUN_START_USER_PLANE);
 }
 
