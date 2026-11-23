@@ -3029,6 +3029,9 @@ void *nas_nrue(void *args_p)
           case FGS_PDU_SESSION_MODIFICATION_COMMAND:
             handle_pdu_session_modification_command(nas, pdu_buffer, pdu_length);
             break;
+          case FGS_PDU_SESSION_RELEASE_COMMAND:
+            handle_pdu_session_release_command(nas, pdu_buffer, pdu_length);
+            break;
           case FGS_REGISTRATION_REJECT:
             handle_registration_reject(nas, &buffer);
             break;
