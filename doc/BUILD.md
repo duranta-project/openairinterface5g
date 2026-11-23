@@ -192,7 +192,7 @@ Now, when installing the pre-requisites, especially the `UHD` driver, you can no
 
 ```bash
 export BUILD_UHD_FROM_SOURCE=True
-export UHD_VERSION=4.10.0.0
+export UHD_VERSION=4.11.0.0
 ./build_oai -I -w USRP
 ```
 

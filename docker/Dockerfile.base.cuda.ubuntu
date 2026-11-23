@@ -15,7 +15,7 @@ ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe/Paris
 ENV BUILD_UHD_FROM_SOURCE=True
-ENV UHD_VERSION=4.8.0.0
+ENV UHD_VERSION=4.11.0.0
 
 #install developers pkg/repo
 RUN apt-get update && \

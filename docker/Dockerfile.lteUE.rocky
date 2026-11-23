@@ -17,8 +17,12 @@ FROM ran-build:latest AS lte-ue-build
 FROM $BASE_IMAGE AS oai-lte-ue
 ENV TZ=Europe/Paris
 
-RUN dnf update -y && \
+RUN dnf install 'dnf-command(config-manager)' -y && \
+    dnf install epel-release -y && crb enable && \
+    dnf update -y && \
     dnf install -y \
+        protobuf \
+        grpc-cpp \
         lksctp-tools \
         procps-ng \
         tzdata \
@@ -74,7 +78,7 @@ COPY --from=lte-ue-base \
 
 # Now we are copying from builder-image the UHD files.
 COPY --from=lte-ue-base /usr/local/bin/uhd_find_devices /usr/local/bin
-COPY --from=lte-ue-base /usr/local/lib64/libuhd.so.4.8.0 /usr/local/lib64
+COPY --from=lte-ue-base /usr/local/lib64/libuhd.so.4.11.0 /usr/local/lib64
 COPY --from=lte-ue-base /usr/local/lib64/uhd/utils/uhd_images_downloader.py /opt/oai-lte-ue/bin
 
 WORKDIR /usr/local/share/uhd/rfnoc
@@ -92,7 +96,7 @@ RUN /bin/bash -c "ln -s /usr/local/lib/liboai_usrpdevif.so /usr/local/lib/liboai
         /usr/local/lib/libparams_libconfig.so \
         /usr/local/lib/libdfts.so \
         /usr/local/lib/libtelnetsrv.so \
-        /usr/local/lib64/libuhd.so.4.8.0
+        /usr/local/lib64/libuhd.so.4.11.0
 
 WORKDIR /opt/oai-lte-ue
 COPY --from=lte-ue-base /tini /tini
