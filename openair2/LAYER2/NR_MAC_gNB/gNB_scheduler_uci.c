@@ -1339,6 +1339,31 @@ static void nr_mac_sr_received(NR_UE_info_t *UE, nr_cell_sched_t *cell)
     LOG_W(NR_MAC, "UE %04x: %d SR received, reached configured sr_TransMax %d before UL grant\n", UE->rnti, sched_ctrl->sr_cnt, trans_max);
 }
 
+/* A UE that stops transmitting (MAC reset, lost synchronisation) is only detected through PUSCH DTX, and a UE that
+   requests nothing is not necessarily granted any PUSCH when the cell is loaded: its DL transport blocks would be
+   retransmitted and dropped for ever. Count the PUCCH occasions carrying HARQ feedback on which nothing was
+   detected, and declare the UL failure well after the PUSCH threshold. */
+#define PUCCH_FAILURE_THRES_FACTOR 10
+static void nr_mac_count_pucch_dtx(nr_cell_sched_t *cell, NR_UE_info_t *UE, frame_t frame, slot_t slot, bool dtx)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  if (!dtx) {
+    sched_ctrl->pucch_consecutive_dtx_cnt = 0;
+    return;
+  }
+  sched_ctrl->pucch_consecutive_dtx_cnt++;
+  const int thres = cell->radio_config.pusch.failure_thres * PUCCH_FAILURE_THRES_FACTOR;
+  if (!get_softmodem_params()->phy_test && !sched_ctrl->ul_failure && sched_ctrl->pucch_consecutive_dtx_cnt >= thres) {
+    LOG_W(NR_MAC,
+          "%4d.%2d UE %04x: Detected UL Failure on PUCCH after %d HARQ feedback DTX, stopping scheduling\n",
+          frame,
+          slot,
+          UE->rnti,
+          sched_ctrl->pucch_consecutive_dtx_cnt);
+    nr_mac_trigger_ul_failure(sched_ctrl, UE->current_UL_BWP.scs);
+  }
+}
+
 void handle_nr_uci_pucch_0_1(gNB_MAC_INST *nrmac,
                              nr_cell_sched_t *cell,
                              frame_t frame,
@@ -1396,6 +1421,8 @@ void handle_nr_uci_pucch_0_1(gNB_MAC_INST *nrmac,
         nr_mac_signal_dtx(&sched_ctrl->pucch_pc);
       }
     }
+    if (!is_ra && uci_01->harq.num_harq > 0)
+      nr_mac_count_pucch_dtx(cell, UE, frame, slot, uci_01->harq.harq_confidence_level == 1);
 
     // tpc (power control) only if we received AckNack
     if (uci_01->harq.harq_confidence_level == 0 && uci_01->ul_cqi != 0xff) {
@@ -1525,6 +1552,8 @@ void handle_nr_uci_pucch_2_3_4(gNB_MAC_INST *nrmac,
       }
       handle_dl_harq(cell, UE, pid, success, cell->dl_bler.harq_round_max);
     }
+    if (uci_234->harq.harq_bit_len > 0)
+      nr_mac_count_pucch_dtx(cell, UE, frame, slot, uci_234->harq.harq_crc == 1);
   }
   if ((uci_234->pduBitmap >> 2) & 0x01) {
     LOG_D(NR_MAC, "CSI CRC %d\n", uci_234->csi_part1.csi_part1_crc);

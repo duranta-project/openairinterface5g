@@ -758,6 +758,7 @@ typedef struct {
   int16_t ta_update;
   bool ta_apply;
   int pusch_consecutive_dtx_cnt;
+  /// consecutive PUCCH occasions with HARQ feedback expected and nothing detected
   int pucch_consecutive_dtx_cnt;
   bool ul_failure;
   int ul_failure_timer;

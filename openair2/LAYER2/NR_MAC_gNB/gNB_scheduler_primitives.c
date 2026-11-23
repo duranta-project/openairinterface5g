@@ -4024,6 +4024,7 @@ void nr_mac_reset_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl)
   sched_ctrl->ul_failure = false;
   sched_ctrl->ul_failure_timer = 0;
   sched_ctrl->pusch_consecutive_dtx_cnt = 0;
+  sched_ctrl->pucch_consecutive_dtx_cnt = 0;
 }
 
 /* \brief trigger a release request towards the CU.

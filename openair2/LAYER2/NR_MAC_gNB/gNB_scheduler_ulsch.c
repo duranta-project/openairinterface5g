@@ -1098,6 +1098,7 @@ static void _nr_rx_sdu_rx(gNB_MAC_INST *gNB_mac,
   if (crc_ok) {
     LOG_D(NR_MAC, "Received PDU at MAC gNB \n");
     UE->UE_sched_ctrl.pusch_consecutive_dtx_cnt = 0;
+    UE->UE_sched_ctrl.pucch_consecutive_dtx_cnt = 0;
     UE->UE_sched_ctrl.sched_ul_bytes -= rx->pdu_length;
     if (UE->UE_sched_ctrl.sched_ul_bytes < 0)
       UE->UE_sched_ctrl.sched_ul_bytes = 0;
