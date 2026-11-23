@@ -1660,8 +1660,28 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   }
 
   /* SRS_REQUEST */
-  AssertFatal(dci->srs_request.nbits == 2, "If SUL is supported in the cell, there is an additional bit in SRS request field\n");
-  if (dci->srs_request.val > 0)
+  if (dci->srs_request.nbits != 2) {
+    // seen once in a 512-UE run (2026-11-23): the size comes from nr_dci_size(), not from the DCI. Log what we have
+    LOG_E(NR_MAC_DCI,
+          "[UE %d] %d.%d DCI 1_1 rnti %04x: SRS request field of %d bits (val %d), SUL %p, ss_type %d, coreset_type %d, "
+          "payload size %d, fields: fda %d tda %d ant %d harq %d dai %d k1 %d\n",
+          mac->ue_id,
+          frame,
+          slot,
+          dci_ind->rnti,
+          dci->srs_request.nbits,
+          dci->srs_request.val,
+          mac->sc_info.supplementaryUplink,
+          dci_ind->ss_type,
+          dci_ind->coreset_type,
+          dci_ind->payloadSize,
+          dci->frequency_domain_assignment.nbits,
+          dci->time_domain_assignment.nbits,
+          dci->antenna_ports.nbits,
+          dci->harq_pid.nbits,
+          dci->dai[0].nbits,
+          dci->pdsch_to_harq_feedback_timing_indicator.nbits);
+  } else if (dci->srs_request.val > 0)
     nr_ue_aperiodic_srs_scheduling(mac, dci->srs_request.val, frame, slot);
   /* CBGTI */
   dlsch_pdu->cbgti = dci->cbgti.val;
