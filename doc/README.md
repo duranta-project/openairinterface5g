@@ -76,6 +76,8 @@ More general information is available in the
   O-RAN AAL/DPDK BBDEV or XDMA (Aurora)
 - [NR-UE with the GPU LDPC decoder](./NR_SA_Tutorial_OAI_nrUE_GPU_offload.md): offload the UE LDPC decoder to a GPU
 - [GPU LDPC decoder](../openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_cuda/README.md): test and profile the CUDA/HIP decoder
+- [ArmRAL LDPC decoder](../openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_armral/README.md): LDPC decoding on aarch64
+  CPUs with the Arm RAN Acceleration Library
 - [GPU-accelerated channel simulation](../openair1/SIMULATION/TOOLS/DOC/gpu_acceleration.md): run the channel model
   on the GPU with CUDA
 
