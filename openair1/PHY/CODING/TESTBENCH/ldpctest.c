@@ -21,8 +21,6 @@
 #include "PHY/gpu_alloc.h"
 #endif
 
-#define MAX_BLOCK_LENGTH 8448
-
 #ifndef malloc16
 #define malloc16(x) memalign(32, x)
 #endif
@@ -30,7 +28,7 @@
 #define NR_LDPC_PROFILER_DETAIL
 
 ldpc_interface_t ldpc_orig, ldpc_toCompare;
-static double modulated_input[MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * 4][68 * 384];
+static double modulated_input[MAX_NUM_NR_XLSCH_SEGMENTS_PER_LAYER * 4][68 * 384];
 
 // 4-bit quantizer
 int8_t quantize4bit(double D, double x)
