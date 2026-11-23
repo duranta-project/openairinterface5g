@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "common/5g_packet_filter.h"
+#include "common/utils/ds/byte_array.h"
 
 /* Rule operation codes - TS 24.501 Table 9.11.4.13.1 */
 
@@ -94,5 +95,13 @@ qos_rule_t decode_qos_rule(uint8_t *buf);
  * @return Total length of the QoS rule IE in bytes
  */
 uint16_t get_len_qos_rule(qos_rule_t *rule);
+
+/**
+ * @brief Decode a 5GSM message body made of a mandatory 5GSM cause (V, TS 24.501 9.11.4.2) followed by optional IEs
+ *        that the UE does not use, as in the PDU SESSION RELEASE COMMAND and REJECT
+ * @param buffer the message after the 5GSM header
+ * @return number of decoded bytes, or -1 if the cause is missing or an IE is truncated
+ */
+int decode_5gsm_cause_skip_optional_ies(uint8_t *cause, const byte_array_t *buffer, const char *msg_name);
 
 #endif /* FGSM_LIB_H */

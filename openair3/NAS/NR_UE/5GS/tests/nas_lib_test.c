@@ -18,6 +18,8 @@
 #include "fgmm_authentication_reject.h"
 #include "PduSessionReleaseCommand.h"
 #include "PduSessionReleaseComplete.h"
+#include "PduSessionReleaseRequest.h"
+#include "PduSessionReleaseReject.h"
 #include "nr_nas_msg.h"
 
 configmodule_interface_t *uniqCfg = NULL;
@@ -530,6 +532,47 @@ static void test_pdu_session_release_complete(void)
   AssertFatal(encode_pdu_session_release_complete(&ba, &msg) < 0, "encode_pdu_session_release_complete() overflowed the buffer\n");
 }
 
+/** @brief Test PDU Session Release Request encoding, with and without the optional 5GSM cause,
+ *         and that a too small buffer fails */
+static void test_pdu_session_release_request(void)
+{
+  uint8_t buf[8] = {0};
+  byte_array_t ba = {.buf = buf, .len = sizeof(buf)};
+  const pdu_session_release_request_msg_t no_cause = {.pdu_session_id = 1, .pti = 5};
+  const uint8_t expected_no_cause[] = {FGS_SESSION_MANAGEMENT_MESSAGE, 1, 5, FGS_PDU_SESSION_RELEASE_REQ};
+  int encoded = encode_pdu_session_release_request(&ba, &no_cause);
+  AssertFatal(encoded == sizeof(expected_no_cause), "Encoded length mismatch %d != %ld\n", encoded, sizeof(expected_no_cause));
+  AssertFatal(memcmp(buf, expected_no_cause, encoded) == 0, "Encoding mismatch!\n");
+
+  // 5GSM cause #36 "regular deactivation" (TV, IEI 0x59)
+  const pdu_session_release_request_msg_t with_cause = {.pdu_session_id = 2, .pti = 7, .cause_present = true, .cause = 0x24};
+  const uint8_t expected_with_cause[] = {FGS_SESSION_MANAGEMENT_MESSAGE, 2, 7, FGS_PDU_SESSION_RELEASE_REQ, 0x59, 0x24};
+  encoded = encode_pdu_session_release_request(&ba, &with_cause);
+  AssertFatal(encoded == sizeof(expected_with_cause), "Encoded length mismatch %d != %ld\n", encoded, sizeof(expected_with_cause));
+  AssertFatal(memcmp(buf, expected_with_cause, encoded) == 0, "Encoding mismatch!\n");
+
+  ba.len = sizeof(expected_with_cause) - 1;
+  AssertFatal(encode_pdu_session_release_request(&ba, &with_cause) < 0, "encode_pdu_session_release_request() overflowed the buffer\n");
+}
+
+/** @brief Test PDU Session Release Reject decoding: the 5GSM cause is read, an optional IE is skipped,
+ *         and a missing cause or a truncated IE fails */
+static void test_pdu_session_release_reject(void)
+{
+  // 5GSM cause #43 "invalid PDU session identity", then Extended PCO (TLV-E)
+  uint8_t msg[] = {0x2b, 0x7b, 0x00, 0x02, 0x80, 0x00};
+  byte_array_t ba = {.buf = msg, .len = sizeof(msg)};
+  pdu_session_release_reject_msg_t dec = {0};
+  AssertFatal(decode_pdu_session_release_reject(&dec, &ba) == sizeof(msg) && dec.cause == 0x2b,
+              "decode_pdu_session_release_reject() failed\n");
+
+  ba.len = 0;
+  AssertFatal(decode_pdu_session_release_reject(&dec, &ba) < 0, "decode_pdu_session_release_reject() accepted no 5GSM cause\n");
+
+  ba.len = sizeof(msg) - 1;
+  AssertFatal(decode_pdu_session_release_reject(&dec, &ba) < 0, "decode_pdu_session_release_reject() accepted a truncated IE\n");
+}
+
 int main()
 {
   // Initialize logging system
@@ -548,5 +591,7 @@ int main()
   test_msg_headers();
   test_pdu_session_release_command();
   test_pdu_session_release_complete();
+  test_pdu_session_release_request();
+  test_pdu_session_release_reject();
   return 0;
 }

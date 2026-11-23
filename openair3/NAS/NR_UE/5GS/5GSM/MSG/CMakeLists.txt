@@ -6,7 +6,9 @@ add_library(fgs_5gsm_lib OBJECT fgsm_lib.c
                             PduSessionModificationCommand.c
                             PduSessionModificationComplete.c
                             PduSessionReleaseCommand.c
-                            PduSessionReleaseComplete.c)
+                            PduSessionReleaseComplete.c
+                            PduSessionReleaseReject.c
+                            PduSessionReleaseRequest.c)
 
 target_link_libraries(fgs_5gsm_lib PUBLIC nas_common_ies_lib log_headers packet_filter_lib)
 
