@@ -11,6 +11,7 @@
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_prach_config.h"
 #include "openair1/PHY/defs_gNB.h"
 #include "oru_beamforming.h"
+#include "nr-oru-ue.h"
 
 #define MAX_DL_READ_THREADS 8
 #define MAX_ORU_UL_WORKERS 8
@@ -89,6 +90,11 @@ typedef struct {
   uint64_t ul_symbols_missed;
   uint64_t ul_cal_overflow_dropped; // calendar symbol entry full (UL_CAL_JOBS_PER_SYMBOL)
   uint64_t ul_cal_horizon_dropped;  // job declared > UL_CAL_SLOTS slots ahead (beyond calendar ring)
+  // South side simulating FD-UEs instead of a radio (nr-oru-ue.h), NULL with a radio
+  oru_ue_config_t ue_config;
+  oru_ue_t *ues;
+  int64_t ue_anchor_ns; ///< CLOCK_REALTIME start of 3GPP symbol ue_anchor_symbol
+  uint64_t ue_anchor_symbol;
 } ORU_t;
 
 int get_oru_options(ORU_t *oru);
@@ -96,6 +102,8 @@ void oru_init_frame_parms(ORU_t *oru);
 void *oru_north_read_worker(void *arg);
 void *oru_south_read_thread(void *arg);
 void *oru_south_write_thread(void *arg);
+void *oru_ue_south_thread(void *arg);
+void *oru_ue_dl_thread(void *arg);
 void prepare_prach_item(ORU_t *oru);
 void oru_self_diagnosis(ORU_t *oru);
 
