@@ -14,7 +14,6 @@ static void fill_uci_indication_sr_pdu_0_1(nfapi_nr_sr_pdu_0_1_t *pdu)
 static void fill_uci_indication_sr_pdu_2_3_4(nfapi_nr_sr_pdu_2_3_4_t *pdu)
 {
   pdu->sr_bit_len = rand16_range(1, 8);
-  pdu->sr_payload = calloc(nr_bits_to_bytes(pdu->sr_bit_len), sizeof(*pdu->sr_payload));
   for (int i = 0; i < nr_bits_to_bytes(pdu->sr_bit_len); ++i) {
     pdu->sr_payload[i] = rand8();
   }
@@ -32,8 +31,7 @@ static void fill_uci_indication_harq_pdu_0_1(nfapi_nr_harq_pdu_0_1_t *pdu)
 static void fill_uci_indication_harq_pdu_2_3_4(nfapi_nr_harq_pdu_2_3_4_t *pdu)
 {
   pdu->harq_crc = rand8_range(0, 2);
-  pdu->harq_bit_len = rand16_range(1, 1706);
-  pdu->harq_payload = calloc(nr_bits_to_bytes(pdu->harq_bit_len), sizeof(*pdu->harq_payload));
+  pdu->harq_bit_len = rand16_range(1, 8 * NFAPI_NR_UCI_MAX_PAYLOAD_BYTES);
   for (int i = 0; i < nr_bits_to_bytes(pdu->harq_bit_len); ++i) {
     pdu->harq_payload[i] = rand8();
   }
@@ -42,8 +40,7 @@ static void fill_uci_indication_harq_pdu_2_3_4(nfapi_nr_harq_pdu_2_3_4_t *pdu)
 static void fill_uci_indication_csi_part1(nfapi_nr_csi_part1_pdu_t *pdu)
 {
   pdu->csi_part1_crc = rand8_range(0, 2);
-  pdu->csi_part1_bit_len = rand16_range(1, 1706);
-  pdu->csi_part1_payload = calloc(nr_bits_to_bytes(pdu->csi_part1_bit_len), sizeof(*pdu->csi_part1_payload));
+  pdu->csi_part1_bit_len = rand16_range(1, 8 * NFAPI_NR_UCI_MAX_PAYLOAD_BYTES);
   for (int i = 0; i < nr_bits_to_bytes(pdu->csi_part1_bit_len); ++i) {
     pdu->csi_part1_payload[i] = rand8();
   }
@@ -52,8 +49,7 @@ static void fill_uci_indication_csi_part1(nfapi_nr_csi_part1_pdu_t *pdu)
 static void fill_uci_indication_csi_part2(nfapi_nr_csi_part2_pdu_t *pdu)
 {
   pdu->csi_part2_crc = rand8_range(0, 2);
-  pdu->csi_part2_bit_len = rand16_range(1, 1706);
-  pdu->csi_part2_payload = calloc(nr_bits_to_bytes(pdu->csi_part2_bit_len), sizeof(*pdu->csi_part2_payload));
+  pdu->csi_part2_bit_len = rand16_range(1, 8 * NFAPI_NR_UCI_MAX_PAYLOAD_BYTES);
   for (int i = 0; i < nr_bits_to_bytes(pdu->csi_part2_bit_len); ++i) {
     pdu->csi_part2_payload[i] = rand8();
   }

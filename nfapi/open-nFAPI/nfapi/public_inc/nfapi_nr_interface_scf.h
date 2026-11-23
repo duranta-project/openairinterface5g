@@ -1786,7 +1786,12 @@ typedef struct
 
 //3.4.9 uci_indication
 
-//table 3-67
+// table 3-67
+//  UCI payloads of PUCCH formats 2/3/4 and UCI on PUSCH: the bit lengths are bounded (tables 3-69 to 3-72),
+//  so the payloads are stored in the PDU
+#define NFAPI_NR_UCI_MAX_SR_BYTES 1
+#define NFAPI_NR_UCI_MAX_PAYLOAD_BYTES 8 // FAPI allows 1706 bits; the OAI receivers and MAC handle up to 64
+
 typedef struct
 {
   uint8_t sr_indication;
@@ -1796,9 +1801,8 @@ typedef struct
 //table 3-69
 typedef struct
 {
-  uint16_t sr_bit_len;
-  //! fixme
-  uint8_t* sr_payload;//sr_payload[ceil(sr_bit_len/8)];
+  uint16_t sr_bit_len; // 1 -> 8
+  uint8_t sr_payload[NFAPI_NR_UCI_MAX_SR_BYTES]; // ceil(sr_bit_len / 8) bytes used
 
 } nfapi_nr_sr_pdu_2_3_4_t;
 //table 3-68
@@ -1812,9 +1816,8 @@ typedef struct
 typedef struct
 {
   uint8_t  harq_crc;
-  uint16_t harq_bit_len;
-  //! fixme
-  uint8_t*  harq_payload;//harq_payload[ceil(harq_bit_len)];
+  uint16_t harq_bit_len; // 1 -> 1706 in FAPI, 64 here
+  uint8_t harq_payload[NFAPI_NR_UCI_MAX_PAYLOAD_BYTES]; // ceil(harq_bit_len / 8) bytes used
 } nfapi_nr_harq_pdu_2_3_4_t;
 
 typedef struct
@@ -1829,17 +1832,17 @@ typedef struct
 typedef struct
 {
   uint8_t  csi_part1_crc;
-  uint16_t csi_part1_bit_len;
-  uint8_t*  csi_part1_payload;
-  
+  uint16_t csi_part1_bit_len; // 1 -> 1706 in FAPI, 64 here
+  uint8_t csi_part1_payload[NFAPI_NR_UCI_MAX_PAYLOAD_BYTES];
+
 } nfapi_nr_csi_part1_pdu_t;
 
 //table 3-72
 typedef struct
 {
   uint8_t  csi_part2_crc;
-  uint16_t csi_part2_bit_len;
-  uint8_t*  csi_part2_payload;
+  uint16_t csi_part2_bit_len; // 1 -> 1706 in FAPI, 64 here
+  uint8_t csi_part2_payload[NFAPI_NR_UCI_MAX_PAYLOAD_BYTES];
 } nfapi_nr_csi_part2_pdu_t;
 
 //table 3-63

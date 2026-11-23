@@ -1152,7 +1152,6 @@ static void handle_pucch(PHY_VARS_gNB *gNB, c16_t **rxdataF, const NR_gNB_PUCCH_
       nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu_format2 = &uci->pucch_pdu_format_2_3_4;
       uci_pdu_format2->csi_part2.csi_part2_crc = 0;
       uci_pdu_format2->csi_part2.csi_part2_bit_len = 0;
-      uci_pdu_format2->csi_part2.csi_part2_payload = NULL;
       start_meas(&gNB->pucch23_proc_rx);
       nr_decode_pucch2(gNB, rxdataF, pucch->frame, pucch->slot, uci_pdu_format2, pucch_pdu);
       stop_meas(&gNB->pucch23_proc_rx);
