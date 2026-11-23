@@ -25,6 +25,8 @@
 #include <complex>
 #include <fstream>
 #include <cmath>
+#include <algorithm>
+#include <utility>
 #include <time.h>
 #include "common/utils/LOG/log.h"
 #include "common_lib.h"
@@ -81,6 +83,9 @@ typedef struct {
   int num_underflows;
   int num_overflows;
   int num_seq_errors;
+  int32_t *tx_queue_storage;
+  int tx_queue_capacity;
+  int tx_queue_channels;
   int64_t tx_count;
   int64_t rx_count;
   int wait_for_first_pps;
@@ -436,6 +441,7 @@ static void trx_usrp_end(openair0_device_t *device)
   s->tx_stream = NULL;
   s->rx_stream = NULL;
   s->usrp = NULL;
+  free(s->tx_queue_storage);
   free(s);
   device->priv = NULL;
   device->trx_start_func = NULL;
@@ -464,7 +470,6 @@ static int trx_usrp_write(openair0_device_t *device,
 			  int flags)
 {
   int ret=0;
-  usrp_state_t *s = (usrp_state_t *)device->priv;
   timestamp -= device->openair0_cfg->command_line_sample_advance + device->openair0_cfg->tx_sample_advance;
 
   radio_tx_burst_flag_t flags_burst = (radio_tx_burst_flag_t) (flags & 0xf);
@@ -507,6 +512,7 @@ static int trx_usrp_write(openair0_device_t *device,
     }
 
     if (usrp_tx_thread == 0) {
+      usrp_state_t *s = (usrp_state_t *)device->priv;
       s->tx_md.has_time_spec = true;
       s->tx_md.start_of_burst = (s->tx_count == 0) ? true : first_packet_state;
       s->tx_md.end_of_burst = last_packet_state;
@@ -530,6 +536,16 @@ static int trx_usrp_write(openair0_device_t *device,
       return ret;
     } else {
       pthread_mutex_lock(&write_thread->mutex_write);
+      if (write_thread->write_thread_exit) {
+        pthread_mutex_unlock(&write_thread->mutex_write);
+        return -1;
+      }
+      usrp_state_t *s = (usrp_state_t *)device->priv;
+      if (nsamps < 0 || nsamps > s->tx_queue_capacity || cc < 1 || cc > s->tx_queue_channels) {
+        pthread_mutex_unlock(&write_thread->mutex_write);
+        LOG_E(HW, "Invalid USRP TX queue request: %d samples, %d channels\n", nsamps, cc);
+        return -1;
+      }
 
       if (write_thread->count_write >= MAX_WRITE_THREAD_PACKAGE) {
         LOG_W(HW,
@@ -547,8 +563,8 @@ static int trx_usrp_write(openair0_device_t *device,
       write_package[end].cc = cc;
       write_package[end].first_packet = first_packet_state;
       write_package[end].last_packet = last_packet_state;
-      for (int i = 0; i < cc; i++)
-        write_package[end].buff[i] = buff[i];
+      for (int i = 0; nsamps > 0 && i < cc; i++)
+        memcpy(write_package[end].buff[i], buff[i], nsamps * sizeof(int32_t));
       write_thread->count_write++;
       write_thread->end = (write_thread->end + 1) % MAX_WRITE_THREAD_PACKAGE;
       LOG_D(HW, "Signaling TX TS %llu\n", (unsigned long long)timestamp);
@@ -574,10 +590,13 @@ void *trx_usrp_write_thread(void * arg)
   openair0_thread_t *write_thread = &device->write_thread;
   openair0_write_package_t *write_package = write_thread->write_package;
 
-  usrp_state_t *s;
+  usrp_state_t *s = (usrp_state_t *)device->priv;
   int start;
   openair0_timestamp_t timestamp;
-  void        **buff;
+  void *buff[MAX_WRITE_THREAD_BUFFER_SIZE];
+  const int channels = s->tx_queue_channels;
+  for (int i = 0; i < channels; i++)
+    buff[i] = s->tx_queue_storage + ((size_t)MAX_WRITE_THREAD_PACKAGE * channels + i) * s->tx_queue_capacity;
   int         nsamps;
   int         cc;
   signed char first_packet;
@@ -586,20 +605,23 @@ void *trx_usrp_write_thread(void * arg)
   printf("trx_usrp_write_thread started on cpu %d\n",sched_getcpu());
   while(1){
     pthread_mutex_lock(&write_thread->mutex_write);
-    while (write_thread->count_write == 0) {
+    while (write_thread->count_write == 0 && !write_thread->write_thread_exit) {
       pthread_cond_wait(&write_thread->cond_write,&write_thread->mutex_write); // this unlocks mutex_rxtx while waiting and then locks it again
     }
-    if (write_thread->write_thread_exit)
+    if (write_thread->write_thread_exit) {
+      pthread_mutex_unlock(&write_thread->mutex_write);
       break;
+    }
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_TRX_WRITE_THREAD, 1 );
-    s = (usrp_state_t *)device->priv;
     start = write_thread->start;
     timestamp    = write_package[start].timestamp;
-    buff         = write_package[start].buff;
     nsamps       = write_package[start].nsamps;
     cc           = write_package[start].cc;
     first_packet = write_package[start].first_packet;
     last_packet  = write_package[start].last_packet;
+    // The worker owns these samples through send and trace. The queue can refill the slot with its spare buffers.
+    for (int i = 0; i < cc; i++)
+      std::swap(buff[i], write_package[start].buff[i]);
     write_thread->start = (write_thread->start + 1)% MAX_WRITE_THREAD_PACKAGE;
     write_thread->count_write--;
     pthread_mutex_unlock(&write_thread->mutex_write);
@@ -642,6 +664,19 @@ int trx_usrp_write_init(openair0_device_t *device)
   //uhd::set_thread_priority_safe(1.0);
   openair0_thread_t *write_thread = &device->write_thread;
   printf("initializing tx write thread\n");
+  usrp_state_t *s = (usrp_state_t *)device->priv;
+  const int channels = std::min(device->openair0_cfg->tx_num_channels, MAX_WRITE_THREAD_BUFFER_SIZE);
+  s->tx_queue_channels = channels;
+  // Each queue slot and the worker have room for a full radio frame per channel.
+  s->tx_queue_capacity = std::max(static_cast<int>(std::ceil(s->sample_rate / 100)), device->reOrder.sz);
+  if (channels > 0) {
+    s->tx_queue_storage =
+        (int32_t *)calloc((MAX_WRITE_THREAD_PACKAGE + 1) * channels, (size_t)s->tx_queue_capacity * sizeof(int32_t));
+    AssertFatal(s->tx_queue_storage, "Could not allocate USRP TX sample buffers\n");
+  }
+  for (int slot = 0; slot < MAX_WRITE_THREAD_PACKAGE; slot++)
+    for (int i = 0; i < channels; i++)
+      write_thread->write_package[slot].buff[i] = s->tx_queue_storage + ((size_t)slot * channels + i) * s->tx_queue_capacity;
 
   write_thread->start              = 0;
   write_thread->end                = 0;
@@ -661,7 +696,6 @@ int trx_usrp_write_init(openair0_device_t *device)
 
 static void trx_usrp_write_reset(openair0_thread_t *wt) {
   pthread_mutex_lock(&wt->mutex_write);
-  wt->count_write = 1;
   wt->write_thread_exit = true;
   pthread_cond_signal(&wt->cond_write);
   pthread_mutex_unlock(&wt->mutex_write);
