@@ -59,7 +59,7 @@ please also refer to the [dedicated documentation](../docker/README.md).
   - Images:
     - base image from [`Dockerfile.base.ubuntu.cross-arm64`](../docker/Dockerfile.base.ubuntu.cross-arm64)
     - build image from [`Dockerfile.build.ubuntu.cross-arm64`](../docker/Dockerfile.build.ubuntu.cross-arm64) (no target images)
-- [RAN-RHEL-Cluster-Image-Builder](https://jenkins-oai.eurecom.fr/job/RAN-RHEL-Cluster-Image-Builder/)
+- [RAN-CentOS-Cluster-Image-Builder](https://jenkins-oai.eurecom.fr/job/RAN-CentOS-Cluster-Image-Builder/)
   - Purpose: CentOS Stream 10 image build using the OpenShift cluster (using gcc/clang)
   - Labels:
     https://github.com/duranta-project/openairinterface5g/labels/BUILD-ONLY

@@ -20,7 +20,7 @@
 
 <p align="center">
     <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-Image-Builder%2F&label=build-Ubuntu-x86%20Images"></a>
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-RHEL-Cluster-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-RHEL-Cluster-Image-Builder%2F&label=build-RHEL-Cluster%20Images"></a>
+    <a href="https://jenkins-oai.eurecom.fr/job/RAN-CentOS-Cluster-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-CentOS-Cluster-Image-Builder%2F&label=build-CentOS-Cluster%20Images"></a>
     <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-ARM-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-ARM-Image-Builder%2F&label=build-Ubuntu-ARM%20Images"></a>
     <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-Jetson-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-Jetson-Image-Builder%2F&label=build-Ubuntu-ARMv8%20Images"></a>
 </p>

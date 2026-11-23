@@ -28,7 +28,7 @@ def mrValidationWarning = ""
 def ubuntuBuildStatus = ''
 def ubuntuArmBuildStatus = ''
 def ubuntuJetsonBuildStatus = ''
-def rhelBuildStatus = ''
+def centosBuildStatus = ''
 def armBuildStatus = ''
 
 def physim5GStatus = ''
@@ -260,10 +260,10 @@ pipeline {
             }
           }
         }
-        stage ("RHEL-Cluster-Image-Builder") {
+        stage ("RAN-CentOS-Cluster-Image-Builder") {
           steps {
             script {
-              triggerDownstreamJob ('RAN-RHEL-Cluster-Image-Builder')
+              triggerDownstreamJob ('RAN-CentOS-Cluster-Image-Builder')
             }
           }
           post {
@@ -271,13 +271,13 @@ pipeline {
               script {
                 // Using a unique variable name for each test stage to avoid overwriting on a global variable
                 // due to parallel-time concurrency
-                rhelBuildStatus = finalizeDownstreamJob('RAN-RHEL-Cluster-Image-Builder')
+                centosBuildStatus = finalizeDownstreamJob('RAN-CentOS-Cluster-Image-Builder')
               }
             }
             failure {
               script {
                 currentBuild.result = 'FAILURE'
-                failingStages += rhelBuildStatus
+                failingStages += centosBuildStatus
               }
             }
           }
