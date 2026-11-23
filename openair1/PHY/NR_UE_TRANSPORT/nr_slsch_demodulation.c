@@ -472,22 +472,24 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
       //--------------------- Channel Compensation ---------------
       //----------------------------------------------------------
       memset(rho, 0, sizeof(rho));
-      nr_channel_compensation(
-          ext_buffer_length,
-          ext_buffer_length,
-		      		    frame_parms->nb_antennas_rx,
-          nrOfLayers,
-		                    rxFext,
-          (c16_t(*)[frame_parms->nb_antennas_rx][ext_buffer_length])chFext,
-                                    rxF_ch_maga,
-                                    rxF_ch_magb,
-                                    rxF_ch_magc,
-                                    pusch_vars->rxdataF_comp,
-          nrOfLayers > 1 ? rho : NULL,
-          (c16_t){.r = INT16_MAX},
-                                    qam_mod_order,
-          symbol,
-                                    pusch_vars->log2_maxh);
+      uint8_t qam_orders[nrOfLayers];
+      for (int l = 0; l < nrOfLayers; l++)
+        qam_orders[l] = qam_mod_order;
+      nr_channel_compensation(ext_buffer_length,
+                              ext_buffer_length,
+                              frame_parms->nb_antennas_rx,
+                              nrOfLayers,
+                              rxFext,
+                              (c16_t(*)[frame_parms->nb_antennas_rx][ext_buffer_length])chFext,
+                              rxF_ch_maga,
+                              rxF_ch_magb,
+                              rxF_ch_magc,
+                              pusch_vars->rxdataF_comp,
+                              nrOfLayers > 1 ? rho : NULL,
+                              (c16_t){.r = INT16_MAX},
+                              qam_orders,
+                              symbol,
+                              pusch_vars->log2_maxh);
 
       /*---------------------------------------------------------------------------------------------------- */
       /*--------------------  LLRs computation  -------------------------------------------------------------*/
