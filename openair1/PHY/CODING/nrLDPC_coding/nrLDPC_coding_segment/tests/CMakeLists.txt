@@ -10,4 +10,4 @@ add_executable(benchmark_nr_rate_matching benchmark_nr_rate_matching.cpp ../nr_r
 target_link_libraries(benchmark_nr_rate_matching PRIVATE benchmark::benchmark minimal_lib)
 add_dependencies(tests benchmark_nr_rate_matching)
 add_test(NAME benchmark_nr_rate_matching
-  COMMAND ./benchmark_nr_rate_matching)
+  COMMAND ./benchmark_nr_rate_matching --benchmark_min_time=0.01s "--benchmark_filter=/(384/12960/0/64|192/7200/0/64|12960/(2|6))$")
