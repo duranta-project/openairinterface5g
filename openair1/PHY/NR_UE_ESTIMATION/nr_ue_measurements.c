@@ -236,6 +236,7 @@ static void reset_neighboring_cell_info(fapi_nr_neighboring_cell_t *neighbor_cel
   neighboring_cell_info->ssb_slot = -1;
   neighboring_cell_info->valid_meas = false;
   neighboring_cell_info->consec_fail = 0;
+  neighboring_cell_info->last_meas_slot = -1;
   neighbor_cell->is_candidate = false;
   if (!neighbor_cell->Nid_cell_was_configured)
     neighbor_cell->Nid_cell = -1;
@@ -501,6 +502,30 @@ static void search_new_neighboring_cell(UE_nr_rxtx_proc_t *proc, PHY_VARS_NR_UE 
   }
 }
 
+bool is_neighboring_cell_due(const PHY_VARS_NR_UE *ue, int cell_idx, const UE_nr_rxtx_proc_t *proc)
+{
+  const fapi_nr_neighboring_cell_t *neighbor_cell = &ue->nrUE_config.meas_config.nr_neighboring_cell[cell_idx];
+  if (neighbor_cell->active == 0 || neighbor_cell->Nid_cell == (uint16_t)-1 || neighbor_cell->Nid_cell == ue->frame_parms.Nid_cell)
+    return false;
+
+  const uint32_t serving_ssb_freq = get_ssb_arfcn(&ue->frame_parms);
+  if (neighbor_cell->ssb_freq != 0 && neighbor_cell->ssb_freq != serving_ssb_freq)
+    return false;
+
+  const neighboring_cell_info_t *cell_info = &ue->measurements.neighboring_cell_info[cell_idx];
+  const int spf = ue->frame_parms.slots_per_frame;
+  const int cycle = 1024 * spf;
+  const int now = proc->frame_rx * spf + proc->nr_slot_rx;
+
+  if (cell_info->pss_search_length == 0 || cell_info->ssb_slot == -1)
+    return cell_info->last_meas_slot < 0 || (now - cell_info->last_meas_slot + cycle) % cycle >= spf + 1;
+
+  if (proc->nr_slot_rx != cell_info->ssb_slot)
+    return false;
+
+  return cell_info->last_meas_slot < 0 || (now - cell_info->last_meas_slot + cycle) % cycle >= NR_UE_MEAS_PERIOD_MS * spf / 10;
+}
+
 static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_NR_UE *ue, c16_t **rxdata)
 {
   // Generate PSS time-domain sequences once for all neighbor cells
@@ -517,22 +542,24 @@ static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_N
   const uint32_t rxdataF_sz = frame_parms->ofdm_symbol_size;
   __attribute__((aligned(32))) c16_t rxdataF[NR_N_SYMBOLS_SSB][frame_parms->nb_antennas_rx][rxdataF_sz];
 
-  for (int cell_idx = 0; cell_idx < NUMBER_OF_NEIGHBORING_CELLS_MAX; cell_idx++) {
-    fapi_nr_neighboring_cell_t *neighbor_cell = &ue->nrUE_config.meas_config.nr_neighboring_cell[cell_idx];
-    if (neighbor_cell->active == 0 || neighbor_cell->Nid_cell == (uint16_t)-1 || neighbor_cell->Nid_cell == frame_parms->Nid_cell) {
-      continue;
-    }
+  const int spf = frame_parms->slots_per_frame;
+  const int now = proc->frame_rx * spf + proc->nr_slot_rx;
 
+  for (int cell_idx = 0; cell_idx < NUMBER_OF_NEIGHBORING_CELLS_MAX; cell_idx++) {
+    if (!is_neighboring_cell_due(ue, cell_idx, proc))
+      continue;
+
+    fapi_nr_neighboring_cell_t *neighbor_cell = &ue->nrUE_config.meas_config.nr_neighboring_cell[cell_idx];
     neighboring_cell_info_t *neighboring_cell_info = &ue->measurements.neighboring_cell_info[cell_idx];
     if (neighboring_cell_info->pss_search_length == 0) {
       neighboring_cell_info->pss_search_length = frame_parms->samples_per_slot_wCP + frame_parms->ofdm_symbol_size;
       neighboring_cell_info->ssb_slot = -1;
     }
 
-    if (neighboring_cell_info->ssb_slot != -1 && neighboring_cell_info->ssb_slot != proc->nr_slot_rx)
-      continue;
-
     if (!validate_known_pci(frame_parms, neighbor_cell, neighboring_cell_info, rxdata, rxdataF, pssTime, proc->nr_slot_rx)) {
+      if (neighboring_cell_info->ssb_slot == -1)
+        neighboring_cell_info->last_meas_slot = now;
+
       if (neighboring_cell_info->consec_fail >= NEIGHBOR_CELL_MAX_CONSECUTIVE_FAILURES) {
         if (neighbor_cell->is_candidate) {
           LOG_D(NR_PHY, "Neighbor cell confirmation failed for candidate with PCI=%d\n", neighbor_cell->Nid_cell);
@@ -546,6 +573,8 @@ static void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_N
       }
       continue;
     }
+
+    neighboring_cell_info->last_meas_slot = now;
 
     // RSRP measurements
     uint8_t sss_symbol = SSS_SYMBOL_NB - PSS_SYMBOL_NB;

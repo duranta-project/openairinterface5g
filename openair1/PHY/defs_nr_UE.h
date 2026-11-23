@@ -85,6 +85,9 @@ typedef struct {
 
 #define NEIGHBOR_CELL_MAX_CONSECUTIVE_FAILURES 10
 
+/// minimum time between two measurements of the neighboring cells (TS 38.133 9.2.5.1)
+#define NR_UE_MEAS_PERIOD_MS 200
+
 typedef struct {
   int ssb_slot;
   int pss_search_start;
@@ -93,6 +96,8 @@ typedef struct {
   int ssb_rsrp_dBm;
   int consec_fail; // Counter for consecutive detection failures
   bool valid_meas;
+  /// slot of the frame cycle (frame * slots_per_frame + slot) of the last measurement, -1 if none
+  int last_meas_slot;
 } neighboring_cell_info_t;
 
 typedef struct {
@@ -154,8 +159,6 @@ typedef struct {
   _Atomic(bool) search_new_cells_pending;
   int last_blind_slot;
   int last_slot;
-  /// slot of the frame cycle (frame * slots_per_frame + slot) of the last neighboring cell measurement, -1 if none
-  int last_meas_slot;
 } PHY_NR_MEASUREMENTS;
 
 typedef struct {
