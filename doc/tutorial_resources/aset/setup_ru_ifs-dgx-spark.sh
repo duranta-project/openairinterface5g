@@ -65,6 +65,21 @@ list_vfs() {
   done | sort -V
 }
 
+# sriov_numvfs probes the VF while its permanent MAC is still zero, so the
+# netdev keeps a random address and the legacy eSwitch forwards on that.
+# Unbind and bind mlx5_core after `ip link set vf mac` so probe reads the
+# permanent MAC. setup_ru_ifs-gh200.sh does the same rebind through dpdk-devbind.
+rebind_mlx5() {
+  local bdf=$1
+  local dev="/sys/bus/pci/devices/${bdf}"
+  local drv
+  if [ -e "${dev}/driver" ]; then
+    drv=$(basename "$(readlink -f "${dev}/driver")")
+    echo "$bdf" > "/sys/bus/pci/drivers/${drv}/unbind"
+  fi
+  echo "$bdf" > /sys/bus/pci/drivers/mlx5_core/bind
+}
+
 PORT_NAME=$(cat "/sys/class/net/${IF_PF}/phys_port_name")
 SWITCH_ID=$(cat "/sys/class/net/${IF_PF}/phys_switch_id")
 echo "=== DGX Spark fronthaul: ${IF_PF} / ${PCI_PF}, physical port ${PORT_NAME} ==="
@@ -100,15 +115,32 @@ if [ "${#PF_VFS[@]}" -ne 5 ]; then
   exit 1
 fi
 
-for bdf in "${PF_VFS[@]}"; do
-  if [ ! -e "/sys/bus/pci/devices/${bdf}/driver" ]; then
-    echo "$bdf" > /sys/bus/pci/drivers_probe
-  fi
+VF_MACS=("$OAI_DU_MAC" "$OAI_DU_MAC" "$RU_MAC" "$RU_MAC" "$AERIAL_DU_MAC")
+echo "=== Netdev MACs (eSwitch forwarding addresses) ==="
+for i in 0 1 2 3 4; do
+  bdf=${PF_VFS[$i]}
+  rebind_mlx5 "$bdf"
   driver=$(basename "$(readlink -f "/sys/bus/pci/devices/${bdf}/driver")")
   if [ "$driver" != "mlx5_core" ]; then
     echo "ERROR: ${bdf} uses ${driver}, expected mlx5_core for the mlx5 DPDK PMD." >&2
     exit 1
   fi
+  netdev=""
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    netdev=$(basename "$(find "/sys/bus/pci/devices/${bdf}/net" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null || true)")
+    [ -n "$netdev" ] && break
+    sleep 0.1
+  done
+  if [ -z "$netdev" ]; then
+    echo "ERROR: ${bdf} has no netdev after mlx5_core bind." >&2
+    exit 1
+  fi
+  mac=$(cat "/sys/class/net/${netdev}/address")
+  if [ "$mac" != "${VF_MACS[$i]}" ]; then
+    echo "ERROR: ${bdf} ${netdev} has ${mac}, expected ${VF_MACS[$i]}." >&2
+    exit 1
+  fi
+  echo "${bdf} ${netdev} ${mac}"
 done
 
 echo "=== Topology ==="

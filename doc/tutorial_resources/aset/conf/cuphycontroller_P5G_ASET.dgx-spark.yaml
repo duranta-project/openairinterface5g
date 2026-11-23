@@ -20,8 +20,8 @@ aerial_sdk_version: 26-2-cubb
 l2adapter_filename: l2_adapter_config_P5G_DGX.yaml
 aerial_metrics_backend_address: 127.0.0.1:8081
 
-# CPU core shared by all low-priority threads
-low_priority_core: 10
+# Low-priority CUDA/DPDK threads share an X925. Core 10 is the A725 slot timer.
+low_priority_core: 15
 enable_ptp_svc_monitoring: 0
 ptp_rms_threshold: 20 #ns
 nic_tput_alert_threshold_mbps: 85000
@@ -32,7 +32,7 @@ cuphydriver_config:
   num_slots: 8
   log_level: DBG
   profiler_sec: 0
-  dpdk_thread: 10
+  dpdk_thread: 15
   dpdk_verbose_logs: 0
   accu_tx_sched_res_ns: 500
   accu_tx_sched_disable: 0 #Flag applicable only for CX6-DX : BF3/CX7 HW and beyond support accurate send scheduling directly on timestamp, for CX6-DX this is implemented via software emulation
@@ -157,11 +157,11 @@ cuphydriver_config:
   total_num_srs_chest_buffers: 6144
   send_static_bfw_wt_all_cplane: 1
   ul_pcap_capture_enable: 0
-  ul_pcap_capture_thread_cpu_affinity: 10
+  ul_pcap_capture_thread_cpu_affinity: 15
   ul_pcap_capture_thread_sched_priority: 95
   pcap_logger_ul_cplane_enable: 0
   pcap_logger_dl_cplane_enable: 0
-  pcap_logger_thread_cpu_affinity: 10
+  pcap_logger_thread_cpu_affinity: 15
   pcap_logger_thread_sched_prio: 95
   pcap_logger_file_save_dir: ./
   dlc_bfw_enable_divide_per_cell: 0 # Enable/disable dividing DL BFW C-Plane transmission window among multiple cells in a slot
