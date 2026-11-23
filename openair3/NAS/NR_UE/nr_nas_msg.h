@@ -24,6 +24,7 @@
 /* 3GPP TS 24.501: 9.11.3.50 Service type */
 #define SERVICE_TYPE_SIGNALLING 0x0
 #define SERVICE_TYPE_DATA 0x1
+#define SERVICE_TYPE_MOBILE_TERMINATED_SERVICES 0x2
 
 typedef enum fgs_mm_state_e {
   FGS_DEREGISTERED,

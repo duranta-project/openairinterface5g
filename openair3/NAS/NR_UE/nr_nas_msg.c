@@ -2768,7 +2768,8 @@ void *nas_nrue(void *args_p)
          *  - Add explicit "suspend indication" handling for the 5GMM-IDLE-with-suspend case
          *    as per TS 24.501 §5.6.2.2.1 ("proceed as specified in subclause 5.3.1.5") */
         LOG_I(NAS, "[UE %ld] Paging: initiate Service Request\n", nas->UE_id);
-        initiate_service_request(nas, SERVICE_TYPE_DATA, false);
+        // TS 24.501 5.6.1.2.1: service type "mobile terminated services" for a paging response (case a)
+        initiate_service_request(nas, SERVICE_TYPE_MOBILE_TERMINATED_SERVICES, false);
         break;
       }
 
