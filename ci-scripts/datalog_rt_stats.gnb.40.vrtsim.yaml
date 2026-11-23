@@ -11,9 +11,9 @@ Ref :
   UL segments decoding : 78.3
   PUSCH inner-receiver : 92.5
   Slot Indication : 10.3
-  feprx : 35.5
+  feprx : 27.0
   feptx_ofdm (per port, half_slot) : 30
-  feptx_total : 37.5
+  feptx_total : 29.0
 DeviationThreshold :
   L1 Tx processing : 0.20
   DLSCH encoding : 0.20

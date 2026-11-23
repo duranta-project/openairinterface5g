@@ -44,6 +44,13 @@ add_dependencies(test_dft_saturation dfts)
 add_test(NAME test_dft_saturation COMMAND ./test_dft_saturation)
 set_tests_properties(test_dft_saturation PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}")
 
+add_executable(dft_pruned_test test_dft_pruned.c ../dfts_load.c)
+target_link_libraries(dft_pruned_test minimal_lib shlib_loader SIMU m)
+add_dependencies(tests dft_pruned_test)
+add_dependencies(dft_pruned_test dfts)
+add_test(NAME dft_pruned_test COMMAND ./dft_pruned_test)
+set_tests_properties(dft_pruned_test PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}")
+
 add_executable(test_vector_op test_vector_op.cpp)
 target_link_libraries(test_vector_op PRIVATE LOG)
 add_dependencies(tests test_vector_op)

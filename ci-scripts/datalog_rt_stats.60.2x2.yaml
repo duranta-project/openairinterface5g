@@ -9,15 +9,15 @@ Ref :
   feptx_prec : 14.0
   feptx_ofdm : 30.0
   feptx_total : 80.0
-  L1 Tx processing : 223.0
+  L1 Tx processing : 186.0
   DLSCH encoding : 75.0
   L1 Rx processing : 383.0
   PUSCH inner-receiver : 155.0
   DL & UL scheduling timing : 8.0
   Slot Indication : 9.0
-  feprx : 37.0
-  feptx_ofdm (per port, half_slot) : 31
-  feptx_total : 75.0
+  feprx : 28.0
+  feptx_ofdm (per port, half_slot) : 21
+  feptx_total : 50
 DeviationThreshold :
   feprx : 0.25
   feptx_prec : 0.25

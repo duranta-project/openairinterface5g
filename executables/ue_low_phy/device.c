@@ -781,8 +781,6 @@ static void assemble(ue_low_phy_device_t *dev, const ue_low_phy_timebase_t *tb, 
       }
       n = rest;
       for (int a = 0; a < dev->fp.nb_antennas_tx; a++) {
-        // The previous modulation left the IDFT layout behind n_re.
-        memset(dev->fd_sum[a] + n_re, 0, (fp->ofdm_symbol_size - n_re) * sizeof(c16_t));
         nr_ofdm_mod_symbol(fp,
                            fp->symbol_rotation[dev->tx_link],
                            fp->N_RB_UL,
