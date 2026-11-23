@@ -10,6 +10,18 @@ if (ENABLE_TESTS)
     add_test(nfapi_pull_push_test nfapi_pull_push_test)
     set_tests_properties(nfapi_pull_push_test PROPERTIES LABELS "fapi")
 
+    add_executable(nfapi_push_pull_array_le_test nfapi_push_pull_array_test.c)
+    target_link_libraries(nfapi_push_pull_array_le_test PRIVATE nfapi_common_le minimal_lib)
+    add_dependencies(tests nfapi_push_pull_array_le_test)
+    add_test(nfapi_push_pull_array_le_test nfapi_push_pull_array_le_test)
+    set_tests_properties(nfapi_push_pull_array_le_test PROPERTIES LABELS "fapi")
+
+    add_executable(nfapi_push_pull_array_be_test nfapi_push_pull_array_test.c)
+    target_link_libraries(nfapi_push_pull_array_be_test PRIVATE nfapi_common_be minimal_lib)
+    add_dependencies(tests nfapi_push_pull_array_be_test)
+    add_test(nfapi_push_pull_array_be_test nfapi_push_pull_array_be_test)
+    set_tests_properties(nfapi_push_pull_array_be_test PROPERTIES LABELS "fapi")
+
     add_executable(nfapi_push_pull_bench_le nfapi_push_pull_bench.c)
     target_link_libraries(nfapi_push_pull_bench_le PRIVATE nfapi_common_le minimal_lib)
     add_dependencies(tests nfapi_push_pull_bench_le)
