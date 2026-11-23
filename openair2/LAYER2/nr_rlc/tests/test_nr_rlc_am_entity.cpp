@@ -270,6 +270,63 @@ TEST(nr_rlc_am_entity, test_receiver_reassembly_timer)
   rx_entity->delete_entity(rx_entity);
 }
 
+TEST(nr_rlc_am_entity, test_status_size_cache)
+{
+  nr_rlc_entity_t *entity = new_nr_rlc_entity_am(100,
+                                                 100,
+                                                 deliver_sdu,
+                                                 NULL,
+                                                 sdu_successful_delivery,
+                                                 NULL,
+                                                 max_retx_reached,
+                                                 NULL,
+                                                 5,
+                                                 35,
+                                                 10,
+                                                 -1,
+                                                 -1,
+                                                 8,
+                                                 12);
+  // Complete SDUs with 12-bit SNs. SN 1 requests STATUS while SN 0 is missing.
+  char polled_sn1[] = {static_cast<char>(0xc0), 1, 'B', '\0'};
+  char sn0[] = {static_cast<char>(0x80), 0, 'A', '\0'};
+  char status[16];
+
+  entity->set_time(entity, 1);
+  entity->recv_pdu(entity, polled_sn1, sizeof(polled_sn1));
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 3);
+
+  // Reassembly expiry makes the missing SN reportable.
+  entity->set_time(entity, 37);
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 5);
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 5);
+  EXPECT_EQ(entity->buffer_status(entity, 4).status_size, 3);
+  EXPECT_EQ(entity->buffer_status(entity, 2).status_size, 0);
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 5);
+
+  // The NACK size depends on the configured SN width.
+  int sn_field_length = 18;
+  nr_rlc_entity_am_reconfigure(entity, 5, 35, 10, -1, -1, 8, &sn_field_length);
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 6);
+  sn_field_length = 12;
+  nr_rlc_entity_am_reconfigure(entity, 5, 35, 10, -1, -1, 8, &sn_field_length);
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 5);
+
+  // Filling the gap invalidates the cached NACK size.
+  entity->recv_pdu(entity, sn0, sizeof(sn0));
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 3);
+  EXPECT_EQ(entity->generate_pdu(entity, status, sizeof(status)), 3);
+
+  entity->recv_pdu(entity, polled_sn1, sizeof(polled_sn1));
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 0);
+  entity->set_time(entity, 48);
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 3);
+
+  entity->reestablishment(entity);
+  EXPECT_EQ(entity->buffer_status(entity, sizeof(status)).status_size, 0);
+  entity->delete_entity(entity);
+}
+
 int main(int argc, char **argv)
 {
   logInit();

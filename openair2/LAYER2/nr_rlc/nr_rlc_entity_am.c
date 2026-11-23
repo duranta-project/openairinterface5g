@@ -834,6 +834,7 @@ void nr_rlc_entity_am_recv_pdu(nr_rlc_entity_t *_entity,
   /* do reception actions (38.322 5.2.3.2.3) */
   LOG_D(RLC, "RLC received PDU sn %d so %d is_first %d is_last %d data_size = %d \n", sn, so, is_first, is_last, data_size);
   reception_actions(entity, pdu);
+  entity->cached_status_size = 0;
 
   if (p) {
     /* 38.322 5.3.4 says status triggering should be delayed
@@ -1765,10 +1766,15 @@ nr_rlc_entity_buffer_status_t nr_rlc_entity_am_buffer_status(
   nr_rlc_entity_am_t *entity = (nr_rlc_entity_am_t *)_entity;
   nr_rlc_entity_buffer_status_t ret;
 
-  if (status_to_report(entity))
-    ret.status_size = status_size(entity, maxsize);
-  else
-    ret.status_size = 0;
+  ret.status_size = 0;
+  if (maxsize >= 3 && status_to_report(entity)) {
+    /* A valid STATUS size includes the header. The NACKs that fit depend on maxsize. */
+    if (entity->cached_status_size == 0 || entity->cached_status_maxsize != maxsize) {
+      entity->cached_status_size = status_size(entity, maxsize);
+      entity->cached_status_maxsize = maxsize;
+    }
+    ret.status_size = entity->cached_status_size;
+  }
 
   ret.tx_size = entity->common.bstatus.tx_size;
   ret.retx_size = entity->common.bstatus.retx_size;
@@ -1961,6 +1967,7 @@ static void check_t_reassembly(nr_rlc_entity_am_t *entity)
   while (sdu_delivered(entity, sn))
     sn = (sn + 1) % entity->sn_modulus;
   entity->rx_highest_status = sn;
+  entity->cached_status_size = 0;
 
   /* trigger status report */
   entity->status_triggered = 1;
@@ -2078,6 +2085,7 @@ static void clear_entity(nr_rlc_entity_am_t *entity)
 
   entity->common.bstatus.tx_size   = 0;
   entity->common.bstatus.retx_size = 0;
+  entity->cached_status_size = 0;
 }
 
 void nr_rlc_entity_am_reestablishment(nr_rlc_entity_t *_entity)

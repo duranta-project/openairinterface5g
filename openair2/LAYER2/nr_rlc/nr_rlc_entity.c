@@ -244,6 +244,8 @@ void nr_rlc_entity_am_reconfigure(nr_rlc_entity_t *_entity,
   entity->poll_pdu = poll_pdu;
   entity->poll_byte = poll_byte;
   entity->max_retx_threshold = max_retx_threshold;
-  if (sn_field_length)
+  if (sn_field_length && entity->sn_field_length != *sn_field_length) {
     entity->sn_field_length = *sn_field_length;
+    entity->cached_status_size = 0;
+  }
 }
