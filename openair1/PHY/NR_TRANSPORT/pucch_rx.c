@@ -1502,7 +1502,6 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     uci_pdu->pduBitmap |= 2;
     uci_pdu->harq.harq_crc = decoderState;
     int harq_bytes = (pucch_pdu->bit_len_harq + 7) / 8;
-    uci_pdu->harq.harq_payload = calloc_or_fail(harq_bytes, sizeof(uint8_t));
     LOG_D(PHY, "[DLSCH/PDSCH/PUCCH2] %d.%d HARQ bytes (%d) Decoder state %d\n", frame, slot, harq_bytes, decoderState);
     set_uci_payload(&decodedPayload[0], pucch_pdu->bit_len_harq, harq_bytes, uci_pdu->harq.harq_payload, frame, slot);
   }
@@ -1510,7 +1509,6 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
   if (pucch_pdu->sr_flag == 1) {
     uci_pdu->pduBitmap |= 1;
     uci_pdu->sr.sr_bit_len = 1;
-    uci_pdu->sr.sr_payload = malloc(1);
     uci_pdu->sr.sr_payload[0] = decodedPayload[0] & 1;
     decodedPayload[0] = decodedPayload[0] >> 1;
   }
@@ -1520,7 +1518,6 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     uci_pdu->csi_part1.csi_part1_bit_len = pucch_pdu->bit_len_csi_part1;
     uci_pdu->csi_part1.csi_part1_crc = decoderState;
     int csi_bytes = (pucch_pdu->bit_len_csi_part1 + 7) / 8;
-    uci_pdu->csi_part1.csi_part1_payload = calloc_or_fail(csi_bytes, sizeof(uint8_t));
     set_uci_payload(&decodedPayload[0], pucch_pdu->bit_len_csi_part1, csi_bytes, uci_pdu->csi_part1.csi_part1_payload, frame, slot);
   }
 

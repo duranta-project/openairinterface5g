@@ -95,7 +95,6 @@ void nr_uci_decoding(PHY_VARS_gNB *phy_vars_gNB, nfapi_nr_uci_indication_t *uci_
       pusch_ind->harq.harq_crc = pusch->DTX ? 1 : ack_res.crc_result;
       pusch_ind->harq.harq_bit_len = pusch_uci->harq_ack_bit_length;
       bytes = (pusch_uci->harq_ack_bit_length + 7) / 8;
-      pusch_ind->harq.harq_payload = calloc_or_fail(bytes, sizeof(uint8_t));
       set_uci_payload(&ack_res.payload, pusch_uci->harq_ack_bit_length, bytes, pusch_ind->harq.harq_payload, sfn, slot);
     }
     if (pusch_uci->csi_part1_bit_length > 0) {
@@ -107,7 +106,6 @@ void nr_uci_decoding(PHY_VARS_gNB *phy_vars_gNB, nfapi_nr_uci_indication_t *uci_
       pusch_ind->csi_part1.csi_part1_crc = pusch->DTX ? 1 : csi1_res.crc_result;
       pusch_ind->csi_part1.csi_part1_bit_len = pusch_uci->csi_part1_bit_length;
       bytes = (pusch_uci->csi_part1_bit_length + 7) / 8;
-      pusch_ind->csi_part1.csi_part1_payload = calloc_or_fail(bytes, sizeof(uint8_t));
       set_uci_payload(&csi1_res.payload, pusch_uci->csi_part1_bit_length, bytes, pusch_ind->csi_part1.csi_part1_payload, sfn, slot);
     }
     if (pusch_uci->csi_part2_bit_length > 0) {
@@ -119,7 +117,6 @@ void nr_uci_decoding(PHY_VARS_gNB *phy_vars_gNB, nfapi_nr_uci_indication_t *uci_
       pusch_ind->csi_part2.csi_part2_crc = pusch->DTX ? 1 : csi2_res.crc_result;
       pusch_ind->csi_part2.csi_part2_bit_len = pusch_uci->csi_part2_bit_length;
       bytes = (pusch_uci->csi_part2_bit_length + 7) / 8;
-      pusch_ind->csi_part2.csi_part2_payload = calloc_or_fail(bytes, sizeof(uint8_t));
       set_uci_payload(&csi2_res.payload, pusch_uci->csi_part2_bit_length, bytes, pusch_ind->csi_part2.csi_part2_payload, sfn, slot);
     }
     uci_ind->num_ucis += 1;

@@ -788,7 +788,7 @@ static int get_diff_rsrp(uint8_t index, int strongest_rsrp)
   return strongest_rsrp + diff_rsrp_ssb_csi_meas_10_1_6_1_2[index];
 }
 
-static uint8_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t start_bit)
+static uint8_t pickandreverse_bits(const uint8_t *payload, uint16_t bitlen, uint8_t start_bit)
 {
   uint8_t rev_bits = 0;
   for (int i = 0; i < bitlen; i++)
@@ -799,7 +799,7 @@ static uint8_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t st
 static bool evaluate_sinr_report(NR_UE_info_t *UE,
                                  NR_UE_sched_ctrl_t *sched_ctrl,
                                  uint8_t csi_report_id,
-                                 uint8_t *payload,
+                                 const uint8_t *payload,
                                  int *cumul_bits,
                                  NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR reportQuantity_type_r16)
 {
@@ -891,7 +891,7 @@ static bool evaluate_rsrp_report(NR_UE_info_t *UE,
                                  uint8_t csi_report_id,
                                  frame_t frame,
                                  slot_t slot,
-                                 uint8_t *payload,
+                                 const uint8_t *payload,
                                  int *cumul_bits,
                                  NR_CSI_ReportConfig__reportQuantity_PR reportQuantity_type)
 {
@@ -996,13 +996,13 @@ static bool evaluate_rsrp_report(NR_UE_info_t *UE,
   return true;
 }
 
-static void evaluate_cri_report(uint8_t *payload, uint8_t cri_bitlen, int cumul_bits, NR_UE_sched_ctrl_t *sched_ctrl)
+static void evaluate_cri_report(const uint8_t *payload, uint8_t cri_bitlen, int cumul_bits, NR_UE_sched_ctrl_t *sched_ctrl)
 {
   uint8_t temp_cri = pickandreverse_bits(payload, cri_bitlen, cumul_bits);
   sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.cri = temp_cri;
 }
 
-static int evaluate_ri_report(uint8_t *payload,
+static int evaluate_ri_report(const uint8_t *payload,
                               uint8_t ri_bitlen,
                               uint8_t ri_restriction,
                               int cumul_bits,
@@ -1025,7 +1025,7 @@ static int evaluate_ri_report(uint8_t *payload,
 }
 
 static void evaluate_cqi_report(nr_cell_sched_t *cell,
-                                uint8_t *payload,
+                                const uint8_t *payload,
                                 nr_csi_report_t *csi_report,
                                 int cumul_bits,
                                 int ri,
@@ -1068,7 +1068,7 @@ static void evaluate_cqi_report(nr_cell_sched_t *cell,
   LOG_D(MAC, "Reported CQI %d => MCS %d, SNRx10 %d\n", temp_cqi, mcs, snrx10);
 }
 
-static uint8_t evaluate_pmi_report(uint8_t *payload,
+static uint8_t evaluate_pmi_report(const uint8_t *payload,
                                    nr_csi_report_t *csi_report,
                                    int cumul_bits,
                                    int ri,
@@ -1090,7 +1090,7 @@ static uint8_t evaluate_pmi_report(uint8_t *payload,
   return x1_bitlen + x2_bitlen;
 }
 
-static int evaluate_li_report(uint8_t *payload,
+static int evaluate_li_report(const uint8_t *payload,
                               nr_csi_report_t *csi_report,
                               int cumul_bits,
                               uint8_t ri,
@@ -1124,7 +1124,7 @@ static void skip_zero_padding(int *cumul_bits, nr_csi_report_t *csi_report, uint
 /* CSI part 1 report: on PUCCH (only_report_id < 0), the periodic reports of this occasion; on PUSCH, the aperiodic
  * report only_report_id */
 static void extract_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
-                               uint8_t *payload,
+                               const uint8_t *payload,
                                uint16_t bitlen,
                                int only_report_id,
                                frame_t frame,
@@ -1484,7 +1484,7 @@ void handle_nr_uci_pucch_2_3_4(gNB_MAC_INST *nrmac,
   }
 
   if (uci_234->pduBitmap & 0x1) {
-    if (uci_234->sr.sr_payload && uci_234->sr.sr_payload[0])
+    if (uci_234->sr.sr_payload[0])
       nr_mac_sr_received(UE, cell);
   }
 
