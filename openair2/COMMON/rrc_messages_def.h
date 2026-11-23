@@ -70,6 +70,7 @@ MESSAGE_DEF(NR_RRC_NRDC_TIMEOUT,        MESSAGE_PRIORITY_MED,       nr_rrc_nrdc_
 // eNB: RLC -> RRC messages
 MESSAGE_DEF(RLC_SDU_INDICATION,         MESSAGE_PRIORITY_MED,       RlcSduIndication,           rlc_sdu_indication)
 MESSAGE_DEF(NAS_PDU_SESSION_REQ, MESSAGE_PRIORITY_MED, nas_pdu_session_req_t, nas_pdu_session_req)
+MESSAGE_DEF(NAS_PDU_SESSION_RELEASE_REQ, MESSAGE_PRIORITY_MED, nas_pdu_session_release_req_t, nas_pdu_session_release_req)
 
 // UE: RLC -> RRC messages
 MESSAGE_DEF(NR_RRC_RLC_MAXRTX,          MESSAGE_PRIORITY_MED,       RlcMaxRtxIndication,        nr_rlc_maxrtx_indication)

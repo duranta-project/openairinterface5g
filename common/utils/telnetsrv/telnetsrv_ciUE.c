@@ -240,6 +240,34 @@ static int add_pdu_session(char *buf, int debug, telnet_printfunc_t prnt)
 }
 
 /* Telnet shell command definitions */
+/** @brief UE-requested release of a PDU session (TS 24.501 6.4.3) */
+static int release_pdu_session_cmd(char *buf, int debug, telnet_printfunc_t prnt)
+{
+  UNUSED(debug);
+  int ue_id = -1;
+  int pdusession_id = -1;
+  if (!buf)
+    ERROR_MSG_RET("Missing argument: expected PDUSessionID[,UE_ID]\n");
+  int n = sscanf(buf, "%d,%d", &pdusession_id, &ue_id);
+  if (n == 1) {
+    ue_id = get_default_ue_id();
+    if (ue_id < 0)
+      ERROR_MSG_RET("No default UE context found\n");
+  } else if (n != 2) {
+    ERROR_MSG_RET("Invalid format: expected PDUSessionID[,UE_ID]\n");
+  }
+  if (pdusession_id < 1 || pdusession_id > 15)
+    ERROR_MSG_RET("PDUSessionID must be in range [1,15]\n");
+  if (ue_id < 0)
+    ERROR_MSG_RET("UE_ID must be >= 0\n");
+  nr_ue_nas_t *nas = get_ue_nas_info(ue_id);
+  if (!nas)
+    ERROR_MSG_RET("No NAS context found for UE_ID %d\n", ue_id);
+  request_pdu_session_release(nas, pdusession_id);
+  prnt("Triggered PDU session release request for UE %d with ID %d\n", ue_id, pdusession_id);
+  return 0;
+}
+
 static telnetshell_cmddef_t cicmds[] = {
   {"sync_state", "[UE_ID(int,opt)]", get_sync_state},
   {"rrc_state", "[UE_ID(int,opt)]", get_rrc_state},
@@ -249,6 +277,7 @@ static telnetshell_cmddef_t cicmds[] = {
   {"deregistration", "", force_deregistration},
   {"get_max_dl_toa", "[ant]", get_dl_toa},
   {"add_pdu_session", "[PDUSessionID(int)],[UE_ID(int,opt)]", add_pdu_session},
+  {"release_pdu_session", "[PDUSessionID(int)],[UE_ID(int,opt)]", release_pdu_session_cmd},
   {"", "", NULL},
 };
 
