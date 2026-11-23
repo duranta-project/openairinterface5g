@@ -153,11 +153,6 @@ static nr_dci_format_t handle_dci(NR_UE_MAC_INST_t *mac, frame_t frame, int slot
   if (mac->msg3_C_RNTI && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION && dci->rnti == mac->crnti)
     nr_ra_succeeded(mac, frame, slot);
 
-  // suspend RAR response window timer
-  // (in RFsim running multiple slot in parallel it might expire while decoding MSG2)
-  if (mac->ra.ra_state == nrRA_WAIT_RAR && dci->rnti == mac->ra.ra_rnti)
-    nr_timer_suspension(&mac->ra.response_window_timer, true);
-
   return nr_ue_process_dci_indication_pdu(mac, frame, slot, dci);
 }
 
