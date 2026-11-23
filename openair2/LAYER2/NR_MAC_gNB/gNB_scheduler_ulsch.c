@@ -1544,7 +1544,7 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
           precoded_channel_matrix_re[oidx] = 0;
           precoded_channel_matrix_im[oidx] = 0;
           for (int uI = 0; uI < num_ue_srs_ports; uI++) {
-            uint16_t hidx = uI * num_gnb_antenna_elements * num_prgs + gI * num_prgs + pI;
+            const int hidx = (uI * num_gnb_antenna_elements + gI) * num_prgs + pI;
             char w = get_precoder_matrix_coef(ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, l);
             c16_t h_times_w = nr_h_times_w(channel_matrix16[hidx], w);
             precoded_channel_matrix_re[oidx] += h_times_w.r;
@@ -1610,7 +1610,7 @@ static void nr_srs_eff_channel(const uint8_t *channel_matrix,
       for (int gI = 0; gI < num_gnb_antenna_elements; gI++) {
         int32_t acc_r = 0, acc_i = 0;
         for (int uI = 0; uI < num_ue_srs_ports; uI++) {
-          uint16_t hidx = uI * num_gnb_antenna_elements * num_prgs + gI * num_prgs + pI;
+          const int hidx = (uI * num_gnb_antenna_elements + gI) * num_prgs + pI;
           char w = get_precoder_matrix_coef(ul_ri, num_ue_srs_ports, transform_precoding, tpmi, uI, l);
           c16_t h_times_w = nr_h_times_w(channel_matrix16[hidx], w);
           acc_r += h_times_w.r;
