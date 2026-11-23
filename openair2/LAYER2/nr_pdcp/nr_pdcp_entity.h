@@ -164,6 +164,7 @@ typedef struct nr_pdcp_entity_s {
 
   /* rx management */
   nr_pdcp_sdu_t *rx_list;
+  nr_pdcp_sdu_t *rx_list_tail; /* last SDU of rx_list, valid only when rx_list != NULL */
   int           rx_size;
   int           rx_maxsize;
   nr_pdcp_statistics_t stats;
