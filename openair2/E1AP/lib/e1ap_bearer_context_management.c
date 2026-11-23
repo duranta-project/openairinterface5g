@@ -2486,18 +2486,18 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
               if (drbIE->uL_UP_Transport_Parameters.list.count) {
                 drbMod->numUpParam = decode_dl_up_parameters(drbMod->UpParamList, &drbIE->uL_UP_Transport_Parameters);
               }
-              // Flow Setup List (O)
+              // Flow Failed List (O)
               if (drbIE->flow_Failed_List) {
                 drbMod->numQosFlowFailed = drbIE->flow_Failed_List->list.count;
-                for (int i = 0; i < drbMod->numQosFlowSetup; i++) {
-                  drbMod->qosFlowsFailed[i] = decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[i]);
+                for (int k = 0; k < drbMod->numQosFlowFailed; k++) {
+                  drbMod->qosFlowsFailed[k] = decode_qos_flow_failed_item(drbIE->flow_Failed_List->list.array[k]);
                 }
               }
               // Flow Setup List (M)
               if (drbIE->flow_Setup_List.list.count) {
                 drbMod->numQosFlowSetup = drbIE->flow_Setup_List.list.count;
-                for (int i = 0; i < drbMod->numQosFlowSetup; i++)
-                  drbMod->qosFlows[i].qfi = drbIE->flow_Setup_List.list.array[i]->qoS_Flow_Identifier;
+                for (int k = 0; k < drbMod->numQosFlowSetup; k++)
+                  drbMod->qosFlows[k].qfi = drbIE->flow_Setup_List.list.array[k]->qoS_Flow_Identifier;
               }
             }
           }
@@ -2622,8 +2622,14 @@ bool eq_bearer_context_mod_response(const e1ap_bearer_modif_resp_t *a, const e1a
       const DRB_nGRAN_modified_t *drbModB = &pduB->DRBnGRanModList[j];
       _EQ_CHECK_LONG(drbModA->id, drbModB->id);
       _EQ_CHECK_INT(drbModA->numQosFlowSetup, drbModB->numQosFlowSetup);
-      for (int j = 0; j < drbModA->numQosFlowSetup; j++) {
-        _EQ_CHECK_LONG(drbModA->qosFlows[j].qfi, drbModB->qosFlows[j].qfi);
+      for (int k = 0; k < drbModA->numQosFlowSetup; k++) {
+        _EQ_CHECK_LONG(drbModA->qosFlows[k].qfi, drbModB->qosFlows[k].qfi);
+      }
+      _EQ_CHECK_INT(drbModA->numQosFlowFailed, drbModB->numQosFlowFailed);
+      for (int k = 0; k < drbModA->numQosFlowFailed; k++) {
+        _EQ_CHECK_LONG(drbModA->qosFlowsFailed[k].qfi, drbModB->qosFlowsFailed[k].qfi);
+        _EQ_CHECK_INT(drbModA->qosFlowsFailed[k].cause.type, drbModB->qosFlowsFailed[k].cause.type);
+        _EQ_CHECK_INT(drbModA->qosFlowsFailed[k].cause.value, drbModB->qosFlowsFailed[k].cause.value);
       }
       _EQ_CHECK_OPTIONAL_PTR(drbModA, drbModB, pdcp_status);
       if (drbModA->pdcp_status && drbModB->pdcp_status) {
@@ -2648,8 +2654,14 @@ bool eq_bearer_context_mod_response(const e1ap_bearer_modif_resp_t *a, const e1a
 
       _EQ_CHECK_LONG(drbSetupA->id, drbSetupB->id);
       _EQ_CHECK_INT(drbSetupA->numQosFlowSetup, drbSetupB->numQosFlowSetup);
-      for (int j = 0; j < drbSetupA->numQosFlowSetup; j++) {
-        _EQ_CHECK_LONG(drbSetupA->qosFlows[j].qfi, drbSetupB->qosFlows[j].qfi);
+      for (int k = 0; k < drbSetupA->numQosFlowSetup; k++) {
+        _EQ_CHECK_LONG(drbSetupA->qosFlows[k].qfi, drbSetupB->qosFlows[k].qfi);
+      }
+      _EQ_CHECK_INT(drbSetupA->numQosFlowFailed, drbSetupB->numQosFlowFailed);
+      for (int k = 0; k < drbSetupA->numQosFlowFailed; k++) {
+        _EQ_CHECK_LONG(drbSetupA->qosFlowsFailed[k].qfi, drbSetupB->qosFlowsFailed[k].qfi);
+        _EQ_CHECK_INT(drbSetupA->qosFlowsFailed[k].cause.type, drbSetupB->qosFlowsFailed[k].cause.type);
+        _EQ_CHECK_INT(drbSetupA->qosFlowsFailed[k].cause.value, drbSetupB->qosFlowsFailed[k].cause.value);
       }
     }
 

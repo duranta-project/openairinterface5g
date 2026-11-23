@@ -740,6 +740,9 @@ static void test_bearer_context_modification_response(void)
 
   DRB_nGRAN_modified_t drb_mod = drb_modified_template(1);
   drb_mod.qosFlows[0].qfi = 1;
+  drb_mod.numQosFlowFailed = 1;
+  drb_mod.qosFlowsFailed[0].qfi = 7;
+  drb_mod.qosFlowsFailed[0].cause = dummy_cause;
   *drb_mod.pdcp_status = dummy_pdcp_status;
 
   DRB_nGRAN_modified_t drb_mod_2 = drb_modified_template(2);
