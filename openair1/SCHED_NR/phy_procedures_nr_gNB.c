@@ -1433,6 +1433,7 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
   }
   if (gNB->if_inst && uci_ind->num_ucis > 0)
     gNB->if_inst->nr_uci_indication(uci_ind);
+  uci_ind->num_ucis = 0;
 
   srs_ind->header.transmit_timestamp = 0;
   srs_ind->sfn = frame_rx;
@@ -1511,6 +1512,8 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
   if (num_pusch > 0) {
     START_MEAS_FULL_SLOT(&gNB->ulsch_decoding_stats, slot_type, NR_UPLINK_SLOT);
     nr_uci_decoding(gNB, uci_ind, num_pusch, ulsch_idx_to_decode, frame_rx, slot_rx);
+    if (gNB->if_inst && uci_ind->num_ucis > 0)
+      gNB->if_inst->nr_uci_indication(uci_ind);
     int ret_nr_ulsch_procedures = nr_ulsch_procedures(gNB, frame_rx, slot_rx, ulsch_idx_to_decode, num_pusch, rx_ind, crc_ind);
     if (ret_nr_ulsch_procedures != 0)
       LOG_E(NR_PHY, "Error in nr_ulsch_procedures, returned %d\n", ret_nr_ulsch_procedures);
