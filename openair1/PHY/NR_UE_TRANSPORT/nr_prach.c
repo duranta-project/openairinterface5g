@@ -311,6 +311,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   {
     c16_t prachF[dftlen] __attribute__((aligned(32)));
     memset(prachF, 0, sizeof(prachF));
+    const int k0 = k; // first bin of the sequence
     for (int offset = 0, offset2 = 0; offset < N_ZC; offset++, offset2 += preamble_shift) {
       if (offset2 >= N_ZC)
         offset2 -= N_ZC;
@@ -324,7 +325,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
     }
 
     if (ue->fd_ifdevice) {
-      ue->fd_ifdevice->write_prach(ue->fd_ifdevice, frame, slot, prachF, dftlen, Ncp, prach_start, repetitions);
+      ue->fd_ifdevice->write_prach(ue->fd_ifdevice, frame, slot, prachF, dftlen, k0, N_ZC, Ncp, prach_start, repetitions);
       return 0;
     }
 

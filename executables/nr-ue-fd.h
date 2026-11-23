@@ -26,19 +26,23 @@ struct nr_ue_fd_ifdevice_s {
                      int nb_ant_tx,
                      c16_t **txdataF,
                      const bool *was_symbol_used);
-  /// Takes a frequency-domain PRACH preamble in place of IDFT and CP insertion.
+  /// Takes a frequency-domain PRACH preamble in place of IDFT and CP insertion: dftlen bins,
+  /// the n_zc of the sequence from bin k on (modulo dftlen).
   void (*write_prach)(nr_ue_fd_ifdevice_t *dev,
                       int frame,
                       int slot,
                       const c16_t *prachF,
                       int dftlen,
+                      int k,
+                      int n_zc,
                       int Ncp,
                       int prach_start,
                       int repetitions);
   void *priv;
 };
 
-/// Runs every UE instance in its own thread, all clients of one UE Low-PHY device.
+/// Runs every UE instance in its own thread, all clients of one UE Low-PHY device, or with
+/// --ue-fd-attach each on its own link to an O-RU (fd_ue_link.h).
 void init_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues);
 void term_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues);
 

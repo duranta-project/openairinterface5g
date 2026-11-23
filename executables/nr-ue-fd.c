@@ -4,11 +4,11 @@
 
 /*
  * UE instances with frequency-domain I/O (FD-UE). Each instance runs its
- * own thread, like UE_thread() in nr-ue.c, as one client of a UE Low-PHY port
- * (executables/ue_low_phy/port.h): it reads demodulated DL symbols from the port's
- * shared ring and posts UL symbols/PRACH to its own TX ring. The Low-PHY device
- * serving the port owns the radio, FFT/IFFT, timing and the summing of every
- * client's UL.
+ * own thread, like UE_thread() in nr-ue.c, either as one client of this process's UE
+ * Low-PHY device (executables/ue_low_phy/port.h: radio, FFT, timing, cell search, UL
+ * summing), or with --ue-fd-attach as client u of an O-RU's FD channel (fd_channel.h): it
+ * reads its DL streams, writes its UL streams and PRACH by the O-RU's deadline, and
+ * searches the cell on its own DL.
  *
  * Each instance's interface device (PHY_VARS_NR_UE.fd_ifdevice) bypasses FFT/IFFT:
  * nr_slot_fep() reads symbols from the ring, phy_procedures_nrUE_TX() and
@@ -38,6 +38,10 @@
 #include "executables/nr-ue-ru.h"
 #include "executables/nr-ue-fd.h"
 #include "executables/ue_low_phy/device.h"
+#include "executables/fd_channel.h"
+#include "common/utils/shm_iq_channel/shm_fd_iq_channel.h"
+#include "PHY/NR_REFSIG/sss_nr.h"
+#include "PHY/NR_REFSIG/pss_nr.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/actor/actor.h"
 #include "common/utils/barrier/barrier.h"
@@ -71,10 +75,22 @@ extern void init_ue_actors(Actor_t *sync_actor, Actor_t *dl_actors, Actor_t *ul_
 #define FD_MAX_TX_LAG (NUM_PROCESS_SLOT_TX_BARRIERS / 4)
 _Static_assert(MAX_FRAME_NUMBER % FD_SLOT_WINDOW == 0, "PRACH slots are found by SFN and slot");
 
+// Cell search on the FD channel
+typedef struct {
+  bool active;
+  nr_gscn_info_t gscn[MAX_GSCN_BAND];
+  int num_gscn;
+  uint64_t next_slot; // next published slot to search
+  int16_t pss[NUMBER_PSS_SEQUENCE][LENGTH_PSS_NR];
+  c16_t *rxdataF; // [NR_N_SYMBOLS_SSB][nb_antennas_rx][ofdm_symbol_size]
+} fd_search_t;
+
 typedef struct {
   PHY_VARS_NR_UE *UE;
   nr_ue_fd_ifdevice_t dev;
-  ue_low_phy_client_t client;
+  fd_search_t search;
+  ue_low_phy_client_t client; ///< on the device's port
+  int index; ///< client index on the FD channel
   Actor_t *dl_actors;
   Actor_t *ul_actors;
   uint32_t ta[FD_SLOT_WINDOW];
@@ -88,17 +104,30 @@ typedef struct {
   uint64_t rrc_next_frame; // next frame to tick RRC with: absolute frame in sync, radio frame out of sync
 } fd_ue_t;
 
-// The Low-PHY every instance is a client of.
 static ue_low_phy_device_t *fd_device;
+static ue_low_phy_port_t *fd_port;
+static ShmFDIQChannel *fd_channel;
 
-// The IQ-sample time source follows the radio, once for all instances.
+// The IQ-sample time source follows the radio, once for all instances, from the first
+// time it is read.
 static pthread_mutex_t fd_time_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int64_t fd_time_ticked;
+static int64_t fd_time_ticked = -1;
+
+// Samples received so far: the device's radio time, or the published slots of the FD channel
+static int64_t fd_rx_time(const NR_DL_FRAME_PARMS *fp)
+{
+  if (fd_device)
+    return ue_low_phy_device_rx_time(fd_device);
+  const uint64_t slots = shm_fd_iq_channel_get_current_symbol(fd_channel) / fp->symbols_per_slot;
+  return slots / fp->slots_per_frame * fp->samples_per_frame + get_samples_slot_timestamp(fp, slots % fp->slots_per_frame);
+}
 
 static void fd_tick_time(const NR_DL_FRAME_PARMS *fp)
 {
   mutexlock(fd_time_mutex);
-  const int64_t now = ue_low_phy_device_rx_time(fd_device);
+  const int64_t now = fd_rx_time(fp);
+  if (fd_time_ticked < 0)
+    fd_time_ticked = fd_device ? 0 : now; // 3GPP time starts at a large hyper frame
   if (now > fd_time_ticked) {
     time_manager_iq_samples(now - fd_time_ticked, fp->samples_per_subframe * 1000);
     fd_time_ticked = now;
@@ -116,12 +145,46 @@ static void fd_tick_rrc(fd_ue_t *f, uint64_t frame)
 
 static uint64_t fd_radio_frame(const NR_DL_FRAME_PARMS *fp)
 {
-  return ue_low_phy_device_rx_time(fd_device) / fp->samples_per_frame;
+  return fd_rx_time(fp) / fp->samples_per_frame;
 }
 
 static uint64_t abs_slot_of(const NR_DL_FRAME_PARMS *fp, int hfn, int frame, int slot)
 {
   return ((uint64_t)hfn * MAX_FRAME_NUMBER + frame) * fp->slots_per_frame + slot;
+}
+
+static uint64_t fd_next_published_slot(const fd_ue_t *f)
+{
+  if (fd_channel)
+    return shm_fd_iq_channel_get_current_symbol(fd_channel) / f->UE->frame_parms.symbols_per_slot;
+  return ue_low_phy_client_next_published_slot(&f->client);
+}
+
+// 0 readable, 1 timed out, -1 no longer readable, -2 stopped
+static int fd_wait_slot(fd_ue_t *f, uint64_t abs_slot, int timeout_us)
+{
+  if (!fd_channel)
+    return ue_low_phy_client_wait_slot(&f->client, abs_slot, timeout_us);
+  const uint64_t sps = f->UE->frame_parms.symbols_per_slot;
+  const int ret = shm_fd_iq_channel_wait(fd_channel, (abs_slot + 1) * sps, timeout_us);
+  if (ret != 0)
+    return ret < 0 ? -2 : 1;
+  const uint64_t half = shm_fd_iq_channel_geometry(fd_channel)->ring_symbols / 2;
+  return abs_slot * sps + half < shm_fd_iq_channel_get_current_symbol(fd_channel) ? -1 : 0;
+}
+
+// DL symbol abs_sym, FFT shifted as nr_symbol_fep() leaves it
+static bool fd_rx_symbol(fd_ue_t *f, uint64_t abs_sym, c16_t *const *dst, int nb_ant)
+{
+  if (!fd_channel)
+    return ue_low_phy_client_rx_symbol(&f->client, abs_sym, dst, nb_ant);
+  if (shm_fd_iq_channel_rx(fd_channel, abs_sym, f->index * nb_ant, nb_ant, dst) != CHANNEL_NO_ERROR)
+    return false;
+  const NR_DL_FRAME_PARMS *fp = &f->UE->frame_parms;
+  const int n_re = fp->N_RB_DL * NR_NB_SC_PER_RB;
+  for (int a = 0; a < nb_ant; a++)
+    memset(dst[a] + n_re, 0, (fp->ofdm_symbol_size - n_re) * sizeof(c16_t));
+  return true;
 }
 
 static bool fd_read_symbol(nr_ue_fd_ifdevice_t *dev, int frame, int slot, int symbol, c16_t *const *dst)
@@ -131,10 +194,10 @@ static bool fd_read_symbol(nr_ue_fd_ifdevice_t *dev, int frame, int slot, int sy
   // The PHY knows the SFN only (abs_frame % 1024 == SFN): the slot is the newest published
   // one with this SFN and slot. A DL actor never lags a whole SFN cycle.
   const uint64_t period = (uint64_t)MAX_FRAME_NUMBER * fp->slots_per_frame;
-  const uint64_t newest = ue_low_phy_client_next_published_slot(&f->client) - 1;
+  const uint64_t newest = fd_next_published_slot(f) - 1;
   const uint64_t lag = (newest % period + period - ((uint64_t)frame * fp->slots_per_frame + slot)) % period;
   const uint64_t abs_slot = newest - lag;
-  if (!ue_low_phy_client_rx_symbol(&f->client, abs_slot * fp->symbols_per_slot + symbol, dst, fp->nb_antennas_rx)) {
+  if (!fd_rx_symbol(f, abs_slot * fp->symbols_per_slot + symbol, dst, fp->nb_antennas_rx)) {
     LOG_W(NR_PHY, "[fd-ue] UE %d: symbol %d of %d.%d left the RX ring before it was read\n", f->UE->Mod_id, symbol, frame, slot);
     return false;
   }
@@ -146,6 +209,8 @@ static void fd_write_prach(nr_ue_fd_ifdevice_t *dev,
                            int slot,
                            const c16_t *prachF,
                            int dftlen,
+                           int k,
+                           int n_zc,
                            int Ncp,
                            int prach_start,
                            int repetitions)
@@ -154,6 +219,15 @@ static void fd_write_prach(nr_ue_fd_ifdevice_t *dev,
   // UL jobs of consecutive slots run concurrently: find this one's slot by frame and
   // slot (FD_SLOT_WINDOW divides the slots of an SFN cycle).
   const uint64_t abs_slot = f->prach_abs_slot[((uint64_t)frame * f->UE->frame_parms.slots_per_frame + slot) % FD_SLOT_WINDOW];
+  if (fd_channel) {
+    fd_channel_prach_t p = {.ue = f->index, .dftlen = dftlen, .k = k, .n_zc = n_zc};
+    for (int j = 0; j < n_zc; j++)
+      p.bins[j] = prachF[(k + j) % dftlen];
+    const IQChannelErrorType ret = shm_fd_iq_channel_tx_msg(fd_channel, abs_slot * f->UE->frame_parms.symbols_per_slot, &p, sizeof(p));
+    if (ret != CHANNEL_NO_ERROR)
+      LOG_E(NR_PHY, "[fd-ue] UE %d: PRACH of %d.%d not sent to the O-RU (error %d)\n", f->UE->Mod_id, frame, slot, ret);
+    return;
+  }
   const int entry = ue_low_phy_client_tx_prach(&f->client, abs_slot, prach_start, Ncp, dftlen, repetitions, prachF);
   if (entry < 0)
     LOG_E(NR_PHY, "[fd-ue] UE %d: no free PRACH entry for %d.%d\n", f->UE->Mod_id, frame, slot);
@@ -175,7 +249,14 @@ fd_write_slot(nr_ue_fd_ifdevice_t *dev, int hfn, int frame, int slot, int nb_ant
     c16_t *data[nb_ant_tx];
     for (int a = 0; a < nb_ant_tx; a++)
       data[a] = &txdataF[a][sym * fp->ofdm_symbol_size];
-    ue_low_phy_client_tx_symbol(&f->client, abs_slot * fp->symbols_per_slot + sym, data, nb_ant_tx);
+    const uint64_t abs_sym = abs_slot * fp->symbols_per_slot + sym;
+    if (!fd_channel) {
+      ue_low_phy_client_tx_symbol(&f->client, abs_sym, data, nb_ant_tx);
+    } else if (shm_fd_iq_channel_tx(fd_channel, abs_sym, f->index * nb_ant_tx, nb_ant_tx, (const c16_t *const *)data) != CHANNEL_NO_ERROR) {
+      static _Atomic unsigned late;
+      if (late++ % 1000 == 0)
+        LOG_W(NR_PHY, "[fd-ue] UE %d: UL symbol %d of %d.%d missed the O-RU's deadline (%u so far)\n", f->UE->Mod_id, sym, frame, slot, late);
+    }
     used |= 1u << sym;
   }
   f->used[abs_slot % FD_SLOT_WINDOW] = used;
@@ -192,7 +273,7 @@ static void fd_process_slot_tx(void *arg)
   f->used[w] = 0;
   f->prach[w] = -1;
   processSlotTX(arg);
-  if (f->declared[w] != abs_slot + 1)
+  if (!fd_channel && f->declared[w] != abs_slot + 1)
     ue_low_phy_client_slot_done(&f->client, abs_slot, f->used[w], f->prach[w], f->ta[w]);
   ue_low_phy_progress_raise(&f->tx_completed, abs_slot);
   ue_low_phy_progress_add(&f->tx_jobs, 1);
@@ -211,7 +292,8 @@ static void fd_flush(fd_ue_t *f)
 static void fd_restart_tx(fd_ue_t *f, int tx_wait_for_dlsch[NR_MAX_SLOTS_PER_FRAME], enum stream_status_e *stream_status)
 {
   PHY_VARS_NR_UE *UE = f->UE;
-  ue_low_phy_client_drop_through(&f->client, f->last_tx_slot);
+  if (!fd_channel)
+    ue_low_phy_client_drop_through(&f->client, f->last_tx_slot);
   fd_flush(f);
   // A TX job starts the next one through its barrier while running, possibly behind
   // a flush: flush the UL actors until a whole round runs no job, so the chain has
@@ -277,6 +359,158 @@ static void fd_apply_cell(PHY_VARS_NR_UE *UE, const ue_low_phy_cell_t *cell, uin
   LOG_A(NR_PHY, "[fd-ue] UE %d synchronized: PCI %u, SFN %d\n", UE->Mod_id, cell->pci, mac->mib_frame);
 }
 
+// SFN of a PBCH payload: 6 MSBs from the MIB (after the BCCH-BCH message-type bit), 4 LSBs
+// bit-reversed in the extra bits, as nr_ue_decode_mib() reads them.
+static int pbch_sfn(const fapiPbch_t *pbch)
+{
+  int lsb = 0;
+  for (int i = 0; i < 4; i++)
+    lsb |= ((pbch->xtra_byte >> i) & 1) << (3 - i);
+  return (((pbch->decoded_output[0] >> 1) & 0x3f) << 4) | lsb;
+}
+
+static void fd_search_start(fd_ue_t *f)
+{
+  PHY_VARS_NR_UE *UE = f->UE;
+  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  fd_search_t *sr = &f->search;
+  // As a monolithic initial sync: the band's GSCNs with --ue-scan-carrier, else the configured SSB.
+  sr->num_gscn = 0;
+  if (get_nrUE_params()->UE_scan_carrier)
+    sr->num_gscn = get_scan_ssb_first_sc(fp->dl_CarrierFreq, fp->N_RB_DL, nrue_get_band(UE), fp->numerology_index, sr->gscn);
+  if (sr->num_gscn <= 0) {
+    sr->gscn[0] = (nr_gscn_info_t){.ssbFirstSC = fp->ssb_start_subcarrier};
+    sr->num_gscn = 1;
+  }
+  for (int nid2 = 0; nid2 < NUMBER_PSS_SEQUENCE; nid2++)
+    generate_pss_nr(nid2, sr->pss[nid2]);
+  if (!sr->rxdataF)
+    sr->rxdataF = malloc16_clear_or_fail(NR_N_SYMBOLS_SSB * fp->nb_antennas_rx * fp->ofdm_symbol_size * sizeof(c16_t));
+  sr->next_slot = fd_next_published_slot(f);
+  sr->active = true;
+  if (UE->target_Nid_cell >= 0)
+    LOG_I(NR_PHY, "[fd-ue] UE %d: searching PCI %d on %d SSB position(s)\n", UE->Mod_id, UE->target_Nid_cell, sr->num_gscn);
+  else
+    LOG_I(NR_PHY, "[fd-ue] UE %d: searching any PCI on %d SSB position(s)\n", UE->Mod_id, sr->num_gscn);
+}
+
+// Normalized correlation with pss over 8 segments of 16 REs (about flat through the channel):
+// about 1 for that PSS, 1/16 for data, 0 for silence. Gates the much costlier SSS search.
+#define FD_PSS_SEGMENT 16
+#define FD_PSS_THRESHOLD 0.5
+static double fd_pss_metric(const c16_t *const *pss_symbol, int nb_rx, int ssb_sc, const int16_t *pss)
+{
+  double corr = 0, energy = 0;
+  for (int a = 0; a < nb_rx; a++) {
+    const c16_t *x = pss_symbol[a] + ssb_sc + PSS_SSS_SUB_CARRIER_START;
+    for (int k0 = 0; k0 < LENGTH_PSS_NR; k0 += FD_PSS_SEGMENT) {
+      double re = 0, im = 0;
+      for (int k = k0; k < k0 + FD_PSS_SEGMENT && k < LENGTH_PSS_NR; k++) {
+        re += x[k].r * pss[k];
+        im += x[k].i * pss[k];
+        energy += (double)x[k].r * x[k].r + (double)x[k].i * x[k].i;
+      }
+      corr += re * re + im * im;
+    }
+  }
+  return energy > 0 ? corr / (energy * FD_PSS_SEGMENT) : 0;
+}
+
+// FD channel time is 3GPP time: only the SSB candidate and cell are searched, PSS, then SSS
+// (target PCI or any), confirmed by PBCH.
+static bool fd_search_slot(fd_ue_t *f, uint64_t abs_slot, ue_low_phy_cell_t *cell)
+{
+  PHY_VARS_NR_UE *UE = f->UE;
+  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  fd_search_t *sr = &f->search;
+  const int sps = fp->symbols_per_slot;
+  const int nb_rx = fp->nb_antennas_rx;
+  const int fft = fp->ofdm_symbol_size;
+  const int target = UE->target_Nid_cell;
+  const uint64_t half_frame = abs_slot - abs_slot % (fp->slots_per_frame / 2);
+  c16_t(*rxdataF)[nb_rx][fft] = (c16_t(*)[nb_rx][fft])sr->rxdataF;
+  for (int i = 0; i < fp->Lmax; i++) {
+    const uint64_t first = half_frame * sps + nr_get_ssb_start_symbol(fp, i);
+    if (first / sps != abs_slot)
+      continue;
+    for (int sym = 0; sym < NR_N_SYMBOLS_SSB; sym++) {
+      c16_t *dst[nb_rx];
+      for (int a = 0; a < nb_rx; a++)
+        dst[a] = rxdataF[sym][a];
+      if (!fd_rx_symbol(f, first + sym, dst, nb_rx))
+        return false;
+    }
+    for (int g = 0; g < sr->num_gscn; g++) {
+      const int ssb_sc = sr->gscn[g].ssbFirstSC;
+      for (int nid2 = 0; nid2 < NUMBER_PSS_SEQUENCE; nid2++) {
+        if (target >= 0 && target % NUMBER_PSS_SEQUENCE != nid2)
+          continue;
+        const c16_t *pss_symbol[nb_rx];
+        for (int a = 0; a < nb_rx; a++)
+          pss_symbol[a] = rxdataF[0][a];
+        if (fd_pss_metric(pss_symbol, nb_rx, ssb_sc, sr->pss[nid2]) < FD_PSS_THRESHOLD)
+          continue;
+        pss_detection_result_t pss = {.success = true, .nid2 = nid2};
+        nr_sss_params_t sss_params = {.nb_antennas_rx = nb_rx,
+                                      .samples_per_slot_wCP = fp->samples_per_slot_wCP,
+                                      .ofdm_symbol_size = fft,
+                                      .ssb_start_subcarrier = ssb_sc,
+                                      .subcarrier_spacing = fp->subcarrier_spacing};
+        const sss_detection_result_t sss = rx_sss_nr(&sss_params, &pss, target, rxdataF);
+        if (!sss.success || sss.nid_cell < 0)
+          continue;
+        const uint64_t abs_frame = abs_slot / fp->slots_per_frame;
+        UE_nr_rxtx_proc_t proc = {.frame_rx = abs_frame % MAX_FRAME_NUMBER, .nr_slot_rx = abs_slot % fp->slots_per_frame};
+        int half_frame_bit, ssb_index, symbol_offset;
+        fapiPbch_t pbch = {0};
+        if (!nr_pbch_detection(&proc, fp, sss.nid_cell, 1, ssb_sc, &half_frame_bit, &ssb_index, &symbol_offset, &pbch, rxdataF))
+          continue;
+        const int sfn = pbch_sfn(&pbch);
+        if (sfn != abs_frame % MAX_FRAME_NUMBER || (fp->Lmax <= 8 && ssb_index != i))
+          LOG_W(NR_PHY,
+                "[fd-ue] UE %d: SSB at frame %lu candidate %d carries SFN %d, index %d: the port's time is not the cell's\n",
+                UE->Mod_id,
+                abs_frame % MAX_FRAME_NUMBER,
+                i,
+                sfn,
+                ssb_index);
+        *cell = (ue_low_phy_cell_t){.pci = sss.nid_cell,
+                                    .ssb_start_subcarrier = ssb_sc,
+                                    .ssb_index = ssb_index,
+                                    .mib = {pbch.decoded_output[0], pbch.decoded_output[1], pbch.decoded_output[2]},
+                                    .mib_xtra = pbch.xtra_byte,
+                                    .half_frame_bit = half_frame_bit,
+                                    .symbol_offset = symbol_offset,
+                                    .mib_abs_frame = abs_frame,
+                                    .first_slot = abs_slot + 1};
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// 1 found (cell set), 0 not yet, -1 the O-RU stopped
+static int fd_search_step(fd_ue_t *f, ue_low_phy_cell_t *cell)
+{
+  fd_search_t *sr = &f->search;
+  if (!sr->active)
+    fd_search_start(f);
+  const int wait = fd_wait_slot(f, sr->next_slot, 10000);
+  if (wait == -2)
+    return -1;
+  if (wait == 1)
+    return 0;
+  if (wait == -1) {
+    sr->next_slot = fd_next_published_slot(f);
+    return 0;
+  }
+  const bool found = fd_search_slot(f, sr->next_slot++, cell);
+  if (found)
+    sr->active = false;
+  return found;
+}
+
 static void *UE_fd_thread(void *arg)
 {
   fd_ue_t *f = arg;
@@ -312,11 +546,18 @@ static void *UE_fd_thread(void *arg)
         UE->target_Nid_cell = UE->synch_request.synch_req.target_Nid_cell;
         UE->synch_request.received_synch_request = 0;
       }
-      if (!sync_req)
-        sync_req = ue_low_phy_client_request_sync(c, UE->target_Nid_cell, get_nrUE_params()->ue_fd_sync_timeout_ms);
       ue_low_phy_cell_t cell;
-      // Short waits: time and RRC timers are ticked between them.
-      const int rc = ue_low_phy_client_sync_result(c, sync_req, &cell, 10000);
+      int rc;
+      if (fd_device) {
+        if (!sync_req)
+          sync_req = ue_low_phy_client_request_sync(c, UE->target_Nid_cell, get_nrUE_params()->ue_fd_sync_timeout_ms);
+        // Short waits: time and RRC timers are ticked between them.
+        rc = ue_low_phy_client_sync_result(c, sync_req, &cell, 10000);
+      } else {
+        rc = fd_search_step(f, &cell);
+        if (rc < 0)
+          break; // the O-RU stopped
+      }
       fd_tick_time(fp);
       if (rc <= 0)
         fd_tick_rrc(f, fd_radio_frame(fp));
@@ -326,7 +567,7 @@ static void *UE_fd_thread(void *arg)
       if (rc < 0)
         continue; // the next pass asks for a fresh search
       // Start at the newest slot: whatever is older was received while searching.
-      next_slot = ue_low_phy_client_next_published_slot(c);
+      next_slot = fd_next_published_slot(f);
       if (next_slot < cell.first_slot)
         next_slot = cell.first_slot;
       fd_apply_cell(UE, &cell, next_slot);
@@ -341,7 +582,7 @@ static void *UE_fd_thread(void *arg)
       UE->N_TA_offset = determine_N_TA_offset(UE);
       f->last_tx_slot = next_slot + rx2tx - 1;
       ue_low_phy_progress_raise(&f->tx_completed, f->last_tx_slot);
-      if (!ue_low_phy_client_join(c, next_slot + rx2tx, UE->N_TA_offset + UE->timing_advance + UE->timing_advance_ntn))
+      if (!fd_channel && !ue_low_phy_client_join(c, next_slot + rx2tx, UE->N_TA_offset + UE->timing_advance + UE->timing_advance_ntn))
         LOG_E(NR_PHY, "[fd-ue] UE %d: could not join the Low-PHY uplink\n", UE->Mod_id);
       continue;
     }
@@ -357,16 +598,17 @@ static void *UE_fd_thread(void *arg)
       // Every scheduled TX slot is either recorded by now or given up: leaving after
       // the last one is exact.
       fd_restart_tx(f, tx_wait_for_dlsch, &stream_status);
-      if (!ue_low_phy_client_leave(c, f->last_tx_slot, 1000000))
+      if (!fd_channel && !ue_low_phy_client_leave(c, f->last_tx_slot, 1000000))
         LOG_E(NR_PHY, "[fd-ue] UE %d: Low-PHY did not confirm leaving\n", UE->Mod_id);
       clean_UE_harq(UE);
       UE->is_synchronized = 0;
+      f->search.active = false;
       f->rrc_next_frame = fd_radio_frame(fp);
       UE->synch_request.received_synch_request = 0;
       continue;
     }
 
-    const int wait = ue_low_phy_client_wait_slot(c, next_slot, 100000);
+    const int wait = fd_wait_slot(f, next_slot, 100000);
     if (wait == 1)
       continue;
     if (wait == -2)
@@ -376,12 +618,13 @@ static void *UE_fd_thread(void *arg)
       // like a resync, so the TX barrier chain starts over instead of waiting for
       // slots that will never be processed. Still a member: the TX slots skipped
       // (or dropped with the barriers) are declared empty.
-      const uint64_t newest = ue_low_phy_client_next_published_slot(c) - 1;
+      const uint64_t newest = fd_next_published_slot(f) - 1;
       LOG_W(NR_PHY, "[fd-ue] UE %d: slot %lu left the ring, skipping %lu slots\n", UE->Mod_id, next_slot, newest - next_slot);
       fd_restart_tx(f, tx_wait_for_dlsch, &stream_status);
       next_slot = newest;
       f->last_tx_slot = next_slot + rx2tx - 1;
-      ue_low_phy_client_skip_through(c, f->last_tx_slot);
+      if (!fd_channel)
+        ue_low_phy_client_skip_through(c, f->last_tx_slot);
       ue_low_phy_progress_raise(&f->tx_completed, f->last_tx_slot);
       continue;
     }
@@ -408,7 +651,8 @@ static void *UE_fd_thread(void *arg)
     // Steer the shared RX/TX boundary once per frame, as UE_thread() does (only
     // the port's timing master is listened to: one radio, one boundary).
     if (slot_nr == nb_slot_frame - 1) {
-      ue_low_phy_client_adjust_timing(c, shiftForNextFrame);
+      if (!fd_channel)
+        ue_low_phy_client_adjust_timing(c, shiftForNextFrame);
       shiftForNextFrame = -(int)round(UE->max_pos_acc * get_nrUE_params()->time_sync_I);
     }
 
@@ -451,7 +695,7 @@ static void *UE_fd_thread(void *arg)
     // Low-PHY now, so a burst before it ends without waiting for this slot's TX job.
     f->declared[abs_slot_tx % FD_SLOT_WINDOW] = 0;
     const bool may_send = curMsg.proc.tx_slot_type == NR_UPLINK_SLOT || curMsg.proc.tx_slot_type == NR_MIXED_SLOT;
-    if (!may_send && ue_low_phy_client_try_slot_done(c, abs_slot_tx, 0, -1, new_ta))
+    if (!may_send && !fd_channel && ue_low_phy_client_try_slot_done(c, abs_slot_tx, 0, -1, new_ta))
       f->declared[abs_slot_tx % FD_SLOT_WINDOW] = abs_slot_tx + 1;
 
     if (get_nrUE_params()->num_dl_actors > 0)
@@ -497,12 +741,48 @@ static void fd_start_lowphy(const PHY_VARS_NR_UE *UE, int num_ues)
   AssertFatal(ue_low_phy_device_start(fd_device) == 0, "[fd-ue] failed to start the UE Low-PHY\n");
 }
 
+static void fd_connect(const PHY_VARS_NR_UE *UE, const char *name, int num_ues)
+{
+  const NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
+  LOG_I(NR_PHY, "[fd-ue] connecting to FD channel %s\n", name);
+  fd_channel = shm_fd_iq_channel_connect(name, 60000);
+  AssertFatal(fd_channel, "[fd-ue] no live FD channel %s after 60 s\n", name);
+  const ShmFDIQGeometry *g = shm_fd_iq_channel_geometry(fd_channel);
+  AssertFatal(g->n_re_dl == fp->N_RB_DL * NR_NB_SC_PER_RB && g->n_re_ul == fp->N_RB_UL * NR_NB_SC_PER_RB
+                  && g->ring_symbols % fp->symbols_per_slot == 0,
+              "[fd-ue] FD channel %s: %u/%u REs, ring of %u symbols; UE: %d/%d RBs, %d symbols per slot\n",
+              name,
+              g->n_re_dl,
+              g->n_re_ul,
+              g->ring_symbols,
+              fp->N_RB_DL,
+              fp->N_RB_UL,
+              fp->symbols_per_slot);
+  AssertFatal(g->nb_clients == (uint32_t)num_ues && g->nb_ant_dl == g->nb_clients * fp->nb_antennas_rx
+                  && g->nb_ant_ul == g->nb_clients * fp->nb_antennas_tx
+                  && g->msg_max_size >= sizeof(fd_channel_prach_t),
+              "[fd-ue] FD channel %s: %u UEs, %u/%u streams; %d UEs of %d RX / %d TX antennas\n",
+              name,
+              g->nb_clients,
+              g->nb_ant_dl,
+              g->nb_ant_ul,
+              num_ues,
+              fp->nb_antennas_rx,
+              fp->nb_antennas_tx);
+}
+
 void init_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
 {
   AssertFatal(UE_list[0]->sl_mode == 0, "[fd-ue] sidelink is not supported in FD-UE mode\n");
   AssertFatal(usrp_tx_thread == 0,
               "[fd-ue] --usrp-tx-thread-config is not supported in FD-UE mode (the Low-PHY has its own TX thread)\n");
-  fd_start_lowphy(UE_list[0], num_ues);
+  const char *attach = get_nrUE_params()->ue_fd_attach;
+  if (attach) {
+    fd_connect(UE_list[0], attach, num_ues);
+  } else {
+    fd_start_lowphy(UE_list[0], num_ues);
+    fd_port = ue_low_phy_device_port(fd_device);
+  }
 
   for (int u = 0; u < num_ues; u++) {
     PHY_VARS_NR_UE *UE = UE_list[u];
@@ -516,9 +796,11 @@ void init_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
     f->ul_actors = calloc(num_ul_actors > 0 ? num_ul_actors : 1, sizeof(*f->ul_actors));
     AssertFatal(f->dl_actors && f->ul_actors, "OOM\n");
     init_ue_actors(NULL, f->dl_actors, f->ul_actors);
-    AssertFatal(ue_low_phy_client_open(ue_low_phy_device_port(fd_device), &f->client) == 0,
-                "[fd-ue] UE Low-PHY port has no free client slot for UE %d\n",
-                u);
+    if (fd_channel) {
+      f->index = u;
+    } else {
+      AssertFatal(ue_low_phy_client_open(fd_port, &f->client) == 0, "[fd-ue] UE Low-PHY port has no free client slot for UE %d\n", u);
+    }
     f->dev = (nr_ue_fd_ifdevice_t){
         .read_symbol = fd_read_symbol,
         .write_slot = fd_write_slot,
@@ -553,7 +835,8 @@ void term_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
     PHY_VARS_NR_UE *UE = UE_list[u];
     join_thread(UE->main_thread);
     fd_ue_t *f = UE->fd_ifdevice->priv;
-    ue_low_phy_client_leave(&f->client, f->last_tx_slot, 0);
+    if (!fd_channel)
+      ue_low_phy_client_leave(&f->client, f->last_tx_slot, 0);
   }
   for (int u = 0; u < num_ues; u++) {
     PHY_VARS_NR_UE *UE = UE_list[u];
@@ -564,16 +847,23 @@ void term_NR_UE_fd(PHY_VARS_NR_UE **UE_list, int num_ues)
       shutdown_actor(&f->dl_actors[i]);
     if (!IS_SOFTMODEM_NOSTATS)
       join_thread(UE->stat_thread);
-    if (!ue_low_phy_client_leave(&f->client, f->last_tx_slot, 200000))
-      LOG_W(NR_PHY, "[fd-ue] UE %d: Low-PHY did not confirm leaving\n", UE->Mod_id);
     UE->fd_ifdevice = NULL;
-    ue_low_phy_client_close(&f->client);
+    if (!fd_channel) {
+      if (!ue_low_phy_client_leave(&f->client, f->last_tx_slot, 200000))
+        LOG_W(NR_PHY, "[fd-ue] UE %d: Low-PHY did not confirm leaving\n", UE->Mod_id);
+      ue_low_phy_client_close(&f->client);
+    }
     free(f->dl_actors);
     free(f->ul_actors);
+    free(f->search.rxdataF);
     ue_low_phy_progress_destroy(&f->tx_completed);
     ue_low_phy_progress_destroy(&f->tx_jobs);
     free(f);
   }
-  ue_low_phy_device_destroy(fd_device);
+  if (fd_device)
+    ue_low_phy_device_destroy(fd_device);
+  shm_fd_iq_channel_destroy(fd_channel);
   fd_device = NULL;
+  fd_port = NULL;
+  fd_channel = NULL;
 }

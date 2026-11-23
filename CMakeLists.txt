@@ -1897,7 +1897,7 @@ target_link_libraries(nr-uesoftmodem PRIVATE
   -Wl,--start-group
   nr_rrc SECURITY UTIL SCHED_NR_UE_LIB
   PHY_NR_COMMON PHY_NR_UE NR_L2_UE MAC_NR_COMMON nfapi_nr_lib
-  ITTI SIMU radio_common ue_low_phy ue_low_phy_sync
+  ITTI SIMU radio_common ue_low_phy ue_low_phy_sync shm_fd_iq_channel
   time_management softmodem_common
   -Wl,--end-group dl)
 
