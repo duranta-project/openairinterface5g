@@ -58,7 +58,7 @@ uint8_t pack_nr_dl_node_sync(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end
 {
   nfapi_nr_dl_node_sync_t *pNfapiMsg = (nfapi_nr_dl_node_sync_t *)msg;
   return (push32(pNfapiMsg->t1, ppWritePackedMsg, end) && pushs32(pNfapiMsg->delta_sfn_slot, ppWritePackedMsg, end)
-          && pack_p7_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
+          && pack_nr_p7_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
 }
 
 uint8_t pack_nr_ul_node_sync(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *config)
@@ -66,7 +66,7 @@ uint8_t pack_nr_ul_node_sync(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end
   nfapi_nr_ul_node_sync_t *pNfapiMsg = (nfapi_nr_ul_node_sync_t *)msg;
   return (push32(pNfapiMsg->t1, ppWritePackedMsg, end) && push32(pNfapiMsg->t2, ppWritePackedMsg, end)
           && push32(pNfapiMsg->t3, ppWritePackedMsg, end)
-          && pack_p7_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
+          && pack_nr_p7_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
 }
 
 uint8_t pack_nr_timing_info(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *config)
@@ -85,7 +85,7 @@ uint8_t pack_nr_timing_info(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end,
           && pushs32(pNfapiMsg->tx_data_request_earliest_arrival, ppWritePackedMsg, end)
           && pushs32(pNfapiMsg->ul_tti_earliest_arrival, ppWritePackedMsg, end)
           && pushs32(pNfapiMsg->ul_dci_earliest_arrival, ppWritePackedMsg, end)
-          && pack_p7_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
+          && pack_nr_p7_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config));
 }
 
 int pack_nr_srs_channel_svd_representation(void *pMessageBuf, void *pPackedBuf, uint32_t packedBufLen)

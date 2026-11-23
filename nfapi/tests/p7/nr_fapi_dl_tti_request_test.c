@@ -14,7 +14,7 @@ static void fill_dl_tti_request_beamforming(nfapi_nr_tx_precoding_and_beamformin
   for (int prg = 0; prg < precodingAndBeamforming->num_prgs; ++prg) {
     precodingAndBeamforming->prgs_list[prg].pm_idx = rand16();
     for (int dbf_if = 0; dbf_if < precodingAndBeamforming->dig_bf_interfaces; ++dbf_if) {
-      precodingAndBeamforming->prgs_list[prg].dig_bf_interface_list[dbf_if].beam_idx = rand16();
+      precodingAndBeamforming->prgs_list[prg].dig_bf_interface_list[dbf_if].beam_idx = rand16_range(0, 0x7fff);
     }
   }
 }
@@ -45,7 +45,7 @@ static void fill_dl_tti_request_pdcch_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdu
     pdu->dci_pdu[dl_dci].AggregationLevel = rand8();
     fill_dl_tti_request_beamforming(&pdu->dci_pdu[dl_dci].precodingAndBeamforming);
     pdu->dci_pdu[dl_dci].beta_PDCCH_1_0 = rand8();
-    pdu->dci_pdu[dl_dci].powerControlOffsetSS = rand8();
+    pdu->dci_pdu[dl_dci].powerControlOffsetSS = rand8_range(0, 3);
     pdu->dci_pdu[dl_dci].PayloadSizeBits = rand16_range(0, DCI_PAYLOAD_BYTE_LEN * 8);
     generate_payload(pdu->dci_pdu[dl_dci].PayloadSizeBits, pdu->dci_pdu[dl_dci].Payload);
   }
