@@ -13,7 +13,7 @@
 #include "common/utils/eq_check.h"
 
 #define MIN_LEN_FGS_MOBILE_ID_IE 3 // type of identity "No identity"
-#define LEN_5G_FGS_TMSI_IE 9
+#define LEN_5G_FGS_TMSI_CONTENTS 7 // octets 4 to 10, after the length field
 #define LEN_5G_GUTI_CONTENTS 11 // octets 4 to 14
 
 static int decode_guti_5gs_mobile_identity(Guti5GSMobileIdentity_t *guti, const uint8_t *buffer);
@@ -25,7 +25,7 @@ static int encode_imeisv_5gs_mobile_identity(const Imeisv5GSMobileIdentity_t *im
 int encode_stmsi_5gs_mobile_identity(uint8_t *buffer, const Stmsi5GSMobileIdentity_t *stmsi, uint32_t len)
 {
   // Return if buffer is shorter than min length
-  if (len < LEN_5G_FGS_TMSI_IE)
+  if (len < LEN_5G_FGS_TMSI_CONTENTS)
     return -1;
 
   uint32_t encoded = 0;
@@ -46,7 +46,7 @@ int decode_stmsi_5gs_mobile_identity(Stmsi5GSMobileIdentity_t *stmsi, const uint
   uint16_t temp;
 
   // Return if buffer is shorter than min length
-  if (len < LEN_5G_FGS_TMSI_IE)
+  if (len < LEN_5G_FGS_TMSI_CONTENTS)
     return -1;
 
   // Octet 4: spare (bit 3) and type of identity (bits 0-2)

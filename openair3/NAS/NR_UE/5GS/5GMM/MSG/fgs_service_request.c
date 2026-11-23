@@ -56,7 +56,10 @@ int encode_fgs_service_request(uint8_t *buffer, const fgs_service_request_msg_t 
   // 5GS Mobile Identity (M) type 5G-S-TMSI (9 octets)
   encoded += LEN_FGS_MOBILE_ID_CONTENTS_SIZE; // skip "Length of 5GS mobile identity contents" IE
   len -= LEN_FGS_MOBILE_ID_CONTENTS_SIZE;
-  encoded += encode_stmsi_5gs_mobile_identity(buffer + encoded, &service_request->fiveg_s_tmsi, len);
+  int stmsi_len = encode_stmsi_5gs_mobile_identity(buffer + encoded, &service_request->fiveg_s_tmsi, len);
+  if (stmsi_len < 0)
+    return -1;
+  encoded += stmsi_len;
   // encode length of 5GS mobile identity contents
   uint16_t tmp = htons(encoded - LEN_FGS_MOBILE_ID_CONTENTS_SIZE - 1);
   memcpy(buffer + 1, &tmp, sizeof(tmp));

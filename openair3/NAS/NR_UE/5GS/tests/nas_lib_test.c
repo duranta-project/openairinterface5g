@@ -184,6 +184,28 @@ static void test_service_request(void)
   free_fgs_service_request(&original_msg);
 }
 
+/** @brief Test NAS Service Request enc/dec without optional IEs, in a buffer of the exact size:
+ *         the 5G-S-TMSI is the last IE (TS 24.501 8.2.16) */
+static void test_service_request_no_optional_ie(void)
+{
+  const fgs_service_request_msg_t orig = {
+      .naskeysetidentifier = {.tsc = NAS_KEY_SET_IDENTIFIER_NATIVE, .naskeysetidentifier = 2},
+      .serviceType = SERVICE_TYPE_DATA,
+      .fiveg_s_tmsi = {.digit1 = DIGIT1, .typeofidentity = FGS_MOBILE_IDENTITY_5GS_TMSI, .amfsetid = 0x48, .amfpointer = 0x34, .tmsi = 0x56789ABC},
+  };
+  const uint8_t expected_enc[] = {0x12, 0x00, 0x07, 0xF4, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
+  uint8_t buf[sizeof(expected_enc)] = {0};
+  int encoded = encode_fgs_service_request(buf, &orig, sizeof(buf));
+  AssertFatal(encoded == sizeof(expected_enc), "Encoded length mismatch %d != %ld\n", encoded, sizeof(expected_enc));
+  AssertFatal(memcmp(buf, expected_enc, encoded) == 0, "Encoding mismatch!\n");
+
+  fgs_service_request_msg_t dec = {0};
+  AssertFatal(decode_fgs_service_request(&dec, buf, sizeof(buf)) == sizeof(buf), "decode_fgs_service_request() failed\n");
+  AssertFatal(dec.serviceType == orig.serviceType && dec.fiveg_s_tmsi.tmsi == orig.fiveg_s_tmsi.tmsi
+                  && dec.fiveg_s_tmsi.amfsetid == orig.fiveg_s_tmsi.amfsetid && dec.fiveg_s_tmsi.amfpointer == orig.fiveg_s_tmsi.amfpointer,
+              "test_service_request_no_optional_ie() failed: original and decoded messages do not match\n");
+}
+
 /**
  * @brief Test NAS Service Accept enc/dec
  */
@@ -495,6 +517,7 @@ int main()
   // Tests list
   test_regression_registration_accept();
   test_service_request();
+  test_service_request_no_optional_ie();
   test_service_accept();
   test_service_reject();
   test_registration_reject();
