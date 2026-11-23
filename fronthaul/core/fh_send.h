@@ -34,12 +34,14 @@ int fh_send_init(fh_send_t *send, fh_timer_t *timer, uint16_t port_id, uint16_t 
 
 /**
  * @brief Transmit packets immediately, bypassing scheduling.
- * This function is thread-safe and can be called from any lcore.
+ * This function is thread-safe and can be called from any lcore. Packets are handed to the device in
+ * array order; a burst that the device accepts only partially is retried for a short, bounded time
+ * and the packets still not accepted after that are freed, so the caller must not touch them again.
  *
  * @param send Pointer to fh_send handle
  * @param mbufs Array of packets to send
  * @param n Number of packets
- * @return uint16_t Number of packets actually transmitted
+ * @return uint16_t Number of packets accepted for transmission (the remaining ones were dropped)
  */
 uint16_t fh_send_immediate(fh_send_t *send, struct rte_mbuf **mbufs, unsigned int n);
 

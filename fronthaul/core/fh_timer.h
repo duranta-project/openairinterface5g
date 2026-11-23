@@ -107,6 +107,15 @@ void fh_timer_tick(fh_timer_t *timer);
 uint64_t fh_timer_get_current_symbol(fh_timer_t *timer);
 
 /**
+ * @brief Sleep until the clock has passed the end of an absolute symbol.
+ * Returns at once if that time has already passed.
+ *
+ * @param timer Pointer to timer handle
+ * @param s_abs Absolute symbol number since GPS epoch
+ */
+void fh_timer_wait_symbol_end(const fh_timer_t *timer, uint64_t s_abs);
+
+/**
  * @brief Stop the 5G symbol timer.
  *
  * @param timer Pointer to timer handle

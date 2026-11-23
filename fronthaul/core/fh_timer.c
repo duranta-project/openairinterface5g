@@ -3,6 +3,7 @@
  */
 
 #include "fh_timer.h"
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -124,6 +125,18 @@ int fh_timer_register_cb(fh_timer_t *timer, fh_timer_cb cb, void *user_data)
 void fh_timer_stop(fh_timer_t *timer)
 {
   timer->running = false;
+}
+
+void fh_timer_wait_symbol_end(const fh_timer_t *timer, uint64_t s_abs)
+{
+  typedef __int128_t int128;
+  uint64_t total_syms_per_ms = 14 << timer->numerology;
+  const uint64_t target_gps_ns = (uint64_t)((int128)(s_abs + 1) * NS_PER_MS / total_syms_per_ms);
+  for (uint64_t now = timer->get_gps_ns(); now < target_gps_ns; now = timer->get_gps_ns()) {
+    const uint64_t remaining = target_gps_ns - now;
+    struct timespec ts = {.tv_sec = remaining / NS_PER_SEC, .tv_nsec = remaining % NS_PER_SEC};
+    nanosleep(&ts, NULL);
+  }
 }
 
 uint64_t fh_timer_get_current_symbol(fh_timer_t *timer)
