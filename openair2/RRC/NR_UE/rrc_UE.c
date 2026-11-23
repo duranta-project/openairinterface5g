@@ -2577,6 +2577,16 @@ static int8_t nr_rrc_ue_decode_ccch(NR_UE_RRC_INST_t *rrc, const NRRrcMacCcchDat
     return -1;
    }
 
+   /* RRCSetup and RRCReject only answer a request of the UE (TS 38.331 5.3.3, 5.3.7, 5.3.13). Outside of these
+      procedures a CCCH SDU comes from a transport block decoded by error: an all-zero SDU reads as an RRCReject
+      without waitTime, and processing it resets the MAC of a connected UE, which then stays silent for good. */
+   const NR_UE_Timers_Constants_t *tac = &rrc->timers_and_constants;
+   if (!nr_timer_is_active(&tac->T300) && !nr_timer_is_active(&tac->T301) && !nr_timer_is_active(&tac->T319)) {
+     RRCLOG_W("Ignoring a DL-CCCH message (%d bytes) received while no RRC request is pending\n", ind->sdu_size);
+     ASN_STRUCT_FREE(asn_DEF_NR_DL_CCCH_Message, dl_ccch_msg);
+     return 0;
+   }
+
    if (dl_ccch_msg->message.present == NR_DL_CCCH_MessageType_PR_c1) {
      switch (dl_ccch_msg->message.choice.c1->present) {
        case NR_DL_CCCH_MessageType__c1_PR_NOTHING:
