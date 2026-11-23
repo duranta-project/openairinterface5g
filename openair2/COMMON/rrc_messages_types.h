@@ -89,6 +89,7 @@
 #define NRDuDlReq(mSGpTR)      (mSGpTR)->ittiMsg.nr_du_dl_req
 
 #define NAS_PDU_SESSION_REQ(mSGpTR) (mSGpTR)->ittiMsg.nas_pdu_session_req
+#define NAS_PDU_SESSION_RELEASE_REQ(mSGpTR) (mSGpTR)->ittiMsg.nas_pdu_session_release_req
 
 #define NR_RRC_RLC_MAXRTX(mSGpTR) (mSGpTR)->ittiMsg.nr_rlc_maxrtx_indication
 

@@ -459,6 +459,11 @@ typedef struct nas_pdu_session_req_s {
   char dnn[103]; /* 24.501 §9.11.2.1A: max length 102 + 0-byte */
 } nas_pdu_session_req_t;
 
+/* upper layer -> NAS: UE-requested PDU session release (TS 24.501 6.4.3) */
+typedef struct nas_pdu_session_release_req_s {
+  int pdusession_id;
+} nas_pdu_session_release_req_t;
+
 /*
  * SDAP->RRC->NAS - MO UL data pending while UE has no SDAP entity (e.g. 5GMM-IDLE)
  * Distinct from paging: NAS may start Service Request (TS 24.501 §5.6.1)
@@ -481,6 +486,8 @@ typedef struct nas_tun_psi_s {
 typedef enum {
   NAS_TUN_START_USER_PLANE = 0,
   NAS_TUN_START_IDLE_LISTENER,
+  /* stop the reader, delete the SDAP entity and close the TUN fd of each listed PSI: NAS hands the fd over */
+  NAS_TUN_RELEASE_PDU_SESSION,
 } nas_tun_req_action_t;
 
 typedef struct nas_tun_req_s {

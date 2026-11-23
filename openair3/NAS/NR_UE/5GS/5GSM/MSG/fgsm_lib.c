@@ -99,3 +99,34 @@ qos_rule_t decode_qos_rule(uint8_t *buf)
   }
   return qos_rule;
 }
+
+int decode_5gsm_cause_skip_optional_ies(uint8_t *cause, const byte_array_t *buffer, const char *msg_name)
+{
+  if (buffer->len < 1) {
+    LOG_E(NAS, "%s: missing 5GSM cause\n", msg_name);
+    return -1;
+  }
+  size_t pos = 0;
+  *cause = buffer->buf[pos++];
+
+  // Skip each optional IE by the format its IEI encodes (TS 24.007 clause 11.2.4)
+  while (pos < buffer->len) {
+    const uint8_t iei = buffer->buf[pos];
+    size_t ie_len = 1; // type 1 or type 2 (IEI bit 8 set): one octet
+    if ((iei & 0xf0) == 0x70) {
+      if (pos + 3 > buffer->len)
+        return -1;
+      ie_len = 3 + (buffer->buf[pos + 1] << 8 | buffer->buf[pos + 2]); // TLV-E
+    } else if (!(iei & 0x80)) {
+      if (pos + 2 > buffer->len)
+        return -1;
+      ie_len = 2 + buffer->buf[pos + 1]; // TLV
+    }
+    if (pos + ie_len > buffer->len) {
+      LOG_E(NAS, "%s: IEI 0x%02x exceeds the message\n", msg_name, iei);
+      return -1;
+    }
+    pos += ie_len;
+  }
+  return pos;
+}
