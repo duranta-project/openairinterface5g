@@ -10,78 +10,127 @@
 #include <openair2/UTIL/OPT/opt.h>
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include <math.h>
+#include "PHY/sse_intrin.h"
 
 typedef struct {
   nr_ul_candidate_t *alt;
   float rho;
 } nr_mu_fallback_candidate_t;
 
-// Computes cross correlation coefficient of a UE pair based on the SRS channel estimates
-// Currently supports single layer UEs only
-static float nr_srs_pair_correlation(const nr_srs_eff_channel_info_t *a, const nr_srs_eff_channel_info_t *b, float threshold)
+/* Effective channel of each layer of the UE after its precoder for the selected rank and TPMI,
+ * sum over the ports u of h[u][g][p] * w[u][l], normalized per PRG. channel_matrix is the SRS
+ * report, [port][gNB antenna][PRG]. */
+nr_srs_sig_t *nr_srs_sig_create(const c16_t *channel_matrix,
+                                int num_prg,
+                                int num_rx,
+                                int num_ports,
+                                int ul_ri,
+                                long transform_precoding,
+                                uint8_t tpmi)
 {
-  // Check if the measurements are valid
-  if (!a->valid || !b->valid)
-    return 1.0f;
+  // UL codebooks of TS 38.211 Tables 6.3.1.5-1 to 6.3.1.5-5: up to 2 layers
+  if (ul_ri > 1)
+    return NULL;
+  DevAssert(num_prg <= MAX_BWP_SIZE);
+  const int num_layers = ul_ri + 1;
+  char w[num_layers][num_ports];
+  for (int l = 0; l < num_layers; l++)
+    for (int u = 0; u < num_ports; u++)
+      w[l][u] = get_precoder_matrix_coef(ul_ri, num_ports, transform_precoding, tpmi, u, l);
 
-  // Supports only single layer UEs
-  if (a->num_layers != 1 || b->num_layers != 1)
-    return 1.0f;
+  nr_srs_sig_t *sig = calloc_or_fail(1, sizeof(*sig));
+  sig->num_layers = num_layers;
+  sig->num_rx = num_rx;
+  sig->num_prg = num_prg;
+  sig->prg_stride = (num_prg + 7) & ~7;
+  const size_t planes = (size_t)num_layers * num_rx * sig->prg_stride;
+  // aligned for the vector loads, padding PRGs cleared
+  sig->re = malloc16_clear_or_fail(2 * planes * sizeof(float));
+  sig->im = sig->re + planes;
+  sig->prg_valid = calloc_or_fail(num_layers * num_prg, sizeof(*sig->prg_valid));
+  int num_valid = 0;
+  for (int l = 0; l < num_layers; l++) {
+    for (int p = 0; p < num_prg; p++) {
+      int32_t eff_r[num_rx], eff_i[num_rx];
+      int64_t norm = 0;
+      for (int g = 0; g < num_rx; g++) {
+        eff_r[g] = eff_i[g] = 0;
+        for (int u = 0; u < num_ports; u++) {
+          const c16_t hw = nr_h_times_w(channel_matrix[(u * num_rx + g) * num_prg + p], w[l][u]);
+          eff_r[g] += hw.r;
+          eff_i[g] += hw.i;
+        }
+        norm += (int64_t)eff_r[g] * eff_r[g] + (int64_t)eff_i[g] * eff_i[g];
+      }
+      uint8_t *valid = &sig->prg_valid[l * num_prg + p];
+      *valid = norm > 0;
+      if (!*valid)
+        continue;
+      num_valid++;
+      const float scale = 1.0f / sqrtf((float)norm);
+      for (int g = 0; g < num_rx; g++) {
+        sig->re[(l * num_rx + g) * sig->prg_stride + p] = eff_r[g] * scale;
+        sig->im[(l * num_rx + g) * sig->prg_stride + p] = eff_i[g] * scale;
+      }
+    }
+  }
+  if (num_valid == 0) {
+    nr_srs_sig_free(sig);
+    return NULL;
+  }
+  return sig;
+}
 
-  // Check for number of PRGs and receive antennas
+void nr_srs_sig_free(nr_srs_sig_t *sig)
+{
+  if (!sig)
+    return;
+  free16(sig->re, 0);
+  free(sig->prg_valid);
+  free(sig);
+}
+
+/* Maximum over the PRGs of the cross-correlation coefficient |h_a^H h_b| / (|h_a| |h_b|): one
+ * aligned PRG is enough to reject a pair. Vectorized across PRGs (the planes are 32-byte aligned
+ * and prg_stride is a multiple of 8), so all of them are computed. */
+float nr_srs_pair_correlation(const nr_srs_sig_t *a, const nr_srs_sig_t *b)
+{
+  DevAssert(a->num_layers == 1 && b->num_layers == 1);
   if (a->num_rx != b->num_rx || a->num_prg != b->num_prg) {
     LOG_E(NR_MAC, "SRS geometry mismatch (rx antennas %u/%u, PRGs %u/%u)\n", a->num_rx, b->num_rx, a->num_prg, b->num_prg);
     return 1.0f;
   }
-
-  const int nrx = a->num_rx;
-  const int nprg = a->num_prg;
-  float rho_max = 0.0f;
-
-  // Compute cross-correlation per PRG
-  int num_valid_prg = 0;
-  for (int p = 0; p < nprg; p++) {
-    int64_t cross_re = 0, cross_im = 0;
-    int64_t norm_h_a = 0, norm_h_b = 0;
-
-    for (int r = 0; r < nrx; r++) {
-      // layer index is 0: rank 1
-      const c16_t h_a = a->h_srs_eff[p][0][r];
-      const c16_t h_b = b->h_srs_eff[p][0][r];
-      // conj(h_a) * h_b
-      cross_re += (int64_t)h_a.r * h_b.r + (int64_t)h_a.i * h_b.i;
-      cross_im += (int64_t)h_a.r * h_b.i - (int64_t)h_a.i * h_b.r;
-      norm_h_a += (int64_t)h_a.r * h_a.r + (int64_t)h_a.i * h_a.i;
-      norm_h_b += (int64_t)h_b.r * h_b.r + (int64_t)h_b.i * h_b.i;
+  const int num_blocks = a->prg_stride / 8;
+  simde__m256 cross_re[NR_SRS_SIG_MAX_STRIDE / 8], cross_im[NR_SRS_SIG_MAX_STRIDE / 8];
+  for (int k = 0; k < num_blocks; k++)
+    cross_re[k] = cross_im[k] = simde_mm256_setzero_ps();
+  for (int r = 0; r < a->num_rx; r++) {
+    const simde__m256 *ar = (const simde__m256 *)(a->re + r * a->prg_stride);
+    const simde__m256 *ai = (const simde__m256 *)(a->im + r * a->prg_stride);
+    const simde__m256 *br = (const simde__m256 *)(b->re + r * b->prg_stride);
+    const simde__m256 *bi = (const simde__m256 *)(b->im + r * b->prg_stride);
+    // conj(h_a) * h_b, 8 PRGs at a time
+    for (int k = 0; k < num_blocks; k++) {
+      cross_re[k] =
+          simde_mm256_add_ps(cross_re[k], simde_mm256_add_ps(simde_mm256_mul_ps(ar[k], br[k]), simde_mm256_mul_ps(ai[k], bi[k])));
+      cross_im[k] =
+          simde_mm256_add_ps(cross_im[k], simde_mm256_sub_ps(simde_mm256_mul_ps(ar[k], bi[k]), simde_mm256_mul_ps(ai[k], br[k])));
     }
-
-    if (norm_h_a == 0 || norm_h_b == 0)
-      continue;
-
-    num_valid_prg++;
-
-    //       || h_a^H * h_b ||
-    // rho = -----------------
-    //       ||h_a|| * ||h_b||
-    const double numerator = (double)cross_re * cross_re + (double)cross_im * cross_im;
-    const double denominator = (double)norm_h_a * (double)norm_h_b;
-    double rho2 = numerator / denominator;
-    if (rho2 > 1.0)
-      rho2 = 1.0;
-
-    const float rho = sqrtf((float)rho2);
-    if (rho > rho_max)
-      rho_max = rho;
-
-    // Worst-PRG check with early-out: one aligned PRG is enough to reject.
-    if (rho_max > threshold)
-      return rho_max;
   }
-
+  const float *cr = (const float *)cross_re, *ci = (const float *)cross_im;
+  float rho2_max = 0.0f;
+  int num_valid_prg = 0;
+  for (int p = 0; p < a->num_prg; p++) {
+    if (!a->prg_valid[p] || !b->prg_valid[p])
+      continue;
+    num_valid_prg++;
+    const float rho2 = cr[p] * cr[p] + ci[p] * ci[p];
+    if (rho2 > rho2_max)
+      rho2_max = rho2;
+  }
   if (num_valid_prg == 0)
     return 1.0f;
-
-  return rho_max;
+  return rho2_max < 1.0f ? sqrtf(rho2_max) : 1.0f;
 }
 
 // Finds this UE's cached pairing entry for partner_rnti, or -1 none/invalid.
@@ -146,12 +195,14 @@ void nr_mu_update_pair_cache(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_inf
     bool orthogonal = false;
     float rho = 1.0f;
     fsn_t older = {0};
-    if (sig->valid && other_sig->valid && sig->num_layers == 1 && other_sig->num_layers == 1) {
+    // pairing of multi-layer UEs is not supported yet
+    if (sig->valid && other_sig->valid && sig->sig && other_sig->sig && sig->sig->num_layers == 1
+        && other_sig->sig->num_layers == 1) {
       const int gap = fsn_get_diff(other_sig->time, sig->time);
       // the pair is as old as the older of the two SRS reports
       older = gap > 0 ? sig->time : other_sig->time;
       if (abs(gap) <= max_age_slots) {
-        rho = nr_srs_pair_correlation(sig, other_sig, threshold);
+        rho = nr_srs_pair_correlation(sig->sig, other_sig->sig);
         orthogonal = rho < threshold;
       }
     }

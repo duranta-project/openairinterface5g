@@ -728,7 +728,7 @@ typedef struct {
   uint8_t num_layers;
   uint8_t num_rx;
   uint16_t num_prg;
-  c16_t h_srs_eff[MAX_BWP_SIZE][MAX_NUM_NR_SRS_AP][NB_ANTENNAS_RX];
+  struct nr_srs_sig_s *sig; // NULL if there is no channel or no UL codebook for the rank
 } nr_srs_eff_channel_info_t;
 
 /*! \brief scheduling control information set through an API */

@@ -391,6 +391,16 @@ void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
 uint8_t *allocate_transportBlock_buffer(byte_array_t *tb, uint32_t needed);
 void free_transportBlock_buffer(byte_array_t *tb);
 
+/// coefficient of a UL precoder of TS 38.211 Tables 6.3.1.5-1 to 6.3.1.5-5:
+/// '0', '1', 'n' (-1), 'j' or 'o' (-j)
+char get_precoder_matrix_coef(const uint8_t ul_ri,
+                              const uint16_t num_ue_srs_ports,
+                              const long transform_precoding,
+                              const uint8_t tpmi,
+                              const uint8_t uI,
+                              int layer_idx);
+c16_t nr_h_times_w(c16_t h, char w);
+
 void handle_nr_srs_measurements(gNB_MAC_INST *nrmac,
                                 nr_cell_sched_t *cell,
                                 const frame_t frame,
