@@ -218,6 +218,119 @@
                     </channelBWs-UL-v1590>
                 </ext4>
             </BandNR>
+            <BandNR>
+                <bandNR>256</bandNR>
+                <mimo-ParametersPerBand>
+                    <tci-StatePDSCH>
+                        <maxNumberConfiguredTCI-StatesPerCC><n16/></maxNumberConfiguredTCI-StatesPerCC>
+                        <maxNumberActiveTCI-PerBWP><n1/></maxNumberActiveTCI-PerBWP>
+                    </tci-StatePDSCH>
+                    <pusch-TransCoherence><nonCoherent/></pusch-TransCoherence>
+                    <periodicBeamReport><supported/></periodicBeamReport>
+                    <aperiodicBeamReport><supported/></aperiodicBeamReport>
+                    <maxNumberNonGroupBeamReporting><n4/></maxNumberNonGroupBeamReporting>
+                    <maxNumberSSB-BFD>2</maxNumberSSB-BFD>
+                    <maxNumberCSI-RS-SSB-CBD>8</maxNumberCSI-RS-SSB-CBD>
+                    <beamReportTiming>
+                        <scs-15kHz><sym8/></scs-15kHz>
+                        <scs-30kHz><sym14/></scs-30kHz>
+                    </beamReportTiming>
+                    <ext1>
+                        <beamManagementSSB-CSI-RS>
+                            <maxNumberSSB-CSI-RS-ResourceOneTx><n8/></maxNumberSSB-CSI-RS-ResourceOneTx>
+                            <maxNumberCSI-RS-Resource><n32/></maxNumberCSI-RS-Resource>
+                            <maxNumberCSI-RS-ResourceTwoTx><n8/></maxNumberCSI-RS-ResourceTwoTx>
+                            <supportedCSI-RS-Density><oneAndThree/></supportedCSI-RS-Density>
+                            <maxNumberAperiodicCSI-RS-Resource><n32/></maxNumberAperiodicCSI-RS-Resource>
+                        </beamManagementSSB-CSI-RS>
+                        <codebookParameters>
+                            <type1>
+                                <singlePanel>
+                                    <supportedCSI-RS-ResourceList>
+                                        <SupportedCSI-RS-Resource>
+                                            <maxNumberTxPortsPerResource><p8/></maxNumberTxPortsPerResource>
+                                            <maxNumberResourcesPerBand>8</maxNumberResourcesPerBand>
+                                            <totalNumberTxPortsPerBand>64</totalNumberTxPortsPerBand>
+                                        </SupportedCSI-RS-Resource>
+                                        <SupportedCSI-RS-Resource>
+                                            <maxNumberTxPortsPerResource><p4/></maxNumberTxPortsPerResource>
+                                            <maxNumberResourcesPerBand>8</maxNumberResourcesPerBand>
+                                            <totalNumberTxPortsPerBand>32</totalNumberTxPortsPerBand>
+                                        </SupportedCSI-RS-Resource>
+                                        <SupportedCSI-RS-Resource>
+                                            <maxNumberTxPortsPerResource><p16/></maxNumberTxPortsPerResource>
+                                            <maxNumberResourcesPerBand>4</maxNumberResourcesPerBand>
+                                            <totalNumberTxPortsPerBand>64</totalNumberTxPortsPerBand>
+                                        </SupportedCSI-RS-Resource>
+                                        <SupportedCSI-RS-Resource>
+                                            <maxNumberTxPortsPerResource><p32/></maxNumberTxPortsPerResource>
+                                            <maxNumberResourcesPerBand>2</maxNumberResourcesPerBand>
+                                            <totalNumberTxPortsPerBand>64</totalNumberTxPortsPerBand>
+                                        </SupportedCSI-RS-Resource>
+                                    </supportedCSI-RS-ResourceList>
+                                    <modes><mode1/></modes>
+                                    <maxNumberCSI-RS-PerResourceSet>4</maxNumberCSI-RS-PerResourceSet>
+                                </singlePanel>
+                            </type1>
+                        </codebookParameters>
+                        <csi-RS-IM-ReceptionForFeedback>
+                            <maxConfigNumberNZP-CSI-RS-PerCC>8</maxConfigNumberNZP-CSI-RS-PerCC>
+                            <maxConfigNumberPortsAcrossNZP-CSI-RS-PerCC>64</maxConfigNumberPortsAcrossNZP-CSI-RS-PerCC>
+                            <maxConfigNumberCSI-IM-PerCC><n8/></maxConfigNumberCSI-IM-PerCC>
+                            <maxNumberSimultaneousNZP-CSI-RS-PerCC>4</maxNumberSimultaneousNZP-CSI-RS-PerCC>
+                            <totalNumberPortsSimultaneousNZP-CSI-RS-PerCC>32</totalNumberPortsSimultaneousNZP-CSI-RS-PerCC>
+                        </csi-RS-IM-ReceptionForFeedback>
+                        <csi-ReportFramework>
+                            <maxNumberPeriodicCSI-PerBWP-ForCSI-Report>2</maxNumberPeriodicCSI-PerBWP-ForCSI-Report>
+                            <maxNumberAperiodicCSI-PerBWP-ForCSI-Report>2</maxNumberAperiodicCSI-PerBWP-ForCSI-Report>
+                            <maxNumberSemiPersistentCSI-PerBWP-ForCSI-Report>0</maxNumberSemiPersistentCSI-PerBWP-ForCSI-Report>
+                            <maxNumberPeriodicCSI-PerBWP-ForBeamReport>2</maxNumberPeriodicCSI-PerBWP-ForBeamReport>
+                            <maxNumberAperiodicCSI-PerBWP-ForBeamReport>2</maxNumberAperiodicCSI-PerBWP-ForBeamReport>
+                            <maxNumberAperiodicCSI-triggeringStatePerCC><n63/></maxNumberAperiodicCSI-triggeringStatePerCC>
+                            <maxNumberSemiPersistentCSI-PerBWP-ForBeamReport>0</maxNumberSemiPersistentCSI-PerBWP-ForBeamReport>
+                            <simultaneousCSI-ReportsPerCC>4</simultaneousCSI-ReportsPerCC>
+                        </csi-ReportFramework>
+                        <csi-RS-ForTracking>
+                            <maxBurstLength>2</maxBurstLength>
+                            <maxSimultaneousResourceSetsPerCC>1</maxSimultaneousResourceSetsPerCC>
+                            <maxConfiguredResourceSetsPerCC>8</maxConfiguredResourceSetsPerCC>
+                            <maxConfiguredResourceSetsAllCC>16</maxConfiguredResourceSetsAllCC>
+                        </csi-RS-ForTracking>
+                    </ext1>
+                </mimo-ParametersPerBand>
+                <multipleTCI><supported/></multipleTCI>
+                <pusch-256QAM><supported/></pusch-256QAM>
+                <ue-PowerClass><pc2/></ue-PowerClass>
+                <channelBWs-DL>
+                    <fr1>
+                        <scs-15kHz>
+                            1111000000
+                        </scs-15kHz>
+                        <scs-30kHz>
+                            0000000000
+                        </scs-30kHz>
+                        <scs-60kHz>
+                            0000000000
+                        </scs-60kHz>
+                    </fr1>
+                </channelBWs-DL>
+                <channelBWs-UL>
+                    <fr1>
+                        <scs-15kHz>
+                            1111000000
+                        </scs-15kHz>
+                        <scs-30kHz>
+                            0000000000
+                        </scs-30kHz>
+                        <scs-60kHz>
+                            0000000000
+                        </scs-60kHz>
+                    </fr1>
+                </channelBWs-UL>
+                <ext1>
+                    <maxUplinkDutyCycle-PC2-FR1><n100/></maxUplinkDutyCycle-PC2-FR1>
+                </ext1>
+            </BandNR>
         </supportedBandListNR>
         <supportedBandCombinationList>
             <BandCombination>
@@ -231,14 +344,44 @@
                 <featureSetCombination>0</featureSetCombination>
                 <powerClass-v1530><pc2/></powerClass-v1530>
             </BandCombination>
+            <BandCombination>
+                <bandList>
+                    <nr>
+                        <bandNR>256</bandNR>
+                        <ca-BandwidthClassDL-NR><a/></ca-BandwidthClassDL-NR>
+                        <ca-BandwidthClassUL-NR><a/></ca-BandwidthClassUL-NR>
+                    </nr>
+                </bandList>
+                <featureSetCombination>1</featureSetCombination>
+                <powerClass-v1530><pc2/></powerClass-v1530>
+            </BandCombination>
         </supportedBandCombinationList>
         <appliedFreqBandListFilter>
                 <bandInformationNR>
                     <bandNR>78</bandNR>
                 </bandInformationNR>
+                <bandInformationNR>
+                    <bandNR>256</bandNR>
+                </bandInformationNR>
         </appliedFreqBandListFilter>
         <ext1>
             <supportedBandCombinationList-v1540>
+                <BandCombination-v1540>
+                    <bandList-v1540>
+                        <BandParameters-v1540>
+                            <srs-TxSwitch>
+                                <supportedSRS-TxPortSwitch><t2r4/></supportedSRS-TxPortSwitch>
+                            </srs-TxSwitch>
+                        </BandParameters-v1540>
+                    </bandList-v1540>
+                    <ca-ParametersNR-v1540>
+                        <csi-RS-IM-ReceptionForFeedbackPerBandComb>
+                            <maxNumberSimultaneousNZP-CSI-RS-ActBWP-AllCC>8</maxNumberSimultaneousNZP-CSI-RS-ActBWP-AllCC>
+                            <totalNumberPortsSimultaneousNZP-CSI-RS-ActBWP-AllCC>64</totalNumberPortsSimultaneousNZP-CSI-RS-ActBWP-AllCC>
+                        </csi-RS-IM-ReceptionForFeedbackPerBandComb>
+                        <simultaneousCSI-ReportsAllCC>8</simultaneousCSI-ReportsAllCC>
+                    </ca-ParametersNR-v1540>
+                </BandCombination-v1540>
                 <BandCombination-v1540>
                     <bandList-v1540>
                         <BandParameters-v1540>
@@ -859,6 +1002,14 @@
                     <nr>
                         <downlinkSetNR>2</downlinkSetNR>
                         <uplinkSetNR>2</uplinkSetNR>
+                    </nr>
+            </FeatureSetsPerBand>
+        </FeatureSetCombination>
+        <FeatureSetCombination>
+            <FeatureSetsPerBand>
+                    <nr>
+                        <downlinkSetNR>3</downlinkSetNR>
+                        <uplinkSetNR>3</uplinkSetNR>
                     </nr>
             </FeatureSetsPerBand>
         </FeatureSetCombination>
