@@ -568,7 +568,11 @@ static void test_bearer_context_modification_request(void)
   drb_to_mod.pdcp_sn_status_requested = true;
   *drb_to_mod.pdcp_config = dummy_pdcp_config;
   *drb_to_mod.pdcp_status = dummy_pdcp_status;
+  drb_to_mod.numQosFlowsMod = 2;
   drb_to_mod.qosFlows[0] = dummy_qos_flows;
+  drb_to_mod.qosFlows[1] = dummy_qos_flows;
+  drb_to_mod.qosFlows[1].qfi = 10;
+  drb_to_mod.qosFlows[1].qos_params.qos_characteristics.non_dynamic.fiveqi = 10;
 
   DRB_nGRAN_to_mod_t drb_to_mod_2 = drb_to_mod_template(2);
   *drb_to_mod_2.pdcp_config = dummy_pdcp_config;
