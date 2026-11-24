@@ -4246,23 +4246,32 @@ bool nr_mac_remove_lcid(NR_UE_sched_ctrl_t *sched_ctrl, long lcid)
   return true;
 }
 
-/* highest RA-RNTI and MSGB-RNTI of 38.321 5.1.3 and 5.1.3a:
-   1 + s_id + 14 * t_id + 14 * 80 * f_id + 14 * 80 * 8 * ul_carrier_id (+ 14 * 80 * 8 * 2 for MSGB),
-   s_id < 14, t_id < 80, f_id < 8, ul_carrier_id < 2 */
-#define NR_MAX_RA_MSGB_RNTI (14 * 80 * 8 * 4)
+/// @brief Whether the cell can use this value as RA-RNTI or MSGB-RNTI (38.321 5.1.3 and 5.1.3a)
+static bool is_ra_rnti_of_cell(const NR_ServingCellConfigCommon_t *scc, rnti_t rnti)
+{
+  const NR_BWP_UplinkCommon_t *ul_bwp = scc->uplinkConfigCommon->initialUplinkBWP;
+  const int mu = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
+  // last values of the cell: symbol, slot of the frame, PRACH occasion in frequency; no SUL
+  const int s_id = 13;
+  const int t_id = (10 << mu) - 1;
+  const int f_id = (1 << ul_bwp->rach_ConfigCommon->choice.setup->rach_ConfigGeneric.msg1_FDM) - 1;
+  if (rnti <= nr_get_ra_rnti(s_id, t_id, f_id, 0))
+    return true;
+  const bool two_step_ra = ul_bwp->ext1 && ul_bwp->ext1->msgA_ConfigCommon_r16;
+  return two_step_ra && rnti >= nr_get_MsgB_rnti(0, 0, 0, 0) && rnti <= nr_get_MsgB_rnti(s_id, t_id, f_id, 0);
+}
 
-bool nr_mac_get_new_rnti(NR_UEs_t *UEs, rnti_t *rnti)
+bool nr_mac_get_new_rnti(NR_UEs_t *UEs, const NR_ServingCellConfigCommon_t *scc, rnti_t *rnti)
 {
   int loop = 0;
-  bool exist_connected_ue, exist_in_pending_ra_ue;
+  bool in_use;
   do {
+    *rnti = (taus() % 0xffef) + 1;
     // a C-RNTI equal to a RA-RNTI makes the UE take every RAR of this PRACH
-    // occasion for its own DCI: draw above the RA-RNTI and MSGB-RNTI values
-    *rnti = NR_MAX_RA_MSGB_RNTI + 1 + taus() % (0xffef - NR_MAX_RA_MSGB_RNTI);
-    exist_connected_ue = find_connected_nr_ue(UEs, *rnti) != NULL;
-    exist_in_pending_ra_ue = find_ra_ue(UEs, *rnti) != NULL;
+    // occasion for its own DCI
+    in_use = is_ra_rnti_of_cell(scc, *rnti) || find_connected_nr_ue(UEs, *rnti) != NULL || find_ra_ue(UEs, *rnti) != NULL;
     loop++;
-  } while (loop < 100 && (exist_connected_ue || exist_in_pending_ra_ue));
+  } while (loop < 100 && in_use);
   return loop < 100; // nothing found: loop count 100
 }
 
