@@ -325,35 +325,43 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_response(const e1ap_setup_resp_t *msg)
     ieC3->criticality = E1AP_Criticality_ignore;
     ieC3->value.present = E1AP_GNB_CU_UP_E1SetupResponseIEs__value_PR_Transport_Layer_Address_Info;
     // Transport UP Layer Addresses Info to Add List
-    for (int i = 0; i < msg->tnla_info->num_addresses_to_add; i++) {
+    if (msg->tnla_info->num_addresses_to_add > 0) {
       E1AP_Transport_UP_Layer_Addresses_Info_To_Add_List_t *a = calloc_or_fail(1, sizeof(*a));
       ieC3->value.choice.Transport_Layer_Address_Info.transport_UP_Layer_Addresses_Info_To_Add_List =
           (struct E1AP_Transport_UP_Layer_Addresses_Info_To_Add_List *)a;
-      asn1cSequenceAdd(a->list, E1AP_Transport_UP_Layer_Addresses_Info_To_Add_Item_t, ieC4);
-      in_addr_t *ipsec = &msg->tnla_info->addresses_to_add[i].ipsec_tl_address;
-      TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*ipsec, &ieC4->iP_SecTransportLayerAddress);
-      for (int j = 0; j < msg->tnla_info->addresses_to_add[i].num_gtp_tl_addresses; j++) {
-        E1AP_GTPTLAs_t *g = calloc_or_fail(1, sizeof(*g));
-        ieC4->gTPTransportLayerAddressesToAdd = (struct E1AP_GTPTLAs *)g;
-        asn1cSequenceAdd(g->list, E1AP_GTPTLA_Item_t, ieC5);
-        in_addr_t *gtp_tlna = &msg->tnla_info->addresses_to_add[i].gtp_tl_addresses[j];
-        TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*gtp_tlna, &ieC5->gTPTransportLayerAddresses);
+      for (int i = 0; i < msg->tnla_info->num_addresses_to_add; i++) {
+        asn1cSequenceAdd(a->list, E1AP_Transport_UP_Layer_Addresses_Info_To_Add_Item_t, ieC4);
+        in_addr_t *ipsec = &msg->tnla_info->addresses_to_add[i].ipsec_tl_address;
+        TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*ipsec, &ieC4->iP_SecTransportLayerAddress);
+        if (msg->tnla_info->addresses_to_add[i].num_gtp_tl_addresses > 0) {
+          E1AP_GTPTLAs_t *g = calloc_or_fail(1, sizeof(*g));
+          ieC4->gTPTransportLayerAddressesToAdd = (struct E1AP_GTPTLAs *)g;
+          for (int j = 0; j < msg->tnla_info->addresses_to_add[i].num_gtp_tl_addresses; j++) {
+            asn1cSequenceAdd(g->list, E1AP_GTPTLA_Item_t, ieC5);
+            in_addr_t *gtp_tlna = &msg->tnla_info->addresses_to_add[i].gtp_tl_addresses[j];
+            TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*gtp_tlna, &ieC5->gTPTransportLayerAddresses);
+          }
+        }
       }
     }
     // Transport UP Layer Addresses Info to Remove List
-    for (int i = 0; i < msg->tnla_info->num_addresses_to_remove; i++) {
+    if (msg->tnla_info->num_addresses_to_remove > 0) {
       E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_List_t *a = calloc_or_fail(1, sizeof(*a));
       ieC3->value.choice.Transport_Layer_Address_Info.transport_UP_Layer_Addresses_Info_To_Remove_List =
           (struct E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_List *)a;
-      asn1cSequenceAdd(a->list, E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_Item_t, ieC4);
-      in_addr_t *ipsec = &msg->tnla_info->addresses_to_remove[i].ipsec_tl_address;
-      TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*ipsec, &ieC4->iP_SecTransportLayerAddress);
-      for (int j = 0; j < msg->tnla_info->addresses_to_remove[i].num_gtp_tl_addresses; j++) {
-        E1AP_GTPTLAs_t *g = calloc_or_fail(1, sizeof(*g));
-        ieC4->gTPTransportLayerAddressesToRemove = (struct E1AP_GTPTLAs *)g;
-        asn1cSequenceAdd(g->list, E1AP_GTPTLA_Item_t, ieC5);
-        in_addr_t *gtp_tlna = &msg->tnla_info->addresses_to_remove[i].gtp_tl_addresses[j];
-        TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*gtp_tlna, &ieC5->gTPTransportLayerAddresses);
+      for (int i = 0; i < msg->tnla_info->num_addresses_to_remove; i++) {
+        asn1cSequenceAdd(a->list, E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_Item_t, ieC4);
+        in_addr_t *ipsec = &msg->tnla_info->addresses_to_remove[i].ipsec_tl_address;
+        TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*ipsec, &ieC4->iP_SecTransportLayerAddress);
+        if (msg->tnla_info->addresses_to_remove[i].num_gtp_tl_addresses > 0) {
+          E1AP_GTPTLAs_t *g = calloc_or_fail(1, sizeof(*g));
+          ieC4->gTPTransportLayerAddressesToRemove = (struct E1AP_GTPTLAs *)g;
+          for (int j = 0; j < msg->tnla_info->addresses_to_remove[i].num_gtp_tl_addresses; j++) {
+            asn1cSequenceAdd(g->list, E1AP_GTPTLA_Item_t, ieC5);
+            in_addr_t *gtp_tlna = &msg->tnla_info->addresses_to_remove[i].gtp_tl_addresses[j];
+            TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*gtp_tlna, &ieC5->gTPTransportLayerAddresses);
+          }
+        }
       }
     }
   }
