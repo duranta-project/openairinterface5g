@@ -113,6 +113,20 @@ jobs:
 
           exit 1
 
+  docs-website:
+    needs: check-labels
+    if: |
+      always() && (
+        github.event_name == 'push' ||
+        needs.check-labels.result == 'success'
+      )
+
+    permissions:
+      contents: write
+      statuses: write
+
+    uses: ./.github/workflows/docs-website.yml
+
   detect-changes:
     needs: check-labels
     runs-on: ubuntu-24.04

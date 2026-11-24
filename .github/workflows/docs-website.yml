@@ -1,0 +1,104 @@
+name: Docs Website
+
+# develop is published at <pages URL>/, PR previews at <pages URL>/pr-<N>/.
+# Requires GitHub Pages to deploy from the gh-pages branch.
+
+on:
+  workflow_call:
+  pull_request_target:
+    types: [closed]
+
+jobs:
+  build-site:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+
+    environment:
+      name: docs-website-approval
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+
+      - name: Build the site
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r doc/website/requirements.txt
+          .venv/bin/python doc/website/run.py build --strict
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs-site
+          path: build/website
+          retention-days: 7
+
+  publish-site:
+    needs: build-site
+    if: always() && (needs.build-site.result == 'success' || github.event.action == 'closed')
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+      statuses: write
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR: ${{ github.event.pull_request.number }}
+
+    steps:
+      - uses: actions/download-artifact@v8
+        if: github.event.action != 'closed'
+        with:
+          name: docs-site
+          path: site
+
+      # A PR amends only a preview commit, never a develop one, so previews do
+      # not grow the repository.
+      - name: Update gh-pages
+        run: |
+          gh auth setup-git
+          commit() {
+            git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit --quiet "$@"
+          }
+          for _ in 1 2 3; do
+            rm -rf gh-pages
+            git clone --quiet --depth 1 --branch gh-pages "https://github.com/${{ github.repository }}.git" gh-pages
+            cd gh-pages
+            if [ -n "$PR" ]; then
+              rm -rf "pr-$PR"
+              [ -d ../site ] && cp -r ../site "pr-$PR"
+            else
+              find . -mindepth 1 -maxdepth 1 ! -name .git ! -name .nojekyll ! -name 'pr-*' -exec rm -rf {} +
+              cp -r ../site/. .
+            fi
+            git add --all
+            git diff --cached --quiet && exit 0
+            if [ -z "$PR" ]; then
+              commit -m "Docs: develop ${{ github.sha }}"
+              git push --quiet && exit 0
+            elif [ "$(git log -1 --format=%s)" = "Docs previews" ]; then
+              commit --amend -m "Docs previews"
+              git push --quiet --force-with-lease && exit 0
+            else
+              commit -m "Docs previews"
+              git push --quiet && exit 0
+            fi
+            cd ..
+            sleep 10
+          done
+          exit 1
+
+      - name: Link the preview on the PR
+        if: github.event_name == 'pull_request_target' && github.event.action != 'closed'
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }}" \
+            -f state=success -f context="Docs preview" \
+            -f description="Preview of the documentation site" \
+            -f target_url="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-$PR/" > /dev/null
