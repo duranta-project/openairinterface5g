@@ -2855,6 +2855,9 @@ static void rrc_CU_process_ue_context_setup_response(MessageDef *msg_p, instance
     return;
   }
 
+  /* RRC re-establishment: the DU re-establishes the RLC bearers (reestablishRLC in the CellGroupConfig) */
+  const bool is_reestablishment = rrc_detect_reestablishment(cgc);
+
   if (resp->drbs_len > 0) {
     int num_drb = seq_arr_size(&UE->drbs);
     DevAssert(num_drb == 0 || num_drb == resp->drbs_len);
@@ -2863,15 +2866,16 @@ static void rrc_CU_process_ue_context_setup_response(MessageDef *msg_p, instance
      * seems buggy and does not ack, so simply check that locally we activated */
     AssertFatal(UE->Srb[1].Active && UE->Srb[2].Active, "SRBs 1 and 2 must be active during DRB Establishment");
     store_du_f1u_tunnel(resp->drbs, resp->drbs_len, UE);
-    if (num_drb == 0)
+    /* DRBs already known to the CU do not mean a re-establishment: after an Initial Context Setup without PDU
+     * session, a PDU Session Resource Setup creates the DRB before this F1 response arrives. Re-establishing PDCP
+     * on the CU-UP only (the UE is not told) desynchronises the COUNTs and silently drops the traffic of the DRB. */
+    if (!is_reestablishment && UE->ho_context == NULL)
       e1_send_bearer_updates(rrc, UE, resp->drbs_len, resp->drbs);
     else
       cuup_notify_reestablishment(rrc, UE);
   }
 
   if (UE->ho_context == NULL) {
-    // Check if this is a re-establishment scenario by examining the CellGroupConfig
-    bool is_reestablishment = rrc_detect_reestablishment(cgc);
     rrc_gNB_generate_dedicatedRRCReconfiguration(rrc, UE, is_reestablishment);
   } else {
     // case of handover
