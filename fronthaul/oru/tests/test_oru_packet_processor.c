@@ -20,6 +20,14 @@
 #include "log.h"
 #include "common/config/config_userapi.h"
 
+// The RU port eAxC layout, as nr-oru builds it without eAxC lists. init_packet_processor() copies it.
+static const oru_eaxc_lists_t *ru_ports(int prach_eaxc_offset)
+{
+  static oru_eaxc_lists_t lists;
+  lists = oru_eaxc_ru_port_lists(prach_eaxc_offset);
+  return &lists;
+}
+
 configmodule_interface_t *uniqCfg = NULL;
 
 /* Global config for tests, matches processor init */
@@ -121,7 +129,7 @@ void test_init_cleanup()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -151,7 +159,7 @@ void test_cplane_timing_errors()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -229,7 +237,7 @@ void test_cplane_uplane_match()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -354,7 +362,24 @@ void test_uplane_prb_range_rejected()
 {
   printf("Testing U-Plane PRB range rejection...\n");
   int mu = 1;
-  void *ctx = init_packet_processor(mu, 273, 200, 400, 100, 300, 2, 2, 0, 0, 5, test_alloc_mbuf, test_send_mbuf, NULL, 1500, 0, FH_COMP_NONE, 0);
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    ru_ports(0),
+                                    FH_COMP_NONE,
+                                    0);
   assert(ctx != NULL);
 
   uint64_t current_sym = 1000;
@@ -399,7 +424,24 @@ void test_uplane_short_payload_rejected()
 {
   printf("Testing U-Plane short payload rejection...\n");
   int mu = 1;
-  void *ctx = init_packet_processor(mu, 273, 200, 400, 100, 300, 2, 2, 0, 0, 5, test_alloc_mbuf, test_send_mbuf, NULL, 1500, 0, FH_COMP_NONE, 0);
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    ru_ports(0),
+                                    FH_COMP_NONE,
+                                    0);
   assert(ctx != NULL);
 
   uint64_t current_sym = 1000;
@@ -461,7 +503,7 @@ void test_dl_multi_section_same_beam()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -683,7 +725,7 @@ void test_frame_wrap_around()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -845,7 +887,7 @@ void test_cplane_14_symbols()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -952,9 +994,10 @@ void test_cplane_14_symbols()
   printf("1 C-plane message for 14 symbols passed!\n");
 }
 
-void test_other_bw_4ant_prb_offset()
+void test_other_bw_16ant_prb_offset()
 {
-  printf("Testing other bandwidth, 4 antennas, and PRB offset...\n");
+  printf("Testing other bandwidth, %d antennas, and PRB offset...\n", MAX_ANTENNAS);
+  const int nb_ant = MAX_ANTENNAS; // every RU port: 16 DL layers on eAxCs 0..15, as cuBB mMIMO sends them
   int mu = 1; // 30kHz
   int num_prb = 106; // Different bandwidth
   void *ctx = init_packet_processor(mu,
@@ -972,7 +1015,7 @@ void test_other_bw_4ant_prb_offset()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -989,9 +1032,8 @@ void test_other_bw_4ant_prb_offset()
   int slotId = slot_in_frame % 2;
   int startSymbolId = target_sym % 14;
 
-  // Send 1 C-plane packet for ALL 4 antennas using eAxC ID
-  // Actually, O-RAN allows 1 C-plane packet per antenna, let's just send 4 C-plane packets.
-  for (int ant = 0; ant < 4; ant++) {
+  // One C-Plane packet per antenna (eAxC)
+  for (int ant = 0; ant < nb_ant; ant++) {
     struct rte_mbuf *c_mbuf = rte_pktmbuf_alloc(mp);
     struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(c_mbuf, sizeof(struct xran_ecpri_hdr));
     ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, ant);
@@ -1022,8 +1064,8 @@ void test_other_bw_4ant_prb_offset()
   current_sym += 3;
   handle_absolute_symbol_tick(ctx, current_sym);
 
-  // Send U-plane packets for all 4 antennas
-  for (int ant = 0; ant < 4; ant++) {
+  // Send U-plane packets for all antennas
+  for (int ant = 0; ant < nb_ant; ant++) {
     struct rte_mbuf *u_mbuf = rte_pktmbuf_alloc(mp);
     struct xran_ecpri_hdr *u_ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(u_mbuf, sizeof(struct xran_ecpri_hdr));
     u_ecpri->ecpri_xtc_id = xran_compose_cid(&g_eaxcid_config, 0, 0, 0, ant);
@@ -1054,15 +1096,10 @@ void test_other_bw_4ant_prb_offset()
   current_sym += 10;
   handle_absolute_symbol_tick(ctx, current_sym);
 
-  uint32_t *txdataF[4] = {0};
-  uint32_t out_iq0[106 * 12] = {0};
-  uint32_t out_iq1[106 * 12] = {0};
-  uint32_t out_iq2[106 * 12] = {0};
-  uint32_t out_iq3[106 * 12] = {0};
-  txdataF[0] = out_iq0;
-  txdataF[1] = out_iq1;
-  txdataF[2] = out_iq2;
-  txdataF[3] = out_iq3;
+  uint32_t iq_buf[MAX_ANTENNAS][106 * 12] = {0};
+  uint32_t *txdataF[MAX_ANTENNAS];
+  for (int ant = 0; ant < nb_ant; ant++)
+    txdataF[ant] = iq_buf[ant];
 
   int frame, slot, symbol;
   uint64_t hyper_frame;
@@ -1070,11 +1107,11 @@ void test_other_bw_4ant_prb_offset()
   uint32_t dl_iq_arena[DL_IQ_ARENA_PRBS(106) * 12];
   do {
     int n = read_dl_iq_streams(ctx, dl_streams, dl_iq_arena, MAX_DL_FRAGMENTS_PER_SYMBOL, &hyper_frame, &frame, &slot, &symbol);
-    test_assemble_streams(txdataF, 4, 106, dl_streams, n, NULL);
+    test_assemble_streams(txdataF, nb_ant, 106, dl_streams, n, NULL);
   } while (!(frame == frameId && symbol == startSymbolId));
 
   // Verify memory contents for each antenna
-  for (int ant = 0; ant < 4; ant++) {
+  for (int ant = 0; ant < nb_ant; ant++) {
     uint16_t *out_iq = (uint16_t *)txdataF[ant];
     for (int prb = 0; prb < num_prb; prb++) {
       for (int sc = 0; sc < 12; sc++) {
@@ -1095,9 +1132,10 @@ void test_other_bw_4ant_prb_offset()
   get_packet_processor_stats(ctx, &stats);
   assert(stats.dl_tdd_mismatch == 0);
   assert(stats.ul_tdd_mismatch == 0);
+  assert(stats.invalid_eaxc_id == 0);
 
   cleanup_packet_processor(ctx);
-  printf("Other bandwidth, 4 antennas, and PRB offset passed!\n");
+  printf("Other bandwidth, %d antennas, and PRB offset passed!\n", MAX_ANTENNAS);
 }
 
 // A 273-PRB symbol on 4 antennas, each antenna's IQ split into 10 uncompressed U-Plane fragments
@@ -1123,7 +1161,7 @@ void test_dl_wideband_fragments_4ant()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -1417,7 +1455,7 @@ void test_uplink_basic()
                                     test_send_mbuf_no_frag,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -1510,7 +1548,7 @@ void test_uplink_fragmentation()
                                     test_send_mbuf_frag,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -1604,7 +1642,7 @@ void test_uplink_large_mtu()
                                     test_send_mbuf_large_mtu,
                                     NULL,
                                     9600,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -1697,7 +1735,7 @@ void test_uplink_prb_offset()
                                     test_send_mbuf_prb_offset,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -1782,6 +1820,206 @@ static void test_send_mbuf_sequence(void *io_controller, struct rte_mbuf **mbufs
   }
 }
 
+static uint16_t g_last_eaxc;
+
+static void test_send_mbuf_eaxc(void *io_controller, struct rte_mbuf **mbufs, uint32_t num_mbufs)
+{
+  for (uint32_t i = 0; i < num_mbufs; i++) {
+    const struct xran_ecpri_hdr *hdr = rte_pktmbuf_mtod(mbufs[i], const struct xran_ecpri_hdr *);
+    g_last_eaxc = rte_be_to_cpu_16(hdr->ecpri_xtc_id);
+    g_packets_sent++;
+    rte_pktmbuf_free(mbufs[i]);
+  }
+}
+
+// One-section C-Plane message of section_type and direction dir on wire eAxC eaxc, for target_sym
+static void send_cplane_on_eaxc(void *ctx, uint16_t eaxc, int section_type, int dir, uint64_t target_sym)
+{
+  const int num_symbols_per_frame = 10 * 2 * 14;
+  const int slot_in_frame = (target_sym % num_symbols_per_frame) / 14;
+  struct rte_mbuf *mbuf = rte_pktmbuf_alloc(mp);
+  struct xran_ecpri_hdr *ecpri = (struct xran_ecpri_hdr *)rte_pktmbuf_append(mbuf, sizeof(*ecpri));
+  ecpri->ecpri_xtc_id = rte_cpu_to_be_16(eaxc);
+  const bool prach = section_type == XRAN_CP_SECTIONTYPE_3;
+  const size_t hdr_len = prach ? sizeof(struct xran_cp_radioapp_section3_header) : sizeof(struct xran_cp_radioapp_section1_header);
+  struct xran_cp_radioapp_common_header *cmn = (struct xran_cp_radioapp_common_header *)rte_pktmbuf_append(mbuf, hdr_len);
+  memset(cmn, 0, hdr_len);
+  cmn->field.dataDirection = dir;
+  cmn->field.payloadVer = XRAN_PAYLOAD_VER;
+  cmn->field.frameId = (target_sym / num_symbols_per_frame) % 256;
+  cmn->field.subframeId = slot_in_frame / 2;
+  cmn->field.slotId = slot_in_frame % 2;
+  cmn->field.startSymbolId = target_sym % 14;
+  cmn->field.filterIndex = prach ? XRAN_FILTERINDEX_PRACH_012 : 0;
+  cmn->numOfSections = 1;
+  cmn->sectionType = section_type;
+  cmn->field.all_bits = rte_cpu_to_be_32(cmn->field.all_bits);
+  if (prach) {
+    struct xran_cp_radioapp_section3 *sec = (struct xran_cp_radioapp_section3 *)rte_pktmbuf_append(mbuf, sizeof(*sec));
+    memset(sec, 0, sizeof(*sec));
+    sec->hdr.u.s3.numSymbol = 1;
+    sec->hdr.u1.common.numPrbc = 20;
+    xran_swap_be64_inplace(sec);
+  } else {
+    struct xran_cp_radioapp_section1 *sec = (struct xran_cp_radioapp_section1 *)rte_pktmbuf_append(mbuf, sizeof(*sec));
+    memset(sec, 0, sizeof(*sec));
+    sec->hdr.u.s1.numSymbol = 1;
+    sec->hdr.u1.common.numPrbc = 20;
+    xran_swap_be64_inplace(sec);
+  }
+  handle_cplane_packet(ctx, mbuf);
+}
+
+// The UL U-Plane carries the eAxC of its C-Plane whole, DU_Port_ID and BandSector_ID too (CUS 5.1.3.2.7)
+void test_ul_eaxc_du_port(void)
+{
+  printf("Testing UL U-Plane eAxC DU_Port_ID...\n");
+  void *ctx = init_packet_processor(1,
+                                    100,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf_eaxc,
+                                    NULL,
+                                    1500,
+                                    ru_ports(1),
+                                    FH_COMP_NONE,
+                                    TEST_PRACH_KBAR);
+  assert(ctx != NULL);
+  // Pattern: 5 slots, 2 DL, 2 UL. Symbols 0-27 DL, 42-69 UL.
+  const uint64_t cur_sym = 1030;
+  handle_absolute_symbol_tick(ctx, cur_sym);
+  const uint64_t target_sym = cur_sym + 5;
+
+  // PUSCH on DU port 1, band sector 2, RU port 3
+  g_packets_sent = 0;
+  send_cplane_on_eaxc(ctx, 0x1203, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) == 0);
+  assert(job.antenna_id == 3 && job.eaxc == 0x1203);
+  uint32_t iq[100 * 12] = {0};
+  write_ul_iq(ctx, iq, target_sym % 14, &job);
+  assert(g_packets_sent == 1 && g_last_eaxc == 0x1203);
+
+  // PRACH on DU port 2, RU port 1 (prach_eaxc_offset 1: stream 0)
+  send_cplane_on_eaxc(ctx, 0x2001, XRAN_CP_SECTIONTYPE_3, XRAN_DIR_UL, target_sym);
+  uint32_t *txdataF[1] = {iq};
+  const int slot_in_frame = (target_sym % (10 * 2 * 14)) / 14;
+  write_prach_iq(ctx, txdataF, 1, (target_sym / (10 * 2 * 14)) % 1024, slot_in_frame, target_sym % 14);
+  assert(g_packets_sent == 2 && g_last_eaxc == 0x2001);
+
+  cleanup_packet_processor(ctx);
+  printf("UL U-Plane eAxC DU_Port_ID passed!\n");
+}
+
+// The RU port layout compares only the RU port bits, and PRACH starts at prach_eaxc_offset
+void test_eaxc_ru_port_lists(void)
+{
+  printf("Testing the RU port eAxC layout...\n");
+  static oru_eaxc_map_t map;
+  oru_eaxc_lists_t lists = oru_eaxc_ru_port_lists(2);
+  oru_eaxc_map_init(&map, &lists);
+  oru_flow_t flow = oru_eaxc_classify(&map, false, false, 0x1203);
+  assert(flow.kind == ORU_EAXC_UL && flow.index == 3 && flow.eaxc == 0x1203);
+  flow = oru_eaxc_classify(&map, false, true, 0x000F);
+  assert(flow.kind == ORU_EAXC_DL && flow.index == 15);
+  assert(oru_eaxc_classify(&map, true, false, 0x0003).index == 1);
+  assert(oru_eaxc_classify(&map, true, false, 0x0001).index == -1);
+  assert(oru_eaxc_index(&map, ORU_EAXC_SRS, 0x0003) == -1);
+  printf("RU port eAxC layout passed!\n");
+}
+
+// eAxC lists as cuBB mMIMO assigns them: PDSCH and PUSCH on 0..15, PRACH on 16..31, SRS on 32..95 (one per RX
+// antenna), compared on all 16 bits
+void test_eaxc_lists(void)
+{
+  printf("Testing eAxC lists...\n");
+  oru_eaxc_lists_t lists = {.key_mask = 0xFFFF, .num = {16, 16, 16, ORU_MAX_SRS_EAXC}};
+  for (int i = 0; i < 16; i++) {
+    lists.id[ORU_EAXC_DL][i] = i;
+    lists.id[ORU_EAXC_UL][i] = i;
+    lists.id[ORU_EAXC_PRACH][i] = 16 + i;
+  }
+  for (int i = 0; i < ORU_MAX_SRS_EAXC; i++)
+    lists.id[ORU_EAXC_SRS][i] = 32 + i;
+  void *ctx = init_packet_processor(1,
+                                    100,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf_eaxc,
+                                    NULL,
+                                    1500,
+                                    &lists,
+                                    FH_COMP_NONE,
+                                    TEST_PRACH_KBAR);
+  assert(ctx != NULL);
+  // Pattern: 5 slots, 2 DL, 2 UL. Symbols 0-27 DL, 42-69 UL.
+  const uint64_t cur_sym = 1030;
+  handle_absolute_symbol_tick(ctx, cur_sym);
+  const uint64_t target_sym = cur_sym + 5;
+  const int slot_in_frame = (target_sym % (10 * 2 * 14)) / 14;
+  oru_packet_processor_stats_t stats;
+
+  // PUSCH on eAxC 15 is UL stream 15, and its U-Plane goes out on eAxC 15
+  g_packets_sent = 0;
+  send_cplane_on_eaxc(ctx, 15, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
+  ul_job_t job;
+  assert(poll_ul_job(ctx, &job) == 0);
+  assert(job.antenna_id == 15 && job.eaxc == 15);
+  static uint32_t iq[2][100 * 12];
+  write_ul_iq(ctx, iq[0], target_sym % 14, &job);
+  assert(g_packets_sent == 1 && g_last_eaxc == 15);
+
+  // PRACH on eAxC 17 is PRACH stream 1, and its U-Plane goes out on eAxC 17
+  send_cplane_on_eaxc(ctx, 17, XRAN_CP_SECTIONTYPE_3, XRAN_DIR_UL, target_sym);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 1, target_sym % 14) == 0);
+  assert(get_prach_beam_id(ctx, slot_in_frame, 0, target_sym % 14) == -1);
+  uint32_t *txdataF[2] = {iq[0], iq[1]};
+  write_prach_iq(ctx, txdataF, 2, (target_sym / (10 * 2 * 14)) % 1024, slot_in_frame, target_sym % 14);
+  assert(g_packets_sent == 2 && g_last_eaxc == 17);
+
+  // SRS on eAxC 95 is RX antenna 63, beyond the 16 UL streams, and its U-Plane goes out on eAxC 95
+  send_cplane_on_eaxc(ctx, 95, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
+  assert(poll_ul_job(ctx, &job) == 0);
+  assert(job.srs && job.antenna_id == 63 && job.eaxc == 95);
+  write_ul_iq(ctx, iq[0], target_sym % 14, &job);
+  assert(g_packets_sent == 3 && g_last_eaxc == 95);
+
+  // Not in the list of their flow: UL on a PRACH eAxC, PRACH on a UL eAxC, DL with other DU_Port_ID bits, DL on an SRS
+  // eAxC
+  send_cplane_on_eaxc(ctx, 16, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_UL, target_sym);
+  assert(poll_ul_job(ctx, &job) != 0);
+  send_cplane_on_eaxc(ctx, 1, XRAN_CP_SECTIONTYPE_3, XRAN_DIR_UL, target_sym);
+  const uint64_t dl_sym = 1050; // first DL symbol of the next pattern
+  handle_absolute_symbol_tick(ctx, dl_sym - 7);
+  send_cplane_on_eaxc(ctx, 0x100F, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_DL, dl_sym);
+  send_cplane_on_eaxc(ctx, 32, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_DL, dl_sym);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.invalid_eaxc_id == 4 && stats.cplane_received_srs == 1);
+  // A DL eAxC of the list is taken
+  send_cplane_on_eaxc(ctx, 15, XRAN_CP_SECTIONTYPE_1, XRAN_DIR_DL, dl_sym);
+  get_packet_processor_stats(ctx, &stats);
+  assert(stats.invalid_eaxc_id == 4 && stats.dl_tdd_mismatch == 0 && stats.cplane_err_late == 0 && stats.cplane_err_early == 0);
+
+  cleanup_packet_processor(ctx);
+  printf("eAxC lists passed!\n");
+}
+
 void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
 {
   printf("Testing PRACH generation...\n");
@@ -1804,7 +2042,7 @@ void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
                                     check_sequence ? test_send_mbuf_sequence : test_send_mbuf_prach,
                                     expected_sequence,
                                     1500,
-                                    prach_eaxc_offset,
+                                    ru_ports(prach_eaxc_offset),
                                     FH_COMP_NONE,
                                     TEST_PRACH_KBAR);
   assert(ctx != NULL);
@@ -1881,6 +2119,7 @@ void test_prach_generation(int prach_eaxc_offset, bool check_sequence)
     for (int i = 0; i < 300; i++) {
       for (int antenna = 0; antenna < 2; antenna++) {
         job.antenna_id = antenna;
+        job.eaxc = antenna;
         write_ul_iq(ctx, iq_input, startSymbolId, &job);
       }
       write_prach_iq(ctx, txdataF, 1, frameId, slot_in_frame, startSymbolId);
@@ -1945,7 +2184,7 @@ void test_hyper_frame_calculation()
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -2058,11 +2297,24 @@ void test_dl_bfp_decompression(void)
   int8_t pre_compressed[FH_COMP_PRB_BYTES(iq_bits)];
   fh_compress_prbs(FH_COMP_BFP, iq_bits, n_prb, src_iq, pre_compressed);
 
-  void *ctx = init_packet_processor(mu, 273, 200, 400, 100, 300,
-                                    2, 2, 0, 0, 5,
-                                    test_alloc_mbuf, test_send_mbuf,
-                                    NULL, 1500, 0,
-                                    FH_COMP_BFP, 0);
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    ru_ports(0),
+                                    FH_COMP_BFP,
+                                    0);
   assert(ctx != NULL);
 
   uint64_t current_sym = 1000;
@@ -2172,10 +2424,22 @@ void test_ul_bfp_compression(void)
   memset(g_ul_recovered_iq, 0, sizeof(g_ul_recovered_iq));
 
   g_packets_sent = 0;
-  void *ctx = init_packet_processor(mu, 100, 200, 400, 100, 300,
-                                    2, 2, 0, 0, 5,
-                                    test_alloc_mbuf, test_send_mbuf_ul_bfp,
-                                    NULL, 1500, 0,
+  void *ctx = init_packet_processor(mu,
+                                    100,
+                                    200,
+                                    400,
+                                    100,
+                                    300,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf_ul_bfp,
+                                    NULL,
+                                    1500,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -2255,7 +2519,24 @@ void test_large_delay_profile()
   // 10 slots = 140 symbols = 5000 uS.
   // We configure T2a_cp_max = 5000 uS (140 symbols) and T2a_up_max = 5000 uS (140 symbols)
   // Let's set T2a_cp_min = 200 uS, T2a_cp_max = 5000 uS, T2a_up_min = 100 uS, T2a_up_max = 5000 uS.
-  void *ctx = init_packet_processor(mu, 273, 200, 5000, 100, 5000, 2, 2, 0, 0, 5, test_alloc_mbuf, test_send_mbuf, NULL, 1500, 0, FH_COMP_NONE, 0);
+  void *ctx = init_packet_processor(mu,
+                                    273,
+                                    200,
+                                    5000,
+                                    100,
+                                    5000,
+                                    2,
+                                    2,
+                                    0,
+                                    0,
+                                    5,
+                                    test_alloc_mbuf,
+                                    test_send_mbuf,
+                                    NULL,
+                                    1500,
+                                    ru_ports(0),
+                                    FH_COMP_NONE,
+                                    0);
   assert(ctx != NULL);
 
   uint64_t current_sym = 1000;
@@ -2414,7 +2695,7 @@ void test_cplane_section_extension_1(void)
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -2524,7 +2805,7 @@ void test_cplane_section_extension_11(void)
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -2604,7 +2885,7 @@ void test_cplane_section_extension_11_buffer_size(void)
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -2668,7 +2949,7 @@ void test_cplane_section_extension_other(void)
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -2810,7 +3091,7 @@ void test_dl_multi_section_message(void)
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -2885,7 +3166,7 @@ static void *init_ul_test_ctx(void)
                                     test_send_mbuf_no_frag,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -3026,7 +3307,7 @@ void test_section_id_repeated(void)
                                     test_send_mbuf,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -3170,7 +3451,7 @@ static void *init_prach_test_ctx(void)
                                     test_send_mbuf_prach_section_id,
                                     NULL,
                                     1500,
-                                    0,
+                                    ru_ports(0),
                                     FH_COMP_NONE,
                                     TEST_PRACH_KBAR);
   assert(ctx != NULL);
@@ -3461,7 +3742,7 @@ int main(int argc, char **argv)
   usleep(10000);
   test_cplane_14_symbols();
   usleep(10000);
-  test_other_bw_4ant_prb_offset();
+  test_other_bw_16ant_prb_offset();
   usleep(10000);
   test_dl_wideband_fragments_4ant();
   usleep(10000);
@@ -3472,6 +3753,9 @@ int main(int argc, char **argv)
   usleep(10000);
   test_uplink_large_mtu();
   usleep(10000);
+  test_ul_eaxc_du_port();
+  test_eaxc_ru_port_lists();
+  test_eaxc_lists();
   test_prach_generation(4, false);
   const int offsets[] = {0, 1, 4, 15};
   for (unsigned i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
