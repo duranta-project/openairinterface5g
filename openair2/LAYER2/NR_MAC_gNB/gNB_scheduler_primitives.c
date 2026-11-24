@@ -4245,12 +4245,19 @@ bool nr_mac_remove_lcid(NR_UE_sched_ctrl_t *sched_ctrl, long lcid)
   return true;
 }
 
+/* highest RA-RNTI and MSGB-RNTI of 38.321 5.1.3 and 5.1.3a:
+   1 + s_id + 14 * t_id + 14 * 80 * f_id + 14 * 80 * 8 * ul_carrier_id (+ 14 * 80 * 8 * 2 for MSGB),
+   s_id < 14, t_id < 80, f_id < 8, ul_carrier_id < 2 */
+#define NR_MAX_RA_MSGB_RNTI (14 * 80 * 8 * 4)
+
 bool nr_mac_get_new_rnti(NR_UEs_t *UEs, rnti_t *rnti)
 {
   int loop = 0;
   bool exist_connected_ue, exist_in_pending_ra_ue;
   do {
-    *rnti = (taus() % 0xffef) + 1;
+    // a C-RNTI equal to a RA-RNTI makes the UE take every RAR of this PRACH
+    // occasion for its own DCI: draw above the RA-RNTI and MSGB-RNTI values
+    *rnti = NR_MAX_RA_MSGB_RNTI + 1 + taus() % (0xffef - NR_MAX_RA_MSGB_RNTI);
     exist_connected_ue = find_connected_nr_ue(UEs, *rnti) != NULL;
     exist_in_pending_ra_ue = find_ra_ue(UEs, *rnti) != NULL;
     loop++;
