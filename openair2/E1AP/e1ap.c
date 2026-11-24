@@ -226,22 +226,6 @@ static void fill_CONFIGURATION_UPDATE(E1AP_E1AP_PDU_t *pdu)
   ieC1->criticality                = E1AP_Criticality_reject;
   ieC1->value.present              = E1AP_GNB_CU_UP_ConfigurationUpdateIEs__value_PR_TransactionID;
   ieC1->value.choice.TransactionID = 0;//get this from stored transaction IDs in CU
-  /* mandatory */
-  /* c2. Supported PLMNs */
-  asn1cSequenceAdd(out->protocolIEs.list, E1AP_GNB_CU_UP_ConfigurationUpdateIEs_t, ieC2);
-  ieC2->id = E1AP_ProtocolIE_ID_id_SupportedPLMNs;
-  ieC2->criticality = E1AP_Criticality_reject;
-  ieC2->value.present = E1AP_GNB_CU_UP_ConfigurationUpdateIEs__value_PR_SupportedPLMNs_List;
-
-  int numSupportedPLMNs = 1;
-
-  for (int i = 0; i < numSupportedPLMNs; i++) {
-    asn1cSequenceAdd(ieC2->value.choice.SupportedPLMNs_List.list, E1AP_SupportedPLMNs_Item_t, supportedPLMN);
-    /* 5.1 PLMN Identity */
-    OCTET_STRING_fromBuf(&supportedPLMN->pLMN_Identity, "OAI", strlen("OAI"));
-  }
-
-  /* mandatory */
   /* c3. TNLA to remove list */
   asn1cSequenceAdd(out->protocolIEs.list, E1AP_GNB_CU_UP_ConfigurationUpdateIEs_t, ieC3);
   ieC3->id = E1AP_ProtocolIE_ID_id_GNB_CU_UP_TNLA_To_Remove_List;
