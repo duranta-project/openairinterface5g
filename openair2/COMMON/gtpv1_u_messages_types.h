@@ -45,6 +45,7 @@ typedef struct gtpv1u_enb_create_tunnel_req_s {
   int                    num_tunnels;
   teid_t                 sgw_S1u_teid[LTE_GTPV1U_MAX_BEARERS_PER_UE];
   ebi_t                  eps_bearer_id[LTE_GTPV1U_MAX_BEARERS_PER_UE];
+  rb_id_t                rb_id[LTE_GTPV1U_MAX_BEARERS_PER_UE]; ///< DRB identity that receives the uplink SDUs
   transport_layer_addr_t sgw_addr[LTE_GTPV1U_MAX_BEARERS_PER_UE];
 } gtpv1u_enb_create_tunnel_req_t;
 
