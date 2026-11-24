@@ -473,6 +473,48 @@ typedef struct {
   xnap_ngran_cgi_t target_cgi;
 } xnap_handover_success_t;
 
+/* maxnoofCHOcells, TS 38.423 §9.3.7 */
+#define XNAP_MAX_NB_CHO_CELLS 8
+
+/* 3GPP TS 38.423 9.1.1.13 – Conditional Handover Cancel */
+typedef struct {
+  /* Source NG-RAN node UE XnAP ID (M) */
+  uint32_t s_ng_node_ue_xnap_id;
+  /* Target NG-RAN node UE XnAP ID (M) */
+  uint32_t t_ng_node_ue_xnap_id;
+  /* Candidate/Target Cells To Cancel (O): 0 = absent, all candidate cells cancelled (TS 38.423 §8.2.9.2) */
+  uint8_t nb_target_cells;
+  xnap_ngran_cgi_t target_cells[XNAP_MAX_NB_CHO_CELLS];
+  /* Cause (M) */
+  xnap_cause_t cause;
+} xnap_conditional_handover_cancel_t;
+
+/* Procedure Stage choice of Early Status Transfer */
+typedef enum {
+  XNAP_PROCEDURE_STAGE_FIRST_DL_COUNT = 0,
+  XNAP_PROCEDURE_STAGE_DL_DISCARDING,
+} xnap_procedure_stage_choice_t;
+
+/* DRBs Subject To Early Status Transfer / DL Discarding Item: both carry DRB ID + DL COUNT */
+typedef struct {
+  // DRB ID (M)
+  uint8_t drb_id;
+  // DL COUNT value (M)
+  xnap_drb_count_value_t dl_count;
+} xnap_procedure_stage_drb_dl_count_t;
+
+/* 3GPP TS 38.423 9.1.1.14 – Early Status Transfer */
+typedef struct {
+  /* Source NG-RAN node UE XnAP ID (M) */
+  uint32_t s_ng_node_ue_xnap_id;
+  /* Target NG-RAN node UE XnAP ID (M) */
+  uint32_t t_ng_node_ue_xnap_id;
+  /* Procedure Stage (M): selects FIRST DL COUNT or DL DISCARDING list */
+  xnap_procedure_stage_choice_t procedure_stage;
+  uint8_t nb_drb;
+  xnap_procedure_stage_drb_dl_count_t drb_list[MAX_DRBS_PER_UE];
+} xnap_early_status_transfer_t;
+
 /* 3GPP TS 38.423 9.2.3.66 – Paging DRX */
 typedef enum {
   XNAP_PAGING_DRX_32 = 0,

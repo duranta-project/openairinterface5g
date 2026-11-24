@@ -19,6 +19,8 @@ XNAP_XnAP_PDU_t *encode_xnap_ran_paging(const xnap_ran_paging_t *msg);
 XNAP_XnAP_PDU_t *encode_xnap_retrieve_ue_context_request(const xnap_retrieve_ue_context_request_t *msg);
 XNAP_XnAP_PDU_t *encode_xnap_retrieve_ue_context_response(const xnap_retrieve_ue_context_response_t *msg);
 XNAP_XnAP_PDU_t *encode_xnap_retrieve_ue_context_failure(const xnap_retrieve_ue_context_failure_t *msg);
+XNAP_XnAP_PDU_t *encode_xnap_conditional_handover_cancel(const xnap_conditional_handover_cancel_t *msg);
+XNAP_XnAP_PDU_t *encode_xnap_early_status_transfer(const xnap_early_status_transfer_t *msg);
 
 bool decode_xnap_handover_request(xnap_handover_req_t *req, const XNAP_XnAP_PDU_t *pdu);
 bool decode_xnap_handover_request_acknowledge(xnap_handover_req_ack_t *out, const XNAP_XnAP_PDU_t *pdu);
@@ -31,6 +33,8 @@ bool decode_xnap_ran_paging(xnap_ran_paging_t *out, const XNAP_XnAP_PDU_t *pdu);
 bool decode_xnap_retrieve_ue_context_request(xnap_retrieve_ue_context_request_t *out, const XNAP_XnAP_PDU_t *pdu);
 bool decode_xnap_retrieve_ue_context_response(xnap_retrieve_ue_context_response_t *out, const XNAP_XnAP_PDU_t *pdu);
 bool decode_xnap_retrieve_ue_context_failure(xnap_retrieve_ue_context_failure_t *out, const XNAP_XnAP_PDU_t *pdu);
+bool decode_xnap_conditional_handover_cancel(xnap_conditional_handover_cancel_t *out, const XNAP_XnAP_PDU_t *pdu);
+bool decode_xnap_early_status_transfer(xnap_early_status_transfer_t *out, const XNAP_XnAP_PDU_t *pdu);
 
 bool eq_xnap_handover_request(const xnap_handover_req_t *a, const xnap_handover_req_t *b);
 bool eq_xnap_handover_request_acknowledge(const xnap_handover_req_ack_t *a, const xnap_handover_req_ack_t *b);
@@ -44,6 +48,8 @@ bool eq_xnap_ran_paging(const xnap_ran_paging_t *a, const xnap_ran_paging_t *b);
 bool eq_xnap_retrieve_ue_context_request(const xnap_retrieve_ue_context_request_t *a, const xnap_retrieve_ue_context_request_t *b);
 bool eq_xnap_retrieve_ue_context_response(const xnap_retrieve_ue_context_response_t *a, const xnap_retrieve_ue_context_response_t *b);
 bool eq_xnap_retrieve_ue_context_failure(const xnap_retrieve_ue_context_failure_t *a, const xnap_retrieve_ue_context_failure_t *b);
+bool eq_xnap_conditional_handover_cancel(const xnap_conditional_handover_cancel_t *a, const xnap_conditional_handover_cancel_t *b);
+bool eq_xnap_early_status_transfer(const xnap_early_status_transfer_t *a, const xnap_early_status_transfer_t *b);
 
 void free_xnap_handover_request(xnap_handover_req_t *msg);
 void free_xnap_handover_request_acknowledge(xnap_handover_req_ack_t *msg);
@@ -56,5 +62,7 @@ void free_xnap_ran_paging(xnap_ran_paging_t *msg);
 void free_xnap_retrieve_ue_context_request(xnap_retrieve_ue_context_request_t *msg);
 void free_xnap_retrieve_ue_context_response(xnap_retrieve_ue_context_response_t *msg);
 void free_xnap_retrieve_ue_context_failure(xnap_retrieve_ue_context_failure_t *msg);
+void free_xnap_conditional_handover_cancel(xnap_conditional_handover_cancel_t *msg);
+void free_xnap_early_status_transfer(xnap_early_status_transfer_t *msg);
 
 #endif // XNAP_GNB_MOBILITY_MANAGEMENT_H_

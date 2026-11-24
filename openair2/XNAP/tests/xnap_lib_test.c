@@ -973,6 +973,114 @@ static void test_xn_retrieve_ue_context_failure(void)
   printf("%s() successful\n", __func__);
 }
 
+/**
+ * 15. XnAP Conditional Handover Cancel Testing – with and without Candidate/Target Cells To Cancel
+ */
+static void test_xn_conditional_handover_cancel(void)
+{
+  /* ---------- create message ---------- */
+  plmn_id_t plmn0 = {.mcc = 208, .mnc = 95, .mnc_digit_length = 2};
+  plmn_id_t plmn1 = {.mcc = 310, .mnc = 410, .mnc_digit_length = 3};
+
+  xnap_conditional_handover_cancel_t cases[] = {
+      /* with Candidate/Target Cells To Cancel */
+      {.s_ng_node_ue_xnap_id = 555555,
+       .t_ng_node_ue_xnap_id = 666666,
+       .nb_target_cells = 3,
+       .target_cells =
+           {
+               {.plmn_id = plmn0, .nrcell_id = 0x000000001ULL},
+               {.plmn_id = plmn0, .nrcell_id = 0xABCDEF012ULL},
+               {.plmn_id = plmn1, .nrcell_id = 0xFFFFFFFFFULL},
+           },
+       .cause = {.type = XNAP_CAUSE_RADIO_NETWORK, .value = XNAP_CAUSE_RADIO_NETWORK_LAYER_CHO_CPC_RESOURCES_TOBECHANGED}},
+      /* without Candidate/Target Cells To Cancel: whole CHO preparation cancelled */
+      {.s_ng_node_ue_xnap_id = 777777,
+       .t_ng_node_ue_xnap_id = 888888,
+       .nb_target_cells = 0,
+       .cause = {.type = XNAP_CAUSE_MISC, .value = XNAP_CAUSE_MISC_O_AND_M_INTERVENTION}},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
+    /* ---------- encode ---------- */
+    XNAP_XnAP_PDU_t *xnenc = encode_xnap_conditional_handover_cancel(&cases[i]);
+    AssertFatal(xnenc != NULL, "encode_xnap_conditional_handover_cancel failed");
+    XNAP_XnAP_PDU_t *xndec = xnap_encode_decode(xnenc);
+    xnap_msg_free(xnenc);
+
+    /* ---------- decode ---------- */
+    xnap_conditional_handover_cancel_t decoded = {0};
+    bool ret = decode_xnap_conditional_handover_cancel(&decoded, xndec);
+    AssertFatal(ret, "decode_xnap_conditional_handover_cancel failed");
+    xnap_msg_free(xndec);
+
+    /* ---------- equality ---------- */
+    ret = eq_xnap_conditional_handover_cancel(&cases[i], &decoded);
+    AssertFatal(ret, "XnAP Conditional Handover Cancel mismatch (case %zu)\n", i);
+
+    /* ---------- cleanup ---------- */
+    free_xnap_conditional_handover_cancel(&decoded);
+    free_xnap_conditional_handover_cancel(&cases[i]);
+  }
+
+  printf("%s() successful\n", __func__);
+}
+
+/**
+ * 16. XnAP Early Status Transfer Testing – FIRST DL COUNT and DL DISCARDING variants
+ */
+static void test_xn_early_status_transfer(void)
+{
+  /* ---------- create message ---------- */
+  xnap_early_status_transfer_t cases[] = {
+      /* FIRST DL COUNT, mixed 12/18-bit SN incl. range limits */
+      {.s_ng_node_ue_xnap_id = 123456,
+       .t_ng_node_ue_xnap_id = 789012,
+       .procedure_stage = XNAP_PROCEDURE_STAGE_FIRST_DL_COUNT,
+       .nb_drb = 3,
+       .drb_list =
+           {
+               {.drb_id = 1, .dl_count = {.pdcp_sn = 4095, .hfn = 1048575, .sn_len = XNAP_SN_LENGTH_12}},
+               {.drb_id = 2, .dl_count = {.pdcp_sn = 262143, .hfn = 16383, .sn_len = XNAP_SN_LENGTH_18}},
+               {.drb_id = 32, .dl_count = {.pdcp_sn = 0, .hfn = 0, .sn_len = XNAP_SN_LENGTH_18}},
+           }},
+      /* DL DISCARDING */
+      {.s_ng_node_ue_xnap_id = 4242,
+       .t_ng_node_ue_xnap_id = 2424,
+       .procedure_stage = XNAP_PROCEDURE_STAGE_DL_DISCARDING,
+       .nb_drb = 2,
+       .drb_list =
+           {
+               {.drb_id = 4, .dl_count = {.pdcp_sn = 100, .hfn = 3, .sn_len = XNAP_SN_LENGTH_12}},
+               {.drb_id = 7, .dl_count = {.pdcp_sn = 200000, .hfn = 150, .sn_len = XNAP_SN_LENGTH_18}},
+           }},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
+    /* ---------- encode ---------- */
+    XNAP_XnAP_PDU_t *xnenc = encode_xnap_early_status_transfer(&cases[i]);
+    AssertFatal(xnenc != NULL, "encode_xnap_early_status_transfer failed");
+    XNAP_XnAP_PDU_t *xndec = xnap_encode_decode(xnenc);
+    xnap_msg_free(xnenc);
+
+    /* ---------- decode ---------- */
+    xnap_early_status_transfer_t decoded = {0};
+    bool ret = decode_xnap_early_status_transfer(&decoded, xndec);
+    AssertFatal(ret, "decode_xnap_early_status_transfer failed");
+    xnap_msg_free(xndec);
+
+    /* ---------- equality ---------- */
+    ret = eq_xnap_early_status_transfer(&cases[i], &decoded);
+    AssertFatal(ret, "XnAP Early Status Transfer mismatch (case %zu)\n", i);
+
+    /* ---------- cleanup ---------- */
+    free_xnap_early_status_transfer(&decoded);
+    free_xnap_early_status_transfer(&cases[i]);
+  }
+
+  printf("%s() successful\n", __func__);
+}
+
 int main() {
   printf("Starting XnAP Library Unit Tests...\n");
 
@@ -995,6 +1103,12 @@ int main() {
   test_xn_retrieve_ue_context_request();
   test_xn_retrieve_ue_context_response();
   test_xn_retrieve_ue_context_failure();
+
+  /* Xn Conditional Handover Testing */
+  test_xn_conditional_handover_cancel();
+
+  /* Xn Conditional / DAPS Handover Testing */
+  test_xn_early_status_transfer();
 
   printf("All XnAP tests passed!\n");
   return 0;
