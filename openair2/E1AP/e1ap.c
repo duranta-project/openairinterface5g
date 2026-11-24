@@ -191,24 +191,22 @@ int e1apCUUP_handle_SETUP_FAILURE(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst,
 {
   UNUSED(assoc_id);
   LOG_D(E1AP, "CU-UP: Decoding E1AP Setup Failure...\n");
-  E1AP_GNB_CU_UP_E1SetupFailureIEs_t *ie;
-  DevAssert(pdu != NULL);
-  E1AP_GNB_CU_UP_E1SetupFailure_t *in = &pdu->choice.unsuccessfulOutcome->value.choice.GNB_CU_UP_E1SetupFailure;
-  /* Transaction ID */
-  F1AP_FIND_PROTOCOLIE_BY_ID(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_TransactionID, true);
-  long transaction_id;
+  e1ap_setup_fail_t out = {0};
+  if (!decode_e1ap_cuup_setup_failure(pdu, &out)) {
+    free_e1ap_cuup_setup_failure(&out);
+    return -1;
+  }
   long old_transaction_id = inst->cuup.setupReq.transac_id;
-  transaction_id = ie->value.choice.TransactionID;
-  if (old_transaction_id != transaction_id)
-    LOG_E(E1AP, "Transaction IDs do not match %ld != %ld\n", old_transaction_id, transaction_id);
-  E1AP_free_transaction_identifier(transaction_id);
-
-  /* Cause */
-  F1AP_FIND_PROTOCOLIE_BY_ID(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_Cause, true);
+  if (old_transaction_id != out.transac_id) {
+    LOG_E(E1AP, "Transaction IDs do not match %ld != %ld\n", old_transaction_id, out.transac_id);
+    free_e1ap_cuup_setup_failure(&out);
+    return -1;
+  }
+  E1AP_free_transaction_identifier(old_transaction_id);
 
   LOG_E(E1AP, "received E1 Setup Failure, please check the CU-CP output and the CU-UP parameters\n");
-  exit(1);
-  return 0;
+  free_e1ap_cuup_setup_failure(&out);
+  return -1;
 }
 
 static void fill_CONFIGURATION_UPDATE(E1AP_E1AP_PDU_t *pdu)
