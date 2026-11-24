@@ -12,14 +12,19 @@ void nr_ue_tun_store_qfi(nas_ue_pdu_tun_t *t, uint8_t qfi)
   t->qfi = qfi;
 }
 
-void nr_ue_tun_create_ip_if(nas_ue_pdu_tun_t *t, const char *ipv4, const char *ipv6, int ue_id, int pdu_session_id)
+void nr_ue_tun_create_ip_if(nas_ue_pdu_tun_t *t,
+                            const char *ipv4,
+                            const char *ipv4_netmask,
+                            const char *ipv6,
+                            int ue_id,
+                            int pdu_session_id)
 {
   DevAssert(t != NULL);
   if (t->sock >= 0)
     return;
 
   t->sock = tuntap_alloc(IFF_TUN, t->ifname);
-  tun_config(t->ifname, ipv4, ipv6);
+  tun_config_netmask(t->ifname, ipv4, ipv4_netmask, ipv6);
   if (ipv4)
     setup_ue_ipv4_route(t->ifname, ue_id, pdu_session_id, ipv4);
 }

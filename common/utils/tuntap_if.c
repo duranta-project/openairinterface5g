@@ -279,7 +279,12 @@ short tuntap_set_up(const char *ifname, int sock_fd)
   return flags;
 }
 
-bool tun_config(const char* ifname, const char *ipv4, const char *ipv6)
+bool tun_config(const char *ifname, const char *ipv4, const char *ipv6)
+{
+  return tun_config_netmask(ifname, ipv4, "255.255.255.0", ipv6);
+}
+
+bool tun_config_netmask(const char *ifname, const char *ipv4, const char *ipv4_netmask, const char *ipv6)
 {
   AssertFatal(ipv4 != NULL || ipv6 != NULL, "need to have IP address, but none given\n");
 
@@ -294,7 +299,7 @@ bool tun_config(const char* ifname, const char *ipv4, const char *ipv6)
     success = setInterfaceParameter(sock_fd, ifname, AF_INET, ipv4, SIOCSIFADDR);
   // set the machine network mask for IPv4
   if (success && ipv4 != NULL)
-    success = setInterfaceParameter(sock_fd, ifname, AF_INET, "255.255.255.0", SIOCSIFNETMASK);
+    success = setInterfaceParameter(sock_fd, ifname, AF_INET, ipv4_netmask, SIOCSIFNETMASK);
 
   if (ipv6 != NULL) {
     // for setting the IPv6 address, we need an IPv6 socket. For setting IPv4,
