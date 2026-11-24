@@ -350,25 +350,39 @@ bool tap_config(const char* ifname)
   return success;
 }
 
-void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id, const char *ipv4)
+void setup_ue_ipv4_route(const char *ifname, const char *ipv4)
 {
-  /* This needs to be unique per (instance_id, pdu_session_id) */
-  // UE0, PDU1 = 10001, UE1, PDU1 = 10101, UE15, PDU15 = 11515 ...
-  int table_id = 10000 + instance_id * 100 + pdu_session_id;
+  /* One table per interface, numbered from its index: the index is unique on the host, while the UE instance and the
+     PDU session ID are unique in one UE process only, and several UE processes can run on one host */
+  const unsigned int ifindex = if_nametoindex(ifname);
+  if (ifindex == 0) {
+    LOG_E(UTIL, "No interface %s for the IPv4 policy routing of %s\n", ifname, ipv4);
+    return;
+  }
+  const int table_id = 100000 + ifindex;
 
-  char command_line[500];
-  int res = sprintf(command_line,
-                    "ip rule add from %s/32 table %d && "
-                    "ip rule add to %s/32 table %d && "
-                    "ip route add default dev %s table %d",
-                    ipv4,
-                    table_id,
-                    ipv4,
-                    table_id,
-                    ifname,
-                    table_id);
+  /* the rules of a previous UE with this address or this table (a process killed, a new PDU session) are removed
+     first: they are never deleted otherwise, and every packet of the host walks the rule list */
+  char command_line[1000];
+  int res = snprintf(command_line,
+                     sizeof(command_line),
+                     "while ip rule del from %s/32 2>/dev/null; do :; done; "
+                     "while ip rule del to %s/32 2>/dev/null; do :; done; "
+                     "while ip rule del table %d 2>/dev/null; do :; done; "
+                     "ip rule add from %s/32 table %d && "
+                     "ip rule add to %s/32 table %d && "
+                     "ip route replace default dev %s table %d",
+                     ipv4,
+                     ipv4,
+                     table_id,
+                     ipv4,
+                     table_id,
+                     ipv4,
+                     table_id,
+                     ifname,
+                     table_id);
 
-  if (res < 0) {
+  if (res < 0 || res >= sizeof(command_line)) {
     LOG_E(UTIL, "Could not create ip rule/route commands string\n");
     return;
   }

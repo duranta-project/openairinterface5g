@@ -36,14 +36,12 @@ nrUE_params_t *get_nrUE_params(void)
 }
 /* no TUN interface for the UE stub: no user plane, and the test runs without root.
  * The NAS requires a descriptor: /dev/null, never read as the UE stub RRC ignores NAS_TUN_REQ */
-void nr_ue_tun_create_ip_if(nas_ue_pdu_tun_t *t, const char *ipv4, const char *ipv6, int ue_id, int pdu_session_id)
+void nr_ue_tun_create_ip_if(nas_ue_pdu_tun_t *t, const char *ipv4, const char *ipv6)
 {
   if (t->sock < 0)
     t->sock = open("/dev/null", O_RDWR);
   UNUSED(ipv4);
   UNUSED(ipv6);
-  UNUSED(ue_id);
-  UNUSED(pdu_session_id);
 }
 void nr_ue_tun_create_eth_if(nas_ue_pdu_tun_t *t)
 {

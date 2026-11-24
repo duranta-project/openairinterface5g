@@ -764,7 +764,7 @@ void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
   const int pdu_session_id = 1;
   nas_ue_pdu_tun_t t = {.qfi = -1, .sock = -1};
   snprintf(t.ifname, sizeof(t.ifname), "oaitun_ue1");
-  nr_ue_tun_create_ip_if(&t, ip, NULL, rrc_inst->ue_id, -1); // creates sock
+  nr_ue_tun_create_ip_if(&t, ip, NULL); // creates sock
 
   nr_sdap_entity_t *sdap = nr_sdap_get_entity(rrc_inst->ue_id, pdu_session_id);
   DevAssert(sdap != NULL);

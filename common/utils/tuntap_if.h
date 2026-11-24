@@ -65,17 +65,15 @@ bool tun_config(const char* ifname, const char *ipv4, const char *ipv6);
 bool tap_config(const char* ifname);
 
 /*!
- * \brief Setup a IPv4 rule in table (interface_id - 1 + 10000) and route to
+ * \brief Setup a IPv4 rule in table (100000 + interface index) and route to
  * force packets coming into interface back through it, and workaround
  * net.ipv4.conf.all.rp_filter=2 (strict source filtering would filter out
  * responses of packets going out through interface to another IP address not
  * in same subnet).
- * \param[in] ifname name of the interface
- * \param[in] instance_id unique instance number, used to create the table
- * \param[in] pdu_session_id PDU session ID, used to create the table
+ * \param[in] ifname name of the interface, its index gives the table
  * \param[in] ipv4 IPv4 address of the UE
  */
-void setup_ue_ipv4_route(const char* ifname, int instance_id, int pdu_session_id, const char *ipv4);
+void setup_ue_ipv4_route(const char *ifname, const char *ipv4);
 
 /*!
  * \brief This function allocates a TUN or TAP interface

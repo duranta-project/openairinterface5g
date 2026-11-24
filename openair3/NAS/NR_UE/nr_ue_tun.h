@@ -18,7 +18,7 @@ typedef struct nas_ue_pdu_tun_s {
   pthread_t reader_thread;
 } nas_ue_pdu_tun_t;
 
-void nr_ue_tun_create_ip_if(nas_ue_pdu_tun_t *t, const char *ipv4, const char *ipv6, int ue_id, int pdu_session_id);
+void nr_ue_tun_create_ip_if(nas_ue_pdu_tun_t *t, const char *ipv4, const char *ipv6);
 void nr_ue_tun_create_eth_if(nas_ue_pdu_tun_t *t);
 void nr_ue_tun_store_qfi(nas_ue_pdu_tun_t *t, uint8_t qfi);
 
