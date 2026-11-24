@@ -217,6 +217,15 @@ Startup prints `DUAL CDSP active -- segments split across cdsp0+cdsp1` when it
 works. If any step fails on the second DSP, it prints which one and carries on with
 the first DSP alone.
 
+### Bounded wait (`OAI_LDPC_TIMEOUT_US`)
+
+A transport block's wait for the DSP ends 5 ms after it was posted
+(`OAI_LDPC_TIMEOUT_US` overrides this). A late block fails its CRC and HARQ
+retransmits it, so one stalled DSP costs a transport block and does not block
+L1 RX. The late response is drained before that DSP is used again, and until it
+arrives, blocks fail at once. Startup prints `batch wait bounded at 5000 us`; the
+first timeouts are printed, and the total is reported at shutdown.
+
 ### Test without a board (hexagon-sim)
 
 `ldpc_hexagon_simtest` runs the DSP decoder under `hexagon-sim`, the Hexagon
