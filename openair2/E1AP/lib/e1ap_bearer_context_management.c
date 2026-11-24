@@ -317,30 +317,30 @@ static bool e1_decode_snssai(e1ap_nssai_t *out, const E1AP_SNSSAI_t *in)
 /**
  * @brief Decode E1AP_UP_Parameters_t
  */
-static int decode_dl_up_parameters(up_params_t *dl_up_param, const E1AP_UP_Parameters_t *dl_up_paramList)
+static int decode_up_parameters(up_params_t *up_param, const E1AP_UP_Parameters_t *up_paramList)
 {
-  if (dl_up_paramList->list.count > E1AP_MAX_NUM_UP_PARAM) {
-    PRINT_ERROR("UP Parameters count %d exceeds maximum %d\n", dl_up_paramList->list.count, E1AP_MAX_NUM_UP_PARAM);
+  if (up_paramList->list.count > E1AP_MAX_NUM_UP_PARAM) {
+    PRINT_ERROR("UP Parameters count %d exceeds maximum %d\n", up_paramList->list.count, E1AP_MAX_NUM_UP_PARAM);
     return -1;
   }
-  for (int k = 0; k < dl_up_paramList->list.count; k++) {
-    up_params_t *param = &dl_up_param[k];
-    E1AP_UP_Parameters_Item_t *dl_up_param_in = dl_up_paramList->list.array[k];
+  for (int k = 0; k < up_paramList->list.count; k++) {
+    up_params_t *param = &up_param[k];
+    E1AP_UP_Parameters_Item_t *up_param_in = up_paramList->list.array[k];
     // GTP tunnel
-    if (!e1_decode_up_tnl_info(&param->tl_info, &dl_up_param_in->uP_TNL_Information)) {
+    if (!e1_decode_up_tnl_info(&param->tl_info, &up_param_in->uP_TNL_Information)) {
       PRINT_ERROR("GTP tunnel decoding failed\n");
       return -1;
     }
     // Cell group ID
-    param->cell_group_id = dl_up_param_in->cell_Group_ID;
+    param->cell_group_id = up_param_in->cell_Group_ID;
   }
-  return dl_up_paramList->list.count;
+  return up_paramList->list.count;
 }
 
 /**
  * @brief Encode E1AP_UP_Parameters_t IE
  */
-static E1AP_UP_Parameters_t encode_dl_up_parameters(const int numUpParam, const up_params_t *in)
+static E1AP_UP_Parameters_t encode_up_parameters(const int numUpParam, const up_params_t *in)
 {
   E1AP_UP_Parameters_t out = {0};
   for (const up_params_t *k = in; k < in + numUpParam; k++) {
@@ -875,7 +875,7 @@ static bool e1_decode_pdu_session_setup_item(pdu_session_setup_t *pduSetup, E1AP
     // DRB ID (M)
     drbSetup->id = drb->dRB_ID;
     // UL UP Parameters (M)
-    if ((drbSetup->numUpParam = decode_dl_up_parameters(drbSetup->UpParamList, &drb->uL_UP_Transport_Parameters)) < 0) {
+    if ((drbSetup->numUpParam = decode_up_parameters(drbSetup->UpParamList, &drb->uL_UP_Transport_Parameters)) < 0) {
       PRINT_ERROR("UL UP Parameters decoding failed\n");
       return false;
     }
@@ -928,7 +928,7 @@ static bool e1_encode_pdu_session_setup_item(E1AP_PDU_Session_Resource_Setup_Ite
     // DRB ID (M)
     ieC3_1_1->dRB_ID = j->id;
     // UL UP Parameters (M)
-    ieC3_1_1->uL_UP_Transport_Parameters = encode_dl_up_parameters(j->numUpParam, j->UpParamList);
+    ieC3_1_1->uL_UP_Transport_Parameters = encode_up_parameters(j->numUpParam, j->UpParamList);
     // Flow Setup List(M)
     for (const qos_flow_list_t *k = j->qosFlows; k < j->qosFlows + j->numQosFlowSetup; k++) {
       asn1cSequenceAdd(ieC3_1_1->flow_Setup_List.list, E1AP_QoS_Flow_Item_t, ieC3_1_1_1);
@@ -1797,7 +1797,7 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
     // DL UP TNL parameters (O)
     if (drb2Mod->dL_UP_Parameters) {
       E1AP_UP_Parameters_t *dl_up_paramList = drb2Mod->dL_UP_Parameters;
-      if ((drb->numDlUpParam = decode_dl_up_parameters(drb->DlUpParamList, dl_up_paramList)) < 0) {
+      if ((drb->numDlUpParam = decode_up_parameters(drb->DlUpParamList, dl_up_paramList)) < 0) {
         PRINT_ERROR("Failed to decode DL UP TNL parameters\n");
         return false;
       }
@@ -2501,7 +2501,7 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
               drbMod->id = drbIE->dRB_ID;
               // UL UP Parameters (M)
               if (drbIE->uL_UP_Transport_Parameters.list.count) {
-                if ((drbMod->numUpParam = decode_dl_up_parameters(drbMod->UpParamList, &drbIE->uL_UP_Transport_Parameters)) < 0) {
+                if ((drbMod->numUpParam = decode_up_parameters(drbMod->UpParamList, &drbIE->uL_UP_Transport_Parameters)) < 0) {
                   PRINT_ERROR("UL UP Parameters decoding failed\n");
                   return false;
                 }
@@ -2551,7 +2551,7 @@ bool decode_E1_bearer_context_mod_response(e1ap_bearer_modif_resp_t *out, const 
               drbMod->id = drbIE->dRB_ID;
               // UL UP Parameters (O)
               if (drbIE->uL_UP_Transport_Parameters) {
-                if ((drbMod->numUpParam = decode_dl_up_parameters(drbMod->ul_UP_Params, drbIE->uL_UP_Transport_Parameters)) < 0) {
+                if ((drbMod->numUpParam = decode_up_parameters(drbMod->ul_UP_Params, drbIE->uL_UP_Transport_Parameters)) < 0) {
                   PRINT_ERROR("UL UP Parameters decoding failed\n");
                   return false;
                 }
