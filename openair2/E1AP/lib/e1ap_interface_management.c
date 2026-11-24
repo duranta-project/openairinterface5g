@@ -586,7 +586,7 @@ bool decode_e1ap_cuup_setup_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_fail_
       case E1AP_ProtocolIE_ID_id_Cause:
         // Cause
         E1AP_LIB_FIND_IE(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_Cause, true);
-        out->cause = e1_decode_cause_ie(&ie->value.choice.Cause);
+        CHECK_E1AP_DEC(e1_decode_cause_ie(&ie->value.choice.Cause, &out->cause));
         break;
       case E1AP_ProtocolIE_ID_id_TimeToWait:
         // Time To Wait (O)

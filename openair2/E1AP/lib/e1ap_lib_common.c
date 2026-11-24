@@ -5,10 +5,11 @@
 #include "e1ap_lib_common.h"
 #include "e1ap_lib_includes.h"
 #include "e1ap_messages_types.h"
+#include "common/utils/assertions.h"
 
 E1AP_Cause_t e1_encode_cause_ie(const e1ap_cause_t *cause)
 {
-  E1AP_Cause_t ie;
+  E1AP_Cause_t ie = {0};
   switch (cause->type) {
     case E1AP_CAUSE_RADIO_NETWORK:
       ie.present = E1AP_Cause_PR_radioNetwork;
@@ -26,39 +27,39 @@ E1AP_Cause_t e1_encode_cause_ie(const e1ap_cause_t *cause)
       ie.present = E1AP_Cause_PR_misc;
       ie.choice.misc = cause->value;
       break;
+    case E1AP_CAUSE_NOTHING:
     default:
-      ie.present = E1AP_Cause_PR_NOTHING;
-      PRINT_ERROR("encode_e1ap_cause_ie: no cause value provided\n");
+      AssertFatal(false, "unknown cause value %d\n", cause->type);
       break;
   }
   return ie;
 }
 
-e1ap_cause_t e1_decode_cause_ie(const E1AP_Cause_t *ie)
+bool e1_decode_cause_ie(const E1AP_Cause_t *ie, e1ap_cause_t *out)
 {
-  e1ap_cause_t cause;
-  // Decode the 'choice' field based on the 'present' value
+  *out = (e1ap_cause_t){0};
   switch (ie->present) {
     case E1AP_Cause_PR_radioNetwork:
-      cause.value = ie->choice.radioNetwork;
-      cause.type = E1AP_CAUSE_RADIO_NETWORK;
+      out->value = ie->choice.radioNetwork;
+      out->type = E1AP_CAUSE_RADIO_NETWORK;
       break;
     case E1AP_Cause_PR_transport:
-      cause.value = ie->choice.transport;
-      cause.type = E1AP_CAUSE_TRANSPORT;
+      out->value = ie->choice.transport;
+      out->type = E1AP_CAUSE_TRANSPORT;
       break;
     case E1AP_Cause_PR_protocol:
-      cause.value = ie->choice.protocol;
-      cause.type = E1AP_CAUSE_PROTOCOL;
+      out->value = ie->choice.protocol;
+      out->type = E1AP_CAUSE_PROTOCOL;
       break;
     case E1AP_Cause_PR_misc:
-      cause.value = ie->choice.misc;
-      cause.type = E1AP_CAUSE_MISC;
+      out->value = ie->choice.misc;
+      out->type = E1AP_CAUSE_MISC;
       break;
+    case E1AP_Cause_PR_NOTHING:
+    case E1AP_Cause_PR_choice_extension:
     default:
-      cause.type = E1AP_CAUSE_NOTHING;
-      PRINT_ERROR("decode_e1ap_cause_ie: no cause value provided\n");
-      break;
+      PRINT_ERROR("received illegal E1AP cause %d\n", ie->present);
+      return false;
   }
-  return cause;
+  return true;
 }

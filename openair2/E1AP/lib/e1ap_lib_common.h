@@ -49,6 +49,6 @@
 
 struct E1AP_Cause;
 struct E1AP_Cause e1_encode_cause_ie(const e1ap_cause_t *cause);
-e1ap_cause_t e1_decode_cause_ie(const struct E1AP_Cause *ie);
+bool e1_decode_cause_ie(const struct E1AP_Cause *ie, e1ap_cause_t *out);
 
 #endif /* E1AP_LIB_COMMON_H_ */

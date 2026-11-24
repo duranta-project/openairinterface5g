@@ -830,7 +830,7 @@ static bool decode_drb_failed_item(const E1AP_DRB_Failed_Item_NG_RAN_t *in, DRB_
   // DRB ID (M)
   out->id = in->dRB_ID;
   // Cause (M)
-  out->cause = e1_decode_cause_ie(&in->cause);
+  CHECK_E1AP_DEC(e1_decode_cause_ie(&in->cause, &out->cause));
   return true;
 }
 
@@ -840,7 +840,7 @@ static bool decode_drb_failed_to_mod_item(const E1AP_DRB_Failed_To_Modify_Item_N
   // DRB ID (M)
   out->id = in->dRB_ID;
   // Cause (M)
-  out->cause = e1_decode_cause_ie(&in->cause);
+  CHECK_E1AP_DEC(e1_decode_cause_ie(&in->cause, &out->cause));
   return true;
 }
 
@@ -1236,7 +1236,7 @@ bool decode_E1_bearer_context_setup_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_bea
         *out->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
         break;
       case E1AP_ProtocolIE_ID_id_Cause:
-        out->cause = e1_decode_cause_ie(&ie->value.choice.Cause);
+        CHECK_E1AP_DEC(e1_decode_cause_ie(&ie->value.choice.Cause, &out->cause));
         break;
       default:
         break;
@@ -1344,7 +1344,7 @@ bool decode_e1_bearer_context_release_command(const E1AP_E1AP_PDU_t *pdu, e1ap_b
         out->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
         break;
       case E1AP_ProtocolIE_ID_id_Cause:
-        out->cause = e1_decode_cause_ie(&ie->value.choice.Cause);
+        CHECK_E1AP_DEC(e1_decode_cause_ie(&ie->value.choice.Cause, &out->cause));
         break;
       default:
         PRINT_ERROR("%s decoding failure: IE %ld is invalid\n", __func__, ie->id);
@@ -1506,7 +1506,7 @@ static bool e1_decode_pdu_session_to_remove_item(const E1AP_PDU_Session_Resource
       if (ie->id != E1AP_ProtocolIE_ID_id_Cause)
         continue;
       _EQ_CHECK_INT(ie->extensionValue.present, E1AP_PDU_Session_Resource_To_Remove_Item_ExtIEs__extensionValue_PR_Cause);
-      out->cause = e1_decode_cause_ie(&ie->extensionValue.choice.Cause);
+      CHECK_E1AP_DEC(e1_decode_cause_ie(&ie->extensionValue.choice.Cause, &out->cause));
       break;
     }
   }
@@ -2482,7 +2482,7 @@ static bool decode_qos_flow_failed_item(const E1AP_QoS_Flow_Failed_Item_t *in, q
   // QFI (M)
   out->qfi = in->qoS_Flow_Identifier;
   // Cause (M)
-  out->cause = e1_decode_cause_ie(&in->cause);
+  CHECK_E1AP_DEC(e1_decode_cause_ie(&in->cause, &out->cause));
   return true;
 }
 
@@ -2835,7 +2835,7 @@ bool decode_E1_bearer_context_mod_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_beare
         out->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
         break;
       case E1AP_ProtocolIE_ID_id_Cause:
-        out->cause = e1_decode_cause_ie(&ie->value.choice.Cause);
+        CHECK_E1AP_DEC(e1_decode_cause_ie(&ie->value.choice.Cause, &out->cause));
         break;
       default:
         PRINT_ERROR("Invalid or unhandled optional IE (%ld) in Bearer Context Modification Failure message\n", ie->id);
@@ -2897,7 +2897,7 @@ static bool e1_decode_drb_required_to_mod_item(const E1AP_DRB_Required_To_Modify
   out->id = in->dRB_ID;
   // Cause (O)
   if (in->cause != NULL)
-    out->cause = e1_decode_cause_ie(in->cause);
+    CHECK_E1AP_DEC(e1_decode_cause_ie(in->cause, &out->cause));
   return true;
 }
 
