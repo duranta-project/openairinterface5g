@@ -8,6 +8,7 @@
 
 
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "LAYER2/NR_MAC_gNB/nr_srs_aoa.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
 #include "utils.h"
@@ -15,6 +16,7 @@
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "openair3/NRPPA/nrppa_gNB_config.h"
 #include "openair2/F1AP/lib/f1ap_positioning.h"
+#include <math.h>
 
 static const uint16_t NR_TRANSFORM_PRECODE_RB_LUT[274] = {
     0,   1,   2,   3,   4,   5,   6,   6,   8,   9,   10,  10,  12,  12,  12,  15,  16,  16,  18,  18,  20,  20,  20,  20,  24,
@@ -1720,6 +1722,15 @@ void handle_nr_srs_measurements(gNB_MAC_INST *nrmac,
       stop_meas(&cell->nr_srs_tpmi_computation_timer);
 
       sprintf(stats->srs_stats, "UL-RI %d, TPMI %d", sched_ctrl->srs_feedback.ul_ri + 1, sched_ctrl->srs_feedback.tpmi);
+
+      // A beam switch starts an F1 UE Context Modification. The CU refuses it until the initial UE Context
+      // Setup is complete (no CellGroup yet). Wait for the result of a pending one.
+      if (cell->radio_config.aoa_nb_beams > 0 && UE->CellGroup != NULL && UE->cm_info.trigger_info == NO_TRIGGER) {
+        const double aoa = nr_srs_estimate_aoa(&nr_srs_channel_iq_matrix);
+        const int beam = isnan(aoa) ? -1 : aoa_selection_procedures(cell, UE, aoa);
+        if (beam != -1)
+          beam_switching_procedure(nrmac, cell, UE, beam);
+      }
 
       break;
     }

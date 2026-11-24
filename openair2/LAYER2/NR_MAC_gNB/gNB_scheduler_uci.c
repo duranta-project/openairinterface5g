@@ -881,7 +881,8 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
         break;
     }
   }
-  if (new_bf_index != -1)
+  // with SRS-AoA beam selection on, only the AoA path switches beams (see config_aoa_beams())
+  if (new_bf_index != -1 && cell->radio_config.aoa_nb_beams == 0)
     // Trigger RRCReconfiguration. Need to be out of the for loop as it may modify csi_MeasConfig
     beam_switching_procedure(nrmac, cell, UE, new_bf_index);
 }
