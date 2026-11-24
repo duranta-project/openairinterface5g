@@ -1329,6 +1329,44 @@ static void test_f1ap_ue_context_modification_response_simple()
   printf("%s() successful\n", __func__);
 }
 
+static void test_f1ap_ue_context_modification_required()
+{
+  f1ap_ue_context_modif_required_t orig = {
+    .gNB_CU_ue_id = 9876,
+    .gNB_DU_ue_id = 5432,
+    .cause = F1AP_CAUSE_RADIO_NETWORK,
+    .cause_value = F1AP_CauseRadioNetwork_action_desirable_for_radio_reasons,
+  };
+
+  f1ap_du_to_cu_rrc_info_t du2cu = {
+    .cell_group_config = get_test_ba("cellGroupConfig for the new beam"),
+    .meas_gap_config = get_malloced_test_ba("MeasGapConfig"),
+    .requested_p_max_fr1 = get_test_ba("requestedP-MaxFR1"),
+  };
+  _F1_MALLOC(orig.du_to_cu_rrc_information, du2cu);
+
+  F1AP_F1AP_PDU_t *f1enc = encode_ue_context_modif_required(&orig);
+  F1AP_F1AP_PDU_t *f1dec = f1ap_encode_decode(f1enc);
+  f1ap_msg_free(f1enc);
+
+  f1ap_ue_context_modif_required_t decoded = {0};
+  bool ret = decode_ue_context_modif_required(f1dec, &decoded);
+  AssertFatal(ret, "decode_ue_context_modif_required(): could not decode message\n");
+  f1ap_msg_free(f1dec);
+
+  ret = eq_ue_context_modif_required(&orig, &decoded);
+  AssertFatal(ret, "eq_ue_context_modif_required(): decoded message doesn't match\n");
+  free_ue_context_modif_required(&decoded);
+
+  f1ap_ue_context_modif_required_t cp = cp_ue_context_modif_required(&orig);
+  ret = eq_ue_context_modif_required(&orig, &cp);
+  AssertFatal(ret, "eq_ue_context_modif_required(): copied message doesn't match\n");
+  free_ue_context_modif_required(&orig);
+  free_ue_context_modif_required(&cp);
+
+  printf("%s() successful\n", __func__);
+}
+
 static void test_f1ap_ue_context_release_request()
 {
   f1ap_ue_context_rel_req_t orig = {
@@ -2654,6 +2692,7 @@ int main()
   test_f1ap_ue_context_modification_request_simple();
   test_f1ap_ue_context_modification_response();
   test_f1ap_ue_context_modification_response_simple();
+  test_f1ap_ue_context_modification_required();
   test_f1ap_ue_context_release_request();
   test_f1ap_ue_context_release_command();
   test_f1ap_ue_context_release_complete();

@@ -3147,7 +3147,12 @@ static void rrc_CU_process_ue_modification_required(MessageDef *msg_p, instance_
     return;
   }
 
-  if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->cellGroupConfig) {
+  if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->meas_gap_config)
+    LOG_W(NR_RRC, "UE %d: handling of measGapConfig not implemented, ignoring it\n", UE->rrc_ue_id);
+  if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->requested_p_max_fr1.len > 0)
+    LOG_W(NR_RRC, "UE %d: handling of requestedP_MaxFR1 not implemented, ignoring it\n", UE->rrc_ue_id);
+
+  if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->cell_group_config.len > 0) {
     gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
     LOG_I(RRC,
           "UE Context Modification Required: new CellGroupConfig for UE ID %d/RNTI %04x, triggering reconfiguration\n",
@@ -3155,11 +3160,7 @@ static void rrc_CU_process_ue_modification_required(MessageDef *msg_p, instance_
           UE->rnti);
 
     // Store the encoded CellGroupConfig for transparent forwarding
-    uint8_t *cgc_buf = required->du_to_cu_rrc_information->cellGroupConfig;
-    size_t cgc_len = required->du_to_cu_rrc_information->cellGroupConfig_length;
-
-    byte_array_t temp_cgc = {.buf = cgc_buf, .len = cgc_len};
-    store_cgc(UE, &temp_cgc);
+    store_cgc(UE, &required->du_to_cu_rrc_information->cell_group_config);
 
     /* trigger reconfiguration */
     if (!UE->ongoing_reconfiguration) {
@@ -4017,6 +4018,7 @@ void *rrc_gnb_task(void *args_p)
 
       case F1AP_UE_CONTEXT_MODIFICATION_REQUIRED:
         rrc_CU_process_ue_modification_required(msg_p, instance, msg_p->ittiMsgHeader.originInstance);
+        free_ue_context_modif_required(&F1AP_UE_CONTEXT_MODIFICATION_REQUIRED(msg_p));
         break;
 
       case F1AP_UE_CONTEXT_RELEASE_REQ:

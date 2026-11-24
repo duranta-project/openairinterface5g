@@ -179,6 +179,7 @@ void *F1AP_DU_task(void *arg)
 
       case F1AP_UE_CONTEXT_MODIFICATION_REQUIRED:
         DU_send_UE_CONTEXT_MODIFICATION_REQUIRED(assoc_id, &F1AP_UE_CONTEXT_MODIFICATION_REQUIRED(msg));
+        free_ue_context_modif_required(&F1AP_UE_CONTEXT_MODIFICATION_REQUIRED(msg));
         break;
 
       case F1AP_GNB_DU_CONFIGURATION_UPDATE:
