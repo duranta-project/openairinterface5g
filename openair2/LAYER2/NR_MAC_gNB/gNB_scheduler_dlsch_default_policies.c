@@ -99,14 +99,36 @@ int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cel
   return n_valid;
 }
 
-static int compare_dl_pf_ptrs(const void *a, const void *b)
+/// PF priority of a DL candidate, computed once before the sort: the retransmissions first, then the highest PF weight
+typedef struct {
+  float weight;
+  nr_dl_candidate_t *cand;
+} dl_pf_key_t;
+
+static int compare_dl_pf_keys(const void *a, const void *b)
 {
-  const nr_dl_candidate_t *ca = *(const nr_dl_candidate_t *const *)a;
-  const nr_dl_candidate_t *cb = *(const nr_dl_candidate_t *const *)b;
-  /* retx first (INFINITY weight), then highest PF weight */
-  float wa = ca->is_retx ? INFINITY : dl_pf_weight(ca->current_mcs, ca->mcs_table, ca->sched_pdsch.nrOfLayers, ca->avg_throughput);
-  float wb = cb->is_retx ? INFINITY : dl_pf_weight(cb->current_mcs, cb->mcs_table, cb->sched_pdsch.nrOfLayers, cb->avg_throughput);
+  const float wa = ((const dl_pf_key_t *)a)->weight;
+  const float wb = ((const dl_pf_key_t *)b)->weight;
   return (wa < wb) - (wa > wb);
+}
+
+/// @brief List the candidates that are not skipped, by decreasing PF priority
+/// @param use_sched_mcs weight from the MCS chosen for this slot (after the MCS selection) instead of the current one
+static int sort_dl_pf(nr_dl_candidate_t *candidates, int n_candidates, bool use_sched_mcs, nr_dl_candidate_t **order)
+{
+  dl_pf_key_t keys[MAX_MOBILES_PER_GNB];
+  int n = 0;
+  FOR_EACH_CANDIDATE(cand, candidates, n_candidates) {
+    if (cand->skipped)
+      continue;
+    const int mcs = use_sched_mcs ? cand->sched_pdsch.mcs : cand->current_mcs;
+    keys[n].weight = cand->is_retx ? INFINITY : dl_pf_weight(mcs, cand->mcs_table, cand->sched_pdsch.nrOfLayers, cand->avg_throughput);
+    keys[n++].cand = cand;
+  }
+  qsort(keys, n, sizeof(*keys), compare_dl_pf_keys);
+  for (int i = 0; i < n; i++)
+    order[i] = keys[i].cand;
+  return n;
 }
 
 int nr_dl_beam_select_default(NR_beam_info_t *beam_info,
@@ -119,11 +141,7 @@ int nr_dl_beam_select_default(NR_beam_info_t *beam_info,
 {
   /* Build pointer array sorted by PF priority so retx and high-priority UEs claim beams first. */
   nr_dl_candidate_t *order[MAX_MOBILES_PER_GNB];
-  int n_active = 0;
-  FOR_EACH_CANDIDATE(cand, candidates, n_candidates)
-  if (!cand->skipped)
-    order[n_active++] = cand;
-  qsort(order, n_active, sizeof(*order), compare_dl_pf_ptrs);
+  const int n_active = sort_dl_pf(candidates, n_candidates, false, order);
 
   int n_valid = 0;
   for (int i = 0; i < n_active; i++) {
@@ -155,18 +173,6 @@ void nr_dl_mcs_select_default(const nr_cell_sched_t *cell, nr_dl_candidate_t *ca
     }
     cand->sched_pdsch.mcs = mcs;
   }
-}
-
-static int compare_dl_pf_rb_ptrs(const void *a, const void *b)
-{
-  const nr_dl_candidate_t *ca = *(const nr_dl_candidate_t *const *)a;
-  const nr_dl_candidate_t *cb = *(const nr_dl_candidate_t *const *)b;
-  /* retx first, then highest PF weight (uses sched_pdsch.mcs, which is set by mcs_select) */
-  float wa =
-      ca->is_retx ? INFINITY : dl_pf_weight(ca->sched_pdsch.mcs, ca->mcs_table, ca->sched_pdsch.nrOfLayers, ca->avg_throughput);
-  float wb =
-      cb->is_retx ? INFINITY : dl_pf_weight(cb->sched_pdsch.mcs, cb->mcs_table, cb->sched_pdsch.nrOfLayers, cb->avg_throughput);
-  return (wa < wb) - (wa > wb);
 }
 
 /* number of RBs to send the pending data of a DL candidate, between min_rbSize and max_rbSize */
@@ -204,11 +210,7 @@ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_
 
   /* Build pointer array sorted by PF priority (retx first, then highest weight) */
   nr_dl_candidate_t *order[MAX_MOBILES_PER_GNB];
-  int n_active = 0;
-  FOR_EACH_CANDIDATE(cand, candidates, n_candidates)
-  if (!cand->skipped)
-    order[n_active++] = cand;
-  qsort(order, n_active, sizeof(*order), compare_dl_pf_rb_ptrs);
+  const int n_active = sort_dl_pf(candidates, n_candidates, true, order);
 
   /* Phase 1: HARQ retransmissions (highest priority, exact RBs) */
   for (int j = 0; j < n_active; j++) {
