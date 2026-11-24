@@ -75,6 +75,11 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
 
   NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
 
+  /* The best TDA depends on the beam and on the BWP size, not on the UE, and nothing is allocated here: search it
+   * once for each beam, not for each candidate. */
+  const NR_tda_info_t *beam_best[MAX_NUM_BEAM_PERIODS] = {0};
+  int beam_bwp_size[MAX_NUM_BEAM_PERIODS] = {0};
+
   int n_valid = 0;
   FOR_EACH_CANDIDATE(cand, cands, n_cand)
   {
@@ -82,8 +87,12 @@ int nr_ul_tda_select_default(gNB_MAC_INST *mac,
       continue;
 
     int beam = cand->alloc_beam_idx;
-    int rb_start = 0, rb_len = cand->bwp_size;
-    const NR_tda_info_t *best = get_best_ul_tda(cell, beam, tda_list, n_tda, sched_frame, sched_slot, &rb_start, &rb_len);
+    if (beam_best[beam] == NULL || beam_bwp_size[beam] != cand->bwp_size) {
+      int rb_start = 0, rb_len = cand->bwp_size;
+      beam_best[beam] = get_best_ul_tda(cell, beam, tda_list, n_tda, sched_frame, sched_slot, &rb_start, &rb_len);
+      beam_bwp_size[beam] = cand->bwp_size;
+    }
+    const NR_tda_info_t *best = beam_best[beam];
     DevAssert(best->valid_tda);
 
     if (cand->is_retx) {
