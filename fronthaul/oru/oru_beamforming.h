@@ -12,8 +12,8 @@ extern "C" {
 #endif
 
 #define ORU_CODEBOOK_MAX_BEAMS 64
-#define ORU_CODEBOOK_MAX_NB_TX 8
-#define ORU_CODEBOOK_MAX_STREAMS 4
+#define ORU_CODEBOOK_MAX_NB_TX 64 // TXRUs: up to a 64T64R mMIMO RU
+#define ORU_CODEBOOK_MAX_STREAMS 16 // fronthaul streams: 16 DL layers for cuBB mMIMO
 
 typedef struct {
   int nb_fh_streams;

@@ -27,6 +27,10 @@ typedef struct {
 
 typedef struct {
   fh_comp_method_t comp_type;
+  // static compression: IQ width of comp_type in both directions, with no udCompHdr; 0 = dynamic
+  uint8_t static_iq_width;
+  // PRACH IQ width with static compression; 0 = static_iq_width
+  uint8_t static_iq_width_prach;
   int numerology;
   uint16_t num_prbs;
   // MTU configuration
@@ -45,7 +49,7 @@ typedef struct {
   /* CLOCK_REALTIME timescale: FH_CLOCK_UTC (default) or FH_CLOCK_TAI. */
   fh_clock_timebase_t clock_timebase;
   oru_fh_tdd_pattern_t tdd_pattern;
-  int prach_eaxc_offset;
+  oru_eaxc_lists_t eaxc_lists; // the configured lists, or oru_eaxc_ru_port_lists(prach_eaxc_offset)
   int prach_kbar;
 } oru_fh_config_t;
 

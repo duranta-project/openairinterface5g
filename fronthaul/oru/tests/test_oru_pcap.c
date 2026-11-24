@@ -19,7 +19,15 @@
 #include "log.h"
 #include "common/config/config_userapi.h"
 
-#define MAX_ANTENNAS 4
+// The RU port eAxC layout, as nr-oru builds it without eAxC lists. init_packet_processor() copies it.
+static const oru_eaxc_lists_t *ru_ports(int prach_eaxc_offset)
+{
+  static oru_eaxc_lists_t lists;
+  lists = oru_eaxc_ru_port_lists(prach_eaxc_offset);
+  return &lists;
+}
+
+#define PCAP_NUM_ANT 4 // antennas of the reference capture
 
 configmodule_interface_t *uniqCfg = NULL;
 
@@ -475,11 +483,11 @@ static void ref_check_dl_iq(uint32_t **txdataF, int frame, int slot, int symbol)
 // fill txdataF - no rotation or weighting, so ref_check_dl_iq() can compare bit-exactly.
 static void place_dl_streams(uint32_t **txdataF, const dl_iq_stream_t *streams, int num_streams)
 {
-  for (int a = 0; a < MAX_ANTENNAS; a++)
+  for (int a = 0; a < PCAP_NUM_ANT; a++)
     memset(txdataF[a], 0, 273 * 12 * sizeof(uint32_t));
   for (int i = 0; i < num_streams; i++) {
     const dl_iq_stream_t *st = &streams[i];
-    if (st->ant_id < MAX_ANTENNAS)
+    if (st->ant_id < PCAP_NUM_ANT)
       memcpy(&txdataF[st->ant_id][st->start_prb * 12], st->iq, st->num_prb * 12 * sizeof(uint32_t));
   }
 }
@@ -642,7 +650,7 @@ int main(int argc, char *argv[])
                                     test_send_mbuf,
                                     NULL,
                                     mtu,
-                                    prach_eaxc_offset,
+                                    ru_ports(prach_eaxc_offset),
                                     FH_COMP_NONE,
                                     0);
   assert(ctx != NULL);
@@ -665,8 +673,8 @@ int main(int argc, char *argv[])
 
   uint64_t last_tick_sym = initial_symbol;
 
-  static uint32_t *txdataF[MAX_ANTENNAS] = {NULL};
-  for (int i = 0; i < MAX_ANTENNAS; i++)
+  static uint32_t *txdataF[PCAP_NUM_ANT] = {NULL};
+  for (int i = 0; i < PCAP_NUM_ANT; i++)
     txdataF[i] = malloc(273 * 12 * sizeof(uint32_t));
 
   static dl_iq_stream_t dl_streams[MAX_DL_FRAGMENTS_PER_SYMBOL];
@@ -741,7 +749,7 @@ int main(int argc, char *argv[])
             int frame = (s / (140 * (1 << numerology))) % 1024;
             int slot = (s / 14) % (10 * (1 << numerology));
             int sym = s % 14;
-            write_prach_iq(ctx, txdataF, MAX_ANTENNAS, frame, slot, sym);
+            write_prach_iq(ctx, txdataF, PCAP_NUM_ANT, frame, slot, sym);
 
             // Drain ready jobs to prevent ring overflow
             int f, sl, sy;
@@ -823,7 +831,7 @@ int main(int argc, char *argv[])
   cleanup_packet_processor(ctx);
   if (mp)
     rte_mempool_free(mp);
-  for (int i = 0; i < MAX_ANTENNAS; i++)
+  for (int i = 0; i < PCAP_NUM_ANT; i++)
     free(txdataF[i]);
   free(dl_iq_arena);
 

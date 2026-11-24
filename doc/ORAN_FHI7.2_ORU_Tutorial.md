@@ -81,8 +81,17 @@ An example configuration file can be found at
 | `T2a_up` | Int Array (2) | Timing window bounds `(T2a_up_min, T2a_up_max)` | **Mandatory** |
 | `T2a_cp` | Int Array (2) | Timing window bounds `(T2a_cp_min, T2a_cp_max)` | **Mandatory** |
 | `mtu` | Integer | Maximum Transmission Unit (MTU) | `9600` |
-| `prach_eaxc_offset`| Integer | Offset for PRACH eAxC ID mapping | `0` |
+| `prach_eaxc_offset`| Integer | Offset for PRACH eAxC ID mapping: PRACH stream `i` is on RU port `prach_eaxc_offset + i`. Do not set it with the eAxC lists | `0` |
+| `eaxc_dl` | Integer Array | DL eAxC IDs as the DU sends them (cuBB `eAxC_id_pdsch`); ID `i` is DL stream `i` (codebook) or TX antenna `i` (passthrough). Up to `16` | `[]` |
+| `eaxc_ul` | Integer Array | UL eAxC IDs (cuBB `eAxC_id_pusch`); ID `i` is UL stream `i` or RX antenna `i`. Up to `16` | `[]` |
+| `eaxc_prach` | Integer Array | PRACH eAxC IDs (cuBB `eAxC_id_prach`); ID `i` is PRACH stream `i`. Up to `16` | `[]` |
+| `eaxc_srs` | Integer Array | SRS eAxC IDs (cuBB `eAxC_id_srs`); ID `i` is RX antenna `i`. SRS goes to the DU per RX antenna after the FFT, not beamformed, also in codebook mode. Not in `eaxc_ul`. Up to `64` | `[]` |
+| `comp_type` | String | U-plane compression method: `none`, `bfp`, `blkscale` or `ulaw`. DL only, and also UL and PRACH with `static_iq_width` | `none` |
+| `static_iq_width` | Integer | Static U-plane compression, as cuBB `dl_iq_data_fmt` and `ul_iq_data_fmt`, or the OAI DU `comp_hdr_type = "static"`: `comp_type` at this IQ bit width (1 to 16) in both directions. U-plane sections have no `udCompHdr`, and the C-plane `udCompHdr` is ignored (cuBB always sends `0`). `0`: DL takes the IQ width from the `udCompHdr` of each U-plane section, and UL the compression from the C-plane `udCompHdr` | `0` |
+| `static_iq_width_prach` | Integer | PRACH IQ bit width of the static compression, as the OAI DU `iq_width_prach`. `0`: `static_iq_width` | `0` |
 | `extra_eal_args` | String List | EAL arguments passed to DPDK | `[]` |
+
+With all eAxC lists empty, the O-RU uses the RU port (the 4 low bits of the eAxC ID, as in the common 4:4:4:4 layout) as the stream index, and `prach_eaxc_offset` for PRACH. For other M-Plane layouts, use the lists. With the lists, set `eaxc_dl`, `eaxc_ul` and `eaxc_prach` (`eaxc_srs` is optional). A list has at most one ID for each stream: `nb_rx` for `eaxc_srs`; for the others, `nb_fh_streams` in codebook mode, else `nb_tx` (DL) or `nb_rx` (UL, PRACH). An eAxC ID is then compared on all 16 bits, as cuBB sets them, and an ID that is not in the list of its flow is dropped and counted as invalid. In both cases, the UL U-plane carries the eAxC ID of its C-plane.
 
 ### `RUs.[0]` threadpool parameters
 
