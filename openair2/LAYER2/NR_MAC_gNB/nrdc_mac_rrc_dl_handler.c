@@ -17,7 +17,7 @@
 static NR_UE_info_t *nrdc_create_new_UE(gNB_MAC_INST *mac, nr_cell_sched_t *cell, uint32_t cu_id, const NR_CG_ConfigInfo_t *cgci)
 {
   rnti_t rnti;
-  bool found = nr_mac_get_new_rnti(&mac->UE_info, &rnti);
+  bool found = nr_mac_get_new_rnti(&mac->UE_info, cell->common_channels.ServingCellConfigCommon, &rnti);
   if (!found)
     return NULL;
 
