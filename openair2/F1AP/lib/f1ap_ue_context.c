@@ -153,8 +153,8 @@ static F1AP_DUtoCURRCInformation_t encode_du_to_cu_rrc_info(const f1ap_du_to_cu_
   OCTET_STRING_fromBuf(&enc.cellGroupConfig, (const char *)ba->buf, ba->len);
 
   /* optional: MeasGapConfig */
-  if (du2cu->meas_gap_config) {
-    ba = du2cu->meas_gap_config;
+  if (du2cu->meas_gap_config.buf && du2cu->meas_gap_config.len > 0) {
+    ba = &du2cu->meas_gap_config;
     asn1cCalloc(enc.measGapConfig, measGapConfig);
     OCTET_STRING_fromBuf(measGapConfig, (const char *)ba->buf, ba->len);
   }
@@ -176,8 +176,7 @@ static bool decode_du_to_cu_rrc_info(f1ap_du_to_cu_rrc_info_t *dec, const F1AP_D
 
   if (du2cu->measGapConfig) {
     const F1AP_MeasGapConfig_t *mgc = du2cu->measGapConfig;
-    dec->meas_gap_config = calloc_or_fail(1, sizeof(*dec->meas_gap_config));
-    *dec->meas_gap_config = create_byte_array(mgc->size, (uint8_t *)mgc->buf);
+    dec->meas_gap_config = create_byte_array(mgc->size, (uint8_t *)mgc->buf);
   }
 
   if (du2cu->requestedP_MaxFR1) {
@@ -191,7 +190,7 @@ static f1ap_du_to_cu_rrc_info_t cp_du_to_cu_rrc_info(const f1ap_du_to_cu_rrc_inf
 {
   f1ap_du_to_cu_rrc_info_t cp = {0};
   cp.cell_group_config = copy_byte_array(src->cell_group_config);
-  CP_OPT_BYTE_ARRAY(cp.meas_gap_config, src->meas_gap_config);
+  cp.meas_gap_config = copy_byte_array(src->meas_gap_config);
   cp.requested_p_max_fr1 = copy_byte_array(src->requested_p_max_fr1);
   return cp;
 }
@@ -199,7 +198,8 @@ static f1ap_du_to_cu_rrc_info_t cp_du_to_cu_rrc_info(const f1ap_du_to_cu_rrc_inf
 static bool eq_du_to_cu_rrc_info(const f1ap_du_to_cu_rrc_info_t *a, const f1ap_du_to_cu_rrc_info_t *b)
 {
   _F1_CHECK_EXP(eq_byte_array(&a->cell_group_config, &b->cell_group_config));
-  _EQ_CHECK_OPTIONAL_IE(a, b, meas_gap_config, eq_ba);
+  if ((a->meas_gap_config.len || b->meas_gap_config.len) && !eq_byte_array(&a->meas_gap_config, &b->meas_gap_config))
+    return false;
   if ((a->requested_p_max_fr1.len || b->requested_p_max_fr1.len)
       && !eq_byte_array(&a->requested_p_max_fr1, &b->requested_p_max_fr1))
     return false;
@@ -209,7 +209,7 @@ static bool eq_du_to_cu_rrc_info(const f1ap_du_to_cu_rrc_info_t *a, const f1ap_d
 static void free_du_to_cu_rrc_info(f1ap_du_to_cu_rrc_info_t *du2cu)
 {
   free_byte_array(du2cu->cell_group_config);
-  FREE_OPT_BYTE_ARRAY(du2cu->meas_gap_config);
+  free_byte_array(du2cu->meas_gap_config);
   free_byte_array(du2cu->requested_p_max_fr1);
 }
 

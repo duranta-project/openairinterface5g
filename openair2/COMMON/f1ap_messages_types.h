@@ -390,7 +390,7 @@ typedef struct f1ap_cu_to_du_rrc_info_s {
 
 typedef struct f1ap_du_to_cu_rrc_info_s {
   byte_array_t cell_group_config;
-  byte_array_t *meas_gap_config;
+  byte_array_t meas_gap_config;
   byte_array_t requested_p_max_fr1;
 } f1ap_du_to_cu_rrc_info_t;
 

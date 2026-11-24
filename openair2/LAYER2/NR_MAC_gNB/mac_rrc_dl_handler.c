@@ -834,10 +834,9 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
     /* creates a suitable measGap config to be used in the gNB */
     UE->measgap_config = create_measgap_config(mtc, UE->current_DL_BWP.scs, cell->radio_config.minRXTXTIME);
     /* encodes the measGapConfig created, if useful (or not!) */
-    byte_array_t *mgc = calloc_or_fail(1, sizeof(*mgc));
+    byte_array_t *mgc = &resp.du_to_cu_rrc_info.meas_gap_config;
     mgc->buf = calloc_or_fail(1, 1024);
     mgc->len = encode_measgap_config(&UE->measgap_config, mgc->buf);
-    resp.du_to_cu_rrc_info.meas_gap_config = mgc;
   }
 
   NR_SCHED_UNLOCK(&mac->sched_lock);

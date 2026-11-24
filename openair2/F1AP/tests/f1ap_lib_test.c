@@ -1032,7 +1032,7 @@ static void test_f1ap_ue_context_setup_response()
   };
 
   orig.du_to_cu_rrc_info.cell_group_config = get_test_ba("CELL GROUP CONFIG");
-  orig.du_to_cu_rrc_info.meas_gap_config = get_malloced_test_ba("MGC");
+  orig.du_to_cu_rrc_info.meas_gap_config = get_test_ba("MGC");
 
   _F1_MALLOC(orig.crnti, 0x1234);
 
@@ -1247,7 +1247,7 @@ static void test_f1ap_ue_context_modification_response()
 
   f1ap_du_to_cu_rrc_info_t cu2du = {
     .cell_group_config = get_test_ba("update for the cellgroupconfig, extra long"),
-    .meas_gap_config = get_malloced_test_ba("new and shiny MeAs GaP cOnFiG"),
+    .meas_gap_config = get_test_ba("new and shiny MeAs GaP cOnFiG"),
   };
   _F1_MALLOC(orig.du_to_cu_rrc_info, cu2du);
 
@@ -1340,7 +1340,7 @@ static void test_f1ap_ue_context_modification_required()
 
   f1ap_du_to_cu_rrc_info_t du2cu = {
     .cell_group_config = get_test_ba("cellGroupConfig for the new beam"),
-    .meas_gap_config = get_malloced_test_ba("MeasGapConfig"),
+    .meas_gap_config = get_test_ba("MeasGapConfig"),
     .requested_p_max_fr1 = get_test_ba("requestedP-MaxFR1"),
   };
   _F1_MALLOC(orig.du_to_cu_rrc_information, du2cu);
