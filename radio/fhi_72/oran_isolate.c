@@ -323,6 +323,7 @@ typedef struct {
   fhi72_transport_t *transport;
   PHY_VARS_gNB *gNB; // for prach_ru_queue/prach_l1rx_queue/ru_push_tx_job
   oran_eth_state_t *eth;
+  task_ans_t *xran_ready; // completed once xran (and its DPDK EAL) is initialized
 } split7_thread_arg_t;
 
 typedef struct {
@@ -421,10 +422,13 @@ static void *split7_thread(void *param)
   split7_config_t *s7cfg = &transport->s7cfg;
   PHY_VARS_gNB *gNB = arg->gNB;
   oran_eth_state_t *eth = arg->eth;
+  task_ans_t *xran_ready = arg->xran_ready;
   free(arg);
 
   // fatal: the loop below blocks on slots signalled by xran
   AssertFatal(trx_oran_start(eth) == 0, "Could not start the O-RAN 7.2 fronthaul\n");
+  // before wait_sync(): main syncs only after init_eNB_afterRU(), which needs xran initialized
+  completed_task_ans(xran_ready);
 
   wait_sync("split7_thread");
 
@@ -489,7 +493,12 @@ __attribute__((__visibility__("default"))) int oran_fhi72_init(struct PHY_VARS_g
   arg->transport = gNB->fhi72_transport;
   arg->gNB = gNB;
   arg->eth = eth;
+  task_ans_t xran_ready;
+  init_task_ans(&xran_ready, 1);
+  arg->xran_ready = &xran_ready;
   threadCreate(&gNB->fhi72_transport->pthread, split7_thread, arg, "split7_thread", eth->fh_init.io_cfg.system_core, OAI_PRIORITY_RT_MAX);
+
+  join_task_ans(&xran_ready);
 
   return 0;
 }
