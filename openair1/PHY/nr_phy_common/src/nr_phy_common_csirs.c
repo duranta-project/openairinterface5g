@@ -132,7 +132,8 @@ static int get_csi_modulation_length(double rho, int freq_density, int kprime, i
   int csi_length = 0;
   if (rho < 1) {
     if (freq_density == 0) {
-      csi_length = (((start_rb + nr_rbs) >> 1) << kprime) << 1;
+      // An odd endpoint includes one more even PRB (TS 38.211 section 7.4.1.5.3).
+      csi_length = (((start_rb + nr_rbs + 1) >> 1) << kprime) << 1;
     } else {
       csi_length = ((((start_rb + nr_rbs) >> 1) << kprime) + 1) << 1;
     }

@@ -123,7 +123,7 @@ void nr_ue_csi_im_procedures(PHY_VARS_NR_UE *ue,
                              const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
                              const fapi_nr_dl_config_csiim_pdu_rel15_t *csiim_config_pdu);
 
-void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
+bool nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                              const UE_nr_rxtx_proc_t *proc,
                              const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
                              fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,

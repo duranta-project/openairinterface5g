@@ -1292,8 +1292,14 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
     Computed estimates from first resource is saved and used while estimating second resource.
     */
     c16_t trs_estimates[ue->frame_parms.nb_antennas_rx][1][ue->frame_parms.ofdm_symbol_size];
+    bool trs_estimates_valid = false;
     for (int res = 0; res < MAX_CSI_RES_SLOT; res++) {
       if (phy_data->csirs_vars[res].active == 1) {
+        const bool is_trs = phy_data->csirs_vars[res].csirs_config_pdu.csi_type == 0;
+        if (res > 0 && is_trs && !trs_estimates_valid) {
+          LOG_W(NR_PHY, "Skipping second tracking CSI-RS without a valid first estimate\n");
+          continue;
+        }
         for (int symb = 0; symb < ue->frame_parms.symbols_per_slot; symb++) {
           if (is_csi_rs_in_symbol(phy_data->csirs_vars[res].csirs_config_pdu, symb)) {
             if (!slot_fep_map[symb]) {
@@ -1302,16 +1308,15 @@ void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_
             }
           }
         }
-        if (res > 0 && phy_data->csirs_vars[res].csirs_config_pdu.csi_type == 0) // tracking CSI
-          AssertFatal(phy_data->csirs_vars[res - 1].active && (phy_data->csirs_vars[res - 1].csirs_config_pdu.csi_type == 0),
-                      "CSI-RS for tracking must have two consecutive active resources\n");
-        nr_ue_csi_rs_procedures(ue,
-                                proc,
-                                rxdataF,
-                                &phy_data->csirs_vars[res].csirs_config_pdu,
-                                trs_estimates,
-                                res,
-                                (res == 1) ? phy_data->csirs_vars[0].csirs_config_pdu.symb_l0 : -1);
+        const bool measured = nr_ue_csi_rs_procedures(ue,
+                                                      proc,
+                                                      rxdataF,
+                                                      &phy_data->csirs_vars[res].csirs_config_pdu,
+                                                      trs_estimates,
+                                                      res,
+                                                      (res == 1) ? phy_data->csirs_vars[0].csirs_config_pdu.symb_l0 : -1);
+        if (res == 0 && is_trs)
+          trs_estimates_valid = measured;
       }
     }
   }
