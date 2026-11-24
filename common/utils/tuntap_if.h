@@ -56,6 +56,13 @@ int tun_init_mbms(char *ifname);
 bool tun_config(const char* ifname, const char *ipv4, const char *ipv6);
 
 /*!
+ * \brief Same as tun_config(), with the IPv4 network mask given by the caller
+ * instead of 255.255.255.0.
+ * \param[in] ipv4_netmask IPv4 network mask as a string
+ */
+bool tun_config_netmask(const char *ifname, const char *ipv4, const char *ipv4_netmask, const char *ipv6);
+
+/*!
  * \brief Initializes and activates the TAP interface.
  * \param[in] ifname name of the interface
  * \return true on success, otherwise false

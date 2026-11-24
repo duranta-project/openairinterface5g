@@ -19,7 +19,9 @@ void nr_ue_tun_create_ip_if(nas_ue_pdu_tun_t *t, const char *ipv4, const char *i
     return;
 
   t->sock = tuntap_alloc(IFF_TUN, t->ifname);
-  tun_config(t->ifname, ipv4, ipv6);
+  // the PDU session gives one host address, not a subnet: with a wider mask
+  // the kernel takes some of the addresses of the pool for broadcast ones
+  tun_config_netmask(t->ifname, ipv4, "255.255.255.255", ipv6);
   if (ipv4) {
     t->ipv4_route_table = setup_ue_ipv4_route(t->ifname, ipv4);
     t->ipv4_route_cleanup_pending = t->ipv4_route_table >= 0;
