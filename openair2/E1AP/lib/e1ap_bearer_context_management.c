@@ -1473,10 +1473,12 @@ static E1AP_PDU_Session_Resource_To_Modify_Item_t e1_encode_pdu_session_to_mod_i
       }
     }
     // QoS Flows to setup (O)
-    for (const qos_flow_to_setup_t *k = j->qosFlows; k < j->qosFlows + j->numQosFlowsMod; k++) {
+    if (j->numQosFlowsMod > 0) {
       asn1cCalloc(drb2Mod->flow_Mapping_Information, flow_Mapping_Information);
-      asn1cSequenceAdd(flow_Mapping_Information->list, E1AP_QoS_Flow_QoS_Parameter_Item_t, ie1_2);
-      *ie1_2 = e1_encode_qos_flow_to_setup(k);
+      for (const qos_flow_to_setup_t *k = j->qosFlows; k < j->qosFlows + j->numQosFlowsMod; k++) {
+        asn1cSequenceAdd(flow_Mapping_Information->list, E1AP_QoS_Flow_QoS_Parameter_Item_t, ie1_2);
+        *ie1_2 = e1_encode_qos_flow_to_setup(k);
+      }
     }
   }
   // DRB To Remove List (O)
