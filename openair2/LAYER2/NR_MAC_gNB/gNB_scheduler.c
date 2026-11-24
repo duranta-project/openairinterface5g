@@ -133,6 +133,9 @@ void gNB_dlsch_ulsch_scheduler(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t
   NR_COMMON_channels_t *cc = &cell->common_channels;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
 
+  // what depends on the slot only is computed here, once, and not for each UE
+  const nr_sched_slot_ctx_t slot_ctx = nr_mac_get_slot_ctx(cell);
+
   int slots_frame = cell->frame_structure.numb_slots_frame;
   clear_beam_information(&cell->beam_info, frame, slot, slots_frame);
 
@@ -207,17 +210,17 @@ void gNB_dlsch_ulsch_scheduler(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t
   nr_csirs_scheduling(gNB, cell, frame, slot, &sched_info->DL_req);
 
   // Schedule CSI measurement reporting
-  nr_csi_meas_reporting(gNB, cell, frame, slot);
+  nr_csi_meas_reporting(gNB, cell, &slot_ctx, frame, slot);
 
   nr_schedule_periodic_srs(gNB, cell, frame, slot);
 
-  nr_sr_reporting(gNB, cell, frame, slot);
+  nr_sr_reporting(gNB, cell, &slot_ctx, frame, slot);
   stop_meas(&cell->schedule_periodic);
 
   // This schedule RA procedure if not in phy_test mode
   // Otherwise consider 5G already connected
   if (get_softmodem_params()->phy_test == 0) {
-    nr_schedule_RA(gNB, cell, frame, slot, &sched_info->UL_dci_req, &sched_info->DL_req, &sched_info->TX_req);
+    nr_schedule_RA(gNB, cell, &slot_ctx, frame, slot, &sched_info->UL_dci_req, &sched_info->DL_req, &sched_info->TX_req);
   }
 
   // This schedules the DCI for Uplink and subsequently PUSCH
@@ -227,10 +230,10 @@ void gNB_dlsch_ulsch_scheduler(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t
 
   // This schedules the DCI for Downlink and PDSCH
   start_meas(&cell->schedule_dlsch);
-  nr_schedule_ue_spec(gNB, cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
+  nr_schedule_ue_spec(gNB, cell, &slot_ctx, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
   stop_meas(&cell->schedule_dlsch);
 
-  nr_schedule_pucch(gNB, cell, frame, slot);
+  nr_schedule_pucch(gNB, cell, &slot_ctx, frame, slot);
 
   /* Now that all UE UL scheduling is done: restore the reserved slot and run the
    * scan + publish against the final vrb_map. Both no-ops unless sensing is on. */

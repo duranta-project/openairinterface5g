@@ -1943,6 +1943,7 @@ static bool nr_generate_Msg2(gNB_MAC_INST *nr_mac,
 
 static void nr_generate_Msg4_MsgB(gNB_MAC_INST *nr_mac,
                                   nr_cell_sched_t *cell,
+                                  const nr_sched_slot_ctx_t *slot_ctx,
                                   frame_t frameP,
                                   slot_t slotP,
                                   NR_UE_info_t *UE,
@@ -2081,7 +2082,7 @@ static void nr_generate_Msg4_MsgB(gNB_MAC_INST *nr_mac,
 
     int r_pucch = nr_get_pucch_resource(coreset, UE->current_UL_BWP.pucch_Config, CCEIndex);
     LOG_D(NR_MAC, "Msg4 r_pucch %d CCEIndex %d\n", r_pucch, CCEIndex);
-    int alloc = nr_acknack_scheduling(cell, UE, frameP, slotP, UE->UE_beam_index, r_pucch, 1);
+    int alloc = nr_acknack_scheduling(cell, slot_ctx, UE, frameP, slotP, UE->UE_beam_index, r_pucch, 1);
     if (alloc < 0) {
       LOG_D(NR_MAC,"Couldn't find a pucch allocation for ack nack (msg4) in frame %d slot %d\n", frameP, slotP);
       reset_beam_status(&cell->beam_info, frameP, slotP, UE->UE_beam_index, n_slots_frame, beam.new_beam);
@@ -2285,6 +2286,7 @@ bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t
 
 void nr_schedule_RA(gNB_MAC_INST *mac,
                     nr_cell_sched_t *cell,
+                    const nr_sched_slot_ctx_t *slot_ctx,
                     frame_t frameP,
                     slot_t slotP,
                     nfapi_nr_ul_dci_request_t *ul_dci_req,
@@ -2350,7 +2352,7 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
         break;
       case nrRA_Msg4:
       case nrRA_MsgB:
-        nr_generate_Msg4_MsgB(mac, cell, frameP, slotP, UE, DL_req, TX_req);
+        nr_generate_Msg4_MsgB(mac, cell, slot_ctx, frameP, slotP, UE, DL_req, TX_req);
         break;
       default:
         break;

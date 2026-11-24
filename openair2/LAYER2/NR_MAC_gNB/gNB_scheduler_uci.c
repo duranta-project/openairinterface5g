@@ -447,23 +447,32 @@ static const int diff_rsrp_ssb_csi_meas_10_1_6_1_2[16] = {
     -30 // 10 - 15
 };
 
-static int get_pucch_index(int frame, int slot, const frame_structure_t *fs, int sched_pucch_size)
+nr_sched_slot_ctx_t nr_mac_get_slot_ctx(const nr_cell_sched_t *cell)
+{
+  nr_sched_slot_ctx_t ctx;
+  const frame_structure_t *fs = &cell->frame_structure;
+  int rank = -1;
+  for (int i = 0; i < fs->numb_slots_period; i++) {
+    if (is_ul_slot(i, fs))
+      rank++;
+    ctx.ul_slot_rank[i] = rank;
+  }
+  return ctx;
+}
+
+static int get_pucch_index(int frame, int slot, const nr_cell_sched_t *cell, const nr_sched_slot_ctx_t *slot_ctx, int sched_pucch_size)
 {
   // PUCCH structures are indexed by slot in the PUCCH period determined by sched_pucch_size number of UL slots
   // this functions return the index to the structure for slot passed to the function
+  const frame_structure_t *fs = &cell->frame_structure;
   const int n_ul_slots_period = get_ul_slots_per_period(fs);
   const int n_ul_slots_frame = get_ul_slots_per_frame(fs);
   // (frame * n_ul_slots_frame) adds up the number of UL slots in the previous frames
   const int frame_start      = frame * n_ul_slots_frame;
   // ((slot / nr_slots_period) * n_ul_slots_period) adds up the number of UL slots in the previous TDD periods of this frame
   const int ul_period_start  = (slot / fs->numb_slots_period) * n_ul_slots_period;
-  // ((slot % nr_slots_period) - first_ul_slot_period) gives the progressive number of the slot in this TDD period
-  int ul_period_slot = -1;
-  for (int i = 0; i <= slot % fs->numb_slots_period; i++) {
-    if (is_ul_slot(i, fs)) {
-      ul_period_slot++;
-    }
-  }
+  // progressive number of the slot among the UL slots of this TDD period, see nr_mac_get_slot_ctx()
+  const int ul_period_slot = slot_ctx->ul_slot_rank[slot % fs->numb_slots_period];
   LOG_D(NR_MAC,
         "PUCCH frame/slot:  request %4d.%2d:frame_start %d,ul_period_start %d, ul_period_slot %d  pucch_index %d pucch_size %d "
         "scheduling PUCCH\n",
@@ -478,10 +487,10 @@ static int get_pucch_index(int frame, int slot, const frame_structure_t *fs, int
   return (frame_start + ul_period_start + ul_period_slot) % sched_pucch_size;
 }
 
-static void schedule_pucch_core(nr_cell_sched_t *cell, gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, slot_t slot)
+static void schedule_pucch_core(nr_cell_sched_t *cell, const nr_sched_slot_ctx_t *slot_ctx, gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, slot_t slot)
 {
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  const int pucch_index = get_pucch_index(frame, slot, &cell->frame_structure, sched_ctrl->sched_pucch_size);
+  const int pucch_index = get_pucch_index(frame, slot, cell, slot_ctx, sched_ctrl->sched_pucch_size);
   NR_sched_pucch_t *curr_pucch = &UE->UE_sched_ctrl.sched_pucch[pucch_index];
   if (!curr_pucch->active)
     return;
@@ -516,7 +525,7 @@ static void schedule_pucch_core(nr_cell_sched_t *cell, gNB_MAC_INST *nrmac, NR_U
   memset(curr_pucch, 0, sizeof(*curr_pucch));
 }
 
-void nr_schedule_pucch(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame, slot_t slot)
+void nr_schedule_pucch(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, const nr_sched_slot_ctx_t *slot_ctx, frame_t frame, slot_t slot)
 {
   if (!is_ul_slot(slot, &cell->frame_structure))
     return;
@@ -525,13 +534,13 @@ void nr_schedule_pucch(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame
     if (init_UE->pcell != cell)
       continue;
     if (init_UE->ra->ra_state == nrRA_WAIT_Msg4_MsgB_ACK)
-      schedule_pucch_core(cell, nrmac, init_UE, frame, slot);
+      schedule_pucch_core(cell, slot_ctx, nrmac, init_UE, frame, slot);
   }
 
   FOR_EACH_CONNECTED_UE(&nrmac->UE_info, UE) {
     if (UE->pcell != cell)
       continue;
-    schedule_pucch_core(cell, nrmac, UE, frame, slot);
+    schedule_pucch_core(cell, slot_ctx, nrmac, UE, frame, slot);
   }
 }
 
@@ -653,7 +662,7 @@ static bool set_simultaneous_harqcsi(const NR_PUCCH_Config_t *pucch_Config, cons
   return false;
 }
 
-void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frame, slot_t slot)
+void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, const nr_sched_slot_ctx_t *slot_ctx, frame_t frame, slot_t slot)
 {
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
@@ -709,7 +718,7 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
       }
       AssertFatal(is_ul_slot(sched.s, &cell->frame_structure), "CSI reporting slot %d is not set for an uplink slot\n", sched.s);
       LOG_D(NR_MAC, "CSI reporting in frame %d slot %d CSI report ID %ld\n", sched.f, sched.s, csirep->reportConfigId);
-      const int pucch_index = get_pucch_index(sched.f, sched.s, &cell->frame_structure, sched_ctrl->sched_pucch_size);
+      const int pucch_index = get_pucch_index(sched.f, sched.s, cell, slot_ctx, sched_ctrl->sched_pucch_size);
       NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];
       if (curr_pucch->active) {
         LOG_E(NR_MAC, "CSI structure is scheduled in advance. It should be free!\n");
@@ -1732,6 +1741,7 @@ static int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config, nr_dci_fo
 // this function returns an index to NR_sched_pucch structure
 // if the function returns -1 it was not possible to schedule acknack
 int nr_acknack_scheduling(nr_cell_sched_t *cell,
+                          const nr_sched_slot_ctx_t *slot_ctx,
                           NR_UE_info_t *UE,
                           frame_t frame,
                           slot_t slot,
@@ -1786,7 +1796,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
     if (pucch_symb >= 0 && !pucch_symb_usable(fs, srs_symb, frame_slot.s, pucch_symb))
       continue;
     // we store PUCCH resources according to slot, TDD configuration and size of the vector containing PUCCH structures
-    const int pucch_index = get_pucch_index(frame_slot.f, frame_slot.s, &cell->frame_structure, sched_ctrl->sched_pucch_size);
+    const int pucch_index = get_pucch_index(frame_slot.f, frame_slot.s, cell, slot_ctx, sched_ctrl->sched_pucch_size);
     NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];
     // if there is already a PUCCH in given frame and slot
     if (curr_pucch->active && curr_pucch->frame == frame_slot.f && curr_pucch->ul_slot == frame_slot.s) {
@@ -1946,7 +1956,7 @@ int nr_acknack_scheduling(nr_cell_sched_t *cell,
   return -1;
 }
 
-void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, slot_t slot)
+void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, const nr_sched_slot_ctx_t *slot_ctx, frame_t SFN, slot_t slot)
 {
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
@@ -1990,7 +2000,7 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t SFN, sl
       AssertFatal(is_ul_slot(sched.s, &cell->frame_structure), "SR slot %d is not set for an uplink slot\n", sched.s);
       LOG_D(NR_MAC, "%4d.%2d Scheduling Request UE %04x identified\n", sched.f, sched.s, UE->rnti);
       NR_PUCCH_ResourceId_t *PucchResourceId = srConf->resource;
-      const int pucch_index = get_pucch_index(sched.f, sched.s, &cell->frame_structure, sched_ctrl->sched_pucch_size);
+      const int pucch_index = get_pucch_index(sched.f, sched.s, cell, slot_ctx, sched_ctrl->sched_pucch_size);
       NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];
       if (curr_pucch->active
           && curr_pucch->frame == sched.f

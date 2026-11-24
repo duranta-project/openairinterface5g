@@ -61,6 +61,7 @@ void gNB_dlsch_ulsch_scheduler(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t
  * messages, statistics, HARQ handling, CEs, ... */
 void nr_schedule_ue_spec(gNB_MAC_INST *mac,
                          nr_cell_sched_t *cell,
+                         const nr_sched_slot_ctx_t *slot_ctx,
                          frame_t frame,
                          slot_t slot,
                          nfapi_nr_dl_tti_request_t *DL_req,
@@ -109,6 +110,7 @@ void schedule_nr_pcch(gNB_MAC_INST *gNB_mac,
 
 void nr_schedule_RA(gNB_MAC_INST *mac,
                     nr_cell_sched_t *cell,
+                    const nr_sched_slot_ctx_t *slot_ctx,
                     frame_t frameP,
                     slot_t slotP,
                     nfapi_nr_ul_dci_request_t *ul_dci_req,
@@ -187,7 +189,9 @@ nfapi_nr_dl_dci_pdu_t *prepare_dci_pdu(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_
                                        int beam_index,
                                        int rnti);
 
-void nr_schedule_pucch(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
+void nr_schedule_pucch(gNB_MAC_INST *mac, nr_cell_sched_t *cell, const nr_sched_slot_ctx_t *slot_ctx, frame_t frameP, slot_t slotP);
+/// what depends on the slot only, to compute at the entry of the scheduler
+nr_sched_slot_ctx_t nr_mac_get_slot_ctx(const nr_cell_sched_t *cell);
 
 void nr_srs_ri_computation(const nfapi_nr_srs_normalized_channel_iq_matrix_t *nr_srs_normalized_channel_iq_matrix,
                            const NR_UE_UL_BWP_t *current_BWP,
@@ -197,11 +201,12 @@ void nr_schedule_periodic_srs(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t 
 bool nr_schedule_aperiodic_srs(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int sched_frame, int sched_slot, int k2, int sched_srs);
 void nr_csirs_scheduling(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req);
 
-void nr_csi_meas_reporting(gNB_MAC_INST *mac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
+void nr_csi_meas_reporting(gNB_MAC_INST *mac, nr_cell_sched_t *cell, const nr_sched_slot_ctx_t *slot_ctx, frame_t frameP, slot_t slotP);
 
 void nr_measgap_scheduling(gNB_MAC_INST *nr_mac, const nr_cell_sched_t *cell, frame_t frame, sub_frame_t slot);
 
 int nr_acknack_scheduling(nr_cell_sched_t *cell,
+                          const nr_sched_slot_ctx_t *slot_ctx,
                           NR_UE_info_t *UE,
                           frame_t frameP,
                           slot_t slotP,
@@ -503,7 +508,7 @@ NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, 
 void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame, bool new_beam);
 int beam_selection_procedures(nr_cell_sched_t *cell, NR_UE_info_t *UE);
 void beam_switching_procedure(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int new_beam_index);
-void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
+void nr_sr_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, const nr_sched_slot_ctx_t *slot_ctx, frame_t frameP, slot_t slotP);
 bwp_info_t get_pdsch_bwp_start_size(nr_cell_sched_t *cell, NR_UE_info_t *UE);
 bwp_info_t get_pusch_bwp_start_size(NR_UE_info_t *UE);
 size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *output, size_t strlen, bool reset_rsrp);

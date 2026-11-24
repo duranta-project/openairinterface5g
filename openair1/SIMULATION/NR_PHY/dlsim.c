@@ -1104,7 +1104,8 @@ int main(int argc, char **argv)
 
         // nr_schedule_ue_spec() requires the mutex to be locked
         NR_SCHED_LOCK(&gNB_mac->sched_lock);
-        nr_schedule_ue_spec(gNB_mac, cell, frame, slot, &Sched_INFO->DL_req, &Sched_INFO->TX_req);
+        const nr_sched_slot_ctx_t slot_ctx = nr_mac_get_slot_ctx(cell);
+        nr_schedule_ue_spec(gNB_mac, cell, &slot_ctx, frame, slot, &Sched_INFO->DL_req, &Sched_INFO->TX_req);
         NR_SCHED_UNLOCK(&gNB_mac->sched_lock);
 
         /* check that second message is indeed PDSCH */

@@ -975,11 +975,20 @@ typedef struct {
 
 #define FOR_EACH_CANDIDATE(VaR, ArR, N) for (__typeof__(*(ArR)) *VaR = (ArR); VaR < (ArR) + (N); VaR++)
 
+/// What depends on the slot only: filled once at the entry of the scheduler by nr_mac_get_slot_ctx() and passed
+/// down, so that it is not computed again for each UE
+typedef struct {
+  /// rank of each slot of the TDD period among its UL slots (-1 before the first one), for the PUCCH index
+  int8_t ul_slot_rank[MAX_NUM_SLOTS_ALLOWED];
+} nr_sched_slot_ctx_t;
+
 typedef struct {
   /// current frame
   frame_t frame;
   /// current slot
   slot_t slot;
+  /// see nr_sched_slot_ctx_t
+  const nr_sched_slot_ctx_t *slot_ctx;
   /// FAPI DL req in which allocations are made
   nfapi_nr_dl_tti_request_body_t *dl_req;
   /// TX_data request holds the actual data
@@ -1008,6 +1017,7 @@ typedef struct nr_dl_sched_params nr_dl_sched_params_t;
 struct nr_dl_sched_params {
   struct gNB_MAC_INST_s *mac; ///< MAC instance (for CCE/PUCCH validation)
   struct nr_cell_sched_s *cell;
+  const nr_sched_slot_ctx_t *slot_ctx; ///< see nr_sched_slot_ctx_t
   frame_t frame;
   slot_t slot;
   int num_beams; ///< number of beams

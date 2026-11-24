@@ -143,7 +143,7 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, nr_cell_sched_t *cell, post_proc
     harq_pid = sched_ctrl->available_dl_harq.head;
   if (!get_FeedbackDisabled(UE->sc_info.downlinkHARQ_FeedbackDisabled_r17, harq_pid)) {
     int r_pucch = nr_get_pucch_resource(sched_ctrl->coreset, UE->current_UL_BWP.pucch_Config, CCEIndex);
-    alloc = nr_acknack_scheduling(cell, UE, frame, slot, 0, r_pucch, 0);
+    alloc = nr_acknack_scheduling(cell, pp_pdsch->slot_ctx, UE, frame, slot, 0, r_pucch, 0);
     if (alloc < 0) {
       LOG_D(NR_MAC, "Could not find PUCCH for UE %04x@%d.%d\n", rnti, frame, slot);
       return;

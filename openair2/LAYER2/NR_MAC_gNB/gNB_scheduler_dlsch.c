@@ -685,7 +685,7 @@ bool nr_dl_validate_cce_pucch(const nr_dl_sched_params_t *params, nr_dl_candidat
   if (!get_FeedbackDisabled(UE->sc_info.downlinkHARQ_FeedbackDisabled_r17, harq_pid)) {
     NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
     int r_pucch = nr_get_pucch_resource(sched_ctrl->coreset, ul_bwp->pucch_Config, CCEIndex);
-    pucch_alloc = nr_acknack_scheduling(params->cell, UE, params->frame, params->slot, UE->UE_beam_index, r_pucch, 0);
+    pucch_alloc = nr_acknack_scheduling(params->cell, params->slot_ctx, UE, params->frame, params->slot, UE->UE_beam_index, r_pucch, 0);
     if (pucch_alloc < 0) {
       sched_ctrl->dl_pucch_fail++;
       LOG_D(NR_MAC, "[UE %04x][%4d.%2d] could not find PUCCH for DL DCI\n", UE->rnti, params->frame, params->slot);
@@ -787,6 +787,7 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
   nr_dl_sched_params_t params = {
       .mac = mac,
       .cell = cell,
+      .slot_ctx = pp_pdsch->slot_ctx,
       .frame = frame,
       .slot = slot,
       .num_beams = num_beams,
@@ -1447,6 +1448,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
 
 void nr_schedule_ue_spec(gNB_MAC_INST *gNB_mac,
                          nr_cell_sched_t *cell,
+                         const nr_sched_slot_ctx_t *slot_ctx,
                          frame_t frame,
                          slot_t slot,
                          nfapi_nr_dl_tti_request_t *DL_req,
@@ -1464,7 +1466,7 @@ void nr_schedule_ue_spec(gNB_MAC_INST *gNB_mac,
   gNB_mac->mac_stats.dl.total_prb_aggregate += bw;
 
   nfapi_nr_dl_tti_request_body_t *dl_req = &DL_req->dl_tti_request_body;
-  post_process_pdsch_t pdsch = { frame, slot, dl_req, TX_req };
+  post_process_pdsch_t pdsch = {frame, slot, slot_ctx, dl_req, TX_req};
 
   /* PREPROCESSOR */
   gNB_mac->pre_processor_dl(gNB_mac, cell, &pdsch);
