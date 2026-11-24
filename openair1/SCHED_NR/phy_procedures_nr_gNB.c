@@ -1221,8 +1221,11 @@ static void handle_pusch_rx_group_trigger(PHY_VARS_gNB *gNB,
 
 static bool pusch_signal_detected(PHY_VARS_gNB *gNB, NR_gNB_PUSCH *pusch_vars, NR_gNB_ULSCH_t *ulsch)
 {
+  // No energy received in the allocation means no PUSCH, whatever the threshold: dB_fixed_x10(0) is 0, so with a threshold
+  // <= 0 and no noise the comparison alone passes, and the all-zero LLRs decode to the all-zero codeword, whose CRC is valid.
   const bool detected =
-      dB_fixed_x10(pusch_vars->ulsch_power_tot) >= dB_fixed_x10(pusch_vars->ulsch_noise_power_tot) + gNB->pusch_thres;
+      pusch_vars->ulsch_power_tot > 0
+      && dB_fixed_x10(pusch_vars->ulsch_power_tot) >= dB_fixed_x10(pusch_vars->ulsch_noise_power_tot) + gNB->pusch_thres;
 
   LOG_D(NR_PHY,
         "PUSCH %s in %d.%d (%d,%d,%d)\n",
