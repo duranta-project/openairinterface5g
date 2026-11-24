@@ -823,7 +823,7 @@ void nr_initiate_ra_proc(gNB_MAC_INST *nr_mac,
     /* in CBRA: we don't know this UE yet. There might be CFRA (e.g., HO IN SA)
      * where we know the UE */
     rnti_t rnti;
-    bool rnti_found = nr_mac_get_new_rnti(&nr_mac->UE_info, &rnti);
+    bool rnti_found = nr_mac_get_new_rnti(&nr_mac->UE_info, cell->common_channels.ServingCellConfigCommon, &rnti);
     if (!rnti_found) {
       LOG_E(NR_MAC, "initialisation random access: no more available RNTIs for new UE\n");
       return;

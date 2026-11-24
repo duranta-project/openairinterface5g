@@ -574,7 +574,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac,
     AssertFatal(get_num_connected_ue(&mac->UE_info) == 0, "phytest: UE already present\n");
     rnti = 0x1234;
   } else {
-    bool found = nr_mac_get_new_rnti(&mac->UE_info, &rnti);
+    bool found = nr_mac_get_new_rnti(&mac->UE_info, cell->common_channels.ServingCellConfigCommon, &rnti);
     if (!found)
       return NULL;
   }
