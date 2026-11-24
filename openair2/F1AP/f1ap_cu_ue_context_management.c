@@ -195,67 +195,16 @@ int CU_send_UE_CONTEXT_MODIFICATION_CONFIRM(sctp_assoc_t assoc_id, f1ap_ue_conte
 
 int CU_send_UE_CONTEXT_MODIFICATION_REFUSE(sctp_assoc_t assoc_id, f1ap_ue_context_modif_refuse_t *refuse)
 {
-  F1AP_F1AP_PDU_t pdu = {0};
-  pdu.present = F1AP_F1AP_PDU_PR_unsuccessfulOutcome;
-  asn1cCalloc(pdu.choice.unsuccessfulOutcome, tmp);
-  tmp->procedureCode = F1AP_ProcedureCode_id_UEContextModificationRequired;
-  tmp->criticality = F1AP_Criticality_reject;
-  tmp->value.present = F1AP_UnsuccessfulOutcome__value_PR_UEContextModificationRefuse;
-  F1AP_UEContextModificationRefuse_t *out = &tmp->value.choice.UEContextModificationRefuse;
+  F1AP_F1AP_PDU_t *pdu = encode_ue_context_modif_refuse(refuse);
 
-  /* mandatory: GNB_CU_UE_F1AP_ID */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationRefuseIEs_t, ie1);
-  ie1->id = F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID;
-  ie1->criticality = F1AP_Criticality_reject;
-  ie1->value.present = F1AP_UEContextModificationRefuseIEs__value_PR_GNB_CU_UE_F1AP_ID;
-  ie1->value.choice.GNB_CU_UE_F1AP_ID = refuse->gNB_CU_ue_id;
-
-  /* mandatory: GNB_DU_UE_F1AP_ID */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationRefuseIEs_t, ie2);
-  ie2->id = F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID;
-  ie2->criticality = F1AP_Criticality_reject;
-  ie2->value.present = F1AP_UEContextModificationRefuseIEs__value_PR_GNB_DU_UE_F1AP_ID;
-  ie2->value.choice.GNB_DU_UE_F1AP_ID = refuse->gNB_DU_ue_id;
-
-  /* optional: Cause */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationRefuseIEs_t, ie3);
-  ie3->id = F1AP_ProtocolIE_ID_id_Cause;
-  ie3->criticality = F1AP_Criticality_reject;
-  ie3->value.present = F1AP_UEContextModificationRefuseIEs__value_PR_Cause;
-  F1AP_Cause_t *cause = &ie3->value.choice.Cause;
-  switch (refuse->cause) {
-    case F1AP_CAUSE_RADIO_NETWORK:
-      cause->present = F1AP_Cause_PR_radioNetwork;
-      cause->choice.radioNetwork = refuse->cause_value;
-      break;
-    case F1AP_CAUSE_TRANSPORT:
-      cause->present = F1AP_Cause_PR_transport;
-      cause->choice.transport = refuse->cause_value;
-      break;
-    case F1AP_CAUSE_PROTOCOL:
-      cause->present = F1AP_Cause_PR_protocol;
-      cause->choice.protocol = refuse->cause_value;
-      break;
-    case F1AP_CAUSE_MISC:
-      cause->present = F1AP_Cause_PR_misc;
-      cause->choice.misc = refuse->cause_value;
-      break;
-    case F1AP_CAUSE_NOTHING:
-    default:
-      cause->present = F1AP_Cause_PR_NOTHING;
-      break;
-  } // switch
-
-  /* optional: CriticalityDiagnostics */
-  /* not implemented*/
-
-  /* encode */
   uint8_t *buffer = NULL;
   uint32_t len = 0;
-  if (f1ap_encode_pdu(&pdu, &buffer, &len) < 0) {
+  if (f1ap_encode_pdu(pdu, &buffer, &len) < 0) {
     LOG_E(F1AP, "Failed to encode F1 UE Context Modification Refuse\n");
     return -1;
   }
+
   f1ap_itti_send_sctp_data_req(assoc_id, buffer, len);
+  ASN_STRUCT_FREE(asn_DEF_F1AP_F1AP_PDU, pdu);
   return 0;
 }

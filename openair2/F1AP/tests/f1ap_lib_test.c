@@ -1397,6 +1397,37 @@ static void test_f1ap_ue_context_modification_confirm()
   printf("%s() successful\n", __func__);
 }
 
+static void test_f1ap_ue_context_modification_refuse()
+{
+  f1ap_ue_context_modif_refuse_t orig = {
+    .gNB_CU_ue_id = 9876,
+    .gNB_DU_ue_id = 5432,
+    .cause = F1AP_CAUSE_RADIO_NETWORK,
+    .cause_value = F1AP_CauseRadioNetwork_interaction_with_other_procedure,
+  };
+
+  F1AP_F1AP_PDU_t *f1enc = encode_ue_context_modif_refuse(&orig);
+  F1AP_F1AP_PDU_t *f1dec = f1ap_encode_decode(f1enc);
+  f1ap_msg_free(f1enc);
+
+  f1ap_ue_context_modif_refuse_t decoded = {0};
+  bool ret = decode_ue_context_modif_refuse(f1dec, &decoded);
+  AssertFatal(ret, "decode_ue_context_modif_refuse(): could not decode message\n");
+  f1ap_msg_free(f1dec);
+
+  ret = eq_ue_context_modif_refuse(&orig, &decoded);
+  AssertFatal(ret, "eq_ue_context_modif_refuse(): decoded message doesn't match\n");
+  free_ue_context_modif_refuse(&decoded);
+
+  f1ap_ue_context_modif_refuse_t cp = cp_ue_context_modif_refuse(&orig);
+  ret = eq_ue_context_modif_refuse(&orig, &cp);
+  AssertFatal(ret, "eq_ue_context_modif_refuse(): copied message doesn't match\n");
+  free_ue_context_modif_refuse(&orig);
+  free_ue_context_modif_refuse(&cp);
+
+  printf("%s() successful\n", __func__);
+}
+
 static void test_f1ap_ue_context_release_request()
 {
   f1ap_ue_context_rel_req_t orig = {
@@ -2724,6 +2755,7 @@ int main()
   test_f1ap_ue_context_modification_response_simple();
   test_f1ap_ue_context_modification_required();
   test_f1ap_ue_context_modification_confirm();
+  test_f1ap_ue_context_modification_refuse();
   test_f1ap_ue_context_release_request();
   test_f1ap_ue_context_release_command();
   test_f1ap_ue_context_release_complete();

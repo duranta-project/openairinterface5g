@@ -90,8 +90,7 @@ static void ue_context_modification_refuse_f1ap(sctp_assoc_t assoc_id, const f1a
 {
   MessageDef *msg = itti_alloc_new_message(TASK_MAC_GNB, 0, F1AP_UE_CONTEXT_MODIFICATION_REFUSE);
   msg->ittiMsgHeader.originInstance = assoc_id;
-  f1ap_ue_context_modif_refuse_t *f1ap_msg = &F1AP_UE_CONTEXT_MODIFICATION_REFUSE(msg);
-  *f1ap_msg = *refuse;
+  F1AP_UE_CONTEXT_MODIFICATION_REFUSE(msg) = cp_ue_context_modif_refuse(refuse);
   itti_send_msg_to_task(TASK_CU_F1, 0, msg);
 }
 

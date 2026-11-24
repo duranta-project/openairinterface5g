@@ -46,6 +46,12 @@ f1ap_ue_context_modif_confirm_t cp_ue_context_modif_confirm(const f1ap_ue_contex
 bool eq_ue_context_modif_confirm(const f1ap_ue_context_modif_confirm_t *a, const f1ap_ue_context_modif_confirm_t *b);
 void free_ue_context_modif_confirm(f1ap_ue_context_modif_confirm_t *confirm);
 
+struct F1AP_F1AP_PDU *encode_ue_context_modif_refuse(const f1ap_ue_context_modif_refuse_t *msg);
+bool decode_ue_context_modif_refuse(const struct F1AP_F1AP_PDU *pdu, f1ap_ue_context_modif_refuse_t *out);
+f1ap_ue_context_modif_refuse_t cp_ue_context_modif_refuse(const f1ap_ue_context_modif_refuse_t *orig);
+bool eq_ue_context_modif_refuse(const f1ap_ue_context_modif_refuse_t *a, const f1ap_ue_context_modif_refuse_t *b);
+void free_ue_context_modif_refuse(f1ap_ue_context_modif_refuse_t *refuse);
+
 struct F1AP_F1AP_PDU *encode_ue_context_rel_req(const f1ap_ue_context_rel_req_t *msg);
 bool decode_ue_context_rel_req(const struct F1AP_F1AP_PDU *pdu, f1ap_ue_context_rel_req_t *out);
 f1ap_ue_context_rel_req_t cp_ue_context_rel_req(const f1ap_ue_context_rel_req_t *orig);

@@ -184,53 +184,14 @@ int DU_handle_UE_CONTEXT_MODIFICATION_REFUSE(instance_t instance, sctp_assoc_t a
   UNUSED(instance);
   UNUSED(assoc_id);
   UNUSED(stream);
-  F1AP_UEContextModificationRefuse_t *container = &pdu->choice.unsuccessfulOutcome->value.choice.UEContextModificationRefuse;
   f1ap_ue_context_modif_refuse_t refuse = {0};
-  F1AP_UEContextModificationRefuseIEs_t *ie = NULL;
-
-  /* mandatory: GNB_CU_UE_F1AP_ID */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationRefuseIEs_t, ie, container, F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID, true);
-  refuse.gNB_CU_ue_id = ie->value.choice.GNB_CU_UE_F1AP_ID;
-
-  /* mandatory: GNB_DU_UE_F1AP_ID */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationRefuseIEs_t, ie, container, F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID, true);
-  refuse.gNB_DU_ue_id = ie->value.choice.GNB_DU_UE_F1AP_ID;
-
-  /* mandatory: Cause */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationRefuseIEs_t, ie, container, F1AP_ProtocolIE_ID_id_Cause, true);
-  switch (ie->value.choice.Cause.present) {
-    case F1AP_Cause_PR_radioNetwork:
-      refuse.cause = F1AP_CAUSE_RADIO_NETWORK;
-      refuse.cause_value = ie->value.choice.Cause.choice.radioNetwork;
-      break;
-    case F1AP_Cause_PR_transport:
-      refuse.cause = F1AP_CAUSE_TRANSPORT;
-      refuse.cause_value = ie->value.choice.Cause.choice.transport;
-      break;
-    case F1AP_Cause_PR_protocol:
-      refuse.cause = F1AP_CAUSE_PROTOCOL;
-      refuse.cause_value = ie->value.choice.Cause.choice.protocol;
-      break;
-    case F1AP_Cause_PR_misc:
-      refuse.cause = F1AP_CAUSE_MISC;
-      refuse.cause_value = ie->value.choice.Cause.choice.misc;
-      break;
-    default:
-      LOG_W(F1AP, "Unknown cause for UE Context Modification Refuse message\n");
-      /* fall through */
-    case F1AP_Cause_PR_NOTHING:
-      refuse.cause = F1AP_CAUSE_NOTHING;
-      break;
+  if (!decode_ue_context_modif_refuse(pdu, &refuse)) {
+    LOG_E(F1AP, "cannot decode F1 UE Context Modification Refuse\n");
+    free_ue_context_modif_refuse(&refuse);
+    return -1;
   }
 
-  /* optional: Criticality Diagnostics */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationRefuseIEs_t,
-                             ie,
-                             container,
-                             F1AP_ProtocolIE_ID_id_CriticalityDiagnostics,
-                             false);
-  AssertFatal(ie == NULL, "handling of DRBs Modified List not implemented\n");
-
   ue_context_modification_refuse(&refuse);
+  free_ue_context_modif_refuse(&refuse);
   return 0;
 }
