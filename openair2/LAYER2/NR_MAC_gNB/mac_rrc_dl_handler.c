@@ -1055,9 +1055,9 @@ void ue_context_modification_confirm(const f1ap_ue_context_modif_confirm_t *conf
   UE->cm_info.trigger_info = NO_TRIGGER;
   NR_SCHED_UNLOCK(&mac->sched_lock);
 
-  if (confirm->rrc_container_length > 0) {
+  if (confirm->rrc_container.len > 0) {
     logical_chan_id_t id = 1;
-    nr_rlc_srb_recv_sdu(confirm->gNB_DU_ue_id, id, confirm->rrc_container, confirm->rrc_container_length);
+    nr_rlc_srb_recv_sdu(confirm->gNB_DU_ue_id, id, confirm->rrc_container.buf, confirm->rrc_container.len);
   }
 }
 

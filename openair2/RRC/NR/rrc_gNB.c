@@ -384,8 +384,7 @@ static void rrc_deliver_ue_context_modif_confirm(void *deliver_pdu_data, ue_id_t
   UNUSED(sdu_id);
   DevAssert(deliver_pdu_data != NULL);
   deliver_ue_context_modif_confirm_t *data = (deliver_ue_context_modif_confirm_t *)deliver_pdu_data;
-  data->confirm->rrc_container = (uint8_t *)buf;
-  data->confirm->rrc_container_length = size;
+  data->confirm->rrc_container = (byte_array_t){.buf = (uint8_t *)buf, .len = size};
   data->rrc->mac_rrc.ue_context_modification_confirm(data->assoc_id, data->confirm);
 }
 

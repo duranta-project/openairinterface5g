@@ -2320,6 +2320,118 @@ void free_ue_context_modif_required(f1ap_ue_context_modif_required_t *required)
   free(required->du_to_cu_rrc_information);
 }
 
+/**
+ * @brief Encode F1 UE Context Modification Confirm (TS 38.473 §9.2.2.11) to ASN.1
+ */
+struct F1AP_F1AP_PDU *encode_ue_context_modif_confirm(const f1ap_ue_context_modif_confirm_t *msg)
+{
+  F1AP_F1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+
+  /* Message Type */
+  pdu->present = F1AP_F1AP_PDU_PR_successfulOutcome;
+  asn1cCalloc(pdu->choice.successfulOutcome, tmp);
+  tmp->procedureCode = F1AP_ProcedureCode_id_UEContextModificationRequired;
+  tmp->criticality = F1AP_Criticality_reject;
+  tmp->value.present = F1AP_SuccessfulOutcome__value_PR_UEContextModificationConfirm;
+  F1AP_UEContextModificationConfirm_t *out = &tmp->value.choice.UEContextModificationConfirm;
+
+  /* mandatory: GNB_CU_UE_F1AP_ID */
+  asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationConfirmIEs_t, ie1);
+  ie1->id = F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID;
+  ie1->criticality = F1AP_Criticality_reject;
+  ie1->value.present = F1AP_UEContextModificationConfirmIEs__value_PR_GNB_CU_UE_F1AP_ID;
+  ie1->value.choice.GNB_CU_UE_F1AP_ID = msg->gNB_CU_ue_id;
+
+  /* mandatory: GNB_DU_UE_F1AP_ID */
+  asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationConfirmIEs_t, ie2);
+  ie2->id = F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID;
+  ie2->criticality = F1AP_Criticality_reject;
+  ie2->value.present = F1AP_UEContextModificationConfirmIEs__value_PR_GNB_DU_UE_F1AP_ID;
+  ie2->value.choice.GNB_DU_UE_F1AP_ID = msg->gNB_DU_ue_id;
+
+  /* optional: RRC Container */
+  if (msg->rrc_container.buf && msg->rrc_container.len > 0) {
+    asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationConfirmIEs_t, ie3);
+    ie3->id = F1AP_ProtocolIE_ID_id_RRCContainer;
+    ie3->criticality = F1AP_Criticality_ignore;
+    ie3->value.present = F1AP_UEContextModificationConfirmIEs__value_PR_RRCContainer;
+    OCTET_STRING_fromBuf(&ie3->value.choice.RRCContainer, (const char *)msg->rrc_container.buf, msg->rrc_container.len);
+  }
+
+  return pdu;
+}
+
+/**
+ * @brief Decode F1 UE Context Modification Confirm
+ */
+bool decode_ue_context_modif_confirm(const struct F1AP_F1AP_PDU *pdu, f1ap_ue_context_modif_confirm_t *out)
+{
+  DevAssert(out != NULL);
+  memset(out, 0, sizeof(*out));
+
+  F1AP_UEContextModificationConfirm_t *in = &pdu->choice.successfulOutcome->value.choice.UEContextModificationConfirm;
+  F1AP_UEContextModificationConfirmIEs_t *ie;
+  F1AP_LIB_FIND_IE(F1AP_UEContextModificationConfirmIEs_t, ie, &in->protocolIEs.list, F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID, true);
+  F1AP_LIB_FIND_IE(F1AP_UEContextModificationConfirmIEs_t, ie, &in->protocolIEs.list, F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; ++i) {
+    ie = in->protocolIEs.list.array[i];
+    AssertError(ie != NULL, return false, "in->protocolIEs.list.array[i] is NULL");
+    switch (ie->id) {
+      case F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID:
+        _EQ_CHECK_INT(ie->value.present, F1AP_UEContextModificationConfirmIEs__value_PR_GNB_CU_UE_F1AP_ID);
+        out->gNB_CU_ue_id = ie->value.choice.GNB_CU_UE_F1AP_ID;
+        break;
+      case F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID:
+        _EQ_CHECK_INT(ie->value.present, F1AP_UEContextModificationConfirmIEs__value_PR_GNB_DU_UE_F1AP_ID);
+        out->gNB_DU_ue_id = ie->value.choice.GNB_DU_UE_F1AP_ID;
+        break;
+      case F1AP_ProtocolIE_ID_id_RRCContainer:
+        _EQ_CHECK_INT(ie->value.present, F1AP_UEContextModificationConfirmIEs__value_PR_RRCContainer);
+        out->rrc_container = create_byte_array(ie->value.choice.RRCContainer.size, ie->value.choice.RRCContainer.buf);
+        break;
+      default:
+        PRINT_ERROR("F1AP_ProtocolIE_ID_id %ld unknown, skipping\n", ie->id);
+        break;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * @brief F1 UE Context Modification Confirm deep copy
+ */
+f1ap_ue_context_modif_confirm_t cp_ue_context_modif_confirm(const f1ap_ue_context_modif_confirm_t *orig)
+{
+  f1ap_ue_context_modif_confirm_t cp = {
+      .gNB_CU_ue_id = orig->gNB_CU_ue_id,
+      .gNB_DU_ue_id = orig->gNB_DU_ue_id,
+      .rrc_container = copy_byte_array(orig->rrc_container),
+  };
+  return cp;
+}
+
+/**
+ * @brief F1 UE Context Modification Confirm equality check
+ */
+bool eq_ue_context_modif_confirm(const f1ap_ue_context_modif_confirm_t *a, const f1ap_ue_context_modif_confirm_t *b)
+{
+  _EQ_CHECK_INT(a->gNB_CU_ue_id, b->gNB_CU_ue_id);
+  _EQ_CHECK_INT(a->gNB_DU_ue_id, b->gNB_DU_ue_id);
+  if ((a->rrc_container.len || b->rrc_container.len) && !eq_byte_array(&a->rrc_container, &b->rrc_container))
+    return false;
+  return true;
+}
+
+/**
+ * @brief Free Allocated F1 UE Context Modification Confirm
+ */
+void free_ue_context_modif_confirm(f1ap_ue_context_modif_confirm_t *confirm)
+{
+  free_byte_array(confirm->rrc_container);
+}
+
 /*
  * @brief Encode F1 UE context release request to ASN.1
  */

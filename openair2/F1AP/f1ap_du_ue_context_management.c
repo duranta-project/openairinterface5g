@@ -167,77 +167,15 @@ int DU_handle_UE_CONTEXT_MODIFICATION_CONFIRM(instance_t instance, sctp_assoc_t 
   UNUSED(instance);
   UNUSED(assoc_id);
   UNUSED(stream);
-  F1AP_UEContextModificationConfirm_t *container = &pdu->choice.successfulOutcome->value.choice.UEContextModificationConfirm;
   f1ap_ue_context_modif_confirm_t confirm = {0};
-  F1AP_UEContextModificationConfirmIEs_t *ie = NULL;
-
-  /* mandatory: GNB_CU_UE_F1AP_ID */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t, ie, container, F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID, true);
-  confirm.gNB_CU_ue_id = ie->value.choice.GNB_CU_UE_F1AP_ID;
-
-  /* mandatory: GNB_DU_UE_F1AP_ID */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t, ie, container, F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID, true);
-  confirm.gNB_DU_ue_id = ie->value.choice.GNB_DU_UE_F1AP_ID;
-
-  /* optional: Resource Coordination Transfer Container */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t,
-                             ie,
-                             container,
-                             F1AP_ProtocolIE_ID_id_ResourceCoordinationTransferContainer,
-                             false);
-  AssertFatal(ie == NULL, "handling of Resource Coordination Transfer Container not implemented\n");
-
-  /* optional: DRBS Modified List */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t,
-                             ie,
-                             container,
-                             F1AP_ProtocolIE_ID_id_DRBs_Modified_List,
-                             false);
-  AssertFatal(ie == NULL, "handling of DRBs Modified List not implemented\n");
-
-  /* optional: RRC Container */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t, ie, container, F1AP_ProtocolIE_ID_id_RRCContainer, false);
-  if (ie != NULL) {
-    F1AP_RRCContainer_t *rrc_container = &ie->value.choice.RRCContainer;
-    confirm.rrc_container = malloc(rrc_container->size);
-    AssertFatal(confirm.rrc_container != NULL, "memory allocation failed\n");
-    memcpy(confirm.rrc_container, rrc_container->buf, rrc_container->size);
-    confirm.rrc_container_length = rrc_container->size;
+  if (!decode_ue_context_modif_confirm(pdu, &confirm)) {
+    LOG_E(F1AP, "cannot decode F1 UE Context Modification Confirm\n");
+    free_ue_context_modif_confirm(&confirm);
+    return -1;
   }
 
-  /* optional: Criticality Diagnostics */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t,
-                             ie,
-                             container,
-                             F1AP_ProtocolIE_ID_id_CriticalityDiagnostics,
-                             false);
-  AssertFatal(ie == NULL, "handling of DRBs Modified List not implemented\n");
-
-  /* optional: Execute Duplication */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t,
-                             ie,
-                             container,
-                             F1AP_ProtocolIE_ID_id_ExecuteDuplication,
-                             false);
-  AssertFatal(ie == NULL, "handling of DRBs Modified List not implemented\n");
-
-  /* optional: Resource Coordination Transfer Information */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t,
-                             ie,
-                             container,
-                             F1AP_ProtocolIE_ID_id_ResourceCoordinationTransferInformation,
-                             false);
-  AssertFatal(ie == NULL, "handling of DRBs Modified List not implemented\n");
-
-  /* optional: SL DRB Modified List */
-  F1AP_FIND_PROTOCOLIE_BY_ID(F1AP_UEContextModificationConfirmIEs_t,
-                             ie,
-                             container,
-                             F1AP_ProtocolIE_ID_id_SLDRBs_Modified_List,
-                             false);
-  AssertFatal(ie == NULL, "handling of DRBs Modified List not implemented\n");
-
   ue_context_modification_confirm(&confirm);
+  free_ue_context_modif_confirm(&confirm);
   return 0;
 }
 

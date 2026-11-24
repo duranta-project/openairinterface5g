@@ -589,8 +589,7 @@ typedef struct f1ap_ue_context_modif_required_s {
 typedef struct f1ap_ue_context_modif_confirm_s {
   uint32_t gNB_CU_ue_id;
   uint32_t gNB_DU_ue_id;
-  uint8_t *rrc_container;
-  int      rrc_container_length;
+  byte_array_t rrc_container;
 } f1ap_ue_context_modif_confirm_t;
 
 typedef struct f1ap_ue_context_modif_refuse_s {

@@ -1367,6 +1367,36 @@ static void test_f1ap_ue_context_modification_required()
   printf("%s() successful\n", __func__);
 }
 
+static void test_f1ap_ue_context_modification_confirm()
+{
+  f1ap_ue_context_modif_confirm_t orig = {
+    .gNB_CU_ue_id = 9876,
+    .gNB_DU_ue_id = 5432,
+    .rrc_container = get_test_ba("RRCReconfiguration"),
+  };
+
+  F1AP_F1AP_PDU_t *f1enc = encode_ue_context_modif_confirm(&orig);
+  F1AP_F1AP_PDU_t *f1dec = f1ap_encode_decode(f1enc);
+  f1ap_msg_free(f1enc);
+
+  f1ap_ue_context_modif_confirm_t decoded = {0};
+  bool ret = decode_ue_context_modif_confirm(f1dec, &decoded);
+  AssertFatal(ret, "decode_ue_context_modif_confirm(): could not decode message\n");
+  f1ap_msg_free(f1dec);
+
+  ret = eq_ue_context_modif_confirm(&orig, &decoded);
+  AssertFatal(ret, "eq_ue_context_modif_confirm(): decoded message doesn't match\n");
+  free_ue_context_modif_confirm(&decoded);
+
+  f1ap_ue_context_modif_confirm_t cp = cp_ue_context_modif_confirm(&orig);
+  ret = eq_ue_context_modif_confirm(&orig, &cp);
+  AssertFatal(ret, "eq_ue_context_modif_confirm(): copied message doesn't match\n");
+  free_ue_context_modif_confirm(&orig);
+  free_ue_context_modif_confirm(&cp);
+
+  printf("%s() successful\n", __func__);
+}
+
 static void test_f1ap_ue_context_release_request()
 {
   f1ap_ue_context_rel_req_t orig = {
@@ -2693,6 +2723,7 @@ int main()
   test_f1ap_ue_context_modification_response();
   test_f1ap_ue_context_modification_response_simple();
   test_f1ap_ue_context_modification_required();
+  test_f1ap_ue_context_modification_confirm();
   test_f1ap_ue_context_release_request();
   test_f1ap_ue_context_release_command();
   test_f1ap_ue_context_release_complete();

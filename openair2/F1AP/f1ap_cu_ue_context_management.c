@@ -179,63 +179,17 @@ int CU_handle_UE_CONTEXT_MODIFICATION_REQUIRED(instance_t instance, sctp_assoc_t
 
 int CU_send_UE_CONTEXT_MODIFICATION_CONFIRM(sctp_assoc_t assoc_id, f1ap_ue_context_modif_confirm_t *confirm)
 {
-  F1AP_F1AP_PDU_t pdu = {0};
-  pdu.present = F1AP_F1AP_PDU_PR_successfulOutcome;
-  asn1cCalloc(pdu.choice.successfulOutcome, tmp);
-  tmp->procedureCode = F1AP_ProcedureCode_id_UEContextModificationRequired;
-  tmp->criticality = F1AP_Criticality_reject;
-  tmp->value.present = F1AP_SuccessfulOutcome__value_PR_UEContextModificationConfirm;
-  F1AP_UEContextModificationConfirm_t *out = &tmp->value.choice.UEContextModificationConfirm;
+  F1AP_F1AP_PDU_t *pdu = encode_ue_context_modif_confirm(confirm);
 
-  /* mandatory: GNB_CU_UE_F1AP_ID */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationConfirmIEs_t, ie1);
-  ie1->id = F1AP_ProtocolIE_ID_id_gNB_CU_UE_F1AP_ID;
-  ie1->criticality = F1AP_Criticality_reject;
-  ie1->value.present = F1AP_UEContextModificationConfirmIEs__value_PR_GNB_CU_UE_F1AP_ID;
-  ie1->value.choice.GNB_CU_UE_F1AP_ID = confirm->gNB_CU_ue_id;
-
-  /* mandatory: GNB_DU_UE_F1AP_ID */
-  asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationConfirmIEs_t, ie2);
-  ie2->id = F1AP_ProtocolIE_ID_id_gNB_DU_UE_F1AP_ID;
-  ie2->criticality = F1AP_Criticality_reject;
-  ie2->value.present = F1AP_UEContextModificationConfirmIEs__value_PR_GNB_DU_UE_F1AP_ID;
-  ie2->value.choice.GNB_DU_UE_F1AP_ID = confirm->gNB_DU_ue_id;
-
-  /* optional: Resource Coordination Transfer Container */
-  /* not implemented*/
-
-  /* optional: DRB Modified List */
-  /* not implemented*/
-
-  /* optional: RRC Container */
-  if (confirm->rrc_container != NULL) {
-    asn1cSequenceAdd(out->protocolIEs.list, F1AP_UEContextModificationConfirmIEs_t, ie);
-    ie->id = F1AP_ProtocolIE_ID_id_RRCContainer;
-    ie->criticality = F1AP_Criticality_ignore;
-    ie->value.present = F1AP_UEContextModificationConfirmIEs__value_PR_RRCContainer;
-    OCTET_STRING_fromBuf(&ie->value.choice.RRCContainer, (const char *)confirm->rrc_container, confirm->rrc_container_length);
-  }
-
-  /* optional: CriticalityDiagnostics */
-  /* not implemented*/
-
-  /* optional: Execute Duplication */
-  /* not implemented*/
-
-  /* optional: Resource Coordination Transfer Information */
-  /* not implemented*/
-
-  /* optional: SL DRB Modified List */
-  /* not implemented*/
-
-  /* encode */
   uint8_t *buffer = NULL;
   uint32_t len = 0;
-  if (f1ap_encode_pdu(&pdu, &buffer, &len) < 0) {
+  if (f1ap_encode_pdu(pdu, &buffer, &len) < 0) {
     LOG_E(F1AP, "Failed to encode F1 UE Context Modification Confirm\n");
     return -1;
   }
+
   f1ap_itti_send_sctp_data_req(assoc_id, buffer, len);
+  ASN_STRUCT_FREE(asn_DEF_F1AP_F1AP_PDU, pdu);
   return 0;
 }
 
