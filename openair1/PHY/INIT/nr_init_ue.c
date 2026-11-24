@@ -286,8 +286,8 @@ static void sl_ue_free(PHY_VARS_NR_UE *UE)
   UE->max_nb_slsch = 0;
 
   if (UE->pssch_vars) {
-    for (int actor = 0; actor < UE->pssch_num_actors; actor++) {
-      NR_gNB_PUSCH *pssch = &UE->pssch_vars[actor];
+    for (int s = 0; s < UE->pssch_num_scratch; s++) {
+      NR_gNB_PUSCH *pssch = &UE->pssch_vars[s];
       for (int i = 0; i < 2 * sl_fp->nb_antennas_rx; i++) {
         free_and_zero(pssch->ul_ch_estimates[i]);
         free_and_zero(pssch->rxdataF_comp[i]);
@@ -299,7 +299,7 @@ static void sl_ue_free(PHY_VARS_NR_UE *UE)
     }
     free_and_zero(UE->pssch_vars);
   }
-  UE->pssch_num_actors = 0;
+  UE->pssch_num_scratch = 0;
 
   if (UE->SL_UE_PHY_PARAMS.init_params.sl_pss_for_correlation) {
     free_and_zero(UE->SL_UE_PHY_PARAMS.init_params.sl_pss_for_correlation[0]);
@@ -374,8 +374,6 @@ void free_nr_ue_dl_harq(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int
     for (int i = 0; i < number_of_processes; i++) {
 #ifdef LDPC_CUDA
       gpuFreeHost(harq_list[j][i].c);
-#else
-      free_and_zero(harq_list[j][i].c);
 #endif
       free_and_zero(harq_list[j][i].d);
       int ret = pthread_mutex_destroy(&harq_list[j][i].abort_decode.mutex_failure);
@@ -386,34 +384,14 @@ void free_nr_ue_dl_harq(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int
 
 void free_nr_ue_ul_harq(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb, int num_ant_tx)
 {
-  int max_layers = min(num_ant_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER*max_layers;  //number of segments to be allocated
-
-  if (num_rb != 273) {
-    a_segments = a_segments*num_rb;
-    a_segments = a_segments/273 +1;
-  }
-
   for (int i = 0; i < number_of_processes; i++) {
     free_and_zero(harq_list[i].payload_AB);
-#ifdef LDPC_CUDA
-    {
-      // nr_init_ul_harq_processes() makes single allocation(!)
-      gpuFreeHost(harq_list[i].c[0]);
-    }
-#else
-    for (int r = 0; r < a_segments; r++) {
-      free_and_zero(harq_list[i].c[r]);
-    }
-    free_and_zero(harq_list[i].c);
-#endif
-    free_and_zero(harq_list[i].f);
   }
 }
 
-void free_nr_ue_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors)
+void free_nr_ue_pdsch_buffers(pdsch_scratch_t *buffers, int num_scratch)
 {
-  for (int i = 0; i < num_actors; i++) {
+  for (int i = 0; i < num_scratch; i++) {
     free_and_zero(buffers[i].rxdataF_comp);
     free_and_zero(buffers[i].dl_ch_mag);
     free_and_zero(buffers[i].dl_ch_magb);
@@ -426,7 +404,9 @@ void free_nr_ue_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors)
       gpuFreeHost(buffers[i].llr[c]);
 #else
       free_and_zero(buffers[i].llr[c]);
+      free_and_zero(buffers[i].dec[c].c);
 #endif
+      free_and_zero(buffers[i].dec[c].b);
     }
   }
 }
@@ -437,7 +417,7 @@ void term_nr_ue_transport(PHY_VARS_NR_UE *ue)
   const int N_RB_UL = ue->frame_parms.N_RB_UL;
   free_nr_ue_dl_harq(ue->dl_harq_processes, NR_MAX_HARQ_PROCESSES, N_RB_DL);
   free_nr_ue_ul_harq(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, N_RB_UL, ue->frame_parms.nb_antennas_tx);
-  free_nr_ue_pdsch_buffers(ue->pdsch_scratch, ue->pdsch_num_actors);
+  free_nr_ue_pdsch_buffers(ue->pdsch_scratch, ue->pdsch_num_scratch);
   free_and_zero(ue->pdsch_scratch);
 }
 
@@ -453,15 +433,36 @@ void term_nr_ue_sl_transport(PHY_VARS_NR_UE *ue)
   free_nr_ue_ul_harq(ue->sl_harq_processes, NR_MAX_HARQ_PROCESSES, sl_fp->N_RB_SL, sl_fp->nb_antennas_tx);
 }
 
-void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb)
+/* Upper bound of the LDPC code blocks of a TB on num_rb PRB and layers, from TS 38.214 5.1.3.2 and 38.212 5.2.2, without
+ * the MAC TBS tables: at most 156 RE per PRB, 256QAM and code rate 948/1024 give N_info; the quantized N' exceeds N_info
+ * by less than N_info / 64, and the TBS with its CRC fits in ceil((N' + 24) / 8424) code blocks of BG1. */
+static int nr_max_ldpc_segments(int num_rb, int layers)
 {
-  int a_segments = MAX_NUM_NR_DLSCH_SEGMENTS; // number of segments to be allocated
-  if (num_rb != 273) {
-    a_segments = a_segments*num_rb;
-    a_segments = (a_segments/273)+1;
-  }
+  int64_t n_info = (int64_t)156 * num_rb * 8 * layers * 948 / 1024;
+  n_info += n_info / 64;
+  return (n_info + 24 + 8423) / 8424;
+}
 
-  for (int j=0; j<2; j++) {
+/// Number of segments of the largest DLSCH TB the decoder accepts
+static int nr_ue_max_dlsch_segments(int num_rb, int max_layers)
+{
+  // UL-only simulators have no RX antennas, but CUDA still needs a nonempty mapped buffer.
+  if (max_layers <= 0)
+    return 1;
+  // Keep the existing decoder limit; larger TBs are rejected by nr_dlsch_decoding().
+  return min(nr_max_ldpc_segments(num_rb, max_layers), MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * max_layers);
+}
+
+void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSES],
+                               int number_of_processes,
+                               int num_rb,
+                               int max_layers)
+{
+  const int a_segments = nr_ue_max_dlsch_segments(num_rb, max_layers);
+  // the second codeword only exists above 4 layers (TS 38.211 Table 7.3.1.3-1)
+  const int num_cw = NR_MAX_NB_LAYERS > 4 ? 2 : 1;
+
+  for (int j = 0; j < num_cw; j++) {
     for (int i=0; i<number_of_processes; i++) {
       memset(harq_list[j] + i, 0, sizeof(NR_DL_UE_HARQ_t));
       init_downlink_harq_status(harq_list[j] + i);
@@ -469,10 +470,9 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
 #ifdef LDPC_CUDA
       harq_list[j][i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *) * 1056, gpuHostAllocMapped);
       harq_list[j][i].cdev = gpuHostGetDevicePointer_or_fail(harq_list[j][i].c);
-#else
-      harq_list[j][i].c = malloc16(a_segments * sizeof(*harq_list[j][i].c) * 1056);
 #endif
-      harq_list[j][i].d = malloc16(a_segments * sizeof(*harq_list[j][i].d) * 3 * 8448);
+      // segment r of d starts at r * Kc * Z (nrLDPC_coding_segment_decoder.c): Kc * Z is at most 68 * 384 (BG1)
+      harq_list[j][i].d = malloc16(a_segments * sizeof(*harq_list[j][i].d) * 68 * 384);
       init_abort(&harq_list[j][i].abort_decode);
       harq_list[j][i].status  = 0;
       harq_list[j][i].DLround = 0;
@@ -482,54 +482,27 @@ void nr_init_dl_harq_processes(NR_DL_UE_HARQ_t harq_list[2][NR_MAX_HARQ_PROCESSE
 
 void nr_init_ul_harq_processes(NR_UL_UE_HARQ_t harq_list[NR_MAX_HARQ_PROCESSES], int number_of_processes, int num_rb, int num_ant_tx)
 {
-  int max_layers = min(num_ant_tx, NR_MAX_NB_LAYERS);
-  uint16_t a_segments = MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER*max_layers;  //number of segments to be allocated
-
-  if (num_rb != 273) {
-    a_segments = a_segments * num_rb;
-    a_segments = a_segments / 273 + 1;
-  }
-
-  uint32_t ulsch_bytes = a_segments * 1056;
+  const int max_layers = max(1, min(num_ant_tx, NR_MAX_NB_LAYERS));
+  // the largest TB with its 24-bit CRC fits in these code blocks of 1056 bytes; keep the existing encoder limit,
+  // nr_ulsch_pre_encoding() rejects larger TBs
+  const int ulsch_bytes = min(nr_max_ldpc_segments(num_rb, max_layers), MAX_NUM_NR_ULSCH_SEGMENTS_PER_LAYER * max_layers) * 1056;
 
   for (int i = 0; i < number_of_processes; i++) {
     memset(&harq_list[i], 0, sizeof(NR_UL_UE_HARQ_t));
 
     harq_list[i].payload_AB = malloc16_clear(ulsch_bytes);
-
-#ifdef LDPC_CUDA
-    size_t total_c_size = a_segments * 8448;
-
-    uint8_t *tmp_c = gpuHostAlloc_or_fail(total_c_size, gpuHostAllocMapped);
-    memset(tmp_c, 0, total_c_size);
-
-    harq_list[i].c = gpuHostAlloc_or_fail(a_segments * sizeof(uint8_t *), gpuHostAllocMapped);
-
-    for (int r = 0; r < a_segments; r++) {
-      harq_list[i].c[r] = tmp_c + (r * 8448);
-    }
-
-#else
-    harq_list[i].c = malloc16(a_segments * sizeof(uint8_t *));
-
-    for (int r = 0; r < a_segments; r++) {
-      harq_list[i].c[r] = malloc16_clear(8448);
-    }
-#endif
-
-    uint32_t f_size = 14 * num_rb * 12 * 16;
-    harq_list[i].f = malloc16_clear(f_size);
+    harq_list[i].payload_AB_size = ulsch_bytes;
     harq_list[i].round = 0;
   }
 }
 
-void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL_FRAME_PARMS *fp, bool do_ml)
+void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_scratch, const NR_DL_FRAME_PARMS *fp, bool do_ml)
 {
   const uint32_t pdsch_buf_size_max = (fp->N_RB_DL * NR_NB_SC_PER_RB + 15) & ~15;
   const uint32_t pdsch_est_size = fp->symbols_per_slot * fp->ofdm_symbol_size;
 
   /* Cap layer dimension at nb_antennas_rx instead of NR_MAX_NB_LAYERS to
-   * right-size all per-actor scratch buffers, reducing the PDSCH working
+   * right-size all per-slot scratch buffers, reducing the PDSCH working
    * set and easing L2 cache pressure. */
   const int max_layers = min(fp->nb_antennas_rx, NR_MAX_NB_LAYERS);
   const uint32_t llr_buf_max = NR_NB_SC_PER_RB * NR_SYMBOLS_PER_SLOT * fp->N_RB_DL * 8 * max_layers;
@@ -542,8 +515,10 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
   /* rho_dl is only needed for 2-layer ML LLR computation; skip the
    * allocation entirely when ML is disabled to reduce memory footprint. */
   const size_t rho_elems = do_ml ? (size_t)max_layers * max_layers * pdsch_buf_size_max : 0;
+  // decoded segments and TB with CRC: at most 1056 bytes per segment
+  const size_t tb_bytes = (size_t)nr_ue_max_dlsch_segments(fp->N_RB_DL, max_layers) * 1056;
 
-  for (int i = 0; i < num_actors; i++) {
+  for (int i = 0; i < num_scratch; i++) {
     buffers[i].pdsch_buf_size_max           = pdsch_buf_size_max;
     buffers[i].pdsch_est_size        = pdsch_est_size;
     buffers[i].llr_buf_max           = llr_buf_max;
@@ -561,7 +536,9 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
       buffers[i].llr_dev[c] = gpuHostGetDevicePointer_or_fail(buffers[i].llr[c]);
 #else
       buffers[i].llr[c]              = malloc16(llr_buf_max * sizeof(int16_t));
+      buffers[i].dec[c].c = malloc16(tb_bytes);
 #endif
+      buffers[i].dec[c].b = malloc16(tb_bytes);
     }
     buffers[i].llr[1] = NULL;
   }
@@ -569,12 +546,14 @@ void nr_init_pdsch_buffers(pdsch_scratch_t *buffers, int num_actors, const NR_DL
 
 void init_nr_ue_transport(PHY_VARS_NR_UE *ue)
 {
-  nr_init_dl_harq_processes(ue->dl_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_DL);
+  nr_init_dl_harq_processes(ue->dl_harq_processes,
+                            NR_MAX_HARQ_PROCESSES,
+                            ue->frame_parms.N_RB_DL,
+                            min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS));
   nr_init_ul_harq_processes(ue->ul_harq_processes, NR_MAX_HARQ_PROCESSES, ue->frame_parms.N_RB_UL, ue->frame_parms.nb_antennas_tx);
-  const int num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
-  ue->pdsch_num_actors = num_actors;
-  ue->pdsch_scratch = calloc_or_fail(num_actors, sizeof(*ue->pdsch_scratch));
-  nr_init_pdsch_buffers(ue->pdsch_scratch, num_actors, &ue->frame_parms, ue->do_ml);
+  ue->pdsch_num_scratch = max(get_nrUE_params()->num_parallel_dl_slots, 1);
+  ue->pdsch_scratch = calloc_or_fail(ue->pdsch_num_scratch, sizeof(*ue->pdsch_scratch));
+  nr_init_pdsch_buffers(ue->pdsch_scratch, ue->pdsch_num_scratch, &ue->frame_parms, ue->do_ml);
 }
 
 void init_phy_nr_measurements(PHY_VARS_NR_UE *ue)
@@ -682,10 +661,11 @@ void sl_ue_phy_init(PHY_VARS_NR_UE *UE)
   int nb_re_pusch = N_RB_UL * NR_NB_SC_PER_RB;
   int nb_re_pusch2 = nb_re_pusch + (nb_re_pusch & 7);
   UE->pssch_thres = 10;
-  UE->pssch_num_actors = get_nrUE_params()->num_dl_actors > 0 ? get_nrUE_params()->num_dl_actors : 1;
-  UE->pssch_vars = (NR_gNB_PUSCH *)malloc16_clear(UE->pssch_num_actors * sizeof(NR_gNB_PUSCH));
-  for (int actor = 0; actor < UE->pssch_num_actors; actor++) {
-    NR_gNB_PUSCH *pssch = &UE->pssch_vars[actor];
+  // one per DL slot in flight
+  UE->pssch_num_scratch = max(get_nrUE_params()->num_parallel_dl_slots, 1);
+  UE->pssch_vars = (NR_gNB_PUSCH *)malloc16_clear(UE->pssch_num_scratch * sizeof(NR_gNB_PUSCH));
+  for (int s = 0; s < UE->pssch_num_scratch; s++) {
+    NR_gNB_PUSCH *pssch = &UE->pssch_vars[s];
     pssch->ul_ch_estimates = malloc16(n_buf * sizeof(int32_t *));
     pssch->rxdataF_comp = malloc16(n_buf * sizeof(int32_t *));
     for (int i = 0; i < n_buf; i++) {

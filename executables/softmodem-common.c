@@ -64,6 +64,10 @@ void get_common_options(configmodule_interface_t *cfg)
   int numparams = sizeofArray(cmdline_params);
   config_set_checkfunctions(cmdline_params, cmdline_CheckParams, numparams);
   config_get(cfg, cmdline_params, numparams, NULL);
+  const int tpool_index = config_paramidx_fromname(cmdline_params, numparams, "thread-pool");
+  AssertFatal(tpool_index >= 0, "Index for thread-pool config option not found!\n");
+  if (IS_SOFTMODEM_5GUE && !config_isparamset(cmdline_params, tpool_index))
+    TP_CONFIG = TP_CONFIG_NRUE_DEFAULT;
   nfapi_index = config_paramidx_fromname(cmdline_params, numparams, "nfapi");
   AssertFatal(nfapi_index >= 0,"Index for nfapi config option not found!");
   nfapi_mode = config_get_processedint(cfg, &cmdline_params[nfapi_index]);

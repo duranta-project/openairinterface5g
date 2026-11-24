@@ -333,9 +333,18 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
                 ul_config->slot,
                 pdu->pusch_config_pdu.tx_request_body.pdu_length,
                 current_harq_pid);
-          memcpy(harq_process_ul_ue->payload_AB,
-                 pdu->pusch_config_pdu.tx_request_body.fapiTxPdu,
-                 pdu->pusch_config_pdu.tx_request_body.pdu_length);
+          // a TB that does not fit is not copied: nr_ulsch_pre_encoding() then drops the transmission
+          if (pdu->pusch_config_pdu.tx_request_body.pdu_length + 3 <= harq_process_ul_ue->payload_AB_size)
+            memcpy(harq_process_ul_ue->payload_AB,
+                   pdu->pusch_config_pdu.tx_request_body.fapiTxPdu,
+                   pdu->pusch_config_pdu.tx_request_body.pdu_length);
+          else
+            LOG_E(PHY,
+                  "%d.%d PUSCH PDU of %d bytes is too big for the HARQ buffer of %d bytes\n",
+                  ul_config->frame,
+                  ul_config->slot,
+                  pdu->pusch_config_pdu.tx_request_body.pdu_length,
+                  harq_process_ul_ue->payload_AB_size);
         }
 
         phy_data->ulsch.status = NR_ACTIVE;
@@ -580,7 +589,13 @@ void sl_handle_scheduled_response(nr_scheduled_response_t *scheduled_response)
           if (phy_data_tx->sl_tx_action != SL_NR_CONFIG_TYPE_TX_PSFCH && tx_config_pdu->slsch_payload != NULL
               && tx_config_pdu->slsch_payload_length > 0) {
             NR_UL_UE_HARQ_t *harq_process = &nrPHY_vars_UE_g[module_id][0]->sl_harq_processes[tx_config_pdu->harq_pid];
-            memcpy(harq_process->payload_AB, tx_config_pdu->slsch_payload, tx_config_pdu->slsch_payload_length);
+            if (tx_config_pdu->slsch_payload_length + 3 <= harq_process->payload_AB_size)
+              memcpy(harq_process->payload_AB, tx_config_pdu->slsch_payload, tx_config_pdu->slsch_payload_length);
+            else
+              LOG_E(NR_PHY,
+                    "SLSCH PDU of %d bytes is too big for the HARQ buffer of %d bytes\n",
+                    tx_config_pdu->slsch_payload_length,
+                    harq_process->payload_AB_size);
             LOG_D(NR_PHY, "SLSCH TX: copied %d bytes of MAC PDU into harq %d payload_AB\n",
                   tx_config_pdu->slsch_payload_length, tx_config_pdu->harq_pid);
           }

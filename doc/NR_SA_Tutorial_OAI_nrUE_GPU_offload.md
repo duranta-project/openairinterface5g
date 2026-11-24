@@ -288,7 +288,7 @@ gNB configuration file with `min_rxtxtime` as 6 or higher integer value.
 
 ```bash
 cd ~/oai-nr-ue/openairinterface5g/build/
-sudo ./nr-uesoftmodem -O ~/oai-nr-ue/nr-ue.conf -C 3350010000 -r 106 --ssb 513 --numerology 1 --band 78 --thread-pool -1 --num-dl-actors 6 --num-ul-actors 2 -E --loader.ldpc.shlibversion _cuda --usrp-tx-thread-config 1 --ue-fo-compensation
+sudo ./nr-uesoftmodem -O ~/oai-nr-ue/nr-ue.conf -C 3350010000 -r 106 --ssb 513 --numerology 1 --band 78 --thread-pool -1,-1,-1,-1,-1,-1 --num-parallel-dl-slots 6 --num-ul-actors 2 -E --loader.ldpc.shlibversion _cuda --usrp-tx-thread-config 1 --ue-fo-compensation
 ```
 
 **Command for DGX Spark**: 
@@ -320,9 +320,10 @@ The main RF/cell settings are:
 
 The parallelism/offload settings are:
 
-- `--thread-pool -1`: create a thread-pool worker with no CPU affinity.
-- `--num-dl-actors 6`: use 6 DL actor threads, parallel RX/PDSCH processing
-  workers.
+- `--thread-pool -1,-1,-1,-1,-1,-1`: create 6 thread-pool workers with no CPU
+  affinity. The DL slots and their LDPC decoding run in the thread pool.
+- `--num-parallel-dl-slots 6`: process up to 6 DL slots (PDSCH) in parallel in
+  the thread pool.
 - `--num-ul-actors 2`: use 2 UL actor threads, parallel TX/PUSCH/PUCCH
   preparation and transmit workers.
 - `--loader.ldpc.shlibversion_cuda`: load the CUDA-backed LDPC shared library

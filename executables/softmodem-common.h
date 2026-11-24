@@ -21,7 +21,7 @@ extern "C"
   "Thread pool configuration: \n\
   list of cores, comma separated (negative value is no core affinity)\n\
   example: -1,3 launches two working threads one floating, the second set on core 3\n\
-  default 8 floating threads\n\
+  default 8 floating threads, 12 for the nrUE\n\
   use N for no pool (runs in calling thread) recommended with rfsim.\n"
 #define CONFIG_HLP_CALUER        "set UE RX calibration\n"
 #define CONFIG_HLP_CALUERM       ""
@@ -83,6 +83,8 @@ extern "C"
 /*-----------------------------------------------------------------------------------------------------------------------------------------------------*/
 #define RF_CONFIG_FILE      softmodem_params.rf_config_file
 #define TP_CONFIG           softmodem_params.threadPoolConfig
+/// nrUE thread pool without --thread-pool: 8 + the 4 former DL actors
+#define TP_CONFIG_NRUE_DEFAULT "-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1"
 #define CONTINUOUS_TX       softmodem_params.continuous_tx
 #define PHY_TEST            softmodem_params.phy_test
 #define DO_RA               softmodem_params.do_ra

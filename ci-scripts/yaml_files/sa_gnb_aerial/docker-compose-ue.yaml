@@ -30,7 +30,7 @@ services:
                --thread-pool 4,6,8,10,12,14,16,18,20,22,24,26
                --usrp-args type=x4xx,addr=192.168.10.2,clock_source=external,time_source=external
                --ssb 1478 -r 273 --numerology 1 --band 78 -C 3750000000
-               --num-dl-actors 20
+               --num-parallel-dl-slots 20
                --ue-nb-ant-tx 1
                --ue-nb-ant-rx 1
                --ue-rxgain 25
