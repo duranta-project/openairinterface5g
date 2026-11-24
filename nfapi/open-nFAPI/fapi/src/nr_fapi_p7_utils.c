@@ -953,55 +953,7 @@ void free_crc_indication(nfapi_nr_crc_indication_t *msg)
 
 void free_uci_indication(nfapi_nr_uci_indication_t *msg)
 {
-  for (int pdu_idx = 0; pdu_idx < msg->num_ucis; ++pdu_idx) {
-    nfapi_nr_uci_t *uci_pdu = &msg->uci_list[pdu_idx];
-    switch (uci_pdu->pdu_type) {
-      case NFAPI_NR_UCI_PUSCH_PDU_TYPE: {
-        nfapi_nr_uci_pusch_pdu_t *pdu = &uci_pdu->pusch_pdu;
-        // Bit 0 not used in PUSCH PDU
-        // HARQ
-        if ((pdu->pduBitmap >> 1) & 0x01) {
-          free(pdu->harq.harq_payload);
-        }
-        // CSI Part 1
-        if ((pdu->pduBitmap >> 2) & 0x01) {
-          free(pdu->csi_part1.csi_part1_payload);
-        }
-        // CSI Part 2
-        if ((pdu->pduBitmap >> 3) & 0x01) {
-          free(pdu->csi_part2.csi_part2_payload);
-        }
-        break;
-      }
-      case NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE: {
-        // Nothing to free
-        break;
-      }
-      case NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE: {
-        nfapi_nr_uci_pucch_pdu_format_2_3_4_t *pdu = &uci_pdu->pucch_pdu_format_2_3_4;
-        // SR
-        if (pdu->pduBitmap & 0x01) {
-          free(pdu->sr.sr_payload);
-        }
-        // HARQ
-        if ((pdu->pduBitmap >> 1) & 0x01) {
-          free(pdu->harq.harq_payload);
-        }
-        // CSI Part 1
-        if ((pdu->pduBitmap >> 2) & 0x01) {
-          free(pdu->csi_part1.csi_part1_payload);
-        }
-        // CSI Part 2
-        if ((pdu->pduBitmap >> 3) & 0x01) {
-          free(pdu->csi_part2.csi_part2_payload);
-        }
-        break;
-      }
-      default:
-        AssertFatal(1 == 0, "Unknown UCI.indication PDU Type %d\n", uci_pdu->pdu_type);
-        break;
-    }
-  }
+  // the UCI payloads are stored in the PDUs
   free(msg->uci_list);
 }
 
@@ -1554,7 +1506,6 @@ void copy_uci_indication_sr_pdu_2_3_4(const nfapi_nr_sr_pdu_2_3_4_t *src, nfapi_
 {
   dst->sr_bit_len = src->sr_bit_len;
   const uint16_t sr_len = nr_bits_to_bytes(dst->sr_bit_len);
-  dst->sr_payload = calloc(sr_len, sizeof(*dst->sr_payload));
   for (int i = 0; i < sr_len; ++i) {
     dst->sr_payload[i] = src->sr_payload[i];
   }
@@ -1574,7 +1525,6 @@ void copy_uci_indication_harq_pdu_2_3_4(const nfapi_nr_harq_pdu_2_3_4_t *src, nf
   dst->harq_crc = src->harq_crc;
   dst->harq_bit_len = src->harq_bit_len;
   const uint16_t harq_length = nr_bits_to_bytes(dst->harq_bit_len);
-  dst->harq_payload = calloc(harq_length, sizeof(*dst->harq_payload));
   for (int i = 0; i < harq_length; ++i) {
     dst->harq_payload[i] = src->harq_payload[i];
   }
@@ -1585,7 +1535,6 @@ void copy_uci_indication_csi_part1(const nfapi_nr_csi_part1_pdu_t *src, nfapi_nr
   dst->csi_part1_crc = src->csi_part1_crc;
   dst->csi_part1_bit_len = src->csi_part1_bit_len;
   const uint16_t payload_length = nr_bits_to_bytes(dst->csi_part1_bit_len);
-  dst->csi_part1_payload = calloc(payload_length, sizeof(*dst->csi_part1_payload));
   for (int i = 0; i < payload_length; ++i) {
     dst->csi_part1_payload[i] = src->csi_part1_payload[i];
   }
@@ -1596,7 +1545,6 @@ void copy_uci_indication_csi_part2(const nfapi_nr_csi_part2_pdu_t *src, nfapi_nr
   dst->csi_part2_crc = src->csi_part2_crc;
   dst->csi_part2_bit_len = src->csi_part2_bit_len;
   const uint16_t payload_length = nr_bits_to_bytes(dst->csi_part2_bit_len);
-  dst->csi_part2_payload = calloc(payload_length, sizeof(*dst->csi_part2_payload));
   for (int i = 0; i < payload_length; ++i) {
     dst->csi_part2_payload[i] = src->csi_part2_payload[i];
   }

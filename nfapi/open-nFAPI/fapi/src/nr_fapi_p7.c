@@ -2228,10 +2228,8 @@ static uint8_t unpack_nr_uci_pusch(nfapi_nr_uci_pusch_pdu_t *value, uint8_t **pp
     if (!pull16(ppReadPackedMsg, &value->harq.harq_bit_len, end))
       return 0;
     const uint16_t harq_len = nr_bits_to_bytes(value->harq.harq_bit_len);
-    value->harq.harq_payload = calloc(harq_len, sizeof(*value->harq.harq_payload));
-
-    if (value->harq.harq_payload == NULL) {
-      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s failed to allocate value->harq.harq_payload\n", __FUNCTION__);
+    if (harq_len > sizeof(value->harq.harq_payload)) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: %d bytes do not fit in value->harq.harq_payload\n", __FUNCTION__, harq_len);
       return 0;
     }
 
@@ -2245,10 +2243,8 @@ static uint8_t unpack_nr_uci_pusch(nfapi_nr_uci_pusch_pdu_t *value, uint8_t **pp
     if (!pull16(ppReadPackedMsg, &value->csi_part1.csi_part1_bit_len, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part1.csi_part1_bit_len);
-    value->csi_part1.csi_part1_payload = calloc(csi_len, sizeof(*value->csi_part1.csi_part1_payload));
-
-    if (value->csi_part1.csi_part1_payload == NULL) {
-      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s failed to allocate value->csi_part1.csi_part1_payload\n", __FUNCTION__);
+    if (csi_len > sizeof(value->csi_part1.csi_part1_payload)) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: %d bytes do not fit in value->csi_part1.csi_part1_payload\n", __FUNCTION__, csi_len);
       return 0;
     }
 
@@ -2262,10 +2258,8 @@ static uint8_t unpack_nr_uci_pusch(nfapi_nr_uci_pusch_pdu_t *value, uint8_t **pp
     if (!pull16(ppReadPackedMsg, &value->csi_part2.csi_part2_bit_len, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part2.csi_part2_bit_len);
-    value->csi_part2.csi_part2_payload = calloc(csi_len, sizeof(*value->csi_part2.csi_part2_payload));
-
-    if (value->csi_part2.csi_part2_payload == NULL) {
-      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s failed to allocate value->csi_part2.csi_part2_payload\n", __FUNCTION__);
+    if (csi_len > sizeof(value->csi_part2.csi_part2_payload)) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: %d bytes do not fit in value->csi_part2.csi_part2_payload\n", __FUNCTION__, csi_len);
       return 0;
     }
 
@@ -2326,10 +2320,8 @@ static uint8_t unpack_nr_uci_pucch_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
     if (!pull16(ppReadPackedMsg, &value->sr.sr_bit_len, end))
       return 0;
     const uint16_t sr_len = nr_bits_to_bytes(value->sr.sr_bit_len);
-    value->sr.sr_payload = calloc(sr_len, sizeof(*value->sr.sr_payload));
-
-    if (value->sr.sr_payload == NULL) {
-      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s failed to allocate value->sr.sr_payload\n", __FUNCTION__);
+    if (sr_len > sizeof(value->sr.sr_payload)) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: %d bytes do not fit in value->sr.sr_payload\n", __FUNCTION__, sr_len);
       return 0;
     }
 
@@ -2343,10 +2335,8 @@ static uint8_t unpack_nr_uci_pucch_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
     if (!pull16(ppReadPackedMsg, &value->harq.harq_bit_len, end))
       return 0;
     const uint16_t harq_len = nr_bits_to_bytes(value->harq.harq_bit_len);
-    value->harq.harq_payload = calloc(harq_len, sizeof(*value->harq.harq_payload));
-
-    if (value->harq.harq_payload == NULL) {
-      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s failed to allocate value->harq.harq_payload\n", __FUNCTION__);
+    if (harq_len > sizeof(value->harq.harq_payload)) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: %d bytes do not fit in value->harq.harq_payload\n", __FUNCTION__, harq_len);
       return 0;
     }
 
@@ -2360,10 +2350,8 @@ static uint8_t unpack_nr_uci_pucch_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
     if (!pull16(ppReadPackedMsg, &value->csi_part1.csi_part1_bit_len, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part1.csi_part1_bit_len);
-    value->csi_part1.csi_part1_payload = calloc(csi_len, sizeof(*value->csi_part1.csi_part1_payload));
-
-    if (value->csi_part1.csi_part1_payload == NULL) {
-      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s failed to allocate value->csi_part1.csi_part1_payload\n", __FUNCTION__);
+    if (csi_len > sizeof(value->csi_part1.csi_part1_payload)) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: %d bytes do not fit in value->csi_part1.csi_part1_payload\n", __FUNCTION__, csi_len);
       return 0;
     }
 
@@ -2377,10 +2365,8 @@ static uint8_t unpack_nr_uci_pucch_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *
     if (!pull16(ppReadPackedMsg, &value->csi_part2.csi_part2_bit_len, end))
       return 0;
     const uint16_t csi_len = nr_bits_to_bytes(value->csi_part2.csi_part2_bit_len);
-    value->csi_part2.csi_part2_payload = calloc(csi_len, sizeof(*value->csi_part2.csi_part2_payload));
-
-    if (value->csi_part2.csi_part2_payload == NULL) {
-      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s failed to allocate value->csi_part2.csi_part2_payload\n", __FUNCTION__);
+    if (csi_len > sizeof(value->csi_part2.csi_part2_payload)) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: %d bytes do not fit in value->csi_part2.csi_part2_payload\n", __FUNCTION__, csi_len);
       return 0;
     }
 

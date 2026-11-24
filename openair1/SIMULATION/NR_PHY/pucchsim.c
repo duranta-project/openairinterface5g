@@ -771,7 +771,6 @@ int main(int argc, char **argv)
             }
           }
         }
-        free(uci_pdu.csi_part1.csi_part1_payload);
       }
     }
     if (sr_flag == 1)
