@@ -504,6 +504,9 @@ int rrc_gNB_process_NGAP_INITIAL_CONTEXT_SETUP_REQ(MessageDef *msg_p, instance_t
   // Directly copy the entire guami structure
   UE->ue_guami = req->guami;
 
+  UE->ue_identity_index = req->has_ue_identity_index ? (req->ue_identity_index & 0x3FF) : UINT16_MAX;
+  UE->ue_specific_drx_rf = req->has_ue_specific_drx ? req->ue_specific_drx_rf : 0;
+
   /* NAS PDU */
   // this is malloced pointers, we pass it for later free()
   UE->nas_pdu = req->nas_pdu;

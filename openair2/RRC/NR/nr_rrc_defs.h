@@ -279,6 +279,11 @@ typedef struct gNB_RRC_UE_s {
   /* Nas Pdu */
   byte_array_t nas_pdu;
 
+  /* TS 38.413 9.3.3.23 / 38.304 §7.1: 0..1023, or UINT16_MAX if absent */
+  uint16_t ue_identity_index;
+  /* TS 38.413 9.3.1.90 UE Specific DRX RF {32,64,128,256}, 0 = absent */
+  uint16_t ue_specific_drx_rf;
+
   /* hack, see rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ() for more info */
   delayed_action_state_t delayed_action;
 
