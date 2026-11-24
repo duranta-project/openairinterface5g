@@ -2283,7 +2283,12 @@ static int nr_ul_schedule(gNB_MAC_INST *nrmac,
   nrmac->ul_mcs_select(cell, candidates, n_cand);
 
   /* Step 6: Sort by beam, then call RB allocation policy per beam */
-  qsort(candidates, n_cand, sizeof(*candidates), compare_ul_beam_idx);
+  // with one beam, or UEs listed by beam, the candidates are already in order: do not move them
+  bool by_beam = true;
+  for (int i = 1; i < n_cand && by_beam; i++)
+    by_beam = candidates[i - 1].alloc_beam_idx <= candidates[i].alloc_beam_idx;
+  if (!by_beam)
+    qsort(candidates, n_cand, sizeof(*candidates), compare_ul_beam_idx);
 
   nr_ul_sched_params_t params = {
       .mac = nrmac,
