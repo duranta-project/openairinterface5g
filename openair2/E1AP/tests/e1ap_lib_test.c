@@ -75,7 +75,7 @@ static pdu_session_setup_t pdu_session_setup_resp_template(long pdu_id)
   p.numDRBFailed = 0;
   p.DRBnGRanList[0].numUpParam = 1;
   p.DRBnGRanList[0].numQosFlowSetup = 1;
-  p.DRBnGRanList[0].UpParamList[0].cell_group_id = MCG;
+  p.DRBnGRanList[0].UpParamList[0].cell_group_id = SCG;
   return p;
 }
 
@@ -311,7 +311,7 @@ static void test_bearer_context_setup_failure(void)
 
   // Decode the encoded message
   e1ap_bearer_context_setup_failure_t decoded = {0};
-  bool ret = decode_E1_bearer_context_setup_failure(&decoded, dec);
+  bool ret = decode_E1_bearer_context_setup_failure(dec, &decoded);
   AssertFatal(ret, "decode_E1_bearer_context_setup_failure failed");
 
   // Free the E1AP decoded message
@@ -353,7 +353,7 @@ static void test_bearer_context_release_command(void)
 
   // Decode the encoded message
   e1ap_bearer_release_cmd_t decoded = {0};
-  AssertFatal(decode_e1_bearer_context_release_command(&decoded, dec), "decode_e1_bearer_context_release_command failed");
+  AssertFatal(decode_e1_bearer_context_release_command(dec, &decoded), "decode_e1_bearer_context_release_command failed");
 
   // Free the E1AP decoded message
   e1ap_msg_free(dec);
@@ -392,7 +392,7 @@ static void test_bearer_context_release_complete(void)
 
   // Decode the encoded message
   e1ap_bearer_release_cplt_t decoded = {0};
-  AssertFatal(decode_e1_bearer_context_release_complete(&decoded, dec), "decode_e1_bearer_context_release_complete failed");
+  AssertFatal(decode_e1_bearer_context_release_complete(dec, &decoded), "decode_e1_bearer_context_release_complete failed");
 
   // Free the E1AP decoded message
   e1ap_msg_free(dec);
@@ -503,10 +503,13 @@ static void test_e1_cuup_setup_failure(void)
   *orig.crit_diag->triggering_msg = TRIGGERING_MSG_SUCCESSFUL_OUTCOME;
   orig.crit_diag->procedure_criticality = malloc_or_fail(sizeof(*orig.crit_diag->procedure_criticality));
   *orig.crit_diag->procedure_criticality = CRITICALITY_IGNORE;
-  orig.crit_diag->num_errors = 1;
+  orig.crit_diag->num_errors = 2;
   orig.crit_diag->errors[0].ie_id = 66;
   orig.crit_diag->errors[0].error_type = ERROR_TYPE_MISSING;
   orig.crit_diag->errors[0].criticality = CRITICALITY_IGNORE;
+  orig.crit_diag->errors[1].ie_id = 67;
+  orig.crit_diag->errors[1].error_type = ERROR_TYPE_NOT_UNDERSTOOD;
+  orig.crit_diag->errors[1].criticality = CRITICALITY_REJECT;
 
   E1AP_E1AP_PDU_t *encoded = encode_e1ap_cuup_setup_failure(&orig);
   E1AP_E1AP_PDU_t *decoded_msg = e1ap_encode_decode(encoded);
@@ -617,8 +620,14 @@ static void test_bearer_context_modification_request(void)
   pdusession_setup_item_2.UP_TL_information.tlAddress = 167772162;
   pdusession_setup_item_2.DRBnGRanList[0] = drb_to_setup_2;
 
-  pdu_session_to_remove_t pdu_session_to_remove = pdu_session_rem_template(5);
-  pdu_session_to_remove_t pdu_session_to_remove_2 = pdu_session_rem_template(6);
+  pdu_session_to_remove_t pdu_session_to_remove = {
+      .sessionId = 5,
+      .cause = {.type = E1AP_CAUSE_RADIO_NETWORK, .value = E1AP_RADIO_CAUSE_NORMAL_RELEASE},
+  };
+  pdu_session_to_remove_t pdu_session_to_remove_2 = {
+      .sessionId = 6,
+      .cause = {.type = E1AP_CAUSE_TRANSPORT, .value = E1AP_TRANSPORT_CAUSE_RESOURCE_UNAVAILABLE},
+  };
 
   // Initialize the Bearer Context Modification Request
   e1ap_bearer_mod_req_t orig = {
@@ -796,7 +805,7 @@ static void test_bearer_context_modification_response(void)
 
   // Decode the message into a new struct
   e1ap_bearer_modif_resp_t decoded = {0};
-  bool ret = decode_E1_bearer_context_mod_response(&decoded, dec);
+  bool ret = decode_E1_bearer_context_mod_response(dec, &decoded);
   AssertFatal(ret, "decode_E1_bearer_context_mod_response(): could not decode message\n");
 
   // Free the decoded E1AP message
@@ -872,7 +881,7 @@ static void test_bearer_context_modification_response_fail(void)
 
   // Decode into a new struct
   e1ap_bearer_modif_resp_t decoded = {0};
-  bool ret = decode_E1_bearer_context_mod_response(&decoded, dec);
+  bool ret = decode_E1_bearer_context_mod_response(dec, &decoded);
   AssertFatal(ret, "decode_E1_bearer_context_mod_response(): could not decode failed DRB setup+mod case\n");
 
   // Free the decoded E1AP message
@@ -909,7 +918,7 @@ static void test_bearer_context_modification_failure(void)
 
   // Decode into a new struct
   e1ap_bearer_context_mod_failure_t decoded = {0};
-  AssertFatal(decode_E1_bearer_context_mod_failure(&decoded, dec),
+  AssertFatal(decode_E1_bearer_context_mod_failure(dec, &decoded),
               "decode_E1_bearer_context_mod_failure(): could not decode message\n");
 
   // Free the decoded PDU
@@ -988,7 +997,7 @@ static void test_bearer_context_modification_confirm(void)
   e1ap_msg_free(enc);
 
   e1ap_bearer_mod_confirm_t decoded = {0};
-  AssertFatal(decode_E1_bearer_context_mod_confirm(&decoded, dec),
+  AssertFatal(decode_E1_bearer_context_mod_confirm(dec, &decoded),
               "decode_E1_bearer_context_mod_confirm(): could not decode message\n");
   e1ap_msg_free(dec);
 

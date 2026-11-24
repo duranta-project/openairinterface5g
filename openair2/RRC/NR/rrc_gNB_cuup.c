@@ -225,7 +225,6 @@ static void remove_unassociated_e1_connections(gNB_RRC_INST *rrc)
 */
 int rrc_gNB_process_e1_setup_req(sctp_assoc_t assoc_id, const e1ap_setup_req_t *req)
 {
-  AssertFatal(req->supported_plmns <= PLMN_LIST_MAX_SIZE, "Supported PLMNs is more than PLMN_LIST_MAX_SIZE\n");
   gNB_RRC_INST *rrc = RC.nrrrc[0];
 
   nr_rrc_cuup_container_t *c = NULL;

@@ -14,7 +14,7 @@
 
 /* Definitions according to 3GPP TS 38.463 */
 #define E1AP_MAX_NUM_TRANSAC_IDS 4
-#define E1AP_MAX_NUM_PLMNS 4
+#define E1AP_MAX_NUM_PLMNS 12
 #define E1AP_MAX_NUM_CELL_GROUPS 4
 #define E1AP_MAX_NUM_QOS_FLOWS 64
 #define E1AP_MAX_NUM_DRBS 32

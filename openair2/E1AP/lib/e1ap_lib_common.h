@@ -12,12 +12,13 @@
 #include "e1ap_messages_types.h"
 #include "common/utils/eq_check.h"
 
-#define CHECK_E1AP_DEC(exp)                                                             \
-  do {                                                                                  \
-    if (!(exp)) {                                                                       \
-        PRINT_ERROR("Failed executing " #exp " in %s() line %d\n", __func__, __LINE__); \
-        return false;                                                                   \
-    }                                                                                   \
+#define CHECK_E1AP_DEC(exp)                               \
+  do {                                                    \
+    const bool e1ap_dec_ok_ = (exp);                      \
+    if (!e1ap_dec_ok_) {                                  \
+      PRINT_ERROR("%s(): '%s' failed\n", __func__, #exp); \
+      return e1ap_dec_ok_;                                \
+    }                                                     \
   } while (0)
 
 // Macro to look up IE. If mandatory and not found, macro will log an error and return false.
@@ -48,6 +49,10 @@
 
 struct E1AP_Cause;
 struct E1AP_Cause e1_encode_cause_ie(const e1ap_cause_t *cause);
-e1ap_cause_t e1_decode_cause_ie(const struct E1AP_Cause *ie);
+bool e1_decode_cause_ie(const struct E1AP_Cause *ie, e1ap_cause_t *out);
+
+struct E1AP_SNSSAI;
+struct E1AP_SNSSAI e1_encode_snssai(const nssai_t *in);
+bool e1_decode_snssai(const struct E1AP_SNSSAI *in, e1ap_nssai_t *out);
 
 #endif /* E1AP_LIB_COMMON_H_ */

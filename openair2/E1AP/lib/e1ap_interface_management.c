@@ -15,33 +15,36 @@
 #include "e1ap_messages_types.h"
 #include "e1ap_interface_management.h"
 
-void encode_criticality_diagnostics(const criticality_diagnostics_t *msg, E1AP_CriticalityDiagnostics_t *out)
+static E1AP_CriticalityDiagnostics_t encode_criticality_diagnostics(const criticality_diagnostics_t *msg)
 {
+  E1AP_CriticalityDiagnostics_t out = {0};
   // Procedure Code (O)
   if (msg->procedure_code) {
-    out->procedureCode = calloc_or_fail(1, sizeof(*out->procedureCode));
-    *out->procedureCode = *msg->procedure_code;
+    out.procedureCode = calloc_or_fail(1, sizeof(*out.procedureCode));
+    *out.procedureCode = *msg->procedure_code;
   }
   // Triggering Message (O)
   if (msg->triggering_msg) {
-    out->triggeringMessage = calloc_or_fail(1, sizeof(*out->triggeringMessage));
-    *out->triggeringMessage = *msg->triggering_msg;
+    out.triggeringMessage = calloc_or_fail(1, sizeof(*out.triggeringMessage));
+    *out.triggeringMessage = *msg->triggering_msg;
   }
   // Procedure Criticality (O)
   if (msg->procedure_criticality) {
-    out->procedureCriticality = calloc_or_fail(1, sizeof(*out->procedureCriticality));
-    *out->procedureCriticality = *msg->procedure_criticality;
+    out.procedureCriticality = calloc_or_fail(1, sizeof(*out.procedureCriticality));
+    *out.procedureCriticality = *msg->procedure_criticality;
   }
+  if (msg->num_errors > 0)
+    out.iEsCriticalityDiagnostics = calloc_or_fail(1, sizeof(*out.iEsCriticalityDiagnostics));
   for (int i = 0; i < msg->num_errors; i++) {
-    out->iEsCriticalityDiagnostics = calloc_or_fail(1, sizeof(*out->iEsCriticalityDiagnostics));
-    asn1cSequenceAdd(out->iEsCriticalityDiagnostics->list, struct E1AP_CriticalityDiagnostics_IE_List__Member, ieC0);
+    asn1cSequenceAdd(out.iEsCriticalityDiagnostics->list, struct E1AP_CriticalityDiagnostics_IE_List__Member, ieC0);
     ieC0->iE_ID = msg->errors[i].ie_id;
     ieC0->typeOfError = msg->errors[i].error_type;
     ieC0->iECriticality = msg->errors[i].criticality;
   }
+  return out;
 }
 
-bool decode_criticality_diagnostics(const E1AP_CriticalityDiagnostics_t *in, criticality_diagnostics_t *out)
+static bool decode_criticality_diagnostics(const E1AP_CriticalityDiagnostics_t *in, criticality_diagnostics_t *out)
 {
   // Procedure Code (O)
   if (in->procedureCode) {
@@ -60,9 +63,12 @@ bool decode_criticality_diagnostics(const E1AP_CriticalityDiagnostics_t *in, cri
   }
   // Criticality Diagnostics IE list
   if (in->iEsCriticalityDiagnostics) {
-    for (int i = 0; i < in->iEsCriticalityDiagnostics->list.count; i++) {
+    CHECK_E1AP_DEC(in->iEsCriticalityDiagnostics->list.count > 0
+                   && in->iEsCriticalityDiagnostics->list.count <= E1AP_MAX_NUM_ERRORS);
+    out->num_errors = in->iEsCriticalityDiagnostics->list.count;
+    for (int i = 0; i < out->num_errors; i++) {
       struct E1AP_CriticalityDiagnostics_IE_List__Member *ie = in->iEsCriticalityDiagnostics->list.array[i];
-      out->num_errors++;
+      CHECK_E1AP_DEC(ie != NULL);
       out->errors[i].ie_id = ie->iE_ID;
       out->errors[i].error_type = ie->typeOfError;
       out->errors[i].criticality = ie->iECriticality;
@@ -100,14 +106,16 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_request(const e1ap_setup_req_t *msg)
   ieC2->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_ID;
   ieC2->criticality = E1AP_Criticality_reject;
   ieC2->value.present = E1AP_GNB_CU_UP_E1SetupRequestIEs__value_PR_GNB_CU_UP_ID;
-  asn_int642INTEGER(&ieC2->value.choice.GNB_CU_UP_ID, msg->gNB_cu_up_id);
+  int ret = asn_int642INTEGER(&ieC2->value.choice.GNB_CU_UP_ID, msg->gNB_cu_up_id);
+  AssertFatal(ret == 0, "asn_int642INTEGER() failed for gNB-CU-UP ID %" PRIu64 "\n", msg->gNB_cu_up_id);
   // gNB-CU-UP Name (O)
   if (msg->gNB_cu_up_name) {
     asn1cSequenceAdd(e1SetupUP->protocolIEs.list, E1AP_GNB_CU_UP_E1SetupRequestIEs_t, ieC3);
     ieC3->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_Name;
     ieC3->criticality = E1AP_Criticality_ignore;
     ieC3->value.present = E1AP_GNB_CU_UP_E1SetupRequestIEs__value_PR_GNB_CU_UP_Name;
-    OCTET_STRING_fromBuf(&ieC3->value.choice.GNB_CU_UP_Name, msg->gNB_cu_up_name, strlen(msg->gNB_cu_up_name));
+    ret = OCTET_STRING_fromBuf(&ieC3->value.choice.GNB_CU_UP_Name, msg->gNB_cu_up_name, strlen(msg->gNB_cu_up_name));
+    AssertFatal(ret == 0, "OCTET_STRING_fromBuf() failed for gNB-CU-UP Name\n");
   }
   // CN Support (M)
   asn1cSequenceAdd(e1SetupUP->protocolIEs.list, E1AP_GNB_CU_UP_E1SetupRequestIEs_t, ieC4);
@@ -132,12 +140,7 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_request(const e1ap_setup_req_t *msg)
       supportedPLMN->slice_Support_List = calloc_or_fail(1, sizeof(*supportedPLMN->slice_Support_List));
       for (int s = 0; s < n; ++s) {
         asn1cSequenceAdd(supportedPLMN->slice_Support_List->list, E1AP_Slice_Support_Item_t, slice);
-        e1ap_nssai_t *nssai = &msg->plmn[i].slice[s];
-        INT8_TO_OCTET_STRING(nssai->sst, &slice->sNSSAI.sST);
-        if (nssai->sd != 0xffffff) {
-          slice->sNSSAI.sD = malloc_or_fail(sizeof(*slice->sNSSAI.sD));
-          INT24_TO_OCTET_STRING(nssai->sd, slice->sNSSAI.sD);
-        }
+        slice->sNSSAI = e1_encode_snssai(&msg->plmn[i].slice[s]);
       }
     }
   }
@@ -159,7 +162,7 @@ bool decode_e1ap_cuup_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_req_t
   // Loop over all IEs
   for (int i = 0; i < in->protocolIEs.list.count; i++) {
     ie = in->protocolIEs.list.array[i];
-    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    CHECK_E1AP_DEC(ie != NULL);
     switch (ie->id) {
       case E1AP_ProtocolIE_ID_id_TransactionID:
         _EQ_CHECK_INT(ie->value.present, E1AP_GNB_CU_UP_E1SetupRequestIEs__value_PR_TransactionID);
@@ -186,6 +189,7 @@ bool decode_e1ap_cuup_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_req_t
       case E1AP_ProtocolIE_ID_id_SupportedPLMNs:
         _EQ_CHECK_INT(ie->value.present, E1AP_GNB_CU_UP_E1SetupRequestIEs__value_PR_SupportedPLMNs_List);
         out->supported_plmns = ie->value.choice.SupportedPLMNs_List.list.count;
+        CHECK_E1AP_DEC(out->supported_plmns > 0 && out->supported_plmns <= E1AP_MAX_NUM_PLMNS);
 
         for (int i = 0; i < out->supported_plmns; i++) {
           E1AP_SupportedPLMNs_Item_t *supported_plmn_item =
@@ -201,12 +205,8 @@ bool decode_e1ap_cuup_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_req_t
             out->plmn[i].supported_slices = n;
             out->plmn[i].slice = calloc_or_fail(n, sizeof(*out->plmn[i].slice));
             for (int s = 0; s < n; ++s) {
-              e1ap_nssai_t *slice = &out->plmn[i].slice[s];
-              const E1AP_SNSSAI_t *es = &supported_plmn_item->slice_Support_List->list.array[s]->sNSSAI;
-              OCTET_STRING_TO_INT8(&es->sST, slice->sst);
-              slice->sd = 0xffffff;
-              if (es->sD != NULL)
-                OCTET_STRING_TO_INT24(es->sD, slice->sd);
+              CHECK_E1AP_DEC(
+                  e1_decode_snssai(&supported_plmn_item->slice_Support_List->list.array[s]->sNSSAI, &out->plmn[i].slice[s]));
             }
           }
         }
@@ -306,7 +306,8 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_response(const e1ap_setup_resp_t *msg)
     ieC2->id = E1AP_ProtocolIE_ID_id_gNB_CU_CP_Name;
     ieC2->criticality = E1AP_Criticality_ignore;
     ieC2->value.present = E1AP_GNB_CU_UP_E1SetupResponseIEs__value_PR_GNB_CU_CP_Name;
-    OCTET_STRING_fromBuf(&ieC2->value.choice.GNB_CU_CP_Name, msg->gNB_cu_cp_name, strlen(msg->gNB_cu_cp_name));
+    int ret = OCTET_STRING_fromBuf(&ieC2->value.choice.GNB_CU_CP_Name, msg->gNB_cu_cp_name, strlen(msg->gNB_cu_cp_name));
+    AssertFatal(ret == 0, "OCTET_STRING_fromBuf() failed for gNB-CU-CP Name\n");
   }
   // Encode TNLA Info (O)
   if (msg->tnla_info) {
@@ -315,35 +316,43 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_response(const e1ap_setup_resp_t *msg)
     ieC3->criticality = E1AP_Criticality_ignore;
     ieC3->value.present = E1AP_GNB_CU_UP_E1SetupResponseIEs__value_PR_Transport_Layer_Address_Info;
     // Transport UP Layer Addresses Info to Add List
-    for (int i = 0; i < msg->tnla_info->num_addresses_to_add; i++) {
+    if (msg->tnla_info->num_addresses_to_add > 0) {
       E1AP_Transport_UP_Layer_Addresses_Info_To_Add_List_t *a = calloc_or_fail(1, sizeof(*a));
       ieC3->value.choice.Transport_Layer_Address_Info.transport_UP_Layer_Addresses_Info_To_Add_List =
           (struct E1AP_Transport_UP_Layer_Addresses_Info_To_Add_List *)a;
-      asn1cSequenceAdd(a->list, E1AP_Transport_UP_Layer_Addresses_Info_To_Add_Item_t, ieC4);
-      in_addr_t *ipsec = &msg->tnla_info->addresses_to_add[i].ipsec_tl_address;
-      TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*ipsec, &ieC4->iP_SecTransportLayerAddress);
-      for (int j = 0; j < msg->tnla_info->addresses_to_add[i].num_gtp_tl_addresses; j++) {
-        E1AP_GTPTLAs_t *g = calloc_or_fail(1, sizeof(*g));
-        ieC4->gTPTransportLayerAddressesToAdd = (struct E1AP_GTPTLAs *)g;
-        asn1cSequenceAdd(g->list, E1AP_GTPTLA_Item_t, ieC5);
-        in_addr_t *gtp_tlna = &msg->tnla_info->addresses_to_add[i].gtp_tl_addresses[j];
-        TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*gtp_tlna, &ieC5->gTPTransportLayerAddresses);
+      for (int i = 0; i < msg->tnla_info->num_addresses_to_add; i++) {
+        asn1cSequenceAdd(a->list, E1AP_Transport_UP_Layer_Addresses_Info_To_Add_Item_t, ieC4);
+        in_addr_t *ipsec = &msg->tnla_info->addresses_to_add[i].ipsec_tl_address;
+        TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*ipsec, &ieC4->iP_SecTransportLayerAddress);
+        if (msg->tnla_info->addresses_to_add[i].num_gtp_tl_addresses > 0) {
+          E1AP_GTPTLAs_t *g = calloc_or_fail(1, sizeof(*g));
+          ieC4->gTPTransportLayerAddressesToAdd = (struct E1AP_GTPTLAs *)g;
+          for (int j = 0; j < msg->tnla_info->addresses_to_add[i].num_gtp_tl_addresses; j++) {
+            asn1cSequenceAdd(g->list, E1AP_GTPTLA_Item_t, ieC5);
+            in_addr_t *gtp_tlna = &msg->tnla_info->addresses_to_add[i].gtp_tl_addresses[j];
+            TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*gtp_tlna, &ieC5->gTPTransportLayerAddresses);
+          }
+        }
       }
     }
     // Transport UP Layer Addresses Info to Remove List
-    for (int i = 0; i < msg->tnla_info->num_addresses_to_remove; i++) {
+    if (msg->tnla_info->num_addresses_to_remove > 0) {
       E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_List_t *a = calloc_or_fail(1, sizeof(*a));
       ieC3->value.choice.Transport_Layer_Address_Info.transport_UP_Layer_Addresses_Info_To_Remove_List =
           (struct E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_List *)a;
-      asn1cSequenceAdd(a->list, E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_Item_t, ieC4);
-      in_addr_t *ipsec = &msg->tnla_info->addresses_to_remove[i].ipsec_tl_address;
-      TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*ipsec, &ieC4->iP_SecTransportLayerAddress);
-      for (int j = 0; j < msg->tnla_info->addresses_to_remove[i].num_gtp_tl_addresses; j++) {
-        E1AP_GTPTLAs_t *g = calloc_or_fail(1, sizeof(*g));
-        ieC4->gTPTransportLayerAddressesToRemove = (struct E1AP_GTPTLAs *)g;
-        asn1cSequenceAdd(g->list, E1AP_GTPTLA_Item_t, ieC5);
-        in_addr_t *gtp_tlna = &msg->tnla_info->addresses_to_remove[i].gtp_tl_addresses[j];
-        TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*gtp_tlna, &ieC5->gTPTransportLayerAddresses);
+      for (int i = 0; i < msg->tnla_info->num_addresses_to_remove; i++) {
+        asn1cSequenceAdd(a->list, E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_Item_t, ieC4);
+        in_addr_t *ipsec = &msg->tnla_info->addresses_to_remove[i].ipsec_tl_address;
+        TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*ipsec, &ieC4->iP_SecTransportLayerAddress);
+        if (msg->tnla_info->addresses_to_remove[i].num_gtp_tl_addresses > 0) {
+          E1AP_GTPTLAs_t *g = calloc_or_fail(1, sizeof(*g));
+          ieC4->gTPTransportLayerAddressesToRemove = (struct E1AP_GTPTLAs *)g;
+          for (int j = 0; j < msg->tnla_info->addresses_to_remove[i].num_gtp_tl_addresses; j++) {
+            asn1cSequenceAdd(g->list, E1AP_GTPTLA_Item_t, ieC5);
+            in_addr_t *gtp_tlna = &msg->tnla_info->addresses_to_remove[i].gtp_tl_addresses[j];
+            TRANSPORT_LAYER_ADDRESS_IPv4_TO_BIT_STRING(*gtp_tlna, &ieC5->gTPTransportLayerAddresses);
+          }
+        }
       }
     }
   }
@@ -365,7 +374,7 @@ bool decode_e1ap_cuup_setup_response(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_resp
   // Decode TNLA Info (O)
   for (int i = 0; i < in->protocolIEs.list.count; i++) {
     ie = in->protocolIEs.list.array[i];
-    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    CHECK_E1AP_DEC(ie != NULL);
     switch (ie->id) {
       case E1AP_ProtocolIE_ID_id_TransactionID:
         out->transac_id = ie->value.choice.TransactionID;
@@ -387,33 +396,43 @@ bool decode_e1ap_cuup_setup_response(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_resp
         // Transport UP Layer Addresses Info to Add List
         const E1AP_Transport_UP_Layer_Addresses_Info_To_Add_List_t *a =
             ie->value.choice.Transport_Layer_Address_Info.transport_UP_Layer_Addresses_Info_To_Add_List;
-        out->tnla_info->num_addresses_to_add = a->list.count;
-        for (int i = 0; i < a->list.count; i++) {
-          const E1AP_Transport_UP_Layer_Addresses_Info_To_Add_Item_t *item = a->list.array[i];
-          tnl_address_info_item_t *to_add = &out->tnla_info->addresses_to_add[i];
-          BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&item->iP_SecTransportLayerAddress, to_add->ipsec_tl_address);
-          const E1AP_GTPTLAs_t *gtp_list = item->gTPTransportLayerAddressesToAdd;
-          to_add->num_gtp_tl_addresses = gtp_list->list.count;
-          for (int j = 0; j < gtp_list->list.count; j++) {
-            const E1AP_GTPTLA_Item_t *gtp_item = gtp_list->list.array[j];
-            BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&gtp_item->gTPTransportLayerAddresses, to_add->gtp_tl_addresses[j]);
+        if (a != NULL) {
+          CHECK_E1AP_DEC(a->list.count > 0 && a->list.count <= E1AP_MAX_TL_ADDRESSES);
+          out->tnla_info->num_addresses_to_add = a->list.count;
+          for (int i = 0; i < a->list.count; i++) {
+            const E1AP_Transport_UP_Layer_Addresses_Info_To_Add_Item_t *item = a->list.array[i];
+            tnl_address_info_item_t *to_add = &out->tnla_info->addresses_to_add[i];
+            BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&item->iP_SecTransportLayerAddress, to_add->ipsec_tl_address);
+            const E1AP_GTPTLAs_t *gtp_list = item->gTPTransportLayerAddressesToAdd;
+            if (gtp_list != NULL) {
+              CHECK_E1AP_DEC(gtp_list->list.count > 0 && gtp_list->list.count <= E1AP_MAX_GTP_TL_ADDRESSES);
+              to_add->num_gtp_tl_addresses = gtp_list->list.count;
+              for (int j = 0; j < gtp_list->list.count; j++) {
+                const E1AP_GTPTLA_Item_t *gtp_item = gtp_list->list.array[j];
+                BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&gtp_item->gTPTransportLayerAddresses, to_add->gtp_tl_addresses[j]);
+              }
+            }
           }
         }
         // Transport UP Layer Addresses Info to Remove List
         const E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_List_t *r =
             ie->value.choice.Transport_Layer_Address_Info.transport_UP_Layer_Addresses_Info_To_Remove_List;
-        out->tnla_info->num_addresses_to_remove = r->list.count;
-
-        for (int i = 0; i < r->list.count; i++) {
-          const E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_Item_t *item = r->list.array[i];
-          tnl_address_info_item_t *to_remove = &out->tnla_info->addresses_to_remove[i];
-          BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&item->iP_SecTransportLayerAddress, to_remove->ipsec_tl_address);
-
-          const E1AP_GTPTLAs_t *gtp_list = item->gTPTransportLayerAddressesToRemove;
-          to_remove->num_gtp_tl_addresses = gtp_list->list.count;
-          for (int j = 0; j < gtp_list->list.count; j++) {
-            const E1AP_GTPTLA_Item_t *gtp_item = gtp_list->list.array[j];
-            BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&gtp_item->gTPTransportLayerAddresses, to_remove->gtp_tl_addresses[j]);
+        if (r != NULL) {
+          CHECK_E1AP_DEC(r->list.count > 0 && r->list.count <= E1AP_MAX_TL_ADDRESSES);
+          out->tnla_info->num_addresses_to_remove = r->list.count;
+          for (int i = 0; i < r->list.count; i++) {
+            const E1AP_Transport_UP_Layer_Addresses_Info_To_Remove_Item_t *item = r->list.array[i];
+            tnl_address_info_item_t *to_remove = &out->tnla_info->addresses_to_remove[i];
+            BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&item->iP_SecTransportLayerAddress, to_remove->ipsec_tl_address);
+            const E1AP_GTPTLAs_t *gtp_list = item->gTPTransportLayerAddressesToRemove;
+            if (gtp_list != NULL) {
+              CHECK_E1AP_DEC(gtp_list->list.count > 0 && gtp_list->list.count <= E1AP_MAX_GTP_TL_ADDRESSES);
+              to_remove->num_gtp_tl_addresses = gtp_list->list.count;
+              for (int j = 0; j < gtp_list->list.count; j++) {
+                const E1AP_GTPTLA_Item_t *gtp_item = gtp_list->list.array[j];
+                BIT_STRING_TO_TRANSPORT_LAYER_ADDRESS_IPv4(&gtp_item->gTPTransportLayerAddresses, to_remove->gtp_tl_addresses[j]);
+              }
+            }
           }
         }
         break;
@@ -531,7 +550,7 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_failure(const e1ap_setup_fail_t *msg)
     ie4->id = E1AP_ProtocolIE_ID_id_CriticalityDiagnostics;
     ie4->criticality = E1AP_Criticality_ignore;
     ie4->value.present = E1AP_GNB_CU_UP_E1SetupFailureIEs__value_PR_CriticalityDiagnostics;
-    encode_criticality_diagnostics(msg->crit_diag, &ie4->value.choice.CriticalityDiagnostics);
+    ie4->value.choice.CriticalityDiagnostics = encode_criticality_diagnostics(msg->crit_diag);
   }
   return pdu;
 }
@@ -550,7 +569,7 @@ bool decode_e1ap_cuup_setup_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_fail_
   E1AP_LIB_FIND_IE(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_Cause, true);
   for (int i = 0; i < in->protocolIEs.list.count; i++) {
     ie = in->protocolIEs.list.array[i];
-    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    CHECK_E1AP_DEC(ie != NULL);
     switch (ie->id) {
       case E1AP_ProtocolIE_ID_id_TransactionID:
         out->transac_id = ie->value.choice.TransactionID;
@@ -558,7 +577,7 @@ bool decode_e1ap_cuup_setup_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_fail_
       case E1AP_ProtocolIE_ID_id_Cause:
         // Cause
         E1AP_LIB_FIND_IE(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_Cause, true);
-        out->cause = e1_decode_cause_ie(&ie->value.choice.Cause);
+        CHECK_E1AP_DEC(e1_decode_cause_ie(&ie->value.choice.Cause, &out->cause));
         break;
       case E1AP_ProtocolIE_ID_id_TimeToWait:
         // Time To Wait (O)
@@ -570,7 +589,7 @@ bool decode_e1ap_cuup_setup_failure(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_fail_
         // Criticality Diagnostics (O)
         E1AP_LIB_FIND_IE(E1AP_GNB_CU_UP_E1SetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_CriticalityDiagnostics, false);
         out->crit_diag = calloc_or_fail(1, sizeof(*out->crit_diag));
-        decode_criticality_diagnostics(&ie->value.choice.CriticalityDiagnostics, out->crit_diag);
+        CHECK_E1AP_DEC(decode_criticality_diagnostics(&ie->value.choice.CriticalityDiagnostics, out->crit_diag));
         break;
       default:
         PRINT_ERROR("Handle for this IE %ld is not implemented (or) invalid IE detected\n", ie->id);

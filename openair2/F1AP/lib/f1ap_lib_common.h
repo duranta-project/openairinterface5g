@@ -17,12 +17,13 @@
 #include "f1ap_messages_types.h"
 #include "common/utils/eq_check.h"
 
-#define _F1_CHECK_EXP(EXP)                 \
-  do {                                     \
-    if (!(EXP)) {                          \
-      PRINT_ERROR("Failed at " #EXP "\n"); \
-      return false;                        \
-    }                                      \
+#define _F1_CHECK_EXP(EXP)                                \
+  do {                                                    \
+    const bool f1_check_ok_ = (EXP);                      \
+    if (!f1_check_ok_) {                                  \
+      PRINT_ERROR("%s(): '%s' failed\n", __func__, #EXP); \
+      return f1_check_ok_;                                \
+    }                                                     \
   } while (0)
 
 /* macro to look up IE. If mandatory and not found, macro will print
