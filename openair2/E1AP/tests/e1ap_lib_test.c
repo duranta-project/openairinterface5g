@@ -754,6 +754,11 @@ static void test_bearer_context_modification_response(void)
   *drb_mod_2.pdcp_status = dummy_pdcp_status;
 
   DRB_nGRAN_setup_t setup = drb_setup_in_mod_resp_template(1);
+  setup.numUpParam = 2;
+  setup.UpParamList[0].cell_group_id = MCG;
+  setup.UpParamList[0].tl_info = create_up_tl_info(0x2345);
+  setup.UpParamList[1].cell_group_id = SCG;
+  setup.UpParamList[1].tl_info = create_up_tl_info(0x3456);
   setup.qosFlows[0].qfi = 1;
   setup.qosFlowsFailed[0].qfi = 9;
   setup.qosFlowsFailed[0].cause = dummy_cause;

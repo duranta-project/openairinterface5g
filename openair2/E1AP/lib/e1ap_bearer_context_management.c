@@ -2379,7 +2379,7 @@ struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_response(const e1ap_bearer_mo
           for (const up_params_t *k = drb->UpParamList; k < drb->UpParamList + drb->numUpParam; k++) {
             asn1cSequenceAdd(item->uL_UP_Transport_Parameters.list, E1AP_UP_Parameters_Item_t, up);
             up->uP_TNL_Information = e1_encode_up_tnl_info(&k->tl_info);
-            up->cell_Group_ID = drb->UpParamList->cell_group_id;
+            up->cell_Group_ID = k->cell_group_id;
           }
           // Flow Setup List (M)
           for (int q = 0; q < drb->numQosFlowSetup; ++q) {
