@@ -363,6 +363,33 @@ static int get_ue_ipv4_route_table_id(const char *ifname)
   return ifindex > 0 ? 100000 + ifindex : -1;
 }
 
+/* our policy rules carry this routing protocol number, shown as "proto 205" by "ip rule", and
+   "ip rule flush protocol 205" removes them all when no UE runs */
+#define UE_IPV4_RULE_PROTO 205
+
+/* A rule is not removed when the UE process is killed, while the route of its table leaves with the interface.
+   So one of our rules that selects a table without route is from a dead UE. Once per process is enough. */
+static void remove_orphan_ue_ipv4_rules(void)
+{
+  static bool done = false;
+  if (done)
+    return;
+  done = true;
+  char command_line[500];
+  const int res = snprintf(command_line,
+                           sizeof(command_line),
+                           "ip -4 rule show | sed -n 's/.*lookup \\([0-9][0-9]*\\) proto %d *$/\\1/p' | sort -u | "
+                           "while read t; do test -n \"$(ip -4 route show table $t 2>/dev/null)\" || "
+                           "ip -4 rule flush table $t protocol %d; done",
+                           UE_IPV4_RULE_PROTO,
+                           UE_IPV4_RULE_PROTO);
+  if (res < 0 || res >= (int)sizeof(command_line)) {
+    LOG_E(UTIL, "Could not create the orphan ip rule cleanup string\n");
+    return;
+  }
+  background_system(command_line);
+}
+
 int setup_ue_ipv4_route(const char *ifname, const char *ipv4)
 {
   const int table_id = get_ue_ipv4_route_table_id(ifname);
@@ -371,26 +398,31 @@ int setup_ue_ipv4_route(const char *ifname, const char *ipv4)
     return -1;
   }
 
+  remove_orphan_ue_ipv4_rules();
+
   /* the rules of a previous UE with this address or this table (a process killed, a new PDU session) are removed
-     first: they are never deleted otherwise, and every packet of the host walks the rule list */
+     first. The route is set before the rules: a table with rules is never empty, so the orphan cleanup of another
+     UE process cannot take the rules of a UE that is attaching */
   char command_line[1000];
   int res = snprintf(command_line,
                      sizeof(command_line),
                      "while ip rule del from %s/32 2>/dev/null; do :; done; "
                      "while ip rule del to %s/32 2>/dev/null; do :; done; "
                      "while ip rule del table %d 2>/dev/null; do :; done; "
-                     "ip rule add from %s/32 table %d && "
-                     "ip rule add to %s/32 table %d && "
-                     "ip route replace default dev %s table %d",
+                     "ip route replace default dev %s table %d && "
+                     "ip rule add from %s/32 table %d protocol %d && "
+                     "ip rule add to %s/32 table %d protocol %d",
                      ipv4,
-                     ipv4,
-                     table_id,
-                     ipv4,
-                     table_id,
                      ipv4,
                      table_id,
                      ifname,
-                     table_id);
+                     table_id,
+                     ipv4,
+                     table_id,
+                     UE_IPV4_RULE_PROTO,
+                     ipv4,
+                     table_id,
+                     UE_IPV4_RULE_PROTO);
 
   if (res < 0 || res >= sizeof(command_line)) {
     LOG_E(UTIL, "Could not create ip rule/route commands string\n");
