@@ -734,16 +734,14 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
   /* Step 2: RI/PMI selection — sets sched_pdsch.nrOfLayers and pm_index per candidate */
   mac->dl_ri_pmi_select(cell, candidates, n);
 
-  /* Step 3: Beam allocation (skip for single beam — candidates default to beam 0).
+  /* Step 3: Beam allocation
    * Done before TDA so that TDA selection can use the allocated beam to check
    * the correct VRB map and pick the best TDA per beam. */
   FOR_EACH_CANDIDATE(cand, candidates, n)
   cand->skipped = false;
-  if (num_beams > 1) {
-    int n_beam_valid = mac->dl_beam_select(&cell->beam_info, cell->beam_index_list, candidates, n, frame, slot, slots_per_frame);
-    if (n_beam_valid == 0)
-      return;
-  }
+  int n_beam_valid = mac->dl_beam_select(&cell->beam_info, cell->beam_index_list, candidates, n, frame, slot, slots_per_frame);
+  if (n_beam_valid == 0)
+    return;
 
   /* Step 4: Per-UE TDA selection. Resolves tda/tda_info/slbitmap on each
    * candidate, marks invalids with skipped=true. */
