@@ -1484,11 +1484,7 @@ static E1AP_PDU_Session_Resource_To_Modify_Item_t e1_encode_pdu_session_to_mod_i
     // DL UP TNL parameters (O)
     if (j->numDlUpParam > 0) {
       asn1cCalloc(drb2Mod->dL_UP_Parameters, DL_UP_Param_List);
-      for (const up_params_t *k = j->DlUpParamList; k < j->DlUpParamList + j->numDlUpParam; k++) {
-        asn1cSequenceAdd(DL_UP_Param_List->list, E1AP_UP_Parameters_Item_t, DL_UP_Param);
-        DL_UP_Param->uP_TNL_Information = e1_encode_up_tnl_info(&k->tl_info);
-        DL_UP_Param->cell_Group_ID = k->cell_group_id;
-      }
+      *DL_UP_Param_List = encode_up_parameters(j->numDlUpParam, j->DlUpParamList);
     }
     // QoS Flows to setup (O)
     for (const qos_flow_to_setup_t *k = j->qosFlows; k < j->qosFlows + j->numQosFlowsMod; k++) {
@@ -2347,12 +2343,9 @@ struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_response(const e1ap_bearer_mo
             *pdcp = encode_pdcp_status_info(drb->pdcp_status);
           }
           // UL UP Parameters (O)
-          if (drb->numUpParam)
+          if (drb->numUpParam) {
             drb_mod->uL_UP_Transport_Parameters = calloc_or_fail(1, sizeof(*drb_mod->uL_UP_Transport_Parameters));
-          for (const up_params_t *k = drb->ul_UP_Params; k < drb->ul_UP_Params + drb->numUpParam; k++) {
-            asn1cSequenceAdd(drb_mod->uL_UP_Transport_Parameters->list, E1AP_UP_Parameters_Item_t, up);
-            up->uP_TNL_Information = e1_encode_up_tnl_info(&k->tl_info);
-            up->cell_Group_ID = k->cell_group_id;
+            *drb_mod->uL_UP_Transport_Parameters = encode_up_parameters(drb->numUpParam, drb->ul_UP_Params);
           }
         }
       }
@@ -2376,11 +2369,7 @@ struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_response(const e1ap_bearer_mo
           // DRB ID (M)
           item->dRB_ID = drb->id;
           // UL UP Parameters (M)
-          for (const up_params_t *k = drb->UpParamList; k < drb->UpParamList + drb->numUpParam; k++) {
-            asn1cSequenceAdd(item->uL_UP_Transport_Parameters.list, E1AP_UP_Parameters_Item_t, up);
-            up->uP_TNL_Information = e1_encode_up_tnl_info(&k->tl_info);
-            up->cell_Group_ID = k->cell_group_id;
-          }
+          item->uL_UP_Transport_Parameters = encode_up_parameters(drb->numUpParam, drb->UpParamList);
           // Flow Setup List (M)
           for (int q = 0; q < drb->numQosFlowSetup; ++q) {
             asn1cSequenceAdd(item->flow_Setup_List.list, E1AP_QoS_Flow_Item_t, qos);
