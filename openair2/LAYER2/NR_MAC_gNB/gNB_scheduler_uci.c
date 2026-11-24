@@ -125,9 +125,12 @@ static void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
     int n_list = pucch_Config->resourceToAddModList->list.count;
     AssertFatal(n_list > 0, "PUCCH resourceToAddModList is empty\n");
 
-    // going through the list of PUCCH resources to find the one indexed by resource_id
-    for (int i = 0; i < n_list; i++) {
-      NR_PUCCH_Resource_t *pucchres = pucch_Config->resourceToAddModList->list.array[i];
+    // going through the list of PUCCH resources to find the one indexed by resource_id: it is usually at the index
+    // of its id, look there first
+    NR_PUCCH_Resource_t **res_list = pucch_Config->resourceToAddModList->list.array;
+    const int first = resource_id >= 0 && resource_id < n_list && res_list[resource_id]->pucch_ResourceId == resource_id ? resource_id : 0;
+    for (int i = first; i < n_list && !res_found; i++) {
+      NR_PUCCH_Resource_t *pucchres = res_list[i];
       if (pucchres->pucch_ResourceId == resource_id) {
         res_found = 1;
         pucch_pdu->prb_start = pucchres->startingPRB;
@@ -604,7 +607,11 @@ static NR_PUCCH_Resource_t *get_pucch_resource(const NR_PUCCH_Config_t *pucch_Co
 {
   DevAssert(resource_id);
   DevAssert(pucch_Config->resourceSetToAddModList);
-  for (int n = 0; n < pucch_Config->resourceToAddModList->list.count; n++) {
+  // a resource is usually at the index of its id: look there first, each entry is a separate allocation
+  const int count = pucch_Config->resourceToAddModList->list.count;
+  if (*resource_id >= 0 && *resource_id < count && pucch_Config->resourceToAddModList->list.array[*resource_id]->pucch_ResourceId == *resource_id)
+    return pucch_Config->resourceToAddModList->list.array[*resource_id];
+  for (int n = 0; n < count; n++) {
     NR_PUCCH_Resource_t *resource = pucch_Config->resourceToAddModList->list.array[n];
     if (resource->pucch_ResourceId == *resource_id)
       return resource;
