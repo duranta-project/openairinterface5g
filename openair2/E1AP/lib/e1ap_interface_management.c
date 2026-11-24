@@ -140,12 +140,7 @@ E1AP_E1AP_PDU_t *encode_e1ap_cuup_setup_request(const e1ap_setup_req_t *msg)
       supportedPLMN->slice_Support_List = calloc_or_fail(1, sizeof(*supportedPLMN->slice_Support_List));
       for (int s = 0; s < n; ++s) {
         asn1cSequenceAdd(supportedPLMN->slice_Support_List->list, E1AP_Slice_Support_Item_t, slice);
-        e1ap_nssai_t *nssai = &msg->plmn[i].slice[s];
-        INT8_TO_OCTET_STRING(nssai->sst, &slice->sNSSAI.sST);
-        if (nssai->sd != 0xffffff) {
-          slice->sNSSAI.sD = malloc_or_fail(sizeof(*slice->sNSSAI.sD));
-          INT24_TO_OCTET_STRING(nssai->sd, slice->sNSSAI.sD);
-        }
+        slice->sNSSAI = e1_encode_snssai(&msg->plmn[i].slice[s]);
       }
     }
   }
@@ -210,12 +205,8 @@ bool decode_e1ap_cuup_setup_request(const E1AP_E1AP_PDU_t *pdu, e1ap_setup_req_t
             out->plmn[i].supported_slices = n;
             out->plmn[i].slice = calloc_or_fail(n, sizeof(*out->plmn[i].slice));
             for (int s = 0; s < n; ++s) {
-              e1ap_nssai_t *slice = &out->plmn[i].slice[s];
-              const E1AP_SNSSAI_t *es = &supported_plmn_item->slice_Support_List->list.array[s]->sNSSAI;
-              OCTET_STRING_TO_INT8(&es->sST, slice->sst);
-              slice->sd = 0xffffff;
-              if (es->sD != NULL)
-                OCTET_STRING_TO_INT24(es->sD, slice->sd);
+              CHECK_E1AP_DEC(
+                  e1_decode_snssai(&supported_plmn_item->slice_Support_List->list.array[s]->sNSSAI, &out->plmn[i].slice[s]));
             }
           }
         }

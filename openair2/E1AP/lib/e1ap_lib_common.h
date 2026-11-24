@@ -51,4 +51,8 @@ struct E1AP_Cause;
 struct E1AP_Cause e1_encode_cause_ie(const e1ap_cause_t *cause);
 bool e1_decode_cause_ie(const struct E1AP_Cause *ie, e1ap_cause_t *out);
 
+struct E1AP_SNSSAI;
+struct E1AP_SNSSAI e1_encode_snssai(const nssai_t *in);
+bool e1_decode_snssai(const struct E1AP_SNSSAI *in, e1ap_nssai_t *out);
+
 #endif /* E1AP_LIB_COMMON_H_ */
