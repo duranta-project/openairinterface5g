@@ -127,6 +127,7 @@ add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test3 "11 PTRS, 0 Interpolated Symb
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test4 "Mapping type A, 2 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 0 1)
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test5 "Mapping type A, 3 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 0 2)
 add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test6 "Mapping type B, 4 DMRS Symbols" nr_dlsim -P -n300 -s5 -S7 -U 2 1 3)
+add_physim_test(physim.5g.nr_dlsim.dmrs.ptrs.test7 "PTRS, 16QAM, TDL-C, PDSCH at PRB 40" nr_dlsim -P -n300 -s22 -e16 -R106 -a40 -b50 -gC -T 2 0 2)
 
 ####################################################################################
 ######                           nr_dlschsim unit test                        ######
@@ -236,6 +237,7 @@ add_physim_test(physim.5g.nr_ulsim.misc.test12 "32 PRBs, 120 kHz SCS" nr_ulsim -
 add_physim_test(physim.5g.nr_ulsim.misc.test13 "MCS 0, low SNR performance" nr_ulsim -P -n300 -m0 -S -0.6 -i 1,0)
 add_physim_test(physim.5g.nr_ulsim.misc.test14 "MCS 28, 106 PRBs, Time shift 8" nr_ulsim -P -n300 -m28 -R106 -r106 -t90 -s24 -S24 -d 8)
 add_physim_test(physim.5g.nr_ulsim.misc.test15 "SRS, SNR 40 dB" nr_ulsim -P -n300 -s40 -E 1)
+add_physim_test(physim.5g.nr_ulsim.misc.test16 "PUSCH Type A, 2 DMRS, PTRS, TDL-C, PUSCH at PRB 40" nr_ulsim -P -n300 -s22 -S22 -m16 -R106 -r50 -w40 -g C,l -U 0,1,1,1 -T 0,2 -t80)
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test1 "SC-FDMA, 50 PRBs" nr_ulsim -P -n300 -s5 -Z)
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test2 "SC-FDMA, 75 PRBs" nr_ulsim -P -n300 -s5 -Z -r75)
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test3 "SC-FDMA, 216 PRBs" nr_ulsim -P -n150 -s5 -Z -r216 -R217)

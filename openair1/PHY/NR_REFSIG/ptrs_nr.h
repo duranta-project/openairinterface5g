@@ -50,7 +50,7 @@ uint8_t get_ptrs_symbols_in_slot(uint16_t l_prime_mask, uint16_t start_symb, uin
 typedef struct {
   uint start_symb;
   uint num_symb;
-  uint start_rb;
+  uint start_rb; // first allocated RB from the carrier start (BWP start included)
   uint num_rb;
   uint N_RB;
   uint ofdm_symbol_size;
