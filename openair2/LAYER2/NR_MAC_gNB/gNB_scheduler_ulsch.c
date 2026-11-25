@@ -2464,18 +2464,24 @@ nfapi_nr_pusch_pdu_t *prepare_pusch_pdu(nfapi_nr_ul_tti_request_t *future_ul_tti
   }
   /* PUSCH PTRS */
   if (sched_pusch->dmrs_info.ptrsConfig) {
-    bool valid_ptrs_setup = false;
-    pusch_pdu->pusch_ptrs.ptrs_ports_list = calloc_or_fail(2, sizeof(nfapi_nr_ptrs_ports_t));
-    valid_ptrs_setup = set_ul_ptrs_values(sched_pusch->dmrs_info.ptrsConfig,
-                                          pusch_pdu->rb_size,
-                                          pusch_pdu->mcs_index,
-                                          pusch_pdu->mcs_table,
-                                          &pusch_pdu->pusch_ptrs.ptrs_freq_density,
-                                          &pusch_pdu->pusch_ptrs.ptrs_time_density,
-                                          &pusch_pdu->pusch_ptrs.ptrs_ports_list->ptrs_re_offset,
-                                          &pusch_pdu->pusch_ptrs.num_ptrs_ports,
-                                          &pusch_pdu->pusch_ptrs.ul_ptrs_power,
-                                          pusch_pdu->nr_of_symbols);
+    // the PDU outlives this function and nobody frees it: point to static storage, one entry per RE offset (offset00..offset11)
+    static nfapi_nr_ptrs_ports_t ptrs_ports[4][2] = {{{.ptrs_re_offset = 0}, {.ptrs_re_offset = 0}},
+                                                     {{.ptrs_re_offset = 1}, {.ptrs_re_offset = 1}},
+                                                     {{.ptrs_re_offset = 2}, {.ptrs_re_offset = 2}},
+                                                     {{.ptrs_re_offset = 3}, {.ptrs_re_offset = 3}}};
+    uint8_t re_offset = 0;
+    bool valid_ptrs_setup = set_ul_ptrs_values(sched_pusch->dmrs_info.ptrsConfig,
+                                               pusch_pdu->rb_size,
+                                               pusch_pdu->mcs_index,
+                                               pusch_pdu->mcs_table,
+                                               &pusch_pdu->pusch_ptrs.ptrs_freq_density,
+                                               &pusch_pdu->pusch_ptrs.ptrs_time_density,
+                                               &re_offset,
+                                               &pusch_pdu->pusch_ptrs.num_ptrs_ports,
+                                               &pusch_pdu->pusch_ptrs.ul_ptrs_power,
+                                               pusch_pdu->nr_of_symbols);
+    DevAssert(re_offset < 4);
+    pusch_pdu->pusch_ptrs.ptrs_ports_list = ptrs_ports[re_offset];
     if (valid_ptrs_setup == true)
       pusch_pdu->pdu_bit_map |= PUSCH_PDU_BITMAP_PUSCH_PTRS; // enable PUSCH PTRS
   } else
