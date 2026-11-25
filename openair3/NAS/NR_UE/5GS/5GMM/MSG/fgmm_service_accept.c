@@ -76,20 +76,30 @@ int decode_fgs_service_accept(fgs_service_accept_msg_t *msg, const byte_array_t 
   msg->t3448 = NULL;
 
   // Decode Optional IEs
+  bool seen_psi_status = false;
+  bool seen_psi_res = false;
   while (decoded < buffer->len) {
     uint8_t iei = buffer->buf[decoded++];
     UPDATE_BYTE_ARRAY(ba, 1);
 
     switch (iei) {
       case IEI_PDU_SESSION_STATUS:
-        msg->has_psi_status = true;
-        DECODE_NAS_IE(ba, decode_pdu_session_ie(msg->psi_status, &ba), decoded);
-      break;
+        if (seen_psi_status) {
+          DECODE_NAS_IE(ba, skip_pdu_session_ie(ba.buf, ba.len), decoded);
+          break;
+        }
+        seen_psi_status = true;
+        DECODE_NAS_IE(ba, decode_pdu_session_ie(msg->psi_status, &ba, &msg->has_psi_status), decoded);
+        break;
 
       case IEI_PDU_SESSION_REACT_RESULT:
-        msg->has_psi_res = true;
-        DECODE_NAS_IE(ba, decode_pdu_session_ie(msg->psi_res, &ba), decoded);
-      break;
+        if (seen_psi_res) {
+          DECODE_NAS_IE(ba, skip_pdu_session_ie(ba.buf, ba.len), decoded);
+          break;
+        }
+        seen_psi_res = true;
+        DECODE_NAS_IE(ba, decode_pdu_session_ie(msg->psi_res, &ba, &msg->has_psi_res), decoded);
+        break;
 
       case IEI_PDU_SESSION_REACT_RESULT_ERROR_CAUSE: {
         int start = decoded;
