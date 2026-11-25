@@ -755,12 +755,11 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     } else
       pusch_config_pdu->tbslbrm = 0;
 
-    /* PTRS */
-    if (pusch_Config && pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB &&
-        pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB->choice.setup->phaseTrackingRS) {
+    /* PTRS: not with DCI 0_0, which does not use the dedicated DMRS configuration */
+    if (dci_format != NR_UL_DCI_FORMAT_0_0 && NR_DMRS_ulconfig && NR_DMRS_ulconfig->phaseTrackingRS) {
       if (!tp_enabled) {
         bool valid_ptrs_setup =
-            set_ul_ptrs_values(pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB->choice.setup->phaseTrackingRS->choice.setup,
+            set_ul_ptrs_values(NR_DMRS_ulconfig->phaseTrackingRS->choice.setup,
                                pusch_config_pdu->rb_size,
                                pusch_config_pdu->mcs_index,
                                pusch_config_pdu->mcs_table,
