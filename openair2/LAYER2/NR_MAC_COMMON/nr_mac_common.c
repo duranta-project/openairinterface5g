@@ -3170,8 +3170,11 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
         dci_pdu->ptrs_dmrs_association.nbits = 2;
       size += dci_pdu->ptrs_dmrs_association.nbits;
       // beta offset indicator
+      dci_pdu->beta_offset_indicator.nbits = 0;
       if (pusch_Config &&
-          pusch_Config->uci_OnPUSCH!=NULL){
+          pusch_Config->uci_OnPUSCH!=NULL &&
+          pusch_Config->uci_OnPUSCH->choice.setup != NULL &&
+          pusch_Config->uci_OnPUSCH->choice.setup->betaOffsets != NULL) {
         if (pusch_Config->uci_OnPUSCH->choice.setup->betaOffsets->present == NR_UCI_OnPUSCH__betaOffsets_PR_dynamic) {
           dci_pdu->beta_offset_indicator.nbits = 2;
           size += dci_pdu->beta_offset_indicator.nbits;
