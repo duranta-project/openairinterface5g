@@ -1645,11 +1645,11 @@ int load_channellist(uint8_t nb_tx, uint8_t nb_rx, double sampling_rate, uint64_
   for (int i=0; i<channel_list.numelt; i++) {
     int modid = modelid_fromstrtype( *(channel_list.paramarray[i][pindex_TYPE].strptr) );
 
-    if (modid <0) {
-      LOG_E(OCM,"Valid channel model types:\n");
+    if (modid < 0) {
+      LOG_E(OCM, "Valid channel model types:\n");
 
-      for (int m=0; channelmod_names[i].name != NULL ; m++) {
-        printf(" %s ", map_int_to_str(channelmod_names,m ));
+      for (int m = 0; channelmod_names[m].name != NULL; m++) {
+        printf(" %s ", channelmod_names[m].name);
       }
 
       AssertFatal(0, "\n  Choose a valid model type\n");
