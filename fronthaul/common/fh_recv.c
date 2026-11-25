@@ -24,9 +24,17 @@ int fh_recv_init(fh_recv_t *recv, fh_timer_t *timer, fh_recv_q_conf_t *q_confs, 
   }
   recv->cb = cb;
   recv->user_data = user_data;
+  recv->poll_cb = NULL;
+  recv->poll_user_data = NULL;
   recv->running = false;
 
   return 0;
+}
+
+void fh_recv_set_poll_cb(fh_recv_t *recv, fh_recv_poll_cb cb, void *user_data)
+{
+  recv->poll_cb = cb;
+  recv->poll_user_data = user_data;
 }
 
 int fh_recv_run(void *arg)
@@ -52,6 +60,8 @@ int fh_recv_run(void *arg)
     }
 
     fh_timer_tick(recv->timer);
+    if (recv->poll_cb)
+      recv->poll_cb(recv->poll_user_data);
   }
 
   return 0;

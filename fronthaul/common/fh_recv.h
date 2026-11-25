@@ -12,6 +12,7 @@
 #include "fh_timer.h"
 
 typedef void (*fh_recv_cb)(struct rte_mbuf **pkts, uint16_t n, void *user_data);
+typedef void (*fh_recv_poll_cb)(void *user_data);
 
 #define MAX_FH_RECV_QUEUES 2
 
@@ -26,6 +27,8 @@ typedef struct {
   uint16_t num_qs;
   fh_recv_cb cb;
   void *user_data;
+  fh_recv_poll_cb poll_cb; // optional, called on every poll iteration
+  void *poll_user_data;
   volatile bool running;
 } fh_recv_t;
 
@@ -50,6 +53,9 @@ int fh_recv_init(fh_recv_t *recv, fh_timer_t *timer, fh_recv_q_conf_t *q_confs, 
  * @param arg Pointer to initialized fh_recv handle
  * @return int 0 on normal exit
  */
+// Sets a function the poll loop calls on every iteration, after the timer. Call before fh_recv_run().
+void fh_recv_set_poll_cb(fh_recv_t *recv, fh_recv_poll_cb cb, void *user_data);
+
 int fh_recv_run(void *arg);
 
 /**

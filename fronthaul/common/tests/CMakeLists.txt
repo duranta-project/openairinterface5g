@@ -32,6 +32,12 @@ add_dependencies(tests test_fh_send)
 add_test(NAME test_fh_send COMMAND test_fh_send ${DPDK_TEST_ARGS} "--file-prefix=test_fh_send" "--vdev=net_null0")
 set_property(TEST test_fh_send PROPERTY LABELS fronthaul)
 
+add_executable(test_fh_send_backlog test_fh_send_backlog.c)
+target_link_libraries(test_fh_send_backlog PRIVATE fh_send PkgConfig::dpdk rte_net_ring)
+add_dependencies(tests test_fh_send_backlog)
+add_test(NAME test_fh_send_backlog COMMAND test_fh_send_backlog ${DPDK_TEST_ARGS} "--file-prefix=test_fh_send_backlog")
+set_property(TEST test_fh_send_backlog PROPERTY LABELS fronthaul)
+
 add_executable(test_fh_recv test_fh_recv.c)
 target_link_libraries(test_fh_recv PRIVATE fh_recv PkgConfig::dpdk)
 add_dependencies(tests test_fh_recv)

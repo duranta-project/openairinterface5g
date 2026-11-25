@@ -67,12 +67,12 @@ int du_io_init(du_io_t *io, du_io_config_t *conf);
 
 /**
  * @brief Send C-Plane and U-Plane packets to the first O-RU MAC.
- * Prepends the Ethernet header and transmits immediately. Packets the NIC does not accept are freed.
+ * Prepends the Ethernet header and transmits immediately, after the packets the NIC refused earlier.
  *
  * @param io Pointer to du_io handle
  * @param mbufs Array of packets, starting at the eCPRI header
  * @param num_mbufs Number of mbufs
- * @return int Number of packets sent
+ * @return int Number of packets taken; one without headroom for the Ethernet header is freed
  */
 int du_io_send_uplane(du_io_t *io, struct rte_mbuf **mbufs, uint32_t num_mbufs);
 

@@ -433,4 +433,8 @@ void du_fh_print_stats(void *handle)
   du_fh_t *fh = (du_fh_t *)handle;
   du_packet_processor_print_stats(fh->packet_processor);
   du_tx_print_stats(fh->tx_scheduler);
+  if (fh->io.send.backlog_queued > 0)
+    LOG_I(HW, "  NIC Refused, Sent Later: %lu\n", fh->io.send.backlog_queued - fh->io.send.backlog_count);
+  if (fh->io.send.backlog_full > 0)
+    LOG_I(HW, "  NIC Refused, Backlog Full Drops: %lu\n", fh->io.send.backlog_full);
 }

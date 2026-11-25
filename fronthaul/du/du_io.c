@@ -159,6 +159,12 @@ static int configure_dpdk_port(uint16_t port_id, du_io_config_t *conf, struct rt
   return 0;
 }
 
+// Poll loop hook: packets the NIC refused go out as soon as it takes them
+static void flush_refused(void *user_data)
+{
+  fh_send_flush((fh_send_t *)user_data);
+}
+
 int du_io_init(du_io_t *io, du_io_config_t *conf)
 {
   memset(io, 0, sizeof(*io));
@@ -245,6 +251,7 @@ int du_io_init(du_io_t *io, du_io_config_t *conf)
     fprintf(stderr, "Unsupported number of ports: %d\n", conf->num_ports);
     return -1;
   }
+  fh_recv_set_poll_cb(&io->recv, flush_refused, &io->send);
   return 0;
 }
 
@@ -265,11 +272,8 @@ int du_io_send_uplane(du_io_t *io, struct rte_mbuf **mbufs, uint32_t num_mbufs)
   }
   num_mbufs = kept;
 
-  uint16_t sent = fh_send_immediate(&io->send, mbufs, num_mbufs);
-  // The NIC did not take the rest; they are still ours
-  for (uint32_t i = sent; i < num_mbufs; i++)
-    rte_pktmbuf_free(mbufs[i]);
-  return sent;
+  fh_send_ordered(&io->send, mbufs, num_mbufs);
+  return num_mbufs;
 }
 
 void du_io_register_timer_cb(du_io_t *io, fh_timer_cb cb, void *user_data)
@@ -292,6 +296,7 @@ void du_io_stop(du_io_t *io)
 
 void du_io_cleanup(du_io_t *io)
 {
+  fh_send_cleanup(&io->send);
   for (int i = 0; i < io->num_configured_flows; i++) {
     rte_flow_destroy(io->configured_flows[i].port_id, io->configured_flows[i].flow, NULL);
   }
