@@ -815,6 +815,43 @@ static int ngap_gNB_handle_initial_context_request(sctp_assoc_t assoc_id, uint32
   if (ie)
     msg->nas_pdu = create_byte_array(ie->value.choice.NAS_PDU.size, ie->value.choice.NAS_PDU.buf);
 
+  /* id-CoreNetworkAssistanceInformationForInactive (optional) */
+  NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_InitialContextSetupRequestIEs_t,
+                             ie,
+                             container,
+                             NGAP_ProtocolIE_ID_id_CoreNetworkAssistanceInformationForInactive,
+                             false);
+  if (ie != NULL) {
+    NGAP_CoreNetworkAssistanceInformationForInactive_t *cn = &ie->value.choice.CoreNetworkAssistanceInformationForInactive;
+    if (cn->uEIdentityIndexValue.present == NGAP_UEIdentityIndexValue_PR_indexLength10) {
+      msg->ue_identity_index = BIT_STRING_to_uint16(&cn->uEIdentityIndexValue.choice.indexLength10);
+      msg->has_ue_identity_index = true;
+    }
+    if (cn->uESpecificDRX != NULL) {
+      switch (*cn->uESpecificDRX) {
+        case NGAP_PagingDRX_v32:
+          msg->ue_specific_drx_rf = 32;
+          msg->has_ue_specific_drx = true;
+          break;
+        case NGAP_PagingDRX_v64:
+          msg->ue_specific_drx_rf = 64;
+          msg->has_ue_specific_drx = true;
+          break;
+        case NGAP_PagingDRX_v128:
+          msg->ue_specific_drx_rf = 128;
+          msg->has_ue_specific_drx = true;
+          break;
+        case NGAP_PagingDRX_v256:
+          msg->ue_specific_drx_rf = 256;
+          msg->has_ue_specific_drx = true;
+          break;
+        default:
+          NGAP_WARN("UE Specific DRX %ld unsupported, ignore\n", *cn->uESpecificDRX);
+          break;
+      }
+    }
+  }
+
   NGAP_INFO("Initial Context Setup UE RAN ID %d UE AMF ID %ld: %d PDU session(s)\n",
             msg->gNB_ue_ngap_id,
             msg->amf_ue_ngap_id,

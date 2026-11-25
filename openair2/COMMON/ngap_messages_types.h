@@ -870,6 +870,14 @@ typedef struct ngap_initial_context_setup_req_s {
   /* Nas Pdu */
   uint8_t                        nas_pdu_flag;
   byte_array_t nas_pdu;
+
+  /* Core Network Assistance Information for Inactive (optional)
+   * TS 38.413 UEIdentityIndexValue = 5G-S-TMSI mod 1024 */
+  bool has_ue_identity_index;
+  uint16_t ue_identity_index;
+  /* Optional UE Specific DRX (Paging DRX), radio frames */
+  bool has_ue_specific_drx;
+  uint16_t ue_specific_drx_rf;
 } ngap_initial_context_setup_req_t;
 
 typedef struct ngap_pdusession_setup_req_s {

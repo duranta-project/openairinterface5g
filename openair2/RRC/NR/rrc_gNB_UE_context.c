@@ -63,6 +63,7 @@ static rrc_gNB_ue_context_t *rrc_gNB_allocate_new_ue_context(gNB_RRC_INST *rrc_i
   }
 
   new_p->ue_context.rrc_ue_id = uid + 1;
+  new_p->ue_context.ue_identity_index = UINT16_MAX;
   rrc_gNB_ue_context_update_time(new_p);
   LOG_D(NR_RRC, "Returning new RRC UE context RRC ue id: %d\n", new_p->ue_context.rrc_ue_id);
   return(new_p);
