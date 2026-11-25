@@ -754,7 +754,7 @@ typedef struct {
   int ul_failure_timer;
   int release_timer;
   CSI_report_t CSI_report;
-  /// number of SR received for this UE since the last UL grant
+  /// Pending UL grant requests: incremented for a received SR and set to at least one for C-RNTI recovery
   uint8_t sr_cnt;
   beam_hysteresis_t beam_hysteresis;
   /// information about every HARQ process
@@ -1161,7 +1161,7 @@ struct nr_ul_candidate {
   int alloc_cce_index;
   int alloc_aggregation_level;
   NR_sched_pdcch_t alloc_sched_pdcch;
-  /// number of SR received since the last UL grant, used as scheduling priority
+  /// Pending UL grant requests, used as scheduling priority
   uint8_t sr_cnt;
 };
 

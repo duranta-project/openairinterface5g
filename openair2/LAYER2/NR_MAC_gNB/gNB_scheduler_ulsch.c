@@ -936,6 +936,8 @@ static void nr_rx_ra_sdu(gNB_MAC_INST *mac,
     // Reset HARQ processes
     reset_dl_harq_list(&old_UE->UE_sched_ctrl);
     reset_ul_harq_list(&old_UE->UE_sched_ctrl);
+    // Request a new UL grant for contention resolution even when the buffer estimate is empty.
+    old_UE->UE_sched_ctrl.sr_cnt = max(old_UE->UE_sched_ctrl.sr_cnt, 1);
 
     // Only trigger RRCReconfiguration if UE is not performing RRCReestablishment
     // The RRCReconfiguration will be triggered by the RRCReestablishmentComplete
