@@ -17,6 +17,7 @@ extern "C" {
 #endif
 
 #include "openair1/PHY/TOOLS/tools_defs.h" // c16_t
+#include "common/utils/LOG/log.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/fapi_nr_ue_interface.h" // fapi_nr_dl_config_dci_dl_pdu_rel15_t
 
 //#include "openair1/PHY/MODULATION/nr_modulation.h" // nr_layer_precoder_simd_[cm, simd]
@@ -75,6 +76,9 @@ void nr_layer_precoder_Nx4_simd(int n_layers,
                                 int re_cnt,
                                 c16_t *dataF_out_lo,
                                 c16_t *dataF_out_hi);
+void nr_modulation(const uint32_t *in, uint32_t length, uint16_t mod_order, int16_t *out);
+void nr_generate_modulation_table(void);
+extern int64_t nr_64qam_mod_table[4096];
 
 #ifdef __cplusplus
 }
@@ -413,11 +417,37 @@ TEST(NrLayerPrecoderTest, Compare_Xpol_4port_SIMD)
     }
 }
 
+// 64QAM for every bit length up to 200 symbols, including lengths that are not a multiple of 24 bits.
+// The input buffer is sized exactly so that a sanitizer build catches over-reads.
+TEST(NrModulationTest, Qam64AnyLength)
+{
+  nr_generate_modulation_table();
+  const c16_t *table = reinterpret_cast<const c16_t *>(nr_64qam_mod_table); // first symbol of entry i is table[2 * i]
+  for (uint32_t n_symb = 1; n_symb <= 200; n_symb++) {
+    const uint32_t length = n_symb * 6;
+    std::vector<uint32_t> in((length + 31) / 32);
+    for (auto &w : in)
+      w = (uint32_t)rand();
+    std::vector<c16_t> out(n_symb + 1, (c16_t){INT16_MIN, INT16_MIN});
+    nr_modulation(in.data(), length, 6, reinterpret_cast<int16_t *>(out.data()));
+    const uint8_t *bytes = reinterpret_cast<const uint8_t *>(in.data());
+    for (uint32_t s = 0; s < n_symb; s++) {
+      uint32_t bits = 0;
+      for (int b = 0; b < 6; b++)
+        bits |= ((bytes[(s * 6 + b) / 8] >> ((s * 6 + b) % 8)) & 1) << b;
+      ASSERT_EQ(out[s].r, table[2 * bits].r) << "length " << length << " symbol " << s;
+      ASSERT_EQ(out[s].i, table[2 * bits].i) << "length " << length << " symbol " << s;
+    }
+    EXPECT_EQ(out[n_symb].r, INT16_MIN) << "wrote past the end, length " << length;
+  }
+}
+
 int main(int argc, char **argv)
 {
   // Initialize random seed
   srand(time(0));
 
+  logInit();
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

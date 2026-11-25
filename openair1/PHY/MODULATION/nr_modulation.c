@@ -197,11 +197,17 @@ void nr_modulation(const uint32_t *in, uint32_t length, uint16_t mod_order, int1
         *out64++ = nr_64qam_mod_table[x1];
         i += 24;
       }
-      if (i != length) {
+      // 6, 12 or 18 bits left: read only the bytes holding them
+      while (i < length) {
+        const uint32_t nbits = min(12, length - i);
         uint32_t xx = 0;
-        memcpy(&xx, in_bytes + i / 8, 2);
-        uint64_t x1 = xx & 0xfff;
-        *out64++ = nr_64qam_mod_table[x1];
+        memcpy(&xx, in_bytes + i / 8, ((i & 7) + nbits + 7) / 8);
+        const int64_t two_symbols = nr_64qam_mod_table[(xx >> (i & 7)) & 0xfff];
+        if (nbits == 12)
+          *out64++ = two_symbols;
+        else // the first symbol is in the low half
+          memcpy(out64, &two_symbols, sizeof(c16_t));
+        i += nbits;
       }
       return;
 
