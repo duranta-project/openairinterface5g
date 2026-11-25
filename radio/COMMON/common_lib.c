@@ -147,7 +147,7 @@ void openair0_write_reorder_init(re_order_t *r, const openair0_config_t *openair
   pthread_cond_init(&r->written, NULL);
 
   r->sz = ring_elements(openair0_cfg->sample_rate / 100, sizeof(c16_t)); // 10 ms storage
-  r->grain = 2048; // arbitrary write size, chosen to fit in a ethernet jumbo frame
+  r->grain = 2048; // arbitrary smallest write size, chosen to fit in a ethernet jumbo frame
   r->nb_ant = openair0_cfg->tx_num_channels;
   r->state = create_ring(r->sz * sizeof(*r->state));
 
@@ -268,10 +268,10 @@ static openair0_timestamp_t reorder_written_until(re_order_t *ctx)
   return until;
 }
 
-/* Send the samples from nextTS on, in chunks of at most one grain cut at burst boundaries, with the
-   flags of the burst state stored with the samples. Samples before force_until are sent even if some
-   writer has not written them: a writer that stops must not block the others. A chunk that does not
-   reach a boundary is kept until it fills a grain. */
+/* Send the samples from nextTS on, in chunks cut at burst boundaries, with the flags of the burst
+   state stored with the samples. Samples before force_until are sent even if some writer has not
+   written them: a writer that stops must not block the others. A chunk that does not reach a boundary
+   is kept until it fills a grain: the device gets all that is ready in one write. */
 static void reorder_flush(nrue_ru_write_t nrue_ru_write,
                           PHY_VARS_NR_UE *UE,
                           openair0_device_t *device,
@@ -286,13 +286,13 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
 
   for (int consumed = 0; ready > 0;) {
     int *wr = ctx->state + ctx->nextTS % ctx->sz;
-    int len = min(ready, ctx->grain);
+    int len = ready;
     const bool clean = ctx->nextTS >= ctx->dirty_end || ctx->nextTS + len <= ctx->dirty_from;
     const int active = clean ? 0 : wr[0] & RO_ACTIVE;
     bool boundary = false;
     if (!clean) {
       len = min(ctx->scan_chunk, len); // already checked: no boundary
-      while (len < ready && len < ctx->grain) {
+      while (len < ready) {
         if (len > 0 && ((wr[len] & RO_ACTIVE) != active || (wr[len] & RO_START))) {
           boundary = true;
           break;

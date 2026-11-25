@@ -91,11 +91,9 @@ TEST_F(WriteReorder, tdd_burst_flags)
   EXPECT_EQ(writes.back().flags, TX_BURST_END);
   for (size_t i = 1; i + 1 < writes.size(); i++)
     EXPECT_EQ(writes[i].flags, TX_BURST_MIDDLE);
-  for (auto &w : writes)
-    EXPECT_LE(w.n, dev.reOrder.grain);
 }
 
-// FDD: every write is TX_BURST_MIDDLE, all samples are sent, in timestamp order, in full grains
+// FDD: every write is TX_BURST_MIDDLE, all samples are sent, in timestamp order, at least a grain at a time
 TEST_F(WriteReorder, fdd_in_order)
 {
   for (int i = 0; i < 10; i++)
@@ -103,10 +101,23 @@ TEST_F(WriteReorder, fdd_in_order)
   EXPECT_EQ(sent(0, 8192), 8192);
   for (size_t i = 0; i < writes.size(); i++) {
     EXPECT_EQ(writes[i].flags, TX_BURST_MIDDLE);
-    EXPECT_EQ(writes[i].n, dev.reOrder.grain);
+    EXPECT_GE(writes[i].n, dev.reOrder.grain);
     if (i) {
       EXPECT_EQ(writes[i].ts, writes[i - 1].ts + writes[i - 1].n);
     }
+  }
+}
+
+// a slot written at once is sent in one write, not cut in grains
+TEST_F(WriteReorder, one_write_per_slot)
+{
+  const int slot = 7680;
+  for (int i = 0; i < 4; i++)
+    write(i * slot, slot, TX_BURST_MIDDLE);
+  ASSERT_EQ(writes.size(), 4u);
+  for (size_t i = 0; i < writes.size(); i++) {
+    EXPECT_EQ(writes[i].ts, (int64_t)i * slot);
+    EXPECT_EQ(writes[i].n, slot);
   }
 }
 
@@ -127,10 +138,13 @@ TEST_F(WriteReorder, out_of_order)
   write(4096, 2048, TX_BURST_MIDDLE, 3);
   write(2048, 2048, TX_BURST_MIDDLE, 2);
   write(6144, 2048, TX_BURST_MIDDLE, 4);
-  ASSERT_GE(writes.size(), 3u);
-  for (int i = 0; i < 3; i++) {
-    EXPECT_EQ(writes[i].ts, i * 2048);
-    EXPECT_EQ(writes[i].s[0].r, i + 1);
+  ASSERT_EQ(sent(0, 6144), 6144);
+  int64_t next = 0;
+  for (auto &w : writes) {
+    EXPECT_EQ(w.ts, next);
+    for (int k = 0; k < w.n; k++)
+      EXPECT_EQ(w.s[k].r, (w.ts + k) / 2048 + 1);
+    next = w.ts + w.n;
   }
 }
 
