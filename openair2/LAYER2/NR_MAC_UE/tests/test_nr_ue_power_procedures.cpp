@@ -12,6 +12,7 @@ softmodem_params_t* get_softmodem_params(void)
   return &softmodem_params;
 }
 }
+#include <climits>
 #include <cstdio>
 #include "common/utils/LOG/log.h"
 
@@ -40,6 +41,13 @@ TEST(test_pcmax, test_mpr)
   EXPECT_EQ(expected_power, nr_get_Pcmax(23, nr_band, frame_type, FR1, 30, 2, false, 1, N_RB_UL, false, 100, prb_start));
 }
 
+TEST(test_pcmax, zero_and_absent_p_max)
+{
+  // QPSK with transform precoding and inner PRBs has no power reduction.
+  EXPECT_EQ(0, nr_get_Pcmax(0, 78, TDD, FR1, 20, 2, false, 1, 51, true, 6, 4));
+  EXPECT_EQ(23, nr_get_Pcmax(INT_MIN, 78, TDD, FR1, 20, 2, false, 1, 51, true, 6, 4));
+}
+
 TEST(test_pcmax, test_not_implemented)
 {
   int N_RB_UL = 51;
@@ -63,6 +71,7 @@ TEST(test_pcmax, test_pucch_max_power)
 TEST(test_pucch_power_state, test_accumulated_delta_pucch)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -170,6 +179,7 @@ TEST(pc_min, check_all_bw_indexes)
 TEST(pusch_power_control, pusch_power_control_msg3)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -267,6 +277,7 @@ TEST(pusch_power_control, pusch_power_control_msg3)
 TEST(pusch_power_control, pusch_power_data)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -348,6 +359,7 @@ TEST(pusch_power_control, pusch_power_data)
 TEST(pusch_power_control, pusch_power_control_state_initialization)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -394,6 +406,7 @@ TEST(pusch_power_control, pusch_power_control_state_initialization)
 TEST(pusch_power_control, pusch_power_control_state)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -496,6 +509,7 @@ TEST(pusch_power_control, pusch_power_control_state)
 TEST(pusch_power_control, pusch_power_100_rb)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -572,6 +586,7 @@ TEST(test_pcmax, test_non_obvious_bwp_size)
 TEST(test_srs_power, use_pusch_power_adjustment_state)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -599,6 +614,7 @@ TEST(test_srs_power, use_pusch_power_adjustment_state)
 TEST(test_srs_power, no_support_for_two_pusch_power_adjustment_states)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -622,6 +638,7 @@ TEST(test_srs_power, no_support_for_two_pusch_power_adjustment_states)
 TEST(test_srs_power, no_tpc_accumulation)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
@@ -655,6 +672,7 @@ TEST(test_srs_power, no_tpc_accumulation)
 TEST(test_srs_power, tpc_accumulation)
 {
   NR_UE_MAC_INST_t mac = {0};
+  mac.p_Max = 23;
   NR_UE_UL_BWP_t current_UL_BWP = {0};
   current_UL_BWP.scs = 1;
   current_UL_BWP.BWPSize = 106;
