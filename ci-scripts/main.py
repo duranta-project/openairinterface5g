@@ -131,11 +131,10 @@ def ExecuteActionWithParam(action, test, ctx, node, oc, HTML):
 		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, options)
 
 	elif action == 'Build_Deploy_PhySim':
-		ctest_opt = test.findtext('ctest-opt') or ''
+		script_opt = test.findtext('script-opt') or ''
 		script = test.findtext('script')
-		options = f"{ctx.g.workspace} {ctest_opt}"
 		workdir = ctx.g.workspace
-		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, options)
+		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, script_opt)
 
 	elif action == 'DeployCoreNetwork' or action == 'UndeployCoreNetwork':
 		cn_id = test.findtext('cn_id')
@@ -281,17 +280,12 @@ def run_tests(g_ctx, logPath, HTML, all_tests, filename):
 # MAIN PART
 #-----------------------------------------------------------
 if __name__ == "__main__":
-	force_local, date_fmt, xmls, g_ctx, oc = args_parse.ArgsParse()
+	force_local, date_fmt, xmls, g_ctx, oc, logDir = args_parse.ArgsParse()
 	fmt = "%(levelname)8s: %(message)s"
 	if date_fmt:
 		fmt = "[%(asctime)s] %(levelname)s %(message)s"
 	logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format=fmt, datefmt=date_fmt,)
 
-	if g_ctx.repository == '' or g_ctx.branch == '' or g_ctx.workspace == '':
-		sys.exit(f'Insufficient Parameters: {g_ctx.repository=}, {g_ctx.branch=}, {g_ctx.workspace=}')
-
-	cwd = os.getcwd()
-	logDir = f"{cwd}/../cmake_targets/log"
 	logging.info(f"placing all artifacts for this run in {logDir}/")
 	TestXML = namedtuple("TestXML", ["filename", "logPath", "title"])
 	test_xmls = []

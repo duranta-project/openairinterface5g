@@ -145,6 +145,11 @@ please also refer to the [dedicated documentation](../docker/README.md).
   - Labels:
     https://github.com/duranta-project/openairinterface5g/labels/5G-NR
     https://github.com/duranta-project/openairinterface5g/labels/nrUE
+- [RAN-gNB-UE-HIP-LDPC](https://jenkins-oai.eurecom.fr/job/RAN-gNB-UE-HIP-LDPC/)
+  - Purpose: LDPC HIP offload tests with physims (`nr_dlsim` and `nr_ulsim`)
+  - Labels:
+    https://github.com/duranta-project/openairinterface5g/labels/5G-NR
+    https://github.com/duranta-project/openairinterface5g/labels/nrUE
 - [RAN-L2-Sim-Test-4G](https://jenkins-oai.eurecom.fr/job/RAN-L2-Sim-Test-4G/)
   - Purpose: L2 simulator: skips physical layer and uses proxy between eNB and UE
   - Labels:

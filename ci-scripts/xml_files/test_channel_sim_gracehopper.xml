@@ -13,7 +13,7 @@
     <desc>Build and Deploy Test Channel Simulation</desc>
     <script>scripts/docker-build-and-deploy-chansim.sh</script>
     <node>localhost</node>
-    <ctest-opt>-R cuda.5g.channelsim</ctest-opt>
+    <script-opt>-R cuda.5g.channelsim</script-opt>
   </testCase>
 
 </testCaseList>
