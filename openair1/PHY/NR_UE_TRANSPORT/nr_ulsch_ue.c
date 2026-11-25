@@ -341,7 +341,7 @@ static void map_symbols(const nr_phy_pxsch_params_t p,
     } else if ((p.pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) && ptrs_symbol) {
       AssertFatal(p.transform_precoding == transformPrecoder_disabled, "PTRS NOT SUPPORTED IF TRANSFORM PRECODING IS ENABLED\n");
       c16_t mod_ptrs[ALNARS_16_4(p.nb_rb)] __attribute((aligned(16)));
-      nr_modulation(gold, p.nb_rb, DMRS_MOD_ORDER, (int16_t *)mod_ptrs);
+      nr_modulation(gold, p.nb_rb * 2, DMRS_MOD_ORDER, (int16_t *)mod_ptrs); // length in bits, up to one PTRS RE per RB
       const unsigned int beta_ptrs = 1; // temp value until power control is implemented
       mult_complex_vector_real_scalar(mod_ptrs, beta_ptrs * AMP, mod_ptrs_amp, p.nb_rb);
     }

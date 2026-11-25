@@ -238,6 +238,7 @@ add_physim_test(physim.5g.nr_ulsim.misc.test13 "MCS 0, low SNR performance" nr_u
 add_physim_test(physim.5g.nr_ulsim.misc.test14 "MCS 28, 106 PRBs, Time shift 8" nr_ulsim -P -n300 -m28 -R106 -r106 -t90 -s24 -S24 -d 8)
 add_physim_test(physim.5g.nr_ulsim.misc.test15 "SRS, SNR 40 dB" nr_ulsim -P -n300 -s40 -E 1)
 add_physim_test(physim.5g.nr_ulsim.misc.test16 "PUSCH Type A, 2 DMRS, PTRS, TDL-C, PUSCH at PRB 40" nr_ulsim -P -n300 -s22 -S22 -m16 -R106 -r50 -w40 -g C,l -U 0,1,1,1 -T 0,2 -t80)
+add_physim_test(physim.5g.nr_ulsim.misc.test17 "PUSCH 3 PRBs, PTRS on every other RB" nr_ulsim -P -n300 -s10 -r3 -U 0,1,1,1 -T 0,2)
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test1 "SC-FDMA, 50 PRBs" nr_ulsim -P -n300 -s5 -Z)
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test2 "SC-FDMA, 75 PRBs" nr_ulsim -P -n300 -s5 -Z -r75)
 add_physim_test(physim.5g.nr_ulsim.sc-fdma.test3 "SC-FDMA, 216 PRBs" nr_ulsim -P -n150 -s5 -Z -r216 -R217)
