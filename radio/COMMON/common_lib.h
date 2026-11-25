@@ -310,7 +310,7 @@ typedef struct {
   openair0_timestamp_t nextTS; // first sample not sent yet
   openair0_timestamp_t maxTS; // end of the most recent write
   int sz;
-  int grain;
+  int min_write;
   int nb_ant;
   int *nb_writers;
   void **ring;

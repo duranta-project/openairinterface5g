@@ -519,7 +519,7 @@ int nrue_ru_read(PHY_VARS_NR_UE *UE, openair0_timestamp_t *ptimestamp, void **bu
     return nsamps;
   } else {
     // rfsim: as above, the gNB sends the samples we read only after receiving our TX up to about the same time, and the
-    // write reorder keeps the end of a burst until it fills a grain: send our TX up to the end of this read first
+    // write reorder keeps the end of a burst until it reaches the smallest write size: send our TX up to the end of this read first
     if (IS_SOFTMODEM_RFSIM && rd->last_ts)
       openair0_write_reorder_flush_common(nrue_ru_write,
                                           UE,
