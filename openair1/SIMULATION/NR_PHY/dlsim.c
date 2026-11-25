@@ -1650,27 +1650,30 @@ void update_dmrs_config(NR_BWP_Downlink_t *bwp, int8_t* dmrs_arg)
 
   AssertFatal((bwp->bwp_Dedicated->pdsch_Config != NULL && bwp->bwp_Dedicated->pdsch_Config->choice.setup != NULL), "Base RRC reconfig structures are not allocated.\n");
 
+#define CALLOC_IFF_NULL(a)               \
+  do {                                   \
+    if (a == NULL) {                     \
+      a = calloc_or_fail(1, sizeof(*a)); \
+    }                                    \
+  } while (0)
+
   NR_PDSCH_Config_t *pdsch_config = bwp->bwp_Dedicated->pdsch_Config->choice.setup;
   NR_SetupRelease_DMRS_DownlinkConfig_t **dmrs =
       mapping_type == typeA ? &pdsch_config->dmrs_DownlinkForPDSCH_MappingTypeA : &pdsch_config->dmrs_DownlinkForPDSCH_MappingTypeB;
-  if (*dmrs == NULL) {
-    *dmrs = calloc_or_fail(1, sizeof(**dmrs));
-    (*dmrs)->present = NR_SetupRelease_DMRS_DownlinkConfig_PR_setup;
-    (*dmrs)->choice.setup = calloc_or_fail(1, sizeof(*(*dmrs)->choice.setup));
-  }
+  CALLOC_IFF_NULL(*dmrs);
+  (*dmrs)->present = NR_SetupRelease_DMRS_DownlinkConfig_PR_setup;
+  CALLOC_IFF_NULL((*dmrs)->choice.setup);
+
   NR_DMRS_DownlinkConfig_t *dmrs_config = (*dmrs)->choice.setup;
   if (dmrs_config_type == NFAPI_NR_DMRS_TYPE2) {
-    if (dmrs_config->dmrs_Type == NULL)
-      dmrs_config->dmrs_Type = calloc_or_fail(1, sizeof(*dmrs_config->dmrs_Type));
+    CALLOC_IFF_NULL(dmrs_config->dmrs_Type);
   } else {
     free(dmrs_config->dmrs_Type);
     dmrs_config->dmrs_Type = NULL;
   }
 
   if (add_pos != 2) { // pos0,pos1,pos3
-    if (dmrs_config->dmrs_AdditionalPosition == NULL) {
-      dmrs_config->dmrs_AdditionalPosition = calloc_or_fail(1, sizeof(*dmrs_config->dmrs_AdditionalPosition));
-    }
+    CALLOC_IFF_NULL(dmrs_config->dmrs_AdditionalPosition);
     switch (add_pos) {
       case 0:
         *dmrs_config->dmrs_AdditionalPosition = NR_DMRS_DownlinkConfig__dmrs_AdditionalPosition_pos0;
