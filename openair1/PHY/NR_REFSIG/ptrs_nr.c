@@ -135,7 +135,7 @@ uint8_t is_ptrs_subcarrier(uint16_t k,
 uint8_t get_ptrs_symbols_in_slot(uint16_t l_prime_mask, uint16_t start_symb, uint16_t nb_symb)
 {
   uint8_t tmp = 0;
-  for (int i = start_symb; i <= nb_symb; i++)
+  for (int i = start_symb; i < start_symb + nb_symb; i++)
     tmp += (l_prime_mask >> i) & 0x01;
   return tmp;
 }
