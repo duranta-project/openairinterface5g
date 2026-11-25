@@ -376,6 +376,7 @@ bool nr_schedule_aperiodic_csi_report(NR_UE_info_t *UE, nfapi_nr_pusch_pdu_t *pu
   }
   NR_UCI_OnPUSCH_t *uci_config = current_BWP->pusch_Config->uci_OnPUSCH->choice.setup;
   pusch_pdu->pusch_uci.alpha_scaling = uci_config->scaling;
+  pusch_pdu->pusch_uci.beta_offset_harq_ack = configure_harq_beta_offset(uci_config, pusch_pdu->pusch_uci.harq_ack_bit_length);
   pusch_pdu->pusch_uci.beta_offset_csi1 = configure_csi1_beta_offsets(uci_config, pusch_pdu->pusch_uci.csi_part1_bit_length);
   pusch_pdu->pusch_uci.beta_offset_csi2 = configure_csi2_beta_offsets(uci_config, pusch_pdu->pusch_uci.csi_part2_bit_length);
   pusch_pdu->pdu_bit_map |= PUSCH_PDU_BITMAP_PUSCH_UCI;

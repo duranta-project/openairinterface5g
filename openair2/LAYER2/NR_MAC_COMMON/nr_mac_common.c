@@ -5277,6 +5277,21 @@ static NR_BetaOffsets_t *get_beta_offset_config(const NR_UCI_OnPUSCH_t *uci_conf
   return uci_config->betaOffsets->choice.semiStatic;
 }
 
+uint8_t configure_harq_beta_offset(const NR_UCI_OnPUSCH_t *uci_config, int n_bits)
+{
+  NR_BetaOffsets_t *betaoffsets = get_beta_offset_config(uci_config);
+  if (betaoffsets) {
+    if (n_bits <= 2 && betaoffsets->betaOffsetACK_Index1)
+      return *betaoffsets->betaOffsetACK_Index1;
+    if (n_bits > 2 && n_bits <= 11 && betaoffsets->betaOffsetACK_Index2)
+      return *betaoffsets->betaOffsetACK_Index2;
+    if (n_bits > 11 && betaoffsets->betaOffsetACK_Index3)
+      return *betaoffsets->betaOffsetACK_Index3;
+  }
+  // When the field is absent the UE applies the value 11 for HARQ-ACK
+  return 11;
+}
+
 uint8_t configure_csi1_beta_offsets(const NR_UCI_OnPUSCH_t *uci_config, int n_bits)
 {
   NR_BetaOffsets_t *betaoffsets = get_beta_offset_config(uci_config);
