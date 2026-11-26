@@ -1066,7 +1066,7 @@ static void _nr_rx_sdu_crc(gNB_MAC_INST *gNB_mac,
             slotP,
             UE->rnti,
             UE->UE_sched_ctrl.pusch_consecutive_dtx_cnt);
-      nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
+      nr_mac_trigger_ul_failure(UE);
     }
   }
 

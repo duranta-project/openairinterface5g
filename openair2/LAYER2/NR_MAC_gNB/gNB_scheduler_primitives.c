@@ -3823,7 +3823,7 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
     }
 
     /* check if UL failure and trigger release request if necessary */
-    if (nr_mac_check_ul_failure(mac, UE->rnti, sched_ctrl)) {
+    if (nr_mac_check_ul_failure(mac, UE)) {
       to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = false};
       continue;
     }
@@ -3835,7 +3835,7 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
     if (nr_timer_tick(&sched_ctrl->transm_timeout)) {
       nr_timer_stop(&sched_ctrl->transm_timeout);
       LOG_W(NR_MAC, "UE %04x UL failure after transmission timeout\n", UE->rnti);
-      nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
+      nr_mac_trigger_ul_failure(UE);
     }
     if (nr_timer_tick(&sched_ctrl->tci_beam_switch)) {
       nr_timer_stop(&sched_ctrl->tci_beam_switch);
@@ -3851,7 +3851,7 @@ void nr_mac_update_timers(gNB_MAC_INST *mac, nr_cell_sched_t *cell)
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     if (nr_mac_check_release(sched_ctrl)) {
       to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = true};
-    } else if (nr_mac_check_ul_failure(mac, UE->rnti, sched_ctrl)) {
+    } else if (nr_mac_check_ul_failure(mac, UE)) {
       to_release[num_release++] = (ue_release_t){.rnti = UE->rnti, .send_complete = false};
     }
   }
@@ -4219,8 +4219,9 @@ bool nr_mac_ue_is_active(const NR_UE_info_t *ue)
 
 #define UL_FAILURE_REQ_GRACE 10000
 #define UL_FAILURE_TIMEOUT 30000
-void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing)
+void nr_mac_trigger_ul_failure(NR_UE_info_t *UE)
 {
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   if (sched_ctrl->ul_failure) {
     /* already running */
     return;
@@ -4228,7 +4229,7 @@ void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpac
   sched_ctrl->ul_failure = true;
   // UL_FAILURE_TIMEOUT ms till triggering release request
   // UL_FAILURE_REQ_GRACE ms till automatically released after request
-  sched_ctrl->ul_failure_timer = (UL_FAILURE_REQ_GRACE + UL_FAILURE_TIMEOUT) << subcarrier_spacing;
+  sched_ctrl->ul_failure_timer = (UL_FAILURE_REQ_GRACE + UL_FAILURE_TIMEOUT) << UE->current_UL_BWP.scs;
 }
 
 void nr_mac_reset_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl)
@@ -4259,8 +4260,9 @@ bool nr_mac_request_release_ue(const gNB_MAC_INST *nrmac, int rnti)
 }
 
 // returns true if the UE must be dropped (nr_mac_release_ue()) by the caller
-bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *sched_ctrl)
+bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, NR_UE_info_t *UE)
 {
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   if (!sched_ctrl->ul_failure)
     return false;
   if (sched_ctrl->ul_failure_timer > 0)
@@ -4269,13 +4271,13 @@ bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *
    * wait for a UE release command from upper layers), and UE is automatically
    * released when no answer after UL_FAILURE_REQ_GRACE */
   if (sched_ctrl->ul_failure_timer == UL_FAILURE_REQ_GRACE) {
-    LOG_W(MAC, "UE %04x: request release after UL failure timer expiry\n", rnti);
-    bool requested = nr_mac_request_release_ue(nrmac, rnti);
+    LOG_W(MAC, "UE %04x: request release after UL failure timer expiry\n", UE->rnti);
+    bool requested = nr_mac_request_release_ue(nrmac, UE->rnti);
     if (!requested)
       sched_ctrl->ul_failure_timer = 0; /* force expiry */
   }
   if (sched_ctrl->ul_failure_timer == 0) {
-    LOG_W(NR_MAC, "UE %04x: no answer for release request, dropping UE\n", rnti);
+    LOG_W(NR_MAC, "UE %04x: no answer for release request, dropping UE\n", UE->rnti);
     return true;
   }
   return false;
