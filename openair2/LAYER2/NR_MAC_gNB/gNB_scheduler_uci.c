@@ -934,17 +934,17 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
   return harq;
 }
 
-/* Count the SRs a UE sent since its last UL grant. */
+/* Record a received SR in the scheduler's count of pending UL grant requests. */
 static void nr_mac_sr_received(NR_UE_info_t *UE, nr_cell_sched_t *cell)
 {
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   /* saturate: a UE starved past 255 SRs would wrap back to lowest priority */
   if (sched_ctrl->sr_cnt < UINT8_MAX)
     sched_ctrl->sr_cnt++;
-  /* warn once, on the SR that reaches the limit: the UE then falls back to RA */
+  /* Recovery can also set the count, so reaching the threshold here does not establish UE fallback. */
   int trans_max = cell->radio_config.timer_config.sr_TransMax;
   if (trans_max > 0 && sched_ctrl->sr_cnt == trans_max)
-    LOG_W(NR_MAC, "UE %04x: %d SR received, reached configured sr_TransMax %d before UL grant\n", UE->rnti, sched_ctrl->sr_cnt, trans_max);
+    LOG_W(NR_MAC, "UE %04x: UL grant request count reached configured sr_TransMax %d\n", UE->rnti, trans_max);
 }
 
 void handle_nr_uci_pucch_0_1(gNB_MAC_INST *nrmac,
