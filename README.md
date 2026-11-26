@@ -62,21 +62,18 @@ history:
 3. [OAI Public License v1.0](https://github.com/duranta-project/openairinterface5g/blob/v0.4/LICENSE): starting tag [v0.4](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.4) till [v0.6.1](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.6.1)
 4. [GPL 3](https://github.com/duranta-project/openairinterface5g/blob/v0.3/COPYING): starting tag [v0.1](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.1) till [v0.4](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.4) (only initial implementation of 4G)
 
-## Where to Start
+## Getting Started
 
- *  [General overview of documentation](./doc/README.md)
- *  [The implemented features](./doc/FEATURE_SET.md)
- *  [System Requirements for Using OAI Stack](./doc/system_requirements.md)
- *  [How to build](./doc/BUILD.md)
- *  [How to run the modems](./doc/RUNMODEM.md)
+The [documentation overview](./doc/README.md) is the entry point to all
+guides, tutorials, and design documents. To contribute, read the
+[contributing guidelines](./CONTRIBUTING.md). Sub-system documentation may also
+live in the corresponding directories; to list all READMEs, run
+`find . -iname "readme*"`.
 
-Not all information is available in a central place, and information for
-specific sub-systems might be available in the corresponding sub-directories.
-To find all READMEs, this command might be handy:
-
-```
-find . -iname "readme*"
-```
+Stable releases are listed on the
+[releases page](https://github.com/duranta-project/openairinterface5g/releases)
+with notable changes in the [changelog](./CHANGELOG.md). Weekly integration
+tags (`YYYY.wXX`) mark the integration branches merged into `develop`.
 
 ## RAN Repository Structure
 

@@ -21,6 +21,7 @@ More general information is available in the
 
 - [Project overview](../README.md): introduction, licensing, repository structure and community support
 - [Feature set](./FEATURE_SET.md): supported features
+- [System requirements](./system_requirements.md): system requirements for running the stack
 - [Supported hardware and operating systems](./Supported_Hardware_Operating_System.md): tested CPUs, NICs and accelerators
 - [Key performance indicators](./kpi.md): KPIs of the RAN and UE stack
 - [Getting the sources](./GET_SOURCES.md): how to download the sources
