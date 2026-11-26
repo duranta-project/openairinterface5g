@@ -3,6 +3,7 @@
  */
 
 #include "gnb_config.h"
+#include "gnb_sib9.h"
 #include <ctype.h>
 #include <complex.h>
 #include <errno.h>
@@ -1977,6 +1978,11 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   cell->plmn = info.plmn;
   NR_COMMON_channels_t *cc = &cell->common_channels;
   cc->du_SIBs = fill_du_sibs(GNBParamList.paramarray[idx]);
+  char sib9_error[256];
+  char sib9_prefix[MAX_OPTNAME_SIZE * 2 + 8];
+  snprintf(sib9_prefix, sizeof(sib9_prefix), "gNBs.[%d].sib9_timing", idx);
+  AssertFatal(nr_sib9_read_mode(config_get_if(), sib9_prefix, &cc->sib9_mode, sib9_error, sizeof(sib9_error)), "%s\n", sib9_error);
+  AssertFatal(cc->sib9_mode == NR_SIB9_STATIC, "SIB9 realtime mode is not supported\n");
   // read F1 Setup information from config and generated MIB/SIB1
   // and store it at MAC for sending later
   req->cell[idx].info = info;
@@ -2246,6 +2252,18 @@ static seq_arr_t *fill_cu_sibs(paramdef_t *GNBparamarray)
     seq_arr_push_back(SIBs, cu_sib, sizeof(nr_SIBs_t));
   }
   return SIBs;
+}
+
+static sib9_config_t fill_sib9_configuration(uint8_t gnb_idx)
+{
+  sib9_config_t profile = {0};
+  char prefix[MAX_OPTNAME_SIZE * 2 + 8], error[256];
+  snprintf(prefix, sizeof(prefix), "gNBs.[%u].sib9_config", gnb_idx);
+  if (!nr_sib9_read_profile(config_get_if(), prefix, &profile, error, sizeof(error))) {
+    LOG_E(GNB_APP, "%s: %s\n", prefix, error);
+    exit(EXIT_FAILURE);
+  }
+  return profile;
 }
 
 static bool eq_neighbour_pci(const void *vval, const void *vit)
@@ -2684,6 +2702,15 @@ gNB_RRC_INST *RCconfig_NRRRC()
 
     /* Load SIB2 configuration */
     rrc->sib2_config = fill_sib2_configuration(i);
+    if (rrc->SIBs) {
+      for (size_t n = 0; n < seq_arr_size(rrc->SIBs); ++n) {
+        const nr_SIBs_t *sib = seq_arr_at(rrc->SIBs, n);
+        if (sib->SIB_type == NR_SIB_9) {
+          rrc->sib9_config = fill_sib9_configuration(i);
+          break;
+        }
+      }
+    }
   }//End if (num_gnbs>0)
 
   if (!NODE_IS_DU(rrc->node_type))

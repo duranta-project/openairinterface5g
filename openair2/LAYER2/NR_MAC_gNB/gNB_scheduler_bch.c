@@ -595,8 +595,8 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
       .ant_port_idx = {.numSpatialStreamIndices = 1, .spatialStreamIndices[0] = sidx[beam.idx]}};
 
   uint16_t *vrb_map = cc->vrb_map[beam.idx];
-  uint8_t *sib_bcch_pdu = cc->other_sib_bcch_pdu[payload_idx];
-  int num_total_bytes = cc->other_sib_bcch_length[payload_idx];
+  uint8_t *sib_bcch_pdu = payload_idx == NR_SI_SIB9 ? cc->sib9_bcch_pdu : cc->other_sib_bcch_pdu[payload_idx];
+  int num_total_bytes = (payload_idx == NR_SI_SIB9 ? cc->sib9_bcch_length : cc->other_sib_bcch_length[payload_idx]);
   bool success = update_rb_mcs_tbs(&sched_pdsch_otherSI, num_total_bytes, vrb_map);
   AssertFatal(success, "Couldn't allocate TBS for other SIB\n");
 
@@ -656,7 +656,7 @@ static bool test_other_sib_sched_occasion(int window_pos,
 {
   int x = (window_pos - 1) * window_len;
   int T = 8 << period;
-  int test_frame = (frame - rel_frame) % MAX_FRAME_NUMBER;
+  int test_frame = (frame - rel_frame + MAX_FRAME_NUMBER) % MAX_FRAME_NUMBER;
   int si_slot = (x % n_slots_frame) + rel_slot;
   bool res = ((test_frame % T) != (x / n_slots_frame)) || (si_slot != slot);
   return res;
@@ -736,7 +736,9 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
                                         rel_slot[ssb]))
         continue;
 
-      other_sib_sched_control(cell, frame, slot, cc->ssb_index[ssb], ss, DL_req, TX_req, 0);
+      bool time_message = schedulingInfo->sib_MappingInfo.list.count == 1
+                          && schedulingInfo->sib_MappingInfo.list.array[0]->type == NR_SIB_TypeInfo__type_sibType9;
+      other_sib_sched_control(cell, frame, slot, cc->ssb_index[ssb], ss, DL_req, TX_req, time_message ? NR_SI_SIB9 : NR_SI_REGULAR);
     }
     if (!schedInfo17)
       continue;

@@ -351,12 +351,15 @@ static void test_f1ap_setup_response(void)
     /* SI_container */
     char *s = "test";
     int SI_container_length = strlen(s) + 1;
-    orig.cells_to_activate[0].num_SI = 1;
+    orig.cells_to_activate[0].num_SI = 2;
     f1ap_sib_msg_t *SI_msg = &orig.cells_to_activate[0].SI_msg[0];
     SI_msg->SI_container.buf = malloc_or_fail(SI_container_length);
     memcpy(SI_msg->SI_container.buf, s, SI_container_length);
     SI_msg->SI_container.len = SI_container_length;
     SI_msg->SI_type = 7;
+    // Regression: the encoder must append both SIBs to one SI extension.
+    orig.cells_to_activate[0].SI_msg[1].SI_type = 9;
+    orig.cells_to_activate[0].SI_msg[1].SI_container = copy_byte_array(SI_msg->SI_container);
   }
   F1AP_F1AP_PDU_t *f1enc = encode_f1ap_setup_response(&orig);
   F1AP_F1AP_PDU_t *f1dec = f1ap_encode_decode(f1enc);

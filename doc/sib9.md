@@ -12,3 +12,8 @@ CLOCK_REALTIME to construct the initial standard SIB9 container. DU refresh mode
 is configured independently; no private mode is carried in the F1 timestamp.
 
 The CU initial sample alone is not a continuously updated broadcast time.
+
+The DU validates a complete F1 SI list before replacing the active snapshot.
+Malformed, duplicate, unsupported or oversized input leaves that snapshot intact.
+Basic SIB9 uses a dedicated ordinary SI message, preserving regular siblings and
+v17 SIB19. Rejected initial input does not release the radio-activation gate.

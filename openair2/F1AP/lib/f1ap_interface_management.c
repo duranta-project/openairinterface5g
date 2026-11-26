@@ -616,8 +616,8 @@ static void encode_cells_to_activate(const served_cells_to_activate_t *cell, F1A
   // NR PCI (O)
   asn1cCalloc(cells_to_be_activated_item->nRPCI, tmp);
   *tmp = cell->nrpci;
-  // gNB-CU System Information (O)
-  for (int n = 0; n < cell->num_SI; n++) {
+  // One standard extension contains the complete SI list for this cell.
+  if (cell->num_SI > 0) {
     F1AP_ProtocolExtensionContainer_11023P113_t *p = calloc_or_fail(1, sizeof(*p));
     cells_to_be_activated_item->iE_Extensions = (struct F1AP_ProtocolExtensionContainer *)p;
     asn1cSequenceAdd(p->list, F1AP_Cells_to_be_Activated_List_ItemExtIEs_t, cells_to_be_activated_itemExtIEs);
@@ -628,11 +628,13 @@ static void encode_cells_to_activate(const served_cells_to_activate_t *cell, F1A
     // gNB-CU System Information message
     F1AP_GNB_CUSystemInformation_t *gNB_CUSystemInformation =
         &cells_to_be_activated_itemExtIEs->extensionValue.choice.GNB_CUSystemInformation;
-    const f1ap_sib_msg_t *SI_msg = &cell->SI_msg[n];
-    if (SI_msg->SI_container.buf != NULL) {
-      asn1cSequenceAdd(gNB_CUSystemInformation->sibtypetobeupdatedlist.list, F1AP_SibtypetobeupdatedListItem_t, sib_item);
-      sib_item->sIBtype = SI_msg->SI_type;
-      OCTET_STRING_fromBuf(&sib_item->sIBmessage, (const char *)SI_msg->SI_container.buf, SI_msg->SI_container.len);
+    for (int n = 0; n < cell->num_SI; n++) {
+      const f1ap_sib_msg_t *SI_msg = &cell->SI_msg[n];
+      if (SI_msg->SI_container.buf != NULL) {
+        asn1cSequenceAdd(gNB_CUSystemInformation->sibtypetobeupdatedlist.list, F1AP_SibtypetobeupdatedListItem_t, sib_item);
+        sib_item->sIBtype = SI_msg->SI_type;
+        OCTET_STRING_fromBuf(&sib_item->sIBmessage, (const char *)SI_msg->SI_container.buf, SI_msg->SI_container.len);
+      }
     }
   }
 }

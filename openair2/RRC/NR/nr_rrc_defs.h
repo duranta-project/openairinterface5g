@@ -17,6 +17,7 @@
 #include "collection/linear_alloc.h"
 #include "common/utils/ds/seq_arr.h"
 #include "nr_rrc_common.h"
+#include "nr_sib9.h"
 #include "ds/byte_array.h"
 #include "common/platform_constants.h"
 #include "common/platform_types.h"
@@ -668,6 +669,8 @@ typedef struct gNB_RRC_INST_s {
   seq_arr_t *SIBs;
   // SIB2 configuration for cell reselection parameters
   sib2_config_t sib2_config;
+  // Fixed basic SIB9 profile; each DU owns its encoded SI payload.
+  sib9_config_t sib9_config;
 
   // gNB N3 GTPU instance
   instance_t e1_inst;
