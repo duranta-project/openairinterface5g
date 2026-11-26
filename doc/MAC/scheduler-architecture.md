@@ -34,7 +34,7 @@ Function pointers are assigned at startup in
 
 ## Scheduler Pipeline
 
-Both DL and UL follow the same 7-stage pipeline, plus a DL-only 8th stage.
+Both DL and UL follow the same 7-stage pipeline, plus DL-only stages 4b (DMRS selection) and 8 (LCID allocation).
 
 ```
                          DL                              UL
@@ -57,6 +57,11 @@ Both DL and UL follow the same 7-stage pipeline, plus a DL-only 8th stage.
                     │  4. TDA    │                  │  4. TDA    │    │
                     │ Selection  │                  │ Selection  │    │
                     └─────┬──────┘                  └─────┬──────┘    │
+                          │                               │           │
+                    ┌─────┴──────┐                        │           │
+                    │ 4b. DMRS   │                        │           │
+                    │ Selection  │                        │           │
+                    └─────┬──────┘                        │           │
                           │                               │           │
                     ┌─────┴──────┐                  ┌─────┴──────┐    │
                     │  5. MCS    │                  │  5. MCS    │    │
@@ -177,6 +182,18 @@ layout. Infeasible retx candidates are marked with `skipped=true`.
 candidates get `cand->retx_rbSize` set.
 **Returns:** number of surviving candidates.
 
+### Stage 4b. DMRS Selection (DL only)
+
+**Function pointer:** `mac->dl_dmrs_select` (`nr_dl_dmrs_select_fn`)
+
+Sets the PDSCH DMRS of each candidate on its selected TDA: DMRS ports, CDM groups
+without data, nSCID and DMRS symbols, and thus the DMRS overhead used to size the
+allocation and the TBS. UEs co-scheduled on the same RBs (DL MU-MIMO) need different
+DMRS ports, so they are assigned per group of co-scheduled UEs (`set_dl_dmrs_ports()`);
+without such groups, as in the default, every UE gets the single-user DMRS.
+
+**Outputs:** `cand->sched_pdsch.dmrs_parms`.
+
 ### Stage 5. MCS Selection
 
 **Function pointers:** `mac->dl_mcs_select` (`nr_dl_mcs_select_fn`),
@@ -260,6 +277,12 @@ Assigns the same TDA to all candidates in a slot (picks the first valid one for 
 scheduled frame/slot). For UL retransmissions, calls `check_ul_retx_feasibility` to
 verify TBS preservation under the new symbol/DMRS layout.
 
+### `nr_dl_dmrs_select_default`
+
+Single-user DMRS: one DMRS port per layer from port 1000 (`get_dl_dmrs_params`). A
+retransmission keeps the DMRS ports and nSCID of its first transmission, with the DMRS
+symbols of the new TDA if it changed (`get_dl_retx_dmrs_params`).
+
 ### `nr_dl_beam_select_default`, `nr_ul_beam_select_default`
 
 Uses OAI's beam management framework (`NR_beam_info_t`). For UL, allocates both a DCI
@@ -317,6 +340,7 @@ Top-level orchestrators that run the full pipeline above. In phy-test mode, repl
 | `dl_ri_pmi_select`       | `nr_dl_ri_pmi_select_fn`  | `nr_dl_ri_pmi_select_default` | 2. RI/PMI |
 | `dl_beam_select`         | `nr_dl_beam_select_fn`    | `nr_dl_beam_select_default`   | 3. Beam |
 | `dl_tda_select`          | `nr_dl_tda_select_fn`     | `nr_dl_tda_select_default`    | 4. TDA |
+| `dl_dmrs_select`         | `nr_dl_dmrs_select_fn`    | `nr_dl_dmrs_select_default`   | 4b. DMRS |
 | `dl_mcs_select`          | `nr_dl_mcs_select_fn`     | `nr_dl_mcs_select_default`    | 5. MCS |
 | `dl_rb_alloc`            | `nr_dl_rb_alloc_fn`       | `nr_dl_proportional_fair`     | 6. RB alloc |
 | `dl_lcid_alloc`          | `nr_dl_lcid_alloc_fn`     | `nr_dl_lcid_alloc_default`    | 8. LCID alloc |

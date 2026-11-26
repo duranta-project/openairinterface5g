@@ -411,6 +411,27 @@ NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
                                    const NR_tda_info_t *tda_info,
                                    const int Layers);
 
+/// Set the DMRS ports of a DCI 1_1 PDSCH, e.g. orthogonal ports for UEs co-scheduled on the
+/// same RBs (DL MU-MIMO). Only dmrs-Type 1 with maxLength 1 (TS 38.212 Table 7.3.1.2.2-1) is
+/// supported. dmrs_ports is a bitmap of ports 1000+i with one bit per layer. n_scid (0 or 1)
+/// selects the DMRS scrambling, e.g. for UEs reusing the same ports (quasi-orthogonal).
+/// Returns false, leaving dmrs unchanged, if the combination is not in the table.
+bool set_dl_dmrs_ports(NR_pdsch_dmrs_t *dmrs,
+                       const NR_ServingCellConfigCommon_t *scc,
+                       const NR_UE_DL_BWP_t *dl_bwp,
+                       const NR_tda_info_t *tda_info,
+                       int layers,
+                       uint16_t dmrs_ports,
+                       uint8_t num_cdm_grps_no_data,
+                       int n_scid);
+
+/// DMRS of a retransmission of orig on tda_info: the DMRS ports and nSCID of the first
+/// transmission, with the DMRS symbols of tda_info.
+NR_pdsch_dmrs_t get_dl_retx_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
+                                        const NR_UE_DL_BWP_t *dl_bwp,
+                                        const NR_tda_info_t *tda_info,
+                                        const NR_sched_pdsch_t *orig);
+
 uint16_t get_pm_index(const nr_cell_sched_t *cell,
                       const NR_UE_info_t *UE,
                       nr_dci_format_t dci_format,

@@ -294,6 +294,7 @@ gNB_MAC_INST *mac_top_init_gNB(ngran_node_t node_type, const nr_rlc_configuratio
     nrmac->dl_mcs_select = nr_dl_mcs_select_default;
     nrmac->dl_beam_select = nr_dl_beam_select_default;
     nrmac->dl_tda_select = nr_dl_tda_select_default;
+    nrmac->dl_dmrs_select = nr_dl_dmrs_select_default;
     nrmac->dl_rb_alloc = nr_dl_proportional_fair;
   }
   if (!IS_SOFTMODEM_NOSTATS)
