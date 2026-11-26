@@ -10,7 +10,7 @@ Ref :
   L1 Tx processing : 335.0
   DLSCH encoding : 109.0
   L1 Rx processing : 920.0
-  UL segments decoding : 58.0
+  UL segments decoding : 73.0
   Slot Indication : 14.3
   PUSCH inner-receiver : 739.4
 DeviationThreshold :
