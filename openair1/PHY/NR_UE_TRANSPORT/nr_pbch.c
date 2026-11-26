@@ -8,6 +8,9 @@
 #include "PHY/defs_nr_UE.h"
 #include "PHY/CODING/coding_extern.h"
 #include "PHY/sse_intrin.h"
+#if defined(__aarch64__) && defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 #include "PHY/INIT/nr_phy_init.h"
 #include "openair1/SCHED_NR_UE/defs.h"
 #include <openair1/PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h>
@@ -473,12 +476,70 @@ int nr_pbch_decode(PHY_VARS_NR_UE *ue,
   return 0;
 }
 
+#ifdef __AVX2__
+static int64_t pbch_sum_halves(simde__m256i high, simde__m256i low)
+{
+  const simde__m256i pairs = simde_mm256_hadd_epi32(high, low);
+  const simde__m256i sums = simde_mm256_hadd_epi32(pairs, pairs);
+  const int64_t h = simde_mm256_extract_epi32(sums, 0) + simde_mm256_extract_epi32(sums, 4);
+  const int64_t l = simde_mm256_extract_epi32(sums, 1) + simde_mm256_extract_epi32(sums, 5);
+  return h * 65536 + l;
+}
+#endif
+
+// Correlate PBCH symbols 1 and 3 without rounding the individual products.
+static c64_t pbch_channel_correlation(const c16_t *symbol1, const c16_t *symbol3)
+{
+  enum { nb_re = NR_PBCH_NUM_RB * NR_NB_SC_PER_RB };
+  c64_t sum = {0};
+  int k = 0;
+#ifdef __AVX2__
+  // Even the sum of all 240 unsigned low halves fits in a signed 32-bit lane.
+  _Static_assert(nb_re <= INT32_MAX / UINT16_MAX, "PBCH correlation exceeds the 32-bit partial sum");
+  const simde__m256i zero = simde_mm256_setzero_si256();
+  const simde__m256i low_mask = simde_mm256_set1_epi32(UINT16_MAX);
+  simde__m256i neg_re_hi = zero, neg_re_lo = zero, im_hi = zero, im_lo = zero;
+  for (; k + 8 <= nb_re; k += 8) {
+    const simde__m256i a = simde_mm256_loadu_si256((const simde__m256i *)(symbol1 + k));
+    const simde__m256i b = simde_mm256_loadu_si256((const simde__m256i *)(symbol3 + k));
+    // The real product can reach +2^31. Its negative always fits in int32_t.
+    const simde__m256i neg_re = simde_mm256_sub_epi32(zero, simde_mm256_madd_epi16(a, b));
+    // Form ar*bi - ai*br without negating a 16-bit component that might be INT16_MIN.
+    const simde__m256i im = simde_mm256_sub_epi32(simde_mm256_madd_epi16(a, simde_mm256_srli_epi32(b, 16)),
+                                                  simde_mm256_madd_epi16(a, simde_mm256_slli_epi32(b, 16)));
+    neg_re_hi = simde_mm256_add_epi32(neg_re_hi, simde_mm256_srai_epi32(neg_re, 16));
+    neg_re_lo = simde_mm256_add_epi32(neg_re_lo, simde_mm256_and_si256(neg_re, low_mask));
+    im_hi = simde_mm256_add_epi32(im_hi, simde_mm256_srai_epi32(im, 16));
+    im_lo = simde_mm256_add_epi32(im_lo, simde_mm256_and_si256(im, low_mask));
+  }
+  sum.r = -pbch_sum_halves(neg_re_hi, neg_re_lo);
+  sum.i = pbch_sum_halves(im_hi, im_lo);
+#elif defined(__aarch64__) && defined(__ARM_NEON)
+  int64x2_t re_lo = vdupq_n_s64(0), re_hi = re_lo, im_lo = re_lo, im_hi = re_lo;
+  for (; k + 8 <= nb_re; k += 8) {
+    const int16x8x2_t a = vld2q_s16((const int16_t *)(symbol1 + k));
+    const int16x8x2_t b = vld2q_s16((const int16_t *)(symbol3 + k));
+    const int16x4_t ar = vget_low_s16(a.val[0]), ai = vget_low_s16(a.val[1]);
+    const int16x4_t br = vget_low_s16(b.val[0]), bi = vget_low_s16(b.val[1]);
+    // Widen before adding the two real products. The imaginary difference fits in 32 bits.
+    re_lo = vpadalq_s32(vpadalq_s32(re_lo, vmull_s16(ar, br)), vmull_s16(ai, bi));
+    re_hi = vpadalq_s32(vpadalq_s32(re_hi, vmull_high_s16(a.val[0], b.val[0])), vmull_high_s16(a.val[1], b.val[1]));
+    im_lo = vpadalq_s32(im_lo, vmlsl_s16(vmull_s16(ar, bi), ai, br));
+    im_hi = vpadalq_s32(im_hi, vmlsl_high_s16(vmull_high_s16(a.val[0], b.val[1]), a.val[1], b.val[0]));
+  }
+  sum.r = vaddvq_s64(vaddq_s64(re_lo, re_hi));
+  sum.i = vaddvq_s64(vaddq_s64(im_lo, im_hi));
+#endif
+  for (; k < nb_re; ++k)
+    sum = c64x16maddConjShift(symbol1[k], symbol3[k], sum, 0);
+  return sum;
+}
+
 double nr_ue_pbch_freq_offset(const NR_DL_FRAME_PARMS *frame_parms,
                               const c16_t dl_ch_est_symb1[NR_PBCH_NUM_RB * NR_NB_SC_PER_RB],
                               const c16_t dl_ch_est_symb3[NR_PBCH_NUM_RB * NR_NB_SC_PER_RB])
 {
-  const int nb_re = NR_PBCH_NUM_RB * NR_NB_SC_PER_RB;
-  const c32_t dot_prod_res = dot_product(dl_ch_est_symb1, dl_ch_est_symb3, nb_re, 8);
+  const c64_t dot_prod_res = pbch_channel_correlation(dl_ch_est_symb1, dl_ch_est_symb3);
   const double res_phase = atan2(dot_prod_res.i, dot_prod_res.r);
   const int samples_per_symbol = frame_parms->ofdm_symbol_size + frame_parms->nb_prefix_samples;
   const double t_ofdm = samples_per_symbol / (frame_parms->samples_per_subframe * 1000.0); // symbol duration in sec
