@@ -78,9 +78,9 @@ To find all READMEs, this command might be handy:
 find . -iname "readme*"
 ```
 
-## RAN repository structure
+## RAN Repository Structure
 
-The OpenAirInterface (OAI) software is composed of the following parts:
+The repository is organized as follows:
 
 ```
 openairinterface5g
@@ -100,9 +100,9 @@ openairinterface5g
 ├── openair1          : LTE and NR physical layer
 ├── openair2          : MAC, RLC, PDCP, SDAP, RRC, and application protocols
 ├── openair3          : NAS, S1AP, NGAP, GTP, and related layer-3 protocols
-├── openshift         : OpenShift deployment resources
+├── openshift         : OpenShift build configs and image streams used by CI
 ├── radio             : Radio and simulation drivers
-├── targets           : Legacy configuration files and deployment resources
+├── targets           : Example configuration files and legacy resources
 ├── tests             : Component and integration tests
 └── tools             : Developer and CI analysis, formatting, and plotting tools
 ```
