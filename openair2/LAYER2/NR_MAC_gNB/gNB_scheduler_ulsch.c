@@ -830,6 +830,7 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
     if (!transition_ra_connected_nr_ue(mac, UE)) {
       LOG_E(NR_MAC, "cannot add UE %04x: list is full\n", UE->rnti);
       release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
+      return;
     } else {
       LOG_A(NR_MAC, "(rnti 0x%04x) CFRA procedure succeeded!\n", UE->rnti);
     }
