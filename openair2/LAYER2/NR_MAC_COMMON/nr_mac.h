@@ -489,6 +489,9 @@ typedef struct nr_csi_report {
   int codebook_mode;
   int N1;
   int N2;
+  // codebook subset restriction a_k (TS 38.214 Section 5.2.2.2.1), bit k = a_k: 2 ports k = 4 * (rank - 1) + PMI,
+  // more ports k = N2 * O2 * l + m of beam v_lm
+  uint64_t codebook_subset;
 } nr_csi_report_t;
 
 typedef enum {

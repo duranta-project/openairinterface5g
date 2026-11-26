@@ -607,7 +607,7 @@ struct CRI_RI_LI_PMI_CQI {
   uint8_t cri;
   uint8_t ri;
   uint8_t li;
-  uint8_t pmi_x1;
+  uint16_t pmi_x1;
   uint8_t pmi_x2;
   uint8_t wb_cqi_1tb;
   uint8_t wb_cqi_2tb;

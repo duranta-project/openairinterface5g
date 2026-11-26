@@ -5,6 +5,7 @@
 #include <math.h>
 #include "nr_mac.h"
 #include "nr_mac_common.h"
+#include "common/utils/oai_asn1.h"
 #include "NR_PagingCycle.h"
 #include "common/utils/bits.h"
 #include <limits.h>
@@ -4628,87 +4629,102 @@ static void compute_li_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, uin
   }
 }
 
-static void get_n1n2_o1o2_singlepanel(int *n1,
-                                      int *n2,
-                                      int *o1,
-                                      int *o2,
-                                      const struct NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo *morethantwo)
+static void get_n1n2_o1o2_singlepanel(
+    int *n1,
+    int *n2,
+    int *o1,
+    int *o2,
+    const BIT_STRING_t **subset_restriction,
+    const struct NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo *morethantwo)
 {
   // Table 5.2.2.2.1-2 in 38.214 for supported configurations
   switch(morethantwo->n1_n2.present){
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_two_one_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.two_one_TypeI_SinglePanel_Restriction;
       *n1 = 2;
       *n2 = 1;
       *o1 = 4;
       *o2 = 1;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_two_two_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.two_two_TypeI_SinglePanel_Restriction;
       *n1 = 2;
       *n2 = 2;
       *o1 = 4;
       *o2 = 4;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_four_one_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.four_one_TypeI_SinglePanel_Restriction;
       *n1 = 4;
       *n2 = 1;
       *o1 = 4;
       *o2 = 1;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_three_two_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.three_two_TypeI_SinglePanel_Restriction;
       *n1 = 3;
       *n2 = 2;
       *o1 = 4;
       *o2 = 4;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_six_one_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.six_one_TypeI_SinglePanel_Restriction;
       *n1 = 6;
       *n2 = 1;
       *o1 = 4;
       *o2 = 1;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_four_two_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.four_two_TypeI_SinglePanel_Restriction;
       *n1 = 4;
       *n2 = 2;
       *o1 = 4;
       *o2 = 4;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_eight_one_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.eight_one_TypeI_SinglePanel_Restriction;
       *n1 = 8;
       *n2 = 1;
       *o1 = 4;
       *o2 = 1;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_four_three_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.four_three_TypeI_SinglePanel_Restriction;
       *n1 = 4;
       *n2 = 3;
       *o1 = 4;
       *o2 = 4;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_six_two_TypeI_SinglePanel_Restriction):
-      *n1 = 4;
+      *subset_restriction = &morethantwo->n1_n2.choice.six_two_TypeI_SinglePanel_Restriction;
+      *n1 = 6;
       *n2 = 2;
       *o1 = 4;
       *o2 = 4;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_twelve_one_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.twelve_one_TypeI_SinglePanel_Restriction;
       *n1 = 12;
       *n2 = 1;
       *o1 = 4;
       *o2 = 1;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_four_four_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.four_four_TypeI_SinglePanel_Restriction;
       *n1 = 4;
       *n2 = 4;
       *o1 = 4;
       *o2 = 4;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_eight_two_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.eight_two_TypeI_SinglePanel_Restriction;
       *n1 = 8;
       *n2 = 2;
       *o1 = 4;
       *o2 = 4;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_sixteen_one_TypeI_SinglePanel_Restriction):
+      *subset_restriction = &morethantwo->n1_n2.choice.sixteen_one_TypeI_SinglePanel_Restriction;
       *n1 = 16;
       *n2 = 1;
       *o1 = 4;
@@ -4852,6 +4868,34 @@ static void set_bitlen_size_singlepanel(CSI_Meas_bitlen_t *csi_bitlen, int n1, i
   csi_bitlen->pmi_x1_bitlen[i] = csi_bitlen->pmi_i11_bitlen[i] + csi_bitlen->pmi_i12_bitlen[i] + csi_bitlen->pmi_i13_bitlen[i];
 }
 
+uint8_t nr_ri_index(uint8_t ri_restriction, int ri)
+{
+  return __builtin_popcount(ri_restriction & ((1u << ri) - 1));
+}
+
+int nr_ri_from_index(uint8_t ri_restriction, int ri_index)
+{
+  if (ri_restriction == 0)
+    return ri_index == 0 ? 0 : -1;
+  for (int ri = 0; ri < 8; ri++) {
+    if (!((ri_restriction >> ri) & 1))
+      continue;
+    if (ri_index-- == 0)
+      return ri;
+  }
+  return -1;
+}
+
+uint16_t nr_pack_pmi_x1(const CSI_Meas_bitlen_t *bitlen, int ri, uint8_t i_1_1, uint8_t i_1_2, uint8_t i_1_3)
+{
+  const int bits_11 = bitlen->pmi_i11_bitlen[ri];
+  const int bits_12 = bitlen->pmi_i12_bitlen[ri];
+  const int bits_13 = bitlen->pmi_i13_bitlen[ri];
+  const uint16_t x1_11 = i_1_1 & ((1 << bits_11) - 1);
+  const uint16_t x1_12 = i_1_2 & ((1 << bits_12) - 1);
+  const uint16_t x1_13 = i_1_3 & ((1 << bits_13) - 1);
+  return (x1_11 << (bits_12 + bits_13)) | (x1_12 << bits_13) | x1_13;
+}
 
 static void compute_pmi_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, uint8_t ri_restriction, nr_csi_report_t *csi_report)
 {
@@ -4859,8 +4903,13 @@ static void compute_pmi_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, ui
   for(int i = 0; i < 8; i++) {
     csi_report->csi_meas_bitlen.pmi_x1_bitlen[i] = 0;
     csi_report->csi_meas_bitlen.pmi_x2_bitlen[i] = 0;
-    if (codebookConfig == NULL || ((ri_restriction >> i) & 0x01) == 0)
+    csi_report->csi_meas_bitlen.pmi_i11_bitlen[i] = 0;
+    csi_report->csi_meas_bitlen.pmi_i12_bitlen[i] = 0;
+    csi_report->csi_meas_bitlen.pmi_i13_bitlen[i] = 0;
+    if (codebookConfig == NULL)
       return;
+    if (((ri_restriction >> i) & 0x01) == 0)
+      continue;
     else {
       if(codebookConfig->codebookType.present == NR_CodebookConfig__codebookType_PR_type1) {
         struct NR_CodebookConfig__codebookType__type1 *type1 = codebookConfig->codebookType.choice.type1;
@@ -4870,6 +4919,8 @@ static void compute_pmi_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, ui
              NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts_PR_two) {
             csi_report->N1 = 1;
             csi_report->N2 = 1;
+            csi_report->codebook_mode = 1;
+            csi_report->codebook_subset = BIT_STRING_to_uint64(&sp->nrOfAntennaPorts.choice.two->twoTX_CodebookSubsetRestriction);
             if (i == 0)
               csi_report->csi_meas_bitlen.pmi_x2_bitlen[i] = 2;
             if (i == 1)
@@ -4877,11 +4928,14 @@ static void compute_pmi_bitlen(const NR_CSI_ReportConfig_t *csi_reportconfig, ui
           }
           else {  // more than two
             int n1, n2, o1, o2;
-            get_n1n2_o1o2_singlepanel(&n1, &n2, &o1, &o2, sp->nrOfAntennaPorts.choice.moreThanTwo);
+            const BIT_STRING_t *subset_restriction;
+            get_n1n2_o1o2_singlepanel(&n1, &n2, &o1, &o2, &subset_restriction, sp->nrOfAntennaPorts.choice.moreThanTwo);
             set_bitlen_size_singlepanel(&csi_report->csi_meas_bitlen, n1, n2, o1, o2, i + 1, type1->codebookMode);
             csi_report->N1 = n1;
             csi_report->N2 = n2;
             csi_report->codebook_mode = type1->codebookMode;
+            // a_{N1 O1 N2 O2 - 1} first; more than 64 bits (12 ports or more) cannot be searched by the UE PHY
+            csi_report->codebook_subset = subset_restriction->size <= 8 ? BIT_STRING_to_uint64(subset_restriction) : UINT64_MAX;
           }
         }
         else
@@ -4970,6 +5024,11 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
 
     reportQuantity_type = csi_reportconfig->reportQuantity.present;
     csi_report->reportQuantity_type = reportQuantity_type;
+    // set by compute_pmi_bitlen() for reports with PMI only
+    csi_report->codebook_mode = 0;
+    csi_report->N1 = 0;
+    csi_report->N2 = 0;
+    csi_report->codebook_subset = 0;
     csi_report->reportConfigId = csi_reportconfig->reportConfigId;
     csi_report->reportQuantity_type_r16 = NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_NOTHING;
     if (csi_reportconfig->ext2 != NULL && csi_reportconfig->ext2->reportQuantity_r16)

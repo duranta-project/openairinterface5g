@@ -420,9 +420,9 @@ static int get_diff_rsrp(uint8_t index, int strongest_rsrp)
   return strongest_rsrp + diff_rsrp_ssb_csi_meas_10_1_6_1_2[index];
 }
 
-static uint8_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t start_bit)
+static uint16_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t start_bit)
 {
-  uint8_t rev_bits = 0;
+  uint16_t rev_bits = 0;
   for (int i = 0; i < bitlen; i++)
     rev_bits |= ((payload[(start_bit + i) / 8] >> ((start_bit + i) % 8)) & 0x01) << (bitlen - i - 1);
   return rev_bits;
@@ -642,20 +642,16 @@ static int evaluate_ri_report(uint8_t *payload,
                               int cumul_bits,
                               NR_UE_sched_ctrl_t *sched_ctrl)
 {
-  uint8_t ri_index = pickandreverse_bits(payload, ri_bitlen, cumul_bits);
-  int count = 0;
-  for (int i = 0; i < 8; i++) {
-     if ((ri_restriction >> i) & 0x01) {
-       if(count == ri_index) {
-         sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri = i;
-         LOG_D(MAC,"CSI Reported Rank %d\n", i + 1);
-         return i;
-       }
-       count++;
-     }
+  // with a single allowed rank there is no RI field and the rank is that one
+  const uint8_t ri_index = pickandreverse_bits(payload, ri_bitlen, cumul_bits);
+  const int ri = nr_ri_from_index(ri_restriction, ri_index);
+  if (ri < 0) {
+    LOG_E(NR_MAC, "Decoded ri %d does not correspond to any valid value in ri_restriction %d\n", ri_index, ri_restriction);
+    return -1;
   }
-  LOG_E(NR_MAC, "Decoded ri %d does not correspond to any valid value in ri_restriction %d\n", ri_index, ri_restriction);
-  return -1;
+  sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri = ri;
+  LOG_D(MAC, "CSI Reported Rank %d\n", ri + 1);
+  return ri;
 }
 
 static void evaluate_cqi_report(nr_cell_sched_t *cell,
@@ -819,8 +815,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
               evaluate_cri_report(payload, cri_bitlen, cumul_bits, sched_ctrl);
             cumul_bits += cri_bitlen;
             ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
-            if (ri_bitlen)
-              r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
+            r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
             if (r_index < 0) {
               valid = false;
               break;
@@ -837,8 +832,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
               evaluate_cri_report(payload, cri_bitlen, cumul_bits, sched_ctrl);
             cumul_bits += cri_bitlen;
             ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
-            if (ri_bitlen)
-              r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
+            r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
             if (r_index < 0) {
               valid = false;
               break;
@@ -857,8 +851,7 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
               evaluate_cri_report(payload, cri_bitlen, cumul_bits, sched_ctrl);
             cumul_bits += cri_bitlen;
             ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
-            if (ri_bitlen)
-              r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
+            r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
             if (r_index < 0) {
               valid = false;
               break;
