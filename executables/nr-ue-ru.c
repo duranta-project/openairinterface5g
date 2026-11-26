@@ -86,6 +86,10 @@ static struct {
   int count;
   nrUE_RU_params_t *cfg;
   openair0_device_t *openair0_dev;
+  // silence that UE 0 writes on the RUs no UE uses (nrue_ru_write()): not on the stack, a device may send it after the write
+  // returns (USRP TX thread)
+  c16_t *zeros;
+  int zeros_sz;
 } nrue_rus = {};
 // We keep openair0_cfg_g outside for legacy code
 openair0_config_t openair0_cfg_g[MAX_CARDS] = {};
@@ -348,6 +352,15 @@ void nrue_ru_start(void)
         dev->trx_write_init(dev);
     }
   }
+  // a write is at most one reorder ring of the RU written
+  int zeros_sz = 0;
+  for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++)
+    zeros_sz = max(zeros_sz, nrue_rus.openair0_dev[ru_id].reOrder.sz);
+  if (zeros_sz > nrue_rus.zeros_sz) {
+    // the previous buffer is not freed: a device may still send it
+    nrue_rus.zeros = calloc_or_fail(zeros_sz, sizeof(*nrue_rus.zeros));
+    nrue_rus.zeros_sz = zeros_sz;
+  }
 }
 
 void nrue_ru_stop(void)
@@ -552,11 +565,10 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
 
   // UE 0 needs to write to all RUs that are not used by any other UE
 
+  AssertFatal(nsamps <= nrue_rus.zeros_sz, "write of %d samples, silence buffer of %d\n", nsamps, nrue_rus.zeros_sz);
   void *tmp_buf[num_antennas];
-  uint32_t tmp_samples[nsamps];
-  memset(tmp_samples, 0, sizeof(tmp_samples));
   for (int ant = 0; ant < num_antennas; ant++)
-    tmp_buf[ant] = tmp_samples;
+    tmp_buf[ant] = nrue_rus.zeros;
 
   for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
     if (ru_id == UE->rf_map.card) // already written above
