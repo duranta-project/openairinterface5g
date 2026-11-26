@@ -1696,18 +1696,21 @@ static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg
 {
   uint8_t *addr = msg->pdu_addr_ie.pdu_addr_oct;
   AssertFatal(pdu_session_id > 0 && pdu_session_id < MAX_NUM_PSI, "invalid PDU session ID %d\n", pdu_session_id);
+  // the PDU session gives one host address, not a subnet: with a wider mask
+  // the kernel takes some of the addresses of the pool for broadcast ones
+  const char *host_mask = "255.255.255.255";
 
   switch (msg->pdu_addr_ie.pdu_type) {
     case PDU_SESSION_TYPE_IPV4: {
       char ip[20];
       capture_ipv4_addr(&addr[0], ip, sizeof(ip));
-      nr_ue_tun_create_ip_if(t, ip, NULL, ue_id, pdu_session_id);
+      nr_ue_tun_create_ip_if(t, ip, host_mask, NULL, ue_id, pdu_session_id);
     } break;
 
     case PDU_SESSION_TYPE_IPV6: {
       char ipv6[40];
       capture_ipv6_addr(addr, ipv6, sizeof(ipv6));
-      nr_ue_tun_create_ip_if(t, NULL, ipv6, ue_id, pdu_session_id);
+      nr_ue_tun_create_ip_if(t, NULL, NULL, ipv6, ue_id, pdu_session_id);
     } break;
 
     case PDU_SESSION_TYPE_IPV4V6: {
@@ -1715,7 +1718,7 @@ static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg
       capture_ipv6_addr(addr, ipv6, sizeof(ipv6));
       char ipv4[20];
       capture_ipv4_addr(&addr[IPv6_INTERFACE_ID_LENGTH], ipv4, sizeof(ipv4));
-      nr_ue_tun_create_ip_if(t, ipv4, ipv6, ue_id, pdu_session_id);
+      nr_ue_tun_create_ip_if(t, ipv4, host_mask, ipv6, ue_id, pdu_session_id);
     } break;
 
     default:
@@ -2956,7 +2959,7 @@ void *nas_nrue(void *args_p)
         nas_ue_pdu_tun_t *t = &nas->pdu_tun[pdu_session_id];
         nr_ue_tun_store_qfi(t, qfi);
         tuntap_generate_ue_ifname(t->ifname, IFF_TUN, nas->UE_id, -1);
-        nr_ue_tun_create_ip_if(t, ip, NULL, nas->UE_id, pdu_session_id);
+        nr_ue_tun_create_ip_if(t, ip, "255.255.255.0", NULL, nas->UE_id, pdu_session_id);
         DevAssert(t->sock >= 0);
         nas->psi_status[pdu_session_id] = PDU_SESSION_ACTIVE;
         send_nas_tun_req(nas, pdu_session_id);
