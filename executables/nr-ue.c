@@ -477,9 +477,13 @@ void processSlotTX(void *arg)
         UE->if_inst->ul_indication(&ul_indication);
         stop_meas(&UE->ue_ul_indication_stats);
       }
-      dynamic_barrier_join(rxtxD->next_barrier);
-
-      transmit = phy_procedures_nrUE_TX(UE, proc, &phy_data, txp);
+      // A later UL worker can schedule a new preamble as soon as we release this slot.
+      const bool prach = UE->prach_vars[proc->gNB_id]->active;
+      if (!prach)
+        dynamic_barrier_join(rxtxD->next_barrier);
+      transmit = phy_procedures_nrUE_TX(UE, proc, &phy_data, txp, prach);
+      if (prach)
+        dynamic_barrier_join(rxtxD->next_barrier);
     }
   } else {
     dynamic_barrier_join(rxtxD->next_barrier);
