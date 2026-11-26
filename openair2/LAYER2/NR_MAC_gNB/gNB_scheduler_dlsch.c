@@ -605,7 +605,7 @@ uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,
   NR_UE_DL_BWP_t *dl_bwp = &cand->UE->current_DL_BWP;
   const NR_sched_pdsch_t *orig = &sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
 
-  NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, tda_info, orig->nrOfLayers);
+  NR_pdsch_dmrs_t dmrs = get_dl_retx_dmrs_params(scc, dl_bwp, tda_info, orig);
   uint32_t new_tbs;
   uint16_t new_rbSize;
   bool ok = nr_find_nb_rb(orig->Qm,
@@ -722,7 +722,6 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
 {
   frame_t frame = pp_pdsch->frame;
   slot_t slot = pp_pdsch->slot;
-  NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
   int slots_per_frame = cell->frame_structure.numb_slots_frame;
 
   /* Step 1: Collect candidates */
@@ -748,6 +747,9 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
   int n_valid = mac->dl_tda_select(mac, cell, candidates, n, frame, slot);
   if (n_valid == 0)
     return;
+
+  /* Step 4b: DMRS selection on the selected TDA (DMRS ports, nSCID, DMRS symbols) */
+  mac->dl_dmrs_select(cell, candidates, n);
 
   /* Step 5: MCS adaptation — sets sched_pdsch.mcs from BLER state for all candidates.
    * Placed after beam allocation so a custom dl_mcs_select can factor in alloc_beam_dir
@@ -819,32 +821,24 @@ static void nr_dl_schedule(gNB_MAC_INST *mac,
 
     if (cand->is_retx) {
       /* Retransmission: merge HARQ state (R, Qm, tb_size) with policy placement.
-       * DMRS must match the current TDA (recomputed by dl_tda_select when TDA
-       * changed; original otherwise). */
+       * DMRS comes from the candidate (matches the current TDA). */
       NR_sched_pdsch_t harq_pdsch = sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
       sched_pdsch.R = harq_pdsch.R;
       sched_pdsch.Qm = harq_pdsch.Qm;
       sched_pdsch.tb_size = harq_pdsch.tb_size;
       sched_pdsch.dl_harq_pid = cand->retx_harq_pid;
       sched_pdsch.ant_port_idx = harq_pdsch.ant_port_idx;
-      bool tda_changed = sched_pdsch.tda_info.startSymbolIndex != harq_pdsch.tda_info.startSymbolIndex
-                         || sched_pdsch.tda_info.nrOfSymbols != harq_pdsch.tda_info.nrOfSymbols;
-      if (tda_changed)
-        sched_pdsch.dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, sched_pdsch.nrOfLayers);
-      else
-        sched_pdsch.dmrs_parms = harq_pdsch.dmrs_parms;
     } else {
       /* New transmission: compute TBS-related fields */
       int l = sched_pdsch.nrOfLayers;
       int mcs = sched_pdsch.mcs;
       uint8_t Qm = nr_get_Qm_dl(mcs, dl_bwp->mcsTableIdx);
       uint16_t R = nr_get_code_rate_dl(mcs, dl_bwp->mcsTableIdx);
-      NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(scc, dl_bwp, &sched_pdsch.tda_info, l);
+      const NR_pdsch_dmrs_t dmrs = sched_pdsch.dmrs_parms;
 
       sched_pdsch.R = R;
       sched_pdsch.Qm = Qm;
       sched_pdsch.dl_harq_pid = sched_ctrl->available_dl_harq.head;
-      sched_pdsch.dmrs_parms = dmrs;
 
       sched_pdsch.action = NULL;
       int srb1 = 1;
@@ -952,7 +946,7 @@ nfapi_nr_dl_tti_pdsch_pdu_rel15_t *prepare_pdsch_pdu(nfapi_nr_dl_tti_request_pdu
   pdsch_pdu->SCID = dmrs_parms->n_scid;
   pdsch_pdu->dlDmrsScramblingId = dmrs_parms->scrambling_id;
   pdsch_pdu->numDmrsCdmGrpsNoData = dmrs_parms->numDmrsCdmGrpsNoData;
-  pdsch_pdu->dmrsPorts = (1 << sched_pdsch->nrOfLayers) - 1;  // FIXME with a better implementation
+  pdsch_pdu->dmrsPorts = dmrs_parms->dmrs_ports;
   // Pdsch Allocation in frequency domain
   pdsch_pdu->resourceAlloc = sched_pdsch->alloc_type;
   if (sched_pdsch->alloc_type == PDSCH_TYPE1) {

@@ -15,6 +15,13 @@ extern "C" {
 
 void nr_mac_gnb_test_init(void);
 extern configmodule_interface_t *uniqCfg;
+int test_dl_dmrs_ports(void);
+}
+
+// set_dl_dmrs_ports(), see test_nr_dl_dmrs_ports.c
+TEST(DlDmrsPorts, Table_7_3_1_2_2_1)
+{
+  EXPECT_EQ(test_dl_dmrs_ports(), 0);
 }
 
 int main(int argc, char **argv)

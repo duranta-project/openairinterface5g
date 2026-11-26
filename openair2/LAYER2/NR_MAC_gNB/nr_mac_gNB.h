@@ -515,6 +515,8 @@ typedef struct NR_sched_pusch {
 
 typedef struct NR_pdsch_dmrs {
   uint8_t dmrs_ports_id;
+  /// DMRS ports bitmap (bit i = port 1000+i), consistent with dmrs_ports_id
+  uint16_t dmrs_ports;
   uint8_t N_PRB_DMRS;
   uint8_t N_DMRS_SLOT;
   uint16_t dl_dmrs_symb_pos;
@@ -1070,6 +1072,13 @@ typedef int (*nr_dl_beam_select_fn)(NR_beam_info_t *beam_info,
 typedef int (
     *nr_dl_tda_select_fn)(const gNB_MAC_INST *mac, const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates, frame_t frame, slot_t slot);
 
+/// DMRS selection: sets sched_pdsch.dmrs_parms (DMRS ports, nSCID, DMRS symbols) on the
+/// selected TDA of every candidate. Runs before MCS selection and RB allocation, which size
+/// the allocation with it. UEs to be co-scheduled on the same RBs (DL MU-MIMO) need
+/// different DMRS ports: a DMRS selection that knows such groups assigns them per group,
+/// with set_dl_dmrs_ports().
+typedef void (*nr_dl_dmrs_select_fn)(const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates);
+
 /// Scheduling policy: decides PRB + MCS for candidates across all beams.
 /// The beam loop is inside the policy so it can do cross-beam scheduling (e.g. MU-MIMO).
 /// Writes sched_pdsch.rbStart/rbSize/mcs and cce/pucch fields on scheduled candidates.
@@ -1428,6 +1437,7 @@ typedef struct gNB_MAC_INST_s {
   /// DL scheduling pipeline function pointers
   nr_dl_ri_pmi_select_fn dl_ri_pmi_select;
   nr_dl_tda_select_fn dl_tda_select;
+  nr_dl_dmrs_select_fn dl_dmrs_select;
   nr_dl_beam_select_fn dl_beam_select;
   nr_dl_mcs_select_fn dl_mcs_select;
   nr_dl_rb_alloc_fn dl_rb_alloc;

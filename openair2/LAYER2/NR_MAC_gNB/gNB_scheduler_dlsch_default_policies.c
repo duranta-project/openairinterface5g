@@ -170,6 +170,28 @@ void nr_dl_mcs_select_default(const nr_cell_sched_t *cell, nr_dl_candidate_t *ca
   }
 }
 
+/* Default DMRS: the single-user DMRS of the selected TDA (ports from 1000, one per layer); a
+ * retransmission keeps the DMRS ports and nSCID of its first transmission. */
+void nr_dl_dmrs_select_default(const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates)
+{
+  const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
+  FOR_EACH_CANDIDATE(cand, candidates, n_candidates)
+  {
+    if (cand->skipped)
+      continue;
+    const NR_UE_DL_BWP_t *dl_bwp = &cand->UE->current_DL_BWP;
+    NR_sched_pdsch_t *sp = &cand->sched_pdsch;
+    if (cand->is_retx) {
+      const NR_sched_pdsch_t *orig = &cand->UE->UE_sched_ctrl.harq_processes[cand->retx_harq_pid].sched_pdsch;
+      const bool tda_changed = sp->tda_info.startSymbolIndex != orig->tda_info.startSymbolIndex
+                               || sp->tda_info.nrOfSymbols != orig->tda_info.nrOfSymbols;
+      sp->dmrs_parms = tda_changed ? get_dl_retx_dmrs_params(scc, dl_bwp, &sp->tda_info, orig) : orig->dmrs_parms;
+    } else {
+      sp->dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &sp->tda_info, sp->nrOfLayers);
+    }
+  }
+}
+
 static int compare_dl_pf_rb_ptrs(const void *a, const void *b)
 {
   const nr_dl_candidate_t *ca = *(const nr_dl_candidate_t *const *)a;
@@ -183,16 +205,12 @@ static int compare_dl_pf_rb_ptrs(const void *a, const void *b)
 }
 
 /* number of RBs to send the pending data of a DL candidate, between min_rbSize and max_rbSize */
-static uint16_t dl_needed_rbs(const nr_dl_sched_params_t *params, const nr_dl_candidate_t *cand, int min_rbSize, int max_rbSize)
+static uint16_t dl_needed_rbs(const nr_dl_candidate_t *cand, int min_rbSize, int max_rbSize)
 {
   int mcs = cand->sched_pdsch.mcs;
   uint8_t Qm = nr_get_Qm_dl(mcs, cand->mcs_table);
   uint16_t R = nr_get_code_rate_dl(mcs, cand->mcs_table);
-  const nr_cell_sched_t *cell = params->cell;
-  NR_pdsch_dmrs_t dmrs = get_dl_dmrs_params(cell->common_channels.ServingCellConfigCommon,
-                                            &cand->UE->current_DL_BWP,
-                                            &cand->sched_pdsch.tda_info,
-                                            cand->sched_pdsch.nrOfLayers);
+  const NR_pdsch_dmrs_t *dmrs = &cand->sched_pdsch.dmrs_parms;
   const int oh = 3 * 4 + (cand->UE->UE_sched_ctrl.ta_apply ? 2 : 0);
   uint32_t tbs;
   uint16_t rbs = 0;
@@ -201,7 +219,7 @@ static uint16_t dl_needed_rbs(const nr_dl_sched_params_t *params, const nr_dl_ca
                 1,
                 cand->sched_pdsch.nrOfLayers,
                 cand->sched_pdsch.tda_info.nrOfSymbols,
-                dmrs.N_PRB_DMRS * dmrs.N_DMRS_SLOT,
+                dmrs->N_PRB_DMRS * dmrs->N_DMRS_SLOT,
                 cand->pending_bytes + oh,
                 min_rbSize,
                 max_rbSize,
@@ -286,7 +304,7 @@ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_
       continue;
 
     // calculate the number of RBs that UE would like to have
-    rbs_ue[j] = dl_needed_rbs(params, cand, min_rbSize, max_rbSize);
+    rbs_ue[j] = dl_needed_rbs(cand, min_rbSize, max_rbSize);
     if (n < n_remain_ue) {
       // for the first n_remain_ue UEs: account number of RBs
       // so excess RBs not used by some UEs could be given to others
@@ -330,7 +348,7 @@ int nr_dl_proportional_fair(const nr_dl_sched_params_t *params, nr_dl_candidate_
     // skip the UEs already tried above
     if (cand->is_retx || cand->pending_bytes == 0 || rbs_ue[j] != 0)
       continue;
-    int rb_req = dl_needed_rbs(params, cand, min_rbSize, max_rbSize);
+    int rb_req = dl_needed_rbs(cand, min_rbSize, max_rbSize);
     int rbStart, rbSize;
     uint16_t *vrb_map = params->vrb_map[cand->alloc_beam_idx];
     if (!get_rb_alloc(min_rbSize, rb_req, cand->bwp_start, cand->bwp_size, vrb_map, cand->alloc_slbitmap, &rbStart, &rbSize))
