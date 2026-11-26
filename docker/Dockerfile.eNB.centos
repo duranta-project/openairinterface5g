@@ -3,7 +3,7 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface BUILD service
-#   Valid for RHEL9
+#   Valid for CentOS Stream 10
 #
 #---------------------------------------------------------------------
 
@@ -13,7 +13,7 @@ FROM ran-build:latest AS enb-build
 
 
 #start from scratch for target executable
-FROM registry.redhat.io/ubi9/ubi:latest AS oai-enb
+FROM quay.io/centos/centos:stream10 AS oai-enb
 ENV TZ=Europe/Paris
 
 RUN dnf update -y && \
@@ -53,20 +53,20 @@ COPY --from=enb-build \
 
 COPY --from=enb-base \
     /lib64/libconfig.so.11 \
-    /lib64/libboost_chrono.so.1.75.0 \
-    /lib64/libboost_date_time.so.1.75.0 \
-    /lib64/libboost_filesystem.so.1.75.0 \
-    /lib64/libboost_program_options.so.1.75.0 \
-    /lib64/libboost_serialization.so.1.75.0 \
-    /lib64/libboost_thread.so.1.75.0 \
-    /lib64/libboost_system.so.1.75.0 \
-    /lib64/libboost_unit_test_framework.so.1.75.0 \
-    /lib64/libboost_atomic.so.1.75.0 \
-    /lib64/libboost_timer.so.1.75.0 \
-    /lib64/libboost_regex.so.1.75.0 \
-    /lib64/libicudata.so.67 \
-    /lib64/libicui18n.so.67 \
-    /lib64/libicuuc.so.67 \
+    /lib64/libboost_chrono.so.1.83.0 \
+    /lib64/libboost_date_time.so.1.83.0 \
+    /lib64/libboost_filesystem.so.1.83.0 \
+    /lib64/libboost_program_options.so.1.83.0 \
+    /lib64/libboost_serialization.so.1.83.0 \
+    /lib64/libboost_thread.so.1.83.0 \
+    /lib64/libboost_system.so.1.83.0 \
+    /lib64/libboost_unit_test_framework.so.1.83.0 \
+    /lib64/libboost_atomic.so.1.83.0 \
+    /lib64/libboost_timer.so.1.83.0 \
+    /lib64/libboost_regex.so.1.83.0 \
+    /lib64/libicudata.so.74 \
+    /lib64/libicui18n.so.74 \
+    /lib64/libicuuc.so.74 \
     /lib64/
 
 

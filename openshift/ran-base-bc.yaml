@@ -12,13 +12,9 @@ spec:
         node-role.kubernetes.io/ran-base: ""
     source:
         type: "Binary"
-        secrets:
-          - secret:
-              name: etc-pki-entitlement
-            destinationDir: etc-pki-entitlement
     strategy:
         dockerStrategy:
-            dockerfilePath: "docker/Dockerfile.base.rhel9"
+            dockerfilePath: "docker/Dockerfile.base.centos"
     output:
         to:
             kind: "ImageStreamTag"

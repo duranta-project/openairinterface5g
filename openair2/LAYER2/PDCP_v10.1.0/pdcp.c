@@ -101,9 +101,6 @@ pdcp_stats_t              eNB_pdcp_stats[NUMBER_OF_eNB_MAX];
 
 static pdcp_mbms_t               pdcp_mbms_array_ue[MAX_MOBILES_PER_ENB][LTE_maxServiceCount][LTE_maxSessionPerPMCH];   // some constants from openair2/RRC/LTE/MESSAGES/asn1_constants.h
 static pdcp_mbms_t               pdcp_mbms_array_eNB[NUMBER_OF_eNB_MAX][LTE_maxServiceCount][LTE_maxSessionPerPMCH]; // some constants from openair2/RRC/LTE/MESSAGES/asn1_constants.h
-static sdu_size_t             pdcp_input_sdu_remaining_size_to_read;
-static sdu_size_t             pdcp_output_header_bytes_to_write;
-static sdu_size_t             pdcp_output_sdu_bytes_to_write;
 notifiedFIFO_t         pdcp_sdu_list;
 
 void pdcp_free(void *pdcp_pP);
@@ -2243,9 +2240,6 @@ void pdcp_layer_init(void)
 
 #endif
   LOG_I(PDCP, "PDCP layer has been initialized\n");
-  pdcp_output_sdu_bytes_to_write=0;
-  pdcp_output_header_bytes_to_write=0;
-  pdcp_input_sdu_remaining_size_to_read=0;
   memset(pdcp_enb, 0, sizeof(pdcp_enb_t));
   memset(Pdcp_stats_tx_window_ms, 0, sizeof(Pdcp_stats_tx_window_ms));
   memset(Pdcp_stats_rx_window_ms, 0, sizeof(Pdcp_stats_rx_window_ms));
