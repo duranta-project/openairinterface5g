@@ -128,7 +128,13 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
 
   TB.llr = slsch_llr;
   TB.d = harq_process->d;
-  TB.c = harq_process->c;
+#ifdef LDPC_CUDA
+  TB.c = harq_process->c; // written by the GPU: mapped memory
+#else
+  // decoded code blocks, block r at r * K / 8: only used during this call
+  uint8_t c[TB.C * (TB.K >> 3)] __attribute__((aligned(32)));
+  TB.c = c;
+#endif
   TB.E = E;
   TB.first_rE2 = TB.C;
   TB.E2 = TB.E;
@@ -158,7 +164,7 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
   for (int r = 0; r < TB.C; r++) {
     uint32_t seg_len = (harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0);
     if (TB.decodeSuccess[r]) {
-      memcpy(harq_process->b + offset, harq_process->c + r_offset, seg_len);
+      memcpy(harq_process->b + offset, TB.c + r_offset, seg_len);
       nb_decoded_segments++;
     } else {
       LOG_D(PHY, "SLSCH %d Segment %d/%d in error\n", SLSCH_id, r, TB.C);

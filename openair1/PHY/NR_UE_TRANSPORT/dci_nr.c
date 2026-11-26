@@ -340,7 +340,7 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
 
   LOG_D(NR_PHY_DCI, "in channel level function (dl_ch_estimates_ext -> dl_ch_estimates_ext)\n");
   int avg[fp->nb_antennas_rx];
-  nr_channel_level(0, rx_size, pdcch_dl_ch_estimates_ext, fp->nb_antennas_rx, avg, n_rb * RE_PER_RB_OUT_DMRS);
+  nr_channel_level(rx_size, pdcch_dl_ch_estimates_ext, fp->nb_antennas_rx, avg, n_rb * RE_PER_RB_OUT_DMRS);
   int avgs = avg[0];
   for (int i = 1; i < fp->nb_antennas_rx; i++)
       avgs = cmax(avgs, avg[i]);

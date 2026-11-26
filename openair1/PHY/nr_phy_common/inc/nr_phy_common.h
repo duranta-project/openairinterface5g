@@ -20,8 +20,7 @@ int nr_idft_prescale_shift(const c16_t *x, int n);
 void nr_est_delay(int ofdm_symbol_size, const c16_t *ls_est, c16_t *ch_estimates_time, delay_t *delay);
 unsigned int nr_get_tx_amp(int power_dBm, int power_max_dBm, int total_nb_rb, int nb_rb);
 void nr_fo_compensation(double fo_Hz, int samples_per_ms, int sample_offset, const c16_t *rxdata_in, c16_t *rxdata_out, int size);
-void nr_channel_level(const int symbol,
-                      const int size_est,
+void nr_channel_level(const int size_est,
                       const c16_t ch_estimates_ext[][size_est],
                       const int nb_rx,
                       int32_t avg[nb_rx],
