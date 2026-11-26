@@ -13,6 +13,8 @@
 #include "conversions.h" // TBCD_TO_MCC_MNC, OCTET_STRING_TO_INT*
 #include "ngap_common.h" // NGAP_ERROR, NGAP_DEBUG, ngap_messages_types.h
 #include "ngap_gNB_paging.h" // encode_ng_paging, decode_ng_paging, free_ng_paging
+#include "ngap_gNB_decoder.h" // ngap_gNB_decode_pdu
+#include "ngap_gNB_mobility_management.h" // decode_ng_handover_cancel_ack
 #include "ngap_msg_includes.h" // NGAP_NGAP_PDU_t, NGAP_Paging_t, etc.
 #include "oai_asn1.h" // ASN_STRUCT_FREE, asn_DEF_NGAP_NGAP_PDU
 #include "config/config_load_configmodule.h" // configmodule_interface_t
@@ -117,6 +119,47 @@ static void test_ngap_guami_decode(void)
   LOG_A(NGAP, "decode_ngap_guami() test passed\n");
 }
 
+/** @brief Test that a Handover Cancel Acknowledge from the AMF passes the PDU decoder and is decoded */
+static void test_ngap_handover_cancel_ack_decode(void)
+{
+  const uint64_t amf_ue_ngap_id = 0x123456789;
+  const uint32_t gnb_ue_ngap_id = 42;
+
+  NGAP_NGAP_PDU_t pdu = {.present = NGAP_NGAP_PDU_PR_successfulOutcome};
+  asn1cCalloc(pdu.choice.successfulOutcome, head);
+  head->procedureCode = NGAP_ProcedureCode_id_HandoverCancel;
+  head->criticality = NGAP_Criticality_reject;
+  head->value.present = NGAP_SuccessfulOutcome__value_PR_HandoverCancelAcknowledge;
+  NGAP_HandoverCancelAcknowledge_t *out = &head->value.choice.HandoverCancelAcknowledge;
+  asn1cSequenceAdd(out->protocolIEs.list, NGAP_HandoverCancelAcknowledgeIEs_t, ie1);
+  ie1->id = NGAP_ProtocolIE_ID_id_AMF_UE_NGAP_ID;
+  ie1->criticality = NGAP_Criticality_ignore;
+  ie1->value.present = NGAP_HandoverCancelAcknowledgeIEs__value_PR_AMF_UE_NGAP_ID;
+  asn_uint642INTEGER(&ie1->value.choice.AMF_UE_NGAP_ID, amf_ue_ngap_id);
+  asn1cSequenceAdd(out->protocolIEs.list, NGAP_HandoverCancelAcknowledgeIEs_t, ie2);
+  ie2->id = NGAP_ProtocolIE_ID_id_RAN_UE_NGAP_ID;
+  ie2->criticality = NGAP_Criticality_ignore;
+  ie2->value.present = NGAP_HandoverCancelAcknowledgeIEs__value_PR_RAN_UE_NGAP_ID;
+  ie2->value.choice.RAN_UE_NGAP_ID = gnb_ue_ngap_id;
+
+  uint8_t msgbuf[1024];
+  asn_enc_rval_t enc = aper_encode_to_buffer(&asn_DEF_NGAP_NGAP_PDU, NULL, &pdu, msgbuf, sizeof(msgbuf));
+  AssertFatal(enc.encoded > 0, "aper_encode_to_buffer() failed\n");
+  ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
+
+  NGAP_NGAP_PDU_t dec_pdu = {0};
+  int ret = ngap_gNB_decode_pdu(&dec_pdu, msgbuf, enc.encoded);
+  AssertFatal(ret == 0, "ngap_gNB_decode_pdu() rejected Handover Cancel Acknowledge\n");
+
+  ngap_handover_cancel_ack_t ack = {0};
+  ret = decode_ng_handover_cancel_ack(&ack, &dec_pdu);
+  AssertFatal(ret == 0, "decode_ng_handover_cancel_ack() failed\n");
+  AssertFatal(ack.amf_ue_ngap_id == amf_ue_ngap_id, "amf_ue_ngap_id 0x%lx != 0x%lx\n", ack.amf_ue_ngap_id, amf_ue_ngap_id);
+  AssertFatal(ack.gNB_ue_ngap_id == gnb_ue_ngap_id, "gNB_ue_ngap_id %u != %u\n", ack.gNB_ue_ngap_id, gnb_ue_ngap_id);
+  ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &dec_pdu);
+  LOG_A(NGAP, "Handover Cancel Acknowledge decode test passed\n");
+}
+
 // Stub for uniqCfg required by logging/config system
 configmodule_interface_t *uniqCfg = NULL;
 
@@ -128,6 +171,7 @@ int main(void)
 
   test_ngap_paging_encode_decode();
   test_ngap_guami_decode();
+  test_ngap_handover_cancel_ack_decode();
   LOG_A(NGAP, "All NGAP tests passed!\n");
   return 0;
 }

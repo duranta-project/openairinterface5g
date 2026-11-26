@@ -62,3 +62,37 @@ services:
             interval: 10s
             timeout: 5s
             retries: 5
+
+    # Target gNB-PCI1 in rfsim: unreachable for the UE, so T304 expires during N2 HO
+    oai-gnb-pci1-rfsim:
+        image: ${REGISTRY-oaisoftwarealliance/}${GNB_IMG:-oai-gnb}:${TAG:-develop}
+        container_name: oai-gnb-pci1-rfsim
+        cap_drop:
+            - ALL
+        cap_add:
+            - SYS_NICE
+            - IPC_LOCK
+        ulimits:
+          core: -1 # for core dumps
+        environment:
+            USE_ADDITIONAL_OPTIONS: --rfsim --rfsimulator.[0].serveraddr server
+                                    --gNBs.[0].nr_cellid 11111111
+                                    --gNBs.[0].gNB_ID 0xe01
+                                    --gNBs.[0].servingCellConfigCommon.[0].physCellId 1
+                                    --gNBs.[0].servingCellConfigCommon.[0].ssb_PositionsInBurst_Bitmap 2
+                                    --gNBs.[0].first_active_bwp 0
+                                    --gNBs.[0].NETWORK_INTERFACES.GNB_IPV4_ADDRESS_FOR_NG_AMF 172.21.19.99
+                                    --gNBs.[0].NETWORK_INTERFACES.GNB_IPV4_ADDRESS_FOR_NGU 172.21.19.99
+                                    --telnetsrv --telnetsrv.listenport 9091 --telnetsrv.shrmod ci
+                                    --log_config.global_log_options level,nocolor,utc_time,line_num,function
+        volumes:
+            - ../../conf_files/neighbour-config-ho.conf:/opt/oai-gnb/etc/neighbour-config-ho.conf
+            - ../../conf_files/gnb.sa.band77.51prb.usrpb200.n2-ho.conf:/opt/oai-gnb/etc/gnb.conf
+        network_mode: "host"
+        profiles:
+            - manual # needs manual start, only for CI testing
+        healthcheck:
+            test: /bin/bash -c "ps aux | grep -v grep | grep -c softmodem"
+            interval: 10s
+            timeout: 5s
+            retries: 5
