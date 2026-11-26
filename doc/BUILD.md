@@ -10,7 +10,7 @@ This page describes how to build OAI.
 
 The [OAI EPC](https://github.com/OPENAIRINTERFACE/openair-epc-fed/blob/master/docs/DEPLOY_HOME_MAGMA_MME.md) and [OAI 5GC](https://github.com/openairinterface/oai-cn5g-fed/blob/develop/docs/DEPLOY_HOME.md) are developed in distinct projects with their own documentation and are not further described here.
 
-OAI softmodem sources, which aim to implement 3GPP compliant UEs, eNodeB and gNodeB can be downloaded from the Eurecom [gitlab repository](./GET_SOURCES.md).
+OAI softmodem sources, which aim to implement 3GPP compliant UEs, eNodeB and gNodeB can be downloaded from the [GitHub repository](https://github.com/duranta-project/openairinterface5g).
 
 The historically convential way to build OAI is
 [build_oai](../cmake_targets/build_oai) located at the root of the

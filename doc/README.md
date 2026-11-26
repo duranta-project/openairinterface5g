@@ -24,7 +24,6 @@ More general information is available in the
 - [System requirements](./system_requirements.md): system requirements for running the stack
 - [Supported hardware and operating systems](./Supported_Hardware_Operating_System.md): tested CPUs, NICs and accelerators
 - [Key performance indicators](./kpi.md): KPIs of the RAN and UE stack
-- [Getting the sources](./GET_SOURCES.md): how to download the sources
 - [Building OAI](./BUILD.md): how to build the sources
 - [Packages](./packages.md): build and install Deb/RPM packages of OAI
 - [Tuning and security](./tuning_and_security.md): performance and security considerations

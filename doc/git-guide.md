@@ -116,10 +116,9 @@ git config gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers
 ## Managing your own branch
 
 The general development branch, and the target of every contribution, is
-`develop`; see [GET_SOURCES.md](./GET_SOURCES.md) for the branch and tag model
-(weekly `YYYY.wXX` tags, `vX.Y` releases). The rules for what a branch should
-look like — linear history, small self-contained logical commits, commit
-messages that explain *why* — are policy and live in
+`develop`, with weekly `YYYY.wXX` integration tags and `vX.Y.Z` releases. The
+rules for what a branch should look like — linear history, small self-contained
+logical commits, commit messages that explain *why* — are policy and live in
 [code-style-contrib.md](./code-style-contrib.md#workflow).
 
 Before starting to work, please make sure to branch off the latest `develop`
@@ -382,8 +381,6 @@ to sync.
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - CLA, DCO, and licensing requirements.
 - [code-style-contrib.md](./code-style-contrib.md) - workflow, commit, and
   review policy, including commit trailers.
-- [GET_SOURCES.md](./GET_SOURCES.md) - branches, tags, and how to obtain the
-  sources.
 - [clang-format.md](./clang-format.md) - code formatting and its Git
   integration (pre-commit hook).
 - The [Git Book](https://git-scm.com/book/en/v2) and the
