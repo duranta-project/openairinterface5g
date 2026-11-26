@@ -5,7 +5,7 @@ ColNames :
   - Average; Max; Count
   - Average vs Reference Deviation (Reference Value; Acceptability Deviation Threshold)
 Ref :
-  L1 Tx processing : 101.0
+  L1 Tx processing : 86.4
   DLSCH encoding : 37.2
   L1 Rx processing : 216.3
   UL segments decoding : 78.3
