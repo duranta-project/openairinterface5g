@@ -2275,7 +2275,7 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
         LOG_W(NR_MAC, "(%d.%d) RA Contention Resolution timer expired for UE 0x%04x, RA procedure failed...\n", frameP, slotP, UE->rnti);
         bool requested = false;
         if (UE->CellGroup) // request if we did not reject the UE
-          requested = nr_mac_request_release_ue(mac, UE->rnti);
+          requested = nr_mac_request_release_ue(mac, UE);
         if (!requested)
           to_release[num_release++] = UE->rnti;
         continue;
