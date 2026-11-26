@@ -1,154 +1,261 @@
-/*
- * SPDX-License-Identifier: LicenseRef-CSSL-1.0
- */
-
+/* SPDX-License-Identifier: LicenseRef-CSSL-1.0 */
+#include "sim.h"
+#include <limits.h>
 #include <math.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gaussian_rng.h"
 
-#define CHECK(condition)                                              \
-  do {                                                                \
-    if (!(condition)) {                                               \
-      fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition); \
-      exit(EXIT_FAILURE);                                             \
-    }                                                                 \
+#define CHECK(x)                                      \
+  do {                                                \
+    if (!(x)) {                                       \
+      fprintf(stderr, "line %d: %s\n", __LINE__, #x); \
+      abort();                                        \
+    }                                                 \
   } while (0)
+void scalar_gaussian_rng_init(uint64_t, gaussian_rng_t *);
+void scalar_gaussian_rng_fill(gaussian_rng_t *, size_t, double *);
+void scalar_gaussian_rng_fill_float(gaussian_rng_t *, size_t, float *);
 
-enum { STREAM_SIZE = 10003 };
-
-static void check_batching(uint32_t seed)
+static uint64_t rot(uint64_t v, unsigned n)
 {
-  gaussian_rng_t scalar, batch;
-  gaussian_rng_init(seed, &scalar);
-  gaussian_rng_init(seed, &batch);
-  double reference[STREAM_SIZE];
-  for (size_t i = 0; i < STREAM_SIZE; ++i)
-    reference[i] = gaussian_rng_sample(&scalar);
-  const size_t sizes[] = {0, 1, 2, 3, 4, 7, 8, 15, 16, 17, 63, 64, 1024, 16384};
-  for (size_t k = 0; k < sizeof(sizes) / sizeof(*sizes); ++k) {
-    const size_t n = sizes[k];
-    double *buffer = malloc((n + 2) * sizeof(*buffer));
-    CHECK(buffer != NULL);
-    buffer[0] = buffer[n + 1] = 12345.0;
-    gaussian_rng_init(seed, &batch);
-    gaussian_rng_t before = batch;
-    gaussian_rng_fill(&batch, 0, NULL);
-    CHECK(batch.jsr == before.jsr);
-    gaussian_rng_fill(&batch, n, buffer + 1);
-    gaussian_rng_init(seed, &scalar);
-    for (size_t i = 0; i < n; ++i)
-      CHECK(buffer[i + 1] == gaussian_rng_sample(&scalar));
-    CHECK(buffer[0] == 12345.0 && buffer[n + 1] == 12345.0);
-    CHECK(batch.jsr == scalar.jsr);
-    free(buffer);
-    if (!n)
-      continue;
-    gaussian_rng_init(seed, &batch);
-    double actual[STREAM_SIZE];
-    for (size_t offset = 0; offset < STREAM_SIZE;) {
-      size_t count = STREAM_SIZE - offset < n ? STREAM_SIZE - offset : n;
-      gaussian_rng_fill(&batch, count, actual + offset);
-      offset += count;
+  return v << n | v >> (64 - n);
+}
+
+static void streams(void)
+{
+  const uint64_t seeds[] = {0, 1, 42, 123456789, UINT64_MAX};
+  for (unsigned seed = 0; seed < 5; seed++) {
+    gaussian_rng_t a, b;
+    gaussian_rng_init(seeds[seed], &a);
+    b = a;
+    enum { N = 10003 };
+    double x[N], y[N];
+    float f[N], g[N];
+    gaussian_rng_fill(&a, N, x);
+    for (unsigned i = 0; i < N;) {
+      unsigned n = 1 + i % 71;
+      if (n > N - i)
+        n = N - i;
+      gaussian_rng_fill(&b, n, y + i);
+      i += n;
     }
-    CHECK(memcmp(reference, actual, sizeof(reference)) == 0);
+    CHECK(!memcmp(x, y, sizeof(x)));
+    gaussian_rng_t reference;
+    scalar_gaussian_rng_init(seeds[seed], &reference);
+    scalar_gaussian_rng_fill(&reference, N, y);
+    CHECK(!memcmp(x, y, sizeof(x)));
+    gaussian_rng_init(seeds[seed], &reference);
+    for (unsigned i = 0; i < N; i++)
+      CHECK(x[i] == gaussian_rng_sample(&reference));
+    CHECK(!memcmp(a.words, b.words, sizeof(a.words)));
+    CHECK(!memcmp(a.repair, b.repair, sizeof(a.repair)));
+    gaussian_rng_init(seeds[seed], &a);
+    b = a;
+    gaussian_rng_fill_float(&a, N, f);
+    for (unsigned i = 0; i < N;) {
+      unsigned n = 1 + i % 71;
+      if (n > N - i)
+        n = N - i;
+      gaussian_rng_fill_float(&b, n, g + i);
+      i += n;
+    }
+    CHECK(!memcmp(f, g, sizeof(f)));
+    scalar_gaussian_rng_init(seeds[seed], &reference);
+    scalar_gaussian_rng_fill_float(&reference, N, g);
+    CHECK(!memcmp(f, g, sizeof(f)));
+    CHECK(!memcmp(a.words, b.words, sizeof(a.words)));
+    CHECK(!memcmp(a.repair, b.repair, sizeof(a.repair)));
+    gaussian_rng_t copy = a;
+    gaussian_rng_fill_float(&a, 0, NULL);
+    gaussian_rng_fill(&a, 0, NULL);
+    CHECK(!memcmp(&a, &copy, sizeof(a)));
+    gaussian_rng_fill(&a, 13, x);
+    gaussian_rng_fill(&copy, 13, y);
+    CHECK(!memcmp(x, y, 13 * sizeof(*x)));
+    gaussian_rng_fill_float(&a, 19, f);
+    gaussian_rng_fill_float(&copy, 19, g);
+    CHECK(!memcmp(f, g, 19 * sizeof(*f)));
+    for (unsigned mask = 0; mask < 256; mask++) {
+      gaussian_rng_init(seeds[seed], &a);
+      for (unsigned l = 0; l < 4; l++) {
+        uint32_t lo = mask & (1u << (2 * l)) ? 0xfffffe00 : 2;
+        uint32_t hi = mask & (1u << (2 * l + 1)) ? 0xffffff00 : 2;
+        uint64_t w = (uint64_t)hi << 32 | lo;
+        a.words[0][l] = 0;
+        a.words[3][l] = rot(w, 41);
+      }
+      b = a;
+      gaussian_rng_fill_float(&a, 64, f);
+      for (unsigned i = 0; i < 64; i++)
+        gaussian_rng_fill_float(&b, 1, g + i);
+      CHECK(!memcmp(f, g, 64 * sizeof(*f)));
+      for (unsigned i = 0; i < 64; i++)
+        CHECK(isfinite(f[i]));
+    }
   }
 }
 
-static void check_legacy_prefix(void)
+static void double_masks_and_endpoints(void)
 {
-  /* Captured from gaussZiggurat at cfee4c20b4 with OAI_RNGSEED=42. */
-  const double expected[] = {0.0094654187418944883,
-                             -1.2274830373066112,
-                             -0.59659517168617193,
-                             -0.12487639503099408,
-                             -0.26276622742363293,
-                             1.191643243105081,
-                             0.31097504837540907,
-                             0.48133587165194919};
-  gaussian_rng_t state;
-  gaussian_rng_init(42, &state);
-  for (size_t i = 0; i < sizeof(expected) / sizeof(*expected); ++i)
-    CHECK(fabs(gaussian_rng_sample(&state) - expected[i]) < 1e-14);
-}
-
-static void check_interleaving(void)
-{
-  gaussian_rng_t a, b, reference, zero, default_seed;
-  gaussian_rng_init(42, &a);
-  gaussian_rng_init(17, &b);
-  gaussian_rng_init(42, &reference);
-  gaussian_rng_init(0, &zero);
-  gaussian_rng_init(123456789, &default_seed);
-  for (unsigned i = 0; i < 10000; ++i) {
-    CHECK(gaussian_rng_sample(&a) == gaussian_rng_sample(&reference));
+  for (unsigned mask = 0; mask < 16; mask++)
+    for (unsigned endpoint = 0; endpoint < 2; endpoint++) {
+      gaussian_rng_t a, b;
+      gaussian_rng_init(42, &a);
+      for (unsigned l = 0; l < 4; l++) {
+        uint64_t w = mask & (1u << l) ? UINT64_C(0xfffffffffffff000) | (l & 1 ? 256 : 0) : 2;
+        a.words[0][l] = 0;
+        a.words[3][l] = rot(w, 41);
+      }
+      a.repair[0] = 0;
+      a.repair[3] = rot(endpoint ? UINT64_MAX : 0, 41);
+      b = a;
+      double x[64], y[64];
+      gaussian_rng_fill(&a, 64, x);
+      scalar_gaussian_rng_fill(&b, 64, y);
+      CHECK(!memcmp(x, y, sizeof(x)));
+      for (unsigned i = 0; i < 64; i++)
+        CHECK(isfinite(x[i]));
+      if (mask == 15) {
+        gaussian_rng_init(42, &a);
+        for (unsigned l = 0; l < 4; l++) {
+          a.words[0][l] = 0;
+          a.words[3][l] = rot(UINT64_C(0xffffff00fffffe00), 41);
+        }
+        a.repair[0] = 0;
+        a.repair[3] = rot(endpoint ? UINT64_MAX : 0, 41);
+        b = a;
+        float f[64], g[64];
+        gaussian_rng_fill_float(&a, 64, f);
+        scalar_gaussian_rng_fill_float(&b, 64, g);
+        CHECK(!memcmp(f, g, sizeof(f)));
+        for (unsigned i = 0; i < 64; i++)
+          CHECK(isfinite(f[i]));
+      }
+    }
+  gaussian_rng_t a, b, c;
+  gaussian_rng_init(1, &a);
+  gaussian_rng_init(UINT64_C(0x100000001), &b);
+  CHECK(memcmp(a.words, b.words, sizeof(a.words)) != 0);
+  c = a;
+  for (unsigned i = 0; i < 1000; i++) {
+    CHECK(gaussian_rng_sample(&a) == gaussian_rng_sample(&c));
     gaussian_rng_sample(&b);
-    CHECK(gaussian_rng_sample(&zero) == gaussian_rng_sample(&default_seed));
-    if (i % 3 == 0)
+    if (i % 17 == 0)
       gaussian_rng_init(i, &b);
   }
-  gaussian_rng_t copy = a;
-  for (unsigned i = 0; i < 10000; ++i)
-    CHECK(gaussian_rng_sample(&a) == gaussian_rng_sample(&copy));
 }
 
-static void check_int32_min_candidate(void)
+static void signed_zero(void)
 {
-  gaussian_rng_t state;
-  /* This seed makes the first SHR3 word INT32_MIN, forcing the tail path. */
-  gaussian_rng_init(UINT32_C(3532752714), &state);
-  double value = gaussian_rng_sample(&state);
-  CHECK(isfinite(value) && value < -3.442620);
+  gaussian_rng_t s;
+  gaussian_rng_init(42, &s);
+  for (unsigned l = 0; l < 4; l++) {
+    s.words[0][l] = 0;
+    s.words[3][l] = rot(l & 1 ? 258 : 2, 41);
+  }
+  double d[4];
+  gaussian_rng_fill(&s, 4, d);
+  for (unsigned l = 0; l < 4; l++)
+    CHECK(d[l] == 0 && !!signbit(d[l]) == (l & 1));
+
+  gaussian_rng_init(42, &s);
+  for (unsigned l = 0; l < 4; l++) {
+    s.words[0][l] = 0;
+    s.words[3][l] = rot(UINT64_C(0x10200000002), 41);
+  }
+  float f[8];
+  gaussian_rng_fill_float(&s, 8, f);
+  for (unsigned l = 0; l < 8; l++)
+    CHECK(f[l] == 0 && !!signbit(f[l]) == (l & 1));
 }
 
-static void check_distribution(uint32_t seed)
+static void cursor_bounds(void)
 {
-  enum { COUNT = 1000000, BATCH = 1024 };
-  gaussian_rng_t state;
-  gaussian_rng_init(seed, &state);
-  double sum = 0, square = 0, pair_sum = 0, previous = 0;
-  unsigned tails[4] = {0}, positive = 0;
-  for (unsigned offset = 0; offset < COUNT;) {
-    double out[BATCH];
-    size_t n = COUNT - offset < BATCH ? COUNT - offset : BATCH;
-    gaussian_rng_fill(&state, n, out);
-    for (size_t i = 0; i < n; ++i) {
-      const double x = out[i];
-      CHECK(isfinite(x));
-      sum += x;
-      square += x * x;
-      pair_sum += previous * x;
-      previous = x;
-      positive += x > 0;
-      for (unsigned k = 0; k < 4; ++k)
-        tails[k] += fabs(x) > k + 1;
-    }
-    offset += n;
+  const unsigned cursors[] = {4, 8, UINT_MAX};
+  for (unsigned i = 0; i < sizeof(cursors) / sizeof(*cursors); i++) {
+    gaussian_rng_t a, b;
+    gaussian_rng_init(42, &a);
+    b = a;
+    a.cursor_double = cursors[i];
+    CHECK(gaussian_rng_sample(&a) == gaussian_rng_sample(&b));
+    CHECK(a.cursor_double == 1);
+    double x[9], y[9];
+    a.cursor_double = cursors[i];
+    b.cursor_double = 4;
+    gaussian_rng_fill(&a, 9, x);
+    gaussian_rng_fill(&b, 9, y);
+    CHECK(!memcmp(x, y, sizeof(x)));
+    a.cursor_float = i ? cursors[i] : 8;
+    b.cursor_float = 8;
+    float f[17], g[17];
+    gaussian_rng_fill_float(&a, 17, f);
+    gaussian_rng_fill_float(&b, 17, g);
+    CHECK(!memcmp(f, g, sizeof(f)));
   }
-  const double mean = sum / COUNT;
-  const double variance = (square - sum * mean) / (COUNT - 1);
-  CHECK(fabs(mean) <= 6 / sqrt(COUNT));
-  CHECK(fabs(variance - 1) <= 6 * sqrt(2.0 / (COUNT - 1)));
-  CHECK(fabs(positive - COUNT / 2.0) <= 6 * sqrt(COUNT / 4.0));
-  CHECK(fabs(pair_sum / (COUNT - 1)) <= 6 / sqrt(COUNT - 1));
-  for (unsigned k = 0; k < 4; ++k) {
-    double p = erfc((k + 1) / sqrt(2));
-    CHECK(fabs(tails[k] - COUNT * p) <= 6 * sqrt(COUNT * p * (1 - p)));
-  }
+}
+
+static void distribution(void)
+{
+  enum { N = 2000000 };
+  const double edges[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4};
+  for (unsigned scalar = 0; scalar < 2; scalar++)
+    for (unsigned precision = 0; precision < 2; precision++)
+      for (unsigned seed = 0; seed < 3; seed++) {
+        gaussian_rng_t s;
+        gaussian_rng_init(seed == 0 ? 0 : seed == 1 ? 42 : 123456789, &s);
+        double sum[8] = {0}, sq[8] = {0}, cross[8] = {0}, adjacent[8] = {0}, last[8] = {0}, previous = 0;
+        unsigned bins[8][9] = {{0}}, sign[8] = {0};
+        for (unsigned start = 0; start < N; start += 64) {
+          double d[64];
+          float f[64];
+          if (precision) {
+            if (scalar)
+              scalar_gaussian_rng_fill_float(&s, 64, f);
+            else
+              gaussian_rng_fill_float(&s, 64, f);
+          } else {
+            if (scalar)
+              scalar_gaussian_rng_fill(&s, 64, d);
+            else
+              gaussian_rng_fill(&s, 64, d);
+          }
+          for (unsigned j = 0; j < 64; j++) {
+            unsigned l = (start + j) % 8;
+            double x = precision ? f[j] : d[j];
+            CHECK(isfinite(x));
+            sum[l] += x;
+            sq[l] += x * x;
+            cross[l] += x * last[l];
+            adjacent[l] += x * previous;
+            previous = x;
+            last[l] = x;
+            sign[l] += x > 0;
+            for (unsigned e = 0; e < 9; e++)
+              bins[l][e] += x <= edges[e];
+          }
+        }
+        const double n = N / 8;
+        for (unsigned l = 0; l < 8; l++) {
+          CHECK(fabs(sum[l] / n) < 6 / sqrt(n));
+          CHECK(fabs(sq[l] / n - 1) < 6 * sqrt(2 / n));
+          CHECK(fabs(cross[l] / n) < 6 / sqrt(n));
+          CHECK(fabs(adjacent[l] / n) < 6 / sqrt(n));
+          CHECK(fabs(sign[l] - n / 2) < 6 * sqrt(n / 4));
+          for (unsigned e = 0; e < 9; e++) {
+            double p = .5 * erfc(-edges[e] / sqrt(2));
+            CHECK(fabs(bins[l][e] - n * p) < 6 * sqrt(n * p * (1 - p)) + 2);
+          }
+        }
+      }
 }
 
 int main(void)
 {
-  check_legacy_prefix();
-  check_interleaving();
-  check_int32_min_candidate();
-  const uint32_t seeds[] = {0, 1, 42, 123456789, UINT32_MAX, UINT32_C(0x80000000), UINT32_C(3532752714)};
-  for (size_t i = 0; i < sizeof(seeds) / sizeof(*seeds); ++i) {
-    check_batching(seeds[i]);
-    check_distribution(seeds[i]);
-  }
-  puts("Gaussian state, batching, legacy prefix and distribution checks passed");
-  return EXIT_SUCCESS;
+  streams();
+  double_masks_and_endpoints();
+  signed_zero();
+  cursor_bounds();
+  distribution();
+  puts("PASS Gaussian streams, scalar equivalence, rejection masks and lane distributions");
 }

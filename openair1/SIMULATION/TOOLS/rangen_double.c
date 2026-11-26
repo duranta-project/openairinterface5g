@@ -9,10 +9,9 @@
 #include  "sim.h"
 #include "gaussian_rng.h"
 
-static void tableNor(void);
 static unsigned int urseed, iy, ir[98]; /// uniformrandom
-static bool tableNordDone = false; /// gaussZiggurat
-static gaussian_rng_t legacy_gaussian;
+static bool gaussian_initialized = false; /// gaussZiggurat
+static gaussian_rng_t default_gaussian;
 
 /*!\brief Generate a random number form `/dev/urandom`. */
 void fill_random(void *buf, size_t sz)
@@ -65,10 +64,8 @@ void randominit()
   iy = 1;
 
   // initialize gaussZiggurat RNG
-  gaussian_rng_init((uint32_t)seed, &legacy_gaussian);
-  /* Keep the legacy API's seed truncation and zero-seed behavior. */
-  legacy_gaussian.jsr = (uint32_t)seed;
-  tableNordDone = true;
+  gaussian_rng_init(seed, &default_gaussian);
+  gaussian_initialized = true;
 }
 
 /*
@@ -118,126 +115,30 @@ double __attribute__ ((no_sanitize_address)) gaussdouble(double mean, double var
   }
 }
 
-
-/*
-@defgroup _gaussZiggurat
-@ingroup numerical ziggurat random number generator for normally distributed numbers
-*/
-// Ziggurat
-static double wn[128], fn[128];
-static uint32_t kn[128];
-static pthread_once_t gaussian_tables_once = PTHREAD_ONCE_INIT;
-
-static inline uint32_t gaussian_bits(gaussian_rng_t *state)
+static inline gaussian_rng_t *default_rng(void)
 {
-  const uint32_t previous = state->jsr;
-  uint32_t next = previous;
-  next ^= next << 13;
-  next ^= next >> 17;
-  next ^= next << 5;
-  state->jsr = next;
-  return previous + next;
-}
-
-static inline double gaussian_uniform(gaussian_rng_t *state)
-{
-  return 0.5 + (int32_t)gaussian_bits(state) * 0.2328306e-9;
-}
-
-static inline uint32_t gaussian_magnitude(int32_t value)
-{
-  /* Unlike abs(), unsigned negation also handles INT32_MIN. */
-  return value < 0 ? -(uint32_t)value : (uint32_t)value;
-}
-
-static double gaussian_tail(gaussian_rng_t *state, int32_t hz)
-{
-  const double r = 3.442620;
-
-  for (;;) {
-    const uint32_t iz = (uint32_t)hz & 127;
-    double x = hz * wn[iz];
-
-    if (iz == 0) {
-      double y;
-      do {
-        x = -0.2904764 * log(gaussian_uniform(state));
-        y = -log(gaussian_uniform(state));
-      } while (y + y < x * x);
-
-      return (hz > 0) ? r + x : -r - x;
-    }
-
-    if (fn[iz] + gaussian_uniform(state) * (fn[iz - 1] - fn[iz]) < exp(-0.5 * x * x)) {
-      return x;
-    }
-
-    hz = (int32_t)gaussian_bits(state);
-    const uint32_t next_iz = (uint32_t)hz & 127;
-
-    if (gaussian_magnitude(hz) < kn[next_iz]) {
-      return hz * wn[next_iz];
-    }
+  if (!__builtin_expect(gaussian_initialized, 1)) {
+    fprintf(stderr, "%s(): RNG not initialized, run randominit() first\n", __func__);
+    abort();
   }
+  return &default_gaussian;
 }
 
-/*!Procedure to create tables for normal distribution kn,wn and fn. */
-static void tableNor(void)
+gaussian_rng_t *gaussian_rng_default(void)
 {
-  double dn = 3.442619855899;
-  int i;
-  const double m1 = 2147483648.0;
-  double q;
-  double tn = 3.442619855899;
-  const double vn = 9.91256303526217E-03;
-  q = vn / exp(-0.5 * dn * dn);
-  kn[0] = ((dn / q) * m1);
-  kn[1] = 0;
-  wn[0] = (q / m1);
-  wn[127] = (dn / m1);
-  fn[0] = 1.0;
-  fn[127] = (exp(-0.5 * dn * dn));
-
-  for (i = 126; 1 <= i; i--) {
-    dn = sqrt(-2.0 * log(vn / dn + exp(-0.5 * dn * dn)));
-    kn[i + 1] = ((dn / tn) * m1);
-    tn = dn;
-    fn[i] = (exp(-0.5 * dn * dn));
-    wn[i] = (dn / m1);
-  }
-}
-
-void gaussian_rng_init(uint32_t seed, gaussian_rng_t *state)
-{
-  pthread_once(&gaussian_tables_once, tableNor);
-  state->jsr = seed ? seed : 123456789;
-}
-
-double gaussian_rng_sample(gaussian_rng_t *state)
-{
-  const int32_t hz = (int32_t)gaussian_bits(state);
-  const uint32_t iz = (uint32_t)hz & 127;
-  return gaussian_magnitude(hz) < kn[iz] ? hz * wn[iz] : gaussian_tail(state, hz);
-}
-
-void gaussian_rng_fill(gaussian_rng_t *state, size_t count, double *out)
-{
-  for (size_t i = 0; i < count; ++i)
-    out[i] = gaussian_rng_sample(state);
+  return default_rng();
 }
 
 double gaussZiggurat(double mean, double variance)
 {
-  if (!__builtin_expect(tableNordDone, 1)) {
-    fprintf(stderr, "%s(): RNG not initialized, run randominit() first\n", __func__);
-    abort();
-  }
-
-  return gaussian_rng_sample(&legacy_gaussian);
+  /* The legacy signature's parameters have always been ignored. */
+  (void)mean;
+  (void)variance;
+  return gaussian_rng_sample(default_rng());
 }
 
 #ifdef MAIN
-main(int argc,char **argv)
+main(int argc, char **argv)
 {
 
   int i;

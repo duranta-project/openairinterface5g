@@ -427,6 +427,21 @@ void add_noise_float(c16_t **rxdata,
                      bool apply_phase_noise,
                      const uint8_t nb_antennas_rx);
 
+/* A null noise_state selects the default RNG. Float arithmetic; truncation retains the low 16 bits.
+ * Nonfinite or out-of-int32-range values convert to zero. Phase rotation remains
+ * shared and ordered by sample, then antenna. */
+void add_noise_float_batch(c16_t **rxdata,
+                           const float **r_re,
+                           const float **r_im,
+                           const float sigma2,
+                           const int length,
+                           const int slot_offset,
+                           const double ts,
+                           const int delay,
+                           bool apply_phase_noise,
+                           const uint8_t nb_antennas_rx,
+                           gaussian_rng_t *noise_state);
+
 void add_rx_signals(float **y_re, float **y_im, float **x_re, float **x_im, int n_rx, int length);
 
 /*
