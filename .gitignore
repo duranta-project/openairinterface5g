@@ -33,4 +33,5 @@ tools/packages/liboai-usrp/conffiles
 nfapi_nr_interface_scf
 *.log
 *.out
+*.m
 CMakeUserPresets.json
