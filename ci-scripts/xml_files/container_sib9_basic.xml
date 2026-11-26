@@ -1,0 +1,12 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+<testCaseList>
+  <htmlTabName>SIB9 static and system UTC</htmlTabName>
+  <testCase>
+    <class>Custom_Script</class>
+    <desc>Independent SA receivers on two DUs; advancing system UTC</desc>
+    <node>localhost</node>
+    <script>python3</script>
+    <options>run_sib9.py --container --mode realtime --build "$SIB9_BUILD" --output "$SIB9_CI_OUTPUT" --image "$SIB9_CI_IMAGE"</options>
+    <timeout>600</timeout>
+  </testCase>
+</testCaseList>

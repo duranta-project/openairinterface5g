@@ -100,13 +100,77 @@ UHD rate conversion, 5GC, host clock services and nFAPI/F1 wire formats are unch
 CPU scheduling, buffering, transport and RF delay contribute unmeasured error to
 the RX-end estimate. The timestamp follows CLOCK_REALTIME, including clock steps
 and loss of external synchronization. RF timing accuracy, PTP health and inter-DU
-alignment require separate measurements.
+alignment require separate measurements. The receiver scenarios below use
+independent SA UEs and do not exercise NR-DC activation.
 
-## Build and test
+## Build and reproduce
+
+Use an out-of-source CMake/Ninja build and the standard OAI dependencies:
 
 ```sh
-cmake -S . -B build -GNinja -DENABLE_TESTS=ON -DE2_AGENT=OFF -DOAI_USRP=ON -DSIB9_TEST_SANITIZERS=ON
-cmake --build build --parallel 4 --target tests nr-softmodem nr-uesoftmodem nr-cuup rfsimulator oai_usrpdevif
+cmake -S . -B build -GNinja -DENABLE_TESTS=ON -DE2_AGENT=OFF \
+  -DOAI_USRP=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo -DSIB9_TEST_SANITIZERS=ON
+cmake --build build --parallel 4 --target tests nr-softmodem nr-uesoftmodem \
+  nr-cuup rfsimulator oai_usrpdevif
 ctest --test-dir build -E '^physim\.|^benchmark_' --output-on-failure
 ctest --test-dir build -R '^benchmark_sib9$' -V
 ```
+
+The sanitizer option instruments the test-owned production translation units,
+not the complete modem or generated ASN.1 library. The benchmark is built without
+that instrumentation and reports host refresh/cache costs, not RF performance.
+
+Complete loopback-only CU/two-DU configurations are under
+`ci-scripts/conf_files/sib9`. Generate matching static, realtime or disabled
+profiles without launching processes:
+
+```sh
+python3 ci-scripts/run_sib9.py --build build --mode static \
+  --configs-only --output /tmp/sib9-static-configs
+python3 ci-scripts/run_sib9.py --build build --mode realtime \
+  --configs-only --output /tmp/sib9-realtime-configs
+```
+
+Use fresh output directories. These commands start RF-simulator processes, save
+receiver logs and stop the processes when the run finishes:
+
+```sh
+python3 ci-scripts/run_sib9.py --build build --mode static --output /tmp/sib9-static-test
+python3 ci-scripts/run_sib9.py --build build --mode realtime --output /tmp/sib9-realtime-test
+python3 ci-scripts/run_sib9.py --build build --mode disabled --output /tmp/sib9-disabled-test
+python3 ci-scripts/run_sib9.py --build build --mode realtime \
+  --topology monolithic --output /tmp/sib9-monolithic-test
+```
+
+The runner sets core/memlock limits only in its children for local simulation.
+There is no AMF or registration/data-session claim. It checks real stock-UE XER
+for SIB1 cell identity/mapping, SIB2 and SIB9, using two fresh acquisitions. Static
+UTC must equal the fixture; realtime must advance and fall inside a broad host
+calendar envelope. That envelope is not a timing-accuracy tolerance. Disabled
+runs observe healthy SIB2 and the absence of SIB9 mapping/reception.
+
+To execute the container testcase with freshly built matching binaries/plugins:
+
+```sh
+python3 ci-scripts/make_sib9_runtime.py --build build \
+  --output /tmp/sib9-image --tag sib9-basic:local
+export SIB9_BUILD="$(realpath build)"
+export SIB9_CI_OUTPUT=/tmp/sib9-container-test
+export SIB9_CI_IMAGE=sib9-basic:local
+cd ci-scripts
+python3 main.py --repository=NONE --branch=sib9-basic --targetBranch=NONE \
+  --workspace="$(realpath ..)" --local xml_files/container_sib9_basic.xml
+```
+
+The image packages the native build and its shared libraries for this RF-simulator
+test; it does not exercise the production Dockerfiles. The runner, configurations
+and XML testcase are included in the checkout.
+
+Check the runner's cleanup paths with:
+
+```sh
+python3 -m unittest discover -s ci-scripts/tests -p test_run_sib9.py -v
+```
+
+See [design and requirement mapping](sib9-design.md) for source clauses, ownership,
+projection arithmetic and test locations.
