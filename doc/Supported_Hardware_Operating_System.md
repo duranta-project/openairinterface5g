@@ -53,7 +53,7 @@ The below hardware can support USRPs, 7.2 FR1 or FR2 O-RUs.
 |Red Hat 9.X                |
 |Rocky   9.X                |
 |Fedora 43/44               |
-|Debian 11/12               |
+|Debian 11/12/13            |
 
 ## Notes
 

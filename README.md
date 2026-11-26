@@ -14,7 +14,12 @@
     <a href="https://releases.ubuntu.com/24.04/"><img src="https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white" alt="Supported OS Ubuntu 24"></a>
     <a href="https://releases.ubuntu.com/26.04/"><img src="https://img.shields.io/badge/Ubuntu-26.04-E95420?logo=ubuntu&logoColor=white" alt="Supported OS Ubuntu 26"></a>
     <a href="https://www.redhat.com/en/technologies/linux-platforms/enterprise-linux"><img src="https://img.shields.io/badge/RHEL-9-EE0000?logo=redhat&logoColor=white" alt="Supported OS RHEL9"></a>
+    <a href="https://rockylinux.org/"><img src="https://img.shields.io/badge/Rocky-9-10B981?logo=rockylinux&logoColor=white" alt="Supported OS Rocky 9"></a>
+    <a href="https://fedoraproject.org/"><img src="https://img.shields.io/badge/Fedora-43-51A2DA?logo=fedora&logoColor=white" alt="Supported OS Fedora 43"></a>
     <a href="https://getfedora.org/en/workstation/"><img src="https://img.shields.io/badge/Fedora-44-51A2DA?logo=fedora&logoColor=white" alt="Supported OS Fedora 44"></a>
+    <a href="https://www.debian.org/releases/bullseye/"><img src="https://img.shields.io/badge/Debian-11-A81D33?logo=debian&logoColor=white" alt="Supported OS Debian 11"></a>
+    <a href="https://www.debian.org/releases/bookworm/"><img src="https://img.shields.io/badge/Debian-12-A81D33?logo=debian&logoColor=white" alt="Supported OS Debian 12"></a>
+    <a href="https://www.debian.org/releases/trixie/"><img src="https://img.shields.io/badge/Debian-13-A81D33?logo=debian&logoColor=white" alt="Supported OS Debian 13"></a>
 </p>
 
 <p align="center">
