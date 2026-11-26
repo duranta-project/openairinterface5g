@@ -2236,7 +2236,7 @@ bool nr_check_Msg4_MsgB_Ack(gNB_MAC_INST *nr_mac, nr_cell_sched_t *cell, frame_t
       }
     } else {
       LOG_I(NR_MAC, "%4d.%2d UE %04x: RA Procedure failed at %s!\n", frame, slot, UE->rnti, ra_type_str);
-      nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
+      nr_mac_trigger_ul_failure(UE);
     }
 
     if (sched_ctrl->retrans_dl_harq.head >= 0) {
@@ -2268,14 +2268,14 @@ void nr_schedule_RA(gNB_MAC_INST *mac,
     if (ra->ra_state != nrRA_gNB_IDLE)
       LOG_D(NR_MAC, "UE %04x frame.slot %d.%d RA state: %d\n", UE->rnti, frameP, slotP, ra->ra_state);
 
-    // Check RA Contention Resolution timer (TODO check this procedure)
-    if (ra->ra_type == RA_4_STEP && ra->ra_state > nrRA_WAIT_Msg3) {
+    // Check RA Contention Resolution timer
+    if (ra->ra_type == RA_4_STEP && ra->ra_state >= nrRA_WAIT_Msg3) {
       ra->contention_resolution_timer--;
       if (ra->contention_resolution_timer == 0) {
         LOG_W(NR_MAC, "(%d.%d) RA Contention Resolution timer expired for UE 0x%04x, RA procedure failed...\n", frameP, slotP, UE->rnti);
         bool requested = false;
         if (UE->CellGroup) // request if we did not reject the UE
-          requested = nr_mac_request_release_ue(mac, UE->rnti);
+          requested = nr_mac_request_release_ue(mac, UE);
         if (!requested)
           to_release[num_release++] = UE->rnti;
         continue;

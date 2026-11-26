@@ -549,13 +549,13 @@ void nr_mac_trigger_release_timer(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierS
 bool nr_mac_check_release(NR_UE_sched_ctrl_t *sched_ctrl);
 void nr_mac_trigger_release_complete(gNB_MAC_INST *mac, int rnti);
 void nr_mac_release_ue(gNB_MAC_INST *mac, int rnti);
-bool nr_mac_request_release_ue(const gNB_MAC_INST *nrmac, int rnti);
+bool nr_mac_request_release_ue(const gNB_MAC_INST *nrmac, NR_UE_info_t *UE);
 void clean_bwp_structures(NR_SpCellConfig_t *spCellConfig);
 bool nr_mac_ue_is_active(const NR_UE_info_t *ue);
 
-void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing);
+void nr_mac_trigger_ul_failure(NR_UE_info_t *UE);
 void nr_mac_reset_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl);
-bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *sched_ctrl);
+bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, NR_UE_info_t *UE);
 
 void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int new_bwp_id, int new_beam);
 void reset_sc_info(NR_UE_ServingCell_Info_t *sc_info);

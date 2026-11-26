@@ -306,20 +306,20 @@ int force_ul_failure(char *buf, int debug, telnet_printfunc_t prnt)
   if (rnti < 0)
     ERROR_MSG_RET("could not identify UE (no UE, no such RNTI, or multiple UEs)\n");
   NR_UE_info_t *UE = find_connected_nr_ue(&RC.nrmac[0]->UE_info, rnti);
-  nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
+  nr_mac_trigger_ul_failure(UE);
   return 0;
 }
 
 int force_ue_release(char *buf, int debug, telnet_printfunc_t prnt)
 {
-  force_ul_failure(buf, debug, prnt);
   int rnti = fetch_rnti(buf, prnt);
   if (rnti < 0)
     ERROR_MSG_RET("could not identify UE (no UE, no such RNTI, or multiple UEs)\n");
   NR_UE_info_t *UE = find_connected_nr_ue(&RC.nrmac[0]->UE_info, rnti);
-  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  sched_ctrl->ul_failure_timer = 2;
-  nr_mac_check_ul_failure(RC.nrmac[0], UE->rnti, sched_ctrl);
+  if (!UE)
+    ERROR_MSG_RET("could not identify UE %04x\n", rnti);
+  if (!nr_mac_request_release_ue(RC.nrmac[0], UE))
+    nr_mac_release_ue(RC.nrmac[0], rnti);
   return 0;
 }
 
