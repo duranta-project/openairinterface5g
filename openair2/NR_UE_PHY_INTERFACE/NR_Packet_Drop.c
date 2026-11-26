@@ -218,7 +218,7 @@ void init_nr_bler_table(const char *env_string)
         continue;
       }
 
-      if (nlines > NR_NUM_SINR) {
+      if (nlines >= NR_NUM_SINR) {
         LOG_E(NR_MAC, "BLER FILE ERROR - num lines greater than expected - file: %s\n", fName);
         abort();
       }
@@ -226,7 +226,7 @@ void init_nr_bler_table(const char *env_string)
       token = strtok_r(line, ";", &temp);
       int ncols = 0;
       while (token != NULL) {
-        if (ncols > NUM_BLER_COL) {
+        if (ncols >= NUM_BLER_COL) {
           LOG_E(NR_MAC, "BLER FILE ERROR - num of cols greater than expected\n");
           abort();
         }
@@ -238,6 +238,7 @@ void init_nr_bler_table(const char *env_string)
       }
       nlines++;
     }
+    free(line);
     nr_bler_data[i].length = nlines;
     fclose(pFile);
   }

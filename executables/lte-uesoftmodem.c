@@ -629,8 +629,7 @@ void init_bler_table(void)
         continue;
       }
 
-      if (nlines > NUM_SINR)
-      {
+      if (nlines >= NUM_SINR) {
         LOG_E(MAC, "BLER FILE ERROR - num lines greater than expected - file: %s\n", fName);
         abort();
       }
@@ -639,8 +638,7 @@ void init_bler_table(void)
       int ncols = 0;
       while (token != NULL)
       {
-        if (ncols > NUM_BLER_COL)
-        {
+        if (ncols >= NUM_BLER_COL) {
           LOG_E(MAC, "BLER FILE ERROR - num of cols greater than expected\n");
           abort();
         }
@@ -655,4 +653,5 @@ void init_bler_table(void)
     bler_data[i].length = nlines;
     fclose(pFile);
   }
+  free(line);
 }
