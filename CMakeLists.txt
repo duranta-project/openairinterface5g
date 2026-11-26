@@ -453,6 +453,7 @@ target_link_libraries(lte_rrc PRIVATE nr_rrc SECURITY)
 #NR RRC
 #######
 add_library(nr_rrc
+    ${OPENAIR2_DIR}/RRC/NR/nr_sib9.c
     ${OPENAIR2_DIR}/RRC/NR/MESSAGES/asn1_msg.c
     ${OPENAIR2_DIR}/RRC/NR/rrc_gNB_measurements.c)
 target_link_libraries(nr_rrc PUBLIC asn1_nr_rrc asn1_lte_rrc rrc_cell_management)
