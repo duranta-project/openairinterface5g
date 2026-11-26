@@ -43,26 +43,24 @@ under the Collaborative Standards Software License v1.0 (CSSL).
 
 ## License
 
- *  [CSSL v1.0](./LICENSE)
- *  [Licenses](./LICENSES/)
-
-The source code is distributed under [**CSSL v1.0**](LICENSE).
+The source code is distributed under [**CSSL v1.0**](./LICENSE).
 Some files, such as for orchestration, are distributed under
 [MIT license](./LICENSES/preferred/MIT.txt). Documentation is distributed under
-[Creative Commons Attribution 4.0 International license](LICENSES/preferred/CC-BY-4.0.txt).
+[Creative Commons Attribution 4.0 International license](./LICENSES/preferred/CC-BY-4.0.txt).
 
 All the files without an explicit copyright header have an implicit "Copyright
 of OpenAirInterface Authors".
 
-Please see [NOTICE](NOTICE) for other licenses which are used in the software.
+Please see [NOTICE](./NOTICE) for other licenses which are used in the software,
+and [LICENSES](./LICENSES/) for the full license texts.
 
-In the past OAI source code has been re-licensed sometimes, here is the
+In the past OAI source code has been re-licensed several times, here is the
 history:
 
-1. CSSL v1.0 starting tag 2026.w14
-2. OAI Public License v1.1 starting tag v1.0 till af4b0d53
-3. OAI Public License v1.0: starting tag v.04 till v1.0
-4. GPL 3: starting tag v.0 till v.04 (only initial implementation of 4G)
+1. [CSSL v1.0](./LICENSE): starting tag [2026.w14](https://github.com/duranta-project/openairinterface5g/releases/tag/2026.w14)
+2. [OAI Public License v1.1](./LICENSES/deprecated/OAI-PL-v1.1.txt): starting tag [v0.6.1](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.6.1) till [af4b0d53](https://github.com/duranta-project/openairinterface5g/commit/af4b0d53e9f4c3bf0e5f82f58781eac07f312b86)
+3. [OAI Public License v1.0](https://github.com/duranta-project/openairinterface5g/blob/v0.4/LICENSE): starting tag [v0.4](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.4) till [v0.6.1](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.6.1)
+4. [GPL 3](https://github.com/duranta-project/openairinterface5g/blob/v0.3/COPYING): starting tag [v0.1](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.1) till [v0.4](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.4) (only initial implementation of 4G)
 
 ## Where to Start
 
