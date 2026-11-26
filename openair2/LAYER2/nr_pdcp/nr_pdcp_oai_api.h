@@ -116,4 +116,6 @@ void nr_pdcp_get_drb_count_values(ue_id_t ue_id, rb_id_t rb_id, nr_pdcp_count_t 
 
 void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *sl_rb_config, const nr_pdcp_entity_security_keys_and_algos_t *security_parameters);
 
+void nr_pdcp_count_reset(ue_id_t ue_id, rb_id_t drb_id);
+
 #endif /* NR_PDCP_OAI_API_H */

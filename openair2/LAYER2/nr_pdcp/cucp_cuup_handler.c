@@ -487,6 +487,21 @@ void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req)
                                 &security_parameters);
       }
 
+      /* reset PDCP COUNT
+       * PDCP AM DRBs keep their COUNT when doing reestablishment, if the
+       * field 'pdcp_count_reset' is present, force the reset.
+       * This is to be done when the gNB decides to trigger an intra-cell
+       * handover to refresh security keys when the PDCP COUNT of some
+       * PDCP entity of the UE is close to the limit. In this case, the gNB
+       * also adds the 'fullConfig' field in its RRC Reconfiguration message
+       * so that the UE also resets the COUNT (sort of; actually 'fullConfig'
+       * triggers removal and re-addition of bearers, not 'reset', which does
+       * not exist in 38.331 5.3.5.11 (neither in 38.323); let's say this
+       * 'reset' is a shortcut).
+       */
+      if (to_modif->pdcp_count_reset)
+        nr_pdcp_count_reset(req->gNB_cu_up_ue_id, to_modif->id);
+
       // PDCP Status Information requested
       if (to_modif->pdcp_sn_status_requested) {
         modified->pdcp_status = malloc_or_fail(sizeof(*modified->pdcp_status));
