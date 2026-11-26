@@ -259,6 +259,12 @@ typedef struct {
   NR_DL_FRAME_PARMS *fp;
 } nrUE_cell_params_t;
 
+// Radio sample immediately after a device read, and host time when that read returned.
+typedef struct {
+  openair0_timestamp_t end_sample;
+  int64_t monotonic_ns; // zero when no host timestamp is available
+} nrue_rx_time_t;
+
 typedef struct {
   pthread_mutex_t mread;
   pthread_cond_t cread; // signaled when the oldest client timestamp advances
@@ -267,6 +273,7 @@ typedef struct {
   int sz;
   int grain;
   uint64_t last_ts;
+  int64_t last_read_ns; // host time paired with last_ts, protected by mread
 } read_data_t;
 
 typedef struct {
@@ -650,7 +657,7 @@ typedef struct nr_rxtx_thread_data_s {
   int writeBlockSize;
   nr_phy_data_t phy_data;
   dynamic_barrier_t* next_barrier;
-  uint64_t absolute_deadline_us;
+  nrue_rx_time_t rx_time;
   Actor_t *ul_actors;
 } nr_rxtx_thread_data_t;
 
