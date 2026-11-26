@@ -946,6 +946,10 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
     return;
   }
 
+  // Decode MAC PDU
+  *rlc_rnti = UE->rnti;
+  nr_process_mac_pdu(mac, cell, UE, frame, slot, rx->pdu, rx->pdu_length, rx->harq_id, data_ind, num_data_ind);
+
   if (cfra)
     return; // rest not relevant for CFRA
 
@@ -953,10 +957,6 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
   // Store the first 48 bits belonging to the uplink CCCH SDU within Msg3 to fill in Msg4
   // First byte corresponds to R/LCID MAC sub-header
   memcpy(ra->cont_res_id, &rx->pdu[1], sizeof(uint8_t) * 6);
-
-  // Decode MAC PDU
-  *rlc_rnti = UE->rnti;
-  nr_process_mac_pdu(mac, cell, UE, frame, slot, rx->pdu, rx->pdu_length, rx->harq_id, data_ind, num_data_ind);
 
   LOG_I(NR_MAC,
         "Activating scheduling %s for %s 0x%04x (state %s)\n",
