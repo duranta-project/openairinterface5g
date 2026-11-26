@@ -1239,6 +1239,7 @@ set (MAC_NR_SRC
   ${NR_GNB_MAC_DIR}/main.c
   ${NR_GNB_MAC_DIR}/config.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler.c
+  ${NR_GNB_MAC_DIR}/nr_sib9_mac.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_bch.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_dlsch.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_dlsch_default_policies.c

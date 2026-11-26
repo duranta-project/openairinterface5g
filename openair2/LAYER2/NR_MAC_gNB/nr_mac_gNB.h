@@ -59,6 +59,7 @@
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "openair2/RRC/NR/nr_sib9.h"
 #include "NR_SystemInformation-IEs.h"
+#include "nr_sib9_mac.h"
 #include "mac_rrc_ul.h"
 
 /* MAC */
@@ -347,6 +348,7 @@ typedef struct {
   NR_SystemInformation_IEs_t *sib9_si;
   uint8_t sib9_bcch_pdu[NR_SIB9_MAX_BYTES];
   int sib9_bcch_length;
+  nr_sib9_window_t sib9_window;
   NR_ServingCellConfigCommon_t *ServingCellConfigCommon;
   /// Outgoing MIB PDU for PHY
   uint8_t MIB_pdu[3];

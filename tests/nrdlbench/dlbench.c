@@ -537,7 +537,7 @@ int main(int argc, char **argv)
 
     clock_gettime(CLOCK_MONOTONIC, &ts0);
     NR_SCHED_LOCK(&gNB_mac->sched_lock);
-    gNB_dlsch_ulsch_scheduler(gNB_mac, cell, frame, slot, sched_rsp);
+    gNB_dlsch_ulsch_scheduler(gNB_mac, cell, frame, slot, NULL, sched_rsp);
     NR_SCHED_UNLOCK(&gNB_mac->sched_lock);
     clock_gettime(CLOCK_MONOTONIC, &ts1);
 

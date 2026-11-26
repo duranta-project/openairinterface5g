@@ -128,8 +128,14 @@ static void nr_fill_pusch_fapi_groups(nfapi_nr_ul_tti_request_t *UL_tti_req)
   }
 }
 
-void gNB_dlsch_ulsch_scheduler(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t frame, slot_t slot, NR_Sched_Rsp_t *sched_info)
+void gNB_dlsch_ulsch_scheduler(gNB_MAC_INST *gNB,
+                               nr_cell_sched_t *cell,
+                               frame_t frame,
+                               slot_t slot,
+                               const nr_slot_time_t *slot_time,
+                               NR_Sched_Rsp_t *sched_info)
 {
+  nr_sib9_slot(cell, frame, slot, slot_time);
   NR_COMMON_channels_t *cc = &cell->common_channels;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
 

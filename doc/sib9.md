@@ -1,19 +1,112 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
-# SIB9 UTC configuration
+# Basic SIB9: static UTC and system UTC
 
-SIB9 is optional. Static UTC requires an explicit `timeInfoUTC` in 10 ms units
-since 1900-01-01, from 0 through 549755813887. Zero is a timestamp, not a mode.
-Optional `dayLightSavingTime` (0..2), `leapSeconds` (-127..128) and
-`localTimeOffset` (-63..64, 15-minute units) are absent unless configured.
+SIB9 is enabled only when `cu_sibs` contains 9. The CU builds a standard SIB9 and
+sends its UPER container in F1 Setup. The DU validates it, builds SIB1 and the SI
+messages, and may refresh basic UTC from its own system clock. A monolithic gNB
+uses the same construction/publication path without the SCTP round trip.
 
-A CU `sib9_config = { timeSource = "static"; timeInfoUTC = 390898880000L; };`
-selects a fixed value. `timeSource = "realtime"` forbids `timeInfoUTC` and samples
-CLOCK_REALTIME to construct the initial standard SIB9 container. DU refresh mode
-is configured independently; no private mode is carried in the F1 timestamp.
+## Configuration
 
-The CU initial sample alone is not a continuously updated broadcast time.
+In the active CU `gNBs` entry:
 
-The DU validates a complete F1 SI list before replacing the active snapshot.
-Malformed, duplicate, unsupported or oversized input leaves that snapshot intact.
-Basic SIB9 uses a dedicated ordinary SI message, preserving regular siblings and
-v17 SIB19. Rejected initial input does not release the radio-activation gate.
+```text
+cu_sibs = (2, 9);
+sib9_config = {
+  timeSource = "static";
+  timeInfoUTC = 390898880000L;
+};
+```
+
+In the corresponding DU `gNBs` entry:
+
+```text
+sib9_timing = { mode = "static"; };
+```
+
+This example repeats a fixed value corresponding to 2023-11-14 22:13:20 UTC.
+It is a decoder fixture, not a clock that advances with elapsed time.
+
+For system UTC, configure the CU with:
+
+```text
+cu_sibs = (2, 9);
+sib9_config = { timeSource = "realtime"; };
+```
+
+Configure each DU independently with:
+
+```text
+sib9_timing = { mode = "realtime"; };
+```
+
+The CU samples its clock to build the initial container. A realtime DU replaces
+that value before transmission. The refresh policy is local configuration; F1
+carries only the standard SIB9 fields. A static DU repeats the received value, including
+when its CU initially sampled realtime. Use matching configurations for the
+intended operation. A remote DU reads its own host clock, not the CU or 5GC clock.
+For a monolithic gNB include both blocks in its active `gNBs` entry.
+
+| Configuration | Scope | Default / requirement | Wire meaning |
+|---|---|---|---|
+| `cu_sibs` contains 9 | CU | Optional; feature otherwise disabled | Standard SIB9 container |
+| `timeSource` | CU | `static`; allowed values `static`, `realtime` | Local construction policy only |
+| `timeInfoUTC` | CU | Required for static, forbidden for realtime | 0..549755813887, 10-ms units since 1900-01-01 |
+| `dayLightSavingTime` | CU | Absent unless supplied; 0..2 | Optional two-bit field; 3 is reserved |
+| `leapSeconds` | CU | Absent unless supplied; -127..128 | Optional GPS-minus-UTC metadata |
+| `localTimeOffset` | CU | Absent unless supplied; -63..64 | Optional offset in 15-minute units |
+| `sib9_timing.mode` | DU | `static`; allowed values `static`, `realtime` | Local refresh policy only |
+
+Supplied zero metadata is present, while omission remains absent. There are no
+negative omission aliases. No leap value, timezone or daylight-saving information
+is inferred from the operating system. `CLOCK_REALTIME` is converted from Unix
+UTC directly; leap metadata is not added to that conversion. Zero UTC is valid
+content. Configuration changes require the normal restart/setup procedure.
+
+`sib9_config` supports basic `timeInfo` and the optional metadata listed above.
+ReferenceTimeInfo-r16, TSS events and late extensions have no configuration
+interface. The existing ASN.1 grammar is unchanged. Input containing a parallel
+R16 reference clock is rejected because basic UTC refresh cannot keep it consistent.
+
+## Realtime and failure behaviour
+
+The reference instant is the first radio-frame boundary at or after the end of
+the actual SIB9 SI window. One CLOCK_REALTIME read is projected from estimated
+RX-buffer end through the known RX-to-TX scheduling lead to that instant. The
+result is rounded down to the field's 10-ms units. Repetitions for multiple SSBs
+within the same window reuse identical bytes. Each later window samples again;
+forward/backward host-clock steps are reflected at the next fresh window.
+
+The inherited scheduling default is rf16, or 160 ms. The calculation reads the
+actual SIB1 window length and scheduler occasion; other periodicities use their configured cadence.
+Timestamp-only refreshes change neither the SIB1 valueTag nor SI notifications.
+
+A failed clock read, conversion or encoding skips SIB9 for that window. It does
+not reuse the previous window or CU seed, and the following window retries.
+SIB2/3/4 have a separate SI payload and continue independently. SIB9 remains
+scheduled in SIB1 during a skipped window; automatic availability withdrawal requires a separate SI-change procedure.
+
+Malformed, duplicate, unsupported or oversized F1 SI candidates are rejected as
+a complete list. The old coherent SIB1/SI snapshot remains active. Initial
+rejection does not release the DU's radio-activation gate. Received buffers are
+not retained: decoded trees are owned per cell and freed on replacement/teardown.
+An F1 Setup replay resets the window cache, even for identical content. F1 UE-only
+Reset is not treated as removal of broadcast cell system information.
+
+Realtime requires the integrated L1 RX/TX slot context. External nFAPI indications
+without that local context do not provide a realtime source. Radio-plugin ABI,
+UHD rate conversion, 5GC, host clock services and nFAPI/F1 wire formats are unchanged.
+
+CPU scheduling, buffering, transport and RF delay contribute unmeasured error to
+the RX-end estimate. The timestamp follows CLOCK_REALTIME, including clock steps
+and loss of external synchronization. RF timing accuracy, PTP health and inter-DU
+alignment require separate measurements.
+
+## Build and test
+
+```sh
+cmake -S . -B build -GNinja -DENABLE_TESTS=ON -DE2_AGENT=OFF -DOAI_USRP=ON -DSIB9_TEST_SANITIZERS=ON
+cmake --build build --parallel 4 --target tests nr-softmodem nr-uesoftmodem nr-cuup rfsimulator oai_usrpdevif
+ctest --test-dir build -E '^physim\.|^benchmark_' --output-on-failure
+ctest --test-dir build -R '^benchmark_sib9$' -V
+```

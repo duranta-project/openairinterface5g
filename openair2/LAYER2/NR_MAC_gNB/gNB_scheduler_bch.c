@@ -738,6 +738,11 @@ void schedule_nr_other_sib(nr_cell_sched_t *cell,
 
       bool time_message = schedulingInfo->sib_MappingInfo.list.count == 1
                           && schedulingInfo->sib_MappingInfo.list.array[0]->type == NR_SIB_TypeInfo__type_sibType9;
+      if (time_message) {
+        int length;
+        if (!nr_sib9_payload(cell, rel_frame[ssb], rel_slot[ssb], window_length_sl, &length))
+          continue;
+      }
       other_sib_sched_control(cell, frame, slot, cc->ssb_index[ssb], ss, DL_req, TX_req, time_message ? NR_SI_SIB9 : NR_SI_REGULAR);
     }
     if (!schedInfo17)

@@ -1982,7 +1982,9 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   char sib9_prefix[MAX_OPTNAME_SIZE * 2 + 8];
   snprintf(sib9_prefix, sizeof(sib9_prefix), "gNBs.[%d].sib9_timing", idx);
   AssertFatal(nr_sib9_read_mode(config_get_if(), sib9_prefix, &cc->sib9_mode, sib9_error, sizeof(sib9_error)), "%s\n", sib9_error);
-  AssertFatal(cc->sib9_mode == NR_SIB9_STATIC, "SIB9 realtime mode is not supported\n");
+  AssertFatal(
+      cc->sib9_mode == NR_SIB9_STATIC || !strcmp(*gpd(macrlc_p, macrlc_np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "local_L1"),
+      "SIB9 realtime mode requires integrated L1 slot timing\n");
   // read F1 Setup information from config and generated MIB/SIB1
   // and store it at MAC for sending later
   req->cell[idx].info = info;

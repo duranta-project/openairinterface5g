@@ -1232,6 +1232,7 @@ static nr_si_result_t publish_si_candidate(nr_cell_sched_t *cell, nr_si_candidat
       candidate->sib9 = NULL;
     memcpy(cc->sib9_bcch_pdu, candidate->sib9_pdu, sizeof(candidate->sib9_pdu));
     cc->sib9_bcch_length = candidate->sib9_length;
+    cc->sib9_window = (nr_sib9_window_t){0};
   }
   free_si_candidate(candidate);
   return result;
@@ -1269,6 +1270,7 @@ bool nr_mac_configure_f1_sibs(gNB_MAC_INST *mac, const f1ap_setup_resp_t *resp, 
   for (int i = 0; i < count; ++i) {
     results[i] = publish_si_candidate(cells[i], candidates[i]);
     candidates[i] = NULL;
+    cells[i]->common_channels.sib9_window = (nr_sib9_window_t){0};
   }
   free(candidates);
   free(cells);
