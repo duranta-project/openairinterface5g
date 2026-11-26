@@ -218,6 +218,60 @@ TEST_F(WriteReorder, clear_context)
     EXPECT_EQ(c.r, 9);
 }
 
+// a device that queues the sample pointers and sends them later, as the USRP TX thread: the samples must stay
+// in the ring after the write returns, until the writers reuse that part of the ring
+struct Queued {
+  openair0_timestamp_t ts;
+  int n;
+  const c16_t *p;
+};
+static std::vector<Queued> queued;
+
+static int queue_ptr(openair0_device_t *dev, openair0_timestamp_t ts, void **buff, int n, int nb_ant, int flags)
+{
+  queued.push_back({ts, n, (const c16_t *)buff[0]});
+  return n;
+}
+
+TEST_F(WriteReorder, queued_samples_kept)
+{
+  queued.clear();
+  dev.trx_write_func = queue_ptr;
+  const int slot = 7680; // the ring holds 5 slots
+  const int lag = 2; // the device sends a write when 2 more writes are queued
+  size_t checked = 0;
+  for (int i = 0; i < 12; i++) {
+    write((int64_t)i * slot, slot, TX_BURST_MIDDLE, i + 1);
+    for (; checked + lag < queued.size(); checked++) {
+      const Queued &q = queued[checked];
+      const int16_t expect = q.ts / slot + 1;
+      int bad = 0;
+      for (int k = 0; k < q.n; k++)
+        bad += q.p[k].r != expect;
+      EXPECT_EQ(bad, 0) << "write at " << q.ts;
+    }
+  }
+  EXPECT_GE(checked, 9u);
+}
+
+// after the ring wrapped, samples that no writer wrote are sent as zeros, not as the samples of the previous ring
+// (with the RF simulator, the samples outside a burst are sent too)
+TEST_F(WriteReorder, unwritten_after_wrap)
+{
+  params.optmask.bit.SOFTMODEM_RFSIM_BIT = 1;
+  const int slot = 7680;
+  for (int i = 0; i < 7; i++)
+    write((int64_t)i * slot, slot, TX_BURST_MIDDLE, i + 1);
+  writes.clear();
+  flush(1, 8 * slot, 0); // [7 slots, 8 slots) not written
+  ASSERT_EQ(sent(7 * slot, 8 * slot), slot);
+  for (auto &w : writes)
+    for (int k = 0; k < w.n; k++)
+      if (w.ts + k >= 7 * slot) {
+        ASSERT_EQ(w.s[k].r, 0) << "sample " << w.ts + k;
+      }
+}
+
 int main(int argc, char **argv)
 {
   logInit();

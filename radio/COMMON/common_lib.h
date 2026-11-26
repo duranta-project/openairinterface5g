@@ -309,6 +309,7 @@ typedef struct {
   int nb_absent;
   openair0_timestamp_t nextTS; // first sample not sent yet
   openair0_timestamp_t maxTS; // end of the most recent write
+  openair0_timestamp_t clearedTS; // the sample ring holds zeros from nextTS to clearedTS
   int sz;
   int min_write;
   int nb_ant;

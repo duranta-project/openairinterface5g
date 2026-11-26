@@ -213,6 +213,19 @@ void *load_transport_shlib(char *fname)
   return shlib_fdesc.fptr;
 }
 
+/* Clear the sample ring up to end before it is used again. The samples there were sent one ring before: a device
+   that queues the sample pointers (USRP TX thread) has until then to send them */
+static void reorder_clear(re_order_t *ctx, openair0_timestamp_t end)
+{
+  const openair0_timestamp_t start = max(ctx->clearedTS, ctx->nextTS);
+  if (end <= start)
+    return;
+  const int n = min(end - start, ctx->sz);
+  for (int a = 0; a < ctx->nb_ant; a++)
+    memset(((c16_t *)ctx->ring[a]) + start % ctx->sz, 0, n * sizeof(c16_t));
+  ctx->clearedTS = end;
+}
+
 /* Send the samples from nextTS on, in chunks cut at burst boundaries, with the flags of the burst
    state stored with the samples. Samples before force_until are sent even if some writer has not
    written them: a writer that stops must not block the others. A chunk that does not reach a boundary
@@ -255,6 +268,7 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
       const bool start = wr[0] & RO_START, end = wr[len - 1] & RO_END;
       flags = start && end ? TX_BURST_START_AND_END : start ? TX_BURST_START : end ? TX_BURST_END : TX_BURST_MIDDLE;
     }
+    reorder_clear(ctx, ctx->nextTS + len); // samples that no writer wrote are zeros
     if (active || IS_SOFTMODEM_RFSIM) {
       void *ptr[nbAnt];
       for (int a = 0; a < nbAnt; a++)
@@ -267,8 +281,8 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
       if (wroteSamples != len)
         LOG_W(HW, "Failed to write to RF: wrote %d out of %d samples\n", wroteSamples, len);
     }
-    for (int a = 0; a < ctx->nb_ant; a++)
-      memset(((c16_t *)ctx->ring[a]) + ctx->nextTS % ctx->sz, 0, len * sizeof(c16_t));
+    // the samples stay in the ring: a device may send them after the write returns (USRP TX thread).
+    // reorder_clear() clears them when the writers reuse this part of the ring
     memset(wr, 0, len * sizeof(*wr));
     ctx->nextTS += len;
     consumed += len;
@@ -314,6 +328,7 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
   if (!ctx->initDone) {
     ctx->nextTS = timestamp;
     ctx->maxTS = timestamp;
+    ctx->clearedTS = timestamp;
     ctx->initDone = true;
   }
   ctx->writer_end[writer] = max(ctx->writer_end[writer], timestamp + nsamps);
@@ -334,6 +349,7 @@ int openair0_write_reorder_common(nrue_ru_write_t nrue_ru_write,
     const openair0_timestamp_t ts = timestamp + skip;
     const int n = nsamps - skip;
     // txp NULL: silence, the ring holds zeros where nobody added samples
+    reorder_clear(ctx, ts + n);
     for (int a = 0; txp && a < nbAnt; a++) {
       c16_t *out = ((c16_t *)ctx->ring[a]) + ts % ctx->sz;
       c16adds(((c16_t *)txp[a]) + skip, out, out, n);
@@ -428,8 +444,7 @@ void openair0_write_reorder_clear_context(openair0_device_t *device)
   re_order_t *ctx = &device->reOrder;
   pthread_mutex_lock(&ctx->mutex_store);
   if (ctx->initDone) {
-    for (int a = 0; a < ctx->nb_ant; a++)
-      memset(ctx->ring[a], 0, ctx->sz * sizeof(c16_t));
+    // the sample ring is cleared before it is used again (reorder_clear())
     memset(ctx->nb_writers, 0, ctx->sz * sizeof(*ctx->nb_writers));
     for (int w = 0; w < ctx->max_writers; w++) {
       ctx->writer_end[w] = 0;
