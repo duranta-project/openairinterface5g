@@ -4217,7 +4217,7 @@ bool nr_mac_ue_is_active(const NR_UE_info_t *ue)
   return true;
 }
 
-#define UL_FAILURE_REQ_GRACE 10000
+#define UL_FAILURE_REQ_GRACE 1000
 #define UL_FAILURE_TIMEOUT 30000
 void nr_mac_trigger_ul_failure(NR_UE_info_t *UE)
 {
@@ -4270,7 +4270,7 @@ bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, NR_UE_info_t *UE)
   /* trigger once: trigger when ul_failure_timer == UL_FAILURE_REQ_GRACE( we
    * wait for a UE release command from upper layers), and UE is automatically
    * released when no answer after UL_FAILURE_REQ_GRACE */
-  if (sched_ctrl->ul_failure_timer == UL_FAILURE_REQ_GRACE) {
+  if (sched_ctrl->ul_failure_timer == (UL_FAILURE_REQ_GRACE << UE->current_UL_BWP.scs)) {
     LOG_W(MAC, "UE %04x: request release after UL failure timer expiry\n", UE->rnti);
     bool requested = nr_mac_request_release_ue(nrmac, UE->rnti);
     if (!requested)
