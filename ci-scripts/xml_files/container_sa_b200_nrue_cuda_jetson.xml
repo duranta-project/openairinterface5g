@@ -3,12 +3,6 @@
 <testCaseList>
   <htmlTabName>30 MHz TDD SA JETSON with CUDA</htmlTabName>
   <testCase>
-    <class>DeployCoreNetwork</class>
-    <desc>Initialize 5G Core</desc>
-    <cn_id>oc-cn5g-00104</cn_id>
-  </testCase>
-
-  <testCase>
     <class>Pull_Local_Registry</class>
     <desc>Pull Images from Local Registry</desc>
     <node>jetson2-oai</node>
@@ -167,13 +161,6 @@
     <desc>Clean Test Images on Test Server</desc>
     <node>jetson2-oai</node>
     <images>oai-nr-ue</images>
-  </testCase>
-
-  <testCase>
-    <class>UndeployCoreNetwork</class>
-    <always_exec>true</always_exec>
-    <desc>Terminate 5G Core</desc>
-    <cn_id>oc-cn5g-00104</cn_id>
   </testCase>
 
 </testCaseList>
