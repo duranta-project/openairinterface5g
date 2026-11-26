@@ -384,8 +384,7 @@ static void rrc_deliver_ue_context_modif_confirm(void *deliver_pdu_data, ue_id_t
   UNUSED(sdu_id);
   DevAssert(deliver_pdu_data != NULL);
   deliver_ue_context_modif_confirm_t *data = (deliver_ue_context_modif_confirm_t *)deliver_pdu_data;
-  data->confirm->rrc_container = (uint8_t *)buf;
-  data->confirm->rrc_container_length = size;
+  data->confirm->rrc_container = (byte_array_t){.buf = (uint8_t *)buf, .len = size};
   data->rrc->mac_rrc.ue_context_modification_confirm(data->assoc_id, data->confirm);
 }
 
@@ -2766,7 +2765,7 @@ void e1_notify_pdcp_status(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const rrc_drb_pd
 
 static NR_MeasGapConfig_t *get_meas_gap_config(const f1ap_du_to_cu_rrc_info_t *du_to_cu_rrc_info)
 {
-  if (!du_to_cu_rrc_info->meas_gap_config) {
+  if (du_to_cu_rrc_info->meas_gap_config.len == 0) {
     return NULL;
   }
 
@@ -2774,8 +2773,8 @@ static NR_MeasGapConfig_t *get_meas_gap_config(const f1ap_du_to_cu_rrc_info_t *d
   asn_dec_rval_t dec_rval = uper_decode_complete(NULL,
                                                  &asn_DEF_NR_MeasGapConfig,
                                                  (void **)&measGapConfig,
-                                                 (uint8_t *)du_to_cu_rrc_info->meas_gap_config->buf,
-                                                 du_to_cu_rrc_info->meas_gap_config->len);
+                                                 du_to_cu_rrc_info->meas_gap_config.buf,
+                                                 du_to_cu_rrc_info->meas_gap_config.len);
   AssertFatal(dec_rval.code == RC_OK && dec_rval.consumed > 0, "measGapConfig decode error\n");
   return measGapConfig;
 }
@@ -3141,7 +3140,12 @@ static void rrc_CU_process_ue_modification_required(MessageDef *msg_p, instance_
     return;
   }
 
-  if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->cellGroupConfig) {
+  if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->meas_gap_config.len > 0)
+    LOG_W(NR_RRC, "UE %d: handling of measGapConfig not implemented, ignoring it\n", UE->rrc_ue_id);
+  if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->requested_p_max_fr1.len > 0)
+    LOG_W(NR_RRC, "UE %d: handling of requestedP_MaxFR1 not implemented, ignoring it\n", UE->rrc_ue_id);
+
+  if (required->du_to_cu_rrc_information && required->du_to_cu_rrc_information->cell_group_config.len > 0) {
     gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
     LOG_I(RRC,
           "UE Context Modification Required: new CellGroupConfig for UE ID %d/RNTI %04x, triggering reconfiguration\n",
@@ -3149,11 +3153,7 @@ static void rrc_CU_process_ue_modification_required(MessageDef *msg_p, instance_
           UE->rnti);
 
     // Store the encoded CellGroupConfig for transparent forwarding
-    uint8_t *cgc_buf = required->du_to_cu_rrc_information->cellGroupConfig;
-    size_t cgc_len = required->du_to_cu_rrc_information->cellGroupConfig_length;
-
-    byte_array_t temp_cgc = {.buf = cgc_buf, .len = cgc_len};
-    store_cgc(UE, &temp_cgc);
+    store_cgc(UE, &required->du_to_cu_rrc_information->cell_group_config);
 
     /* trigger reconfiguration */
     if (!UE->ongoing_reconfiguration) {
@@ -4011,6 +4011,7 @@ void *rrc_gnb_task(void *args_p)
 
       case F1AP_UE_CONTEXT_MODIFICATION_REQUIRED:
         rrc_CU_process_ue_modification_required(msg_p, instance, msg_p->ittiMsgHeader.originInstance);
+        free_ue_context_modif_required(&F1AP_UE_CONTEXT_MODIFICATION_REQUIRED(msg_p));
         break;
 
       case F1AP_UE_CONTEXT_RELEASE_REQ:
