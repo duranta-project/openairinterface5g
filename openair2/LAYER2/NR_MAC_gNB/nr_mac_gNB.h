@@ -62,6 +62,7 @@
 /* MAC */
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "LAYER2/NR_MAC_gNB/mac_config.h"
+#include "LAYER2/NR_MAC_gNB/slicing.h"
 #include "NR_TAG.h"
 
 /* Defs */
@@ -255,6 +256,9 @@ typedef struct nr_mac_config_s {
   /// Sized to the max number of physical RU antenna ports, NOT to be confused
   /// with MAX_NUM_SPATIAL_STREAMS, which bounds the per-PDU NFAPI wire field.
   uint16_t spatial_stream_index[NR_MAC_MAX_RU_ANTENNA_PORTS];
+  /// RAN slicing RRM policies, added as slices when configuring the cell
+  int num_slice_policies;
+  nr_slice_policy_t *slice_policies;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
@@ -907,11 +911,14 @@ typedef struct NR_UE_info {
   NR_BWP_Id_t local_bwp_id;
   context_modification_info_t cm_info;
   struct nr_cell_sched_s *pcell; ///< primary serving cell for this UE; used to filter candidates per cell
+  /// IDs of slices (in pcell) the UE is associated to in DL/UL, 0 if none
+  uint32_t dl_slice_id;
+  uint32_t ul_slice_id;
   /* if nrdc_mode is true then the DU is an SCG DU */
   bool nrdc_mode;
 } NR_UE_info_t;
 
-typedef struct {
+typedef struct NR_UEs_s {
   /// scheduling control info
   seq_arr_t connected_ues_list; // has pointers to NR_UE_info_t
   hash_table_t connected_ues; // has pointers to NR_UE_info_t
@@ -1008,7 +1015,7 @@ struct nr_dl_candidate {
   int bwp_size; ///< UE's BWP size
   uint64_t fiveQI; ///< 5QI from first DRB's QoS config (0 if none)
   int priority; ///< LC priority from first DRB (lower = higher priority, 0 if none)
-  nssai_t nssai; ///< slice/service type/differentiator from first DRB
+  uint32_t slice_id; ///< ID of the UE's DL slice (0 if none)
 
   bool skipped; ///< true if dropped by TDA/beam select (skip in downstream stages)
   bool scheduled; ///< true if accepted by the RB-allocation policy
@@ -1129,7 +1136,7 @@ struct nr_ul_candidate {
   int bwp_size;
   uint64_t fiveQI; ///< 5QI from first DRB's QoS config (0 if none)
   int priority; ///< LC priority from first DRB (0 if none)
-  nssai_t nssai; ///< slice/service type/differentiator from first DRB
+  uint32_t slice_id; ///< ID of the UE's UL slice (0 if none)
   int beam_index;
 
   /* ── Power control (set by collect, read-only after) ─────────────────────── */
@@ -1352,6 +1359,11 @@ typedef struct nr_cell_sched_s {
 
   /// Optional opaque state for stateful custom scheduling policies
   void *sched_stateful_data;
+
+  /// Admitted slices, list of nr_slice_policy_t
+  seq_arr_t slices;
+  /// ID of the last added slice
+  uint32_t last_slice_id;
 
   /// Per-cell KPI statistics
   NR_du_stats_t du_stats;

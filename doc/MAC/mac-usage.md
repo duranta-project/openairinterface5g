@@ -299,6 +299,23 @@ In the `MACRLCs` section of the gNB/DU configuration file:
 * `stats_max_ue` (default 8): maximum number of UEs to show in periodical
   stats; beyond this number, periodical statistics will be disabled (it can
   still be seen in `nrMAC_stats.log`. Use `0` to disable periodical stats.
+* `slicing` (default empty): list of RRM policies (cf. TS 28.541
+  `RRMPolicyRatio`), each with
+  - `resource_type` (default `both`): `both`, `dl`, or `ul`
+  - `policy_member`: non-empty list of PLMN and S-NSSAI (`mcc`, `mnc`,
+    `mnc_length`, `sst`, `sd`), as in `plmn_list`/`snssaiList`
+  - `dedicatedRatio` (default 0), `minRatio` (default 0), `maxRatio` (default
+    100): resource ratios in percent, each in [0,100]. Requires `dedicatedRatio
+    <= minRatio <= maxRatio`, and the sum of `dedicatedRatio` and of `minRatio`
+    must not exceed 100 per direction.
+
+  ```
+  slicing = ({
+    resource_type = "dl";
+    policy_member = ({ mcc = 1; mnc = 1; mnc_length = 2; sst = 1; sd = 0x1; });
+    dedicatedRatio = 10.0; minRatio = 20.0; maxRatio = 80.0;
+  });
+  ```
 
 In the `gNBs` section of the gNB/DU configuration file: some of the parameters
 affect RRC configuration (CellGroupConfig) of a UE, and are therefore listed

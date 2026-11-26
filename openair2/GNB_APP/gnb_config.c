@@ -1571,6 +1571,53 @@ static void config_spatial_stream_index(const paramdef_t *param, const size_t np
   }
 }
 
+/** @brief Read slicing RRM policies of MACRLCs.[idx]
+ * @param[out] policies allocated array of policies, NULL if none
+ * @return number of policies read */
+static int config_slicing(int idx, nr_slice_policy_t **policies)
+{
+  char prefix[MAX_OPTNAME_SIZE * 2 + 8];
+  snprintf(prefix, sizeof(prefix), "%s.[%d]", MACRLC_LIST, idx);
+  GET_PARAMS_LIST(SlicingParamList, SlicingParams, MACRLC_SLICINGPARAMS_DESC, MACRLC_SLICING_LIST, prefix);
+  const int np = sizeofArray(SlicingParams);
+  const int n = SlicingParamList.numelt;
+  AssertFatal(n <= NR_MAX_SLICES, "%s: %d slices configured, maximum is %d\n", prefix, n, NR_MAX_SLICES);
+  *policies = n > 0 ? calloc_or_fail(n, sizeof(**policies)) : NULL;
+
+  for (int i = 0; i < n; ++i) {
+    paramdef_t *params = SlicingParamList.paramarray[i];
+    nr_slice_policy_t *p = &(*policies)[i];
+    p->resource_type = config_get_processedint(config_get_if(), (paramdef_t *)gpd(params, np, MACRLC_SLICING_RESOURCE_TYPE));
+    p->dedicated_ratio = *gpd(params, np, MACRLC_SLICING_DEDICATED_RATIO)->dblptr;
+    p->min_ratio = *gpd(params, np, MACRLC_SLICING_MIN_RATIO)->dblptr;
+    p->max_ratio = *gpd(params, np, MACRLC_SLICING_MAX_RATIO)->dblptr;
+
+    char mprefix[MAX_OPTNAME_SIZE * 4 + 16];
+    snprintf(mprefix, sizeof(mprefix), "%s.%s.[%d]", prefix, MACRLC_SLICING_LIST, i);
+    GET_PARAMS_LIST(PLMNParamList, PLMNParams, GNBPLMNPARAMS_DESC, MACRLC_SLICING_POLICY_MEMBER_LIST, mprefix, PLMNPARAMS_CHECK);
+    GET_PARAMS_LIST(SNSSAIParamList,
+                    SNSSAIParams,
+                    GNBSNSSAIPARAMS_DESC,
+                    MACRLC_SLICING_POLICY_MEMBER_LIST,
+                    mprefix,
+                    SNSSAIPARAMS_CHECK);
+    DevAssert(PLMNParamList.numelt == SNSSAIParamList.numelt);
+    AssertFatal(PLMNParamList.numelt <= MAX_NUM_SLICE_MEMBERS,
+                "%s: %d policy members configured, maximum is %d\n",
+                mprefix,
+                PLMNParamList.numelt,
+                MAX_NUM_SLICE_MEMBERS);
+    p->num_members = PLMNParamList.numelt;
+    for (int m = 0; m < p->num_members; ++m) {
+      p->members[m] = (nr_slice_policy_member_t){
+          .plmn = extract_plmn_from_params(PLMNParamList.paramarray[m], sizeofArray(PLMNParams)),
+          .nssai = extract_nssai_from_params(SNSSAIParamList.paramarray[m], sizeofArray(SNSSAIParams)),
+      };
+    }
+  }
+  return n;
+}
+
 static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
                                       int *num_tx,
                                       int idx,
@@ -1824,6 +1871,17 @@ static nr_mac_config_t get_mac_config(configmodule_interface_t *cfg,
 
   // Read spatial stream indices
   config_spatial_stream_index(macrlc_p, macrlc_np, &config, *num_tx);
+
+  // Read per-cell slice policies
+  config.num_slice_policies = config_slicing(idx, &config.slice_policies);
+  LOG_A(NR_MAC, "read %d slices\n", config.num_slice_policies);
+  /*
+      if (seq_arr_size(&cell->slices) > 0) {
+        LOG_I(NR_MAC, "slices configured, using slice scheduler\n");
+        nrmac->dl_rb_alloc = nr_dl_slicing_fixed;
+        nrmac->ul_rb_alloc = nr_ul_slicing_fixed;
+      }
+      */
 
   return config;
 }

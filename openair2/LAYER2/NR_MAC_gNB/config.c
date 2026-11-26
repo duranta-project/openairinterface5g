@@ -1045,6 +1045,13 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
   LOG_D(NR_MAC, "Configuring common parameters from NR ServingCellConfig\n");
 
   config_common(cell, config, scc);
+  // start_L1L2() reconfigures the cell with its existing config, whose slices have been added already
+  if (seq_arr_size(&cell->slices) == 0) {
+    for (int i = 0; i < config->num_slice_policies; ++i) {
+      bool added = add_slice(cell, &config->slice_policies[i]);
+      AssertFatal(added, "slice policy %d not admitted, check configuration\n", i);
+    }
+  }
   if (cell->radio_config.do_SRS == PERIODIC_SRS)
     cell->periodic_srs_config = create_period_structure(cell, SRS);
   fill_beam_index_list(scc, config, cell);

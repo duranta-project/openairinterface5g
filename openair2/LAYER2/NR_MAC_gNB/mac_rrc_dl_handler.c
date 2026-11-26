@@ -305,6 +305,27 @@ static NR_QoS_config_t get_qos_config(const f1ap_qos_flow_param_t *qos)
   return qos_c;
 }
 
+/** @brief Associate UE to the slice of S-NSSAI in direction dir. Slicing is per UE: if the
+ * UE is already associated to another slice, keep the existing association */
+static void associate_ue_slice(NR_UE_info_t *UE, const nssai_t *nssai, nr_slice_resource_type_t dir, uint32_t *slice_id)
+{
+  const nr_slice_policy_t *s = get_slice(UE->pcell, &UE->pcell->plmn, nssai, dir);
+  if (s == NULL)
+    return;
+  if (*slice_id != 0 && *slice_id != s->id) {
+    LOG_W(NR_MAC,
+          "UE %04x: S-NSSAI SST %d SD 0x%06x maps to %s slice %d, but UE is already associated to slice %d, keeping it\n",
+          UE->rnti,
+          nssai->sst,
+          nssai->sd,
+          dir == NR_SLICE_RESOURCE_DL ? "DL" : "UL",
+          s->id,
+          *slice_id);
+    return;
+  }
+  *slice_id = s->id;
+}
+
 int handle_ue_context_drbs_setup(NR_UE_info_t *UE,
                                  int drbs_len,
                                  const f1ap_drb_to_setup_t *req_drbs,
@@ -333,6 +354,8 @@ int handle_ue_context_drbs_setup(NR_UE_info_t *UE,
     nr_rlc_add_drb(UE->rnti, drb->id, rlc_BearerConfig);
 
     nr_lc_config_t c = {.lcid = rlc_BearerConfig->logicalChannelIdentity, .nssai = drb->nr.nssai};
+    associate_ue_slice(UE, &c.nssai, NR_SLICE_RESOURCE_DL, &UE->dl_slice_id);
+    associate_ue_slice(UE, &c.nssai, NR_SLICE_RESOURCE_UL, &UE->ul_slice_id);
     int prio = 100;
     for (int q = 0; q < drb->nr.flows_len; ++q) {
       c.qos_config[q] = get_qos_config(&drb->nr.flows[q].param);
@@ -791,6 +814,11 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
   if (req->drbs_len > 0) {
     resp.drbs_len =
         handle_ue_context_drbs_setup(UE, req->drbs_len, req->drbs, &resp.drbs, new_CellGroup, &mac->rlc_config);
+    for (int i = 0; i < req->drbs_len; ++i) {
+      const nssai_t *nssai = &req->drbs[i].nr.nssai;
+      LOG_I(NR_MAC, "UE %04x DRB %d: SST %d SD 0x%06x\n", UE->rnti, req->drbs[i].id, nssai->sst, nssai->sd);
+    }
+    LOG_A(NR_MAC, "UE %04x: DL slice %d, UL slice %d\n", UE->rnti, UE->dl_slice_id, UE->ul_slice_id);
   }
 
   if (req->rrc_container != NULL) {
