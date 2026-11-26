@@ -406,6 +406,9 @@ static void process_ul_data(int tti, int frame, int slot, PHY_VARS_gNB *gNB, str
   }
   join_task_ans(&ans);
 
+  // This slot is handed off only here: L1 delivers its RACH indication after the last request.
+  if (num_prach > 0)
+    prach[num_prach - 1].last_of_slot = true;
   for (int i = 0; i < num_prach; i++) {
     // prach_l1rx_queue never full: emptied by rx_func() every slot
     bool success = spsc_q_put(&gNB->prach_l1rx_queue, &prach[i], sizeof(prach[i]));

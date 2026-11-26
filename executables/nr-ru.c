@@ -23,6 +23,7 @@
 #include "PHY/defs_nr_common.h"
 #include "PHY/phy_extern.h"
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
+#include "openair2/LAYER2/NR_MAC_COMMON/nr_prach_config.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "SCHED_NR/sched_nr.h"
 
@@ -609,16 +610,7 @@ static void ru_rx_slot(RU_t *ru, PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
 
   if (ru->common.rxdata) { // PRACH extraction needs time-domain samples
     fsn_t now = {.f = frame_rx, .s = slot_rx, .mu = ru->nr_frame_parms->numerology_index};
-    prach_item_t p;
-    while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
-      // need to extract RACH data for later processing by rx_nr_prach()
-      rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, gNB->enable_analog_das);
-      bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
-      // assume prach_l1rx_queue never full: prach_ru_queue filled at
-      // constant pace, but prach_l1rx_queue emptied as fast as possible,
-      // see rx_func()
-      DevAssert(success);
-    }
+    process_nr_prach_ru(ru, &now);
   }
 }
 
@@ -658,6 +650,17 @@ void *ru_thread(void *param)
   LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
 
   wait_sync("ru_thread");
+  if (oai_exit)
+    return &ru_thread_status;
+
+  // gNB initialization has loaded the DFT backend before PRACH preparation.
+  if (ru->feprx && !get_softmodem_params()->phy_test) {
+    const nfapi_nr_prach_config_t *cfg = &ru->config.prach_config;
+    // All short formats use the same DFT length. For long PRACH, use the configured format.
+    const int format =
+        cfg->prach_sequence_length.value ? 4 : get_format0(cfg->prach_ConfigurationIndex.value, fp->frame_type, fp->freq_range);
+    init_nr_prach_ru(ru, format);
+  }
 
   // start streaming only after sync, when ru_thread() is about to read
   if (ru->start_rf) {

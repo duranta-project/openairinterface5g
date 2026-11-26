@@ -27,7 +27,7 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
                                  nfapi_nr_rx_data_indication_t *rx_ind,
                                  nfapi_nr_srs_indication_t *srs_ind,
                                  nfapi_nr_srs_toa_vendor_ext_indication_t *srs_toa_v_ext);
-void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, prach_item_t *prach_id, nfapi_nr_rach_indication_t *rach_ind);
+void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, const prach_item_t *prach_id, int prach_oc, nfapi_nr_rach_indication_t *rach_ind);
 void nr_common_signal_procedures(PHY_VARS_gNB *gNB,
                                  int frame,
                                  int slot,
