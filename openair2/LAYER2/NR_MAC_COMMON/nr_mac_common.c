@@ -4685,7 +4685,7 @@ static void get_n1n2_o1o2_singlepanel(int *n1,
       *o2 = 4;
       break;
     case (NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo__n1_n2_PR_six_two_TypeI_SinglePanel_Restriction):
-      *n1 = 4;
+      *n1 = 6;
       *n2 = 2;
       *o1 = 4;
       *o2 = 4;
