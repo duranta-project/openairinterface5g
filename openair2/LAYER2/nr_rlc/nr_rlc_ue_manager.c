@@ -64,7 +64,7 @@ void nr_rlc_manager_unlock(nr_rlc_ue_manager_t *_m)
 }
 
 /* must be called with lock acquired */
-nr_rlc_ue_t *nr_rlc_manager_get_ue(nr_rlc_ue_manager_t *_m, int ue_id)
+nr_rlc_ue_t *nr_rlc_manager_find_ue(nr_rlc_ue_manager_t *_m, int ue_id)
 {
   /* TODO: optimze */
   nr_rlc_ue_manager_internal_t *m = _m;
@@ -73,6 +73,16 @@ nr_rlc_ue_t *nr_rlc_manager_get_ue(nr_rlc_ue_manager_t *_m, int ue_id)
   for (i = 0; i < m->ue_count; i++)
     if (m->ue_list[i]->ue_id == ue_id)
       return m->ue_list[i];
+  return NULL;
+}
+
+/* must be called with lock acquired */
+nr_rlc_ue_t *nr_rlc_manager_get_ue(nr_rlc_ue_manager_t *_m, int ue_id)
+{
+  nr_rlc_ue_manager_internal_t *m = _m;
+  nr_rlc_ue_t *ue = nr_rlc_manager_find_ue(_m, ue_id);
+  if (ue)
+    return ue;
 
   LOG_D(RLC, "New UE with ID %d\n", ue_id);
 
