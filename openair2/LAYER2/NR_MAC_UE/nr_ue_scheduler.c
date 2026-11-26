@@ -755,22 +755,20 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
     } else
       pusch_config_pdu->tbslbrm = 0;
 
-    /* PTRS */
-    if (pusch_Config && pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB &&
-        pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB->choice.setup->phaseTrackingRS) {
+    /* PTRS: not with DCI 0_0, which does not use the dedicated DMRS configuration */
+    if (dci_format != NR_UL_DCI_FORMAT_0_0 && NR_DMRS_ulconfig && NR_DMRS_ulconfig->phaseTrackingRS) {
       if (!tp_enabled) {
-        nfapi_nr_ue_ptrs_ports_t ptrs_ports_list;
-        pusch_config_pdu->pusch_ptrs.ptrs_ports_list = &ptrs_ports_list;
-        bool valid_ptrs_setup = set_ul_ptrs_values(pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB->choice.setup->phaseTrackingRS->choice.setup,
-                                                   pusch_config_pdu->rb_size,
-                                                   pusch_config_pdu->mcs_index,
-                                                   pusch_config_pdu->mcs_table,
-                                                   &pusch_config_pdu->pusch_ptrs.ptrs_freq_density,
-                                                   &pusch_config_pdu->pusch_ptrs.ptrs_time_density,
-                                                   &pusch_config_pdu->pusch_ptrs.ptrs_ports_list->ptrs_re_offset,
-                                                   &pusch_config_pdu->pusch_ptrs.num_ptrs_ports,
-                                                   &pusch_config_pdu->pusch_ptrs.ul_ptrs_power,
-                                                   pusch_config_pdu->nr_of_symbols);
+        bool valid_ptrs_setup =
+            set_ul_ptrs_values(NR_DMRS_ulconfig->phaseTrackingRS->choice.setup,
+                               pusch_config_pdu->rb_size,
+                               pusch_config_pdu->mcs_index,
+                               pusch_config_pdu->mcs_table,
+                               &pusch_config_pdu->pusch_ptrs.ptrs_freq_density,
+                               &pusch_config_pdu->pusch_ptrs.ptrs_time_density,
+                               &pusch_config_pdu->pusch_ptrs.ptrs_ports_list[0].ptrs_re_offset,
+                               &pusch_config_pdu->pusch_ptrs.num_ptrs_ports,
+                               &pusch_config_pdu->pusch_ptrs.ul_ptrs_power,
+                               pusch_config_pdu->nr_of_symbols);
         if(valid_ptrs_setup == true) {
           pusch_config_pdu->pdu_bit_map |= PUSCH_PDU_BITMAP_PUSCH_PTRS;
         }

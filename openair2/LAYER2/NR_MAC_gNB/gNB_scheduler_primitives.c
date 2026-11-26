@@ -351,7 +351,8 @@ NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
     NR_DMRS_DownlinkConfig_t *dmrs_Config = tda_info->mapping_type == typeB ?
                                             pdsch_Config->dmrs_DownlinkForPDSCH_MappingTypeB->choice.setup :
                                             pdsch_Config->dmrs_DownlinkForPDSCH_MappingTypeA->choice.setup;
-    dmrs.phaseTrackingRS = dmrs_Config->phaseTrackingRS ? dmrs_Config->phaseTrackingRS->choice.setup : NULL;
+    // DCI 1_0 does not use the dedicated DMRS configuration, PTRS included (TS 38.214 5.1.6.2)
+    dmrs.phaseTrackingRS = dci_format != NR_DL_DCI_FORMAT_1_0 && dmrs_Config->phaseTrackingRS ? dmrs_Config->phaseTrackingRS->choice.setup : NULL;
     dmrs.dmrsConfigType = dmrs_Config->dmrs_Type != NULL;
     scramblingID = dmrs.n_scid ? dmrs_Config->scramblingID1 : dmrs_Config->scramblingID0;
   } else {
@@ -825,9 +826,10 @@ NR_pusch_dmrs_t get_ul_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
   dmrs.num_dmrs_cdm_grps_no_data = (cdm_groups > 0) ? cdm_groups : 2;
 
   const NR_DMRS_UplinkConfig_t *NR_DMRS_UplinkConfig = get_DMRS_UplinkConfig(ul_bwp->pusch_Config, tda_info);
-  dmrs.ptrsConfig = NR_DMRS_UplinkConfig
-                    && NR_DMRS_UplinkConfig->phaseTrackingRS ?
-                    NR_DMRS_UplinkConfig->phaseTrackingRS->choice.setup : NULL;
+  // DCI 0_0 does not use the dedicated DMRS configuration, PTRS included (TS 38.214 6.2.2)
+  dmrs.ptrsConfig = ul_bwp->dci_format != NR_UL_DCI_FORMAT_0_0 && NR_DMRS_UplinkConfig && NR_DMRS_UplinkConfig->phaseTrackingRS
+                        ? NR_DMRS_UplinkConfig->phaseTrackingRS->choice.setup
+                        : NULL;
 
   dmrs.pusch_identity = *scc->physCellId;
   dmrs.dmrs_scrambling_id = *scc->physCellId;

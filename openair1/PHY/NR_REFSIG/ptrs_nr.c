@@ -135,7 +135,7 @@ uint8_t is_ptrs_subcarrier(uint16_t k,
 uint8_t get_ptrs_symbols_in_slot(uint16_t l_prime_mask, uint16_t start_symb, uint16_t nb_symb)
 {
   uint8_t tmp = 0;
-  for (int i = start_symb; i <= nb_symb; i++)
+  for (int i = start_symb; i < start_symb + nb_symb; i++)
     tmp += (l_prime_mask >> i) & 0x01;
   return tmp;
 }
@@ -180,15 +180,17 @@ static cd_t get_ptrs_phase_diff(const c16_t *rxF,
 {
   const uint shift = 15;
   cd_t phase_diff = {0};
-  uint k_re = k_re_ref + (start_rb + k_rb_ref) * NR_NB_SC_PER_RB;
+  // rxF is indexed from the carrier start, chest from the first allocated RB
+  const c16_t *rxF_alloc = rxF + start_rb * NR_NB_SC_PER_RB;
+  uint k_re = k_re_ref + k_rb_ref * NR_NB_SC_PER_RB;
   uint i = 0;
 
-  while (k_re < (start_rb + k_rb_ref + n_rb) * NR_NB_SC_PER_RB) {
+  while (k_re < n_rb * NR_NB_SC_PER_RB) {
     // Get pilot symbol
     const c16_t pilot = get_modulated(gold_seq, i++, true); // Already a conjugate
 
     // Coherent complex correlation with DMRS estimates as reference:
-    const c32_t re_phase_diff = c32x16mulConj(chest[k_re], c16mulShift(rxF[k_re], pilot, shift));
+    const c32_t re_phase_diff = c32x16mulConj(chest[k_re], c16mulShift(rxF_alloc[k_re], pilot, shift));
 
     // Sum differences over REs
     phase_diff.r += re_phase_diff.r;
@@ -196,6 +198,10 @@ static cd_t get_ptrs_phase_diff(const c16_t *rxF,
 
     k_re += k_ptrs * NR_NB_SC_PER_RB;
   }
+
+  // No correlation (e.g. nothing received on the PTRS REs): no phase information, assume zero phase error
+  if (phase_diff.r == 0 && phase_diff.i == 0)
+    return (cd_t){.r = 1.0};
 
   // normalized error estimation
   return cdNorm(phase_diff);
