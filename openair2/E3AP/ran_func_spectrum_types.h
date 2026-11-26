@@ -43,6 +43,33 @@ typedef struct {
 extern "C" {
 #endif
 
+struct gNB_MAC_INST_s;
+struct nr_cell_sched_s;
+
+typedef enum { PRB_BLOCK_DIR_DL = 0, PRB_BLOCK_DIR_UL = 1 } prb_block_dir_t;
+
+/* False before MAC init. */
+bool e3_spectrum_default_cell(struct gNB_MAC_INST_s **mac, struct nr_cell_sched_s **cell);
+
+/* Thread-local, consumed by the next set_prb_block_mask() on this thread; 0 or unset = the dApp's own decision. */
+void prb_block_set_pending_procedure(uint32_t sequence_id);
+
+/* Scheduler thread, inside the slot deadline: must not block. Weak no-op default in ran_func_spectrum_prb_block.c. */
+void prb_block_on_air_hook(uint32_t sequence_id, uint16_t sfn, uint16_t slot);
+
+/* A later install replaced one that never reached the air. Weak no-op default. */
+void prb_block_superseded_hook(uint32_t sequence_id);
+
+/* Per-slot symbols to keep free of UL data; NULL clears. */
+bool set_sensing_policy(struct nr_cell_sched_s *cell, const uint16_t *mask, int n_slots);
+
+/* REPLACE semantics: the full current set on every change; NULL/len 0 clears. The registry scan runs under mac->sched_lock. */
+bool set_prb_block_mask(struct gNB_MAC_INST_s *mac,
+                        struct nr_cell_sched_s *cell,
+                        prb_block_dir_t dir,
+                        const uint16_t *mask,
+                        int len);
+
 /* Small wake-up payload returned by nr_mac_wait_for_sensing_publish() — just
  * which (beam, slot) was last written, so the consumer can fetch its ranges.
  * The writer may overwrite that cell before the fetch; that's fine, the
