@@ -26,7 +26,7 @@ typedef struct {
 
 e2_node_level_stats_t cp_node_level_stats(const e2_node_level_stats_t *src);
 
-typedef meas_record_lst_t (*kpm_meas_fp)(const label_info_lst_t label, uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, const size_t ue_idx, e2_node_level_stats_t* node_stats);
+typedef meas_record_lst_t (*kpm_meas_fp)(const label_info_lst_t label, uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, e2_node_level_stats_t* node_stats);
 
 typedef struct{ 
   char* key; 
@@ -36,6 +36,6 @@ typedef struct{
 
 void init_kpm_subs_data(void);
 
-meas_record_lst_t get_kpm_meas_value(char* kpm_meas_name, const label_info_lst_t label, uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, const size_t ue_idx, e2_node_level_stats_t* node_stats);
+meas_record_lst_t get_kpm_meas_value(char* kpm_meas_name, const label_info_lst_t label, uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, e2_node_level_stats_t* node_stats);
 
 #endif

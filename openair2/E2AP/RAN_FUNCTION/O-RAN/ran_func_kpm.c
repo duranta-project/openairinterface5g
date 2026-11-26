@@ -50,7 +50,7 @@ static void free_arr_ue_id(arr_ue_id_t arr_ue_id)
 
 static e2_node_level_stats_t node_stats[2] = {0}; // [0] node stats collected in previous reporting period; [1] current node stats
 
-static meas_data_lst_t fill_kpm_meas_data_item(const meas_info_format_1_lst_t* meas_info_lst, const size_t len, const uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info, const size_t ue_idx)
+static meas_data_lst_t fill_kpm_meas_data_item(const meas_info_format_1_lst_t* meas_info_lst, const size_t len, const uint32_t gran_period_ms, cudu_ue_info_pair_t ue_info)
 {
   meas_data_lst_t data_item = {0};
 
@@ -72,7 +72,7 @@ static meas_data_lst_t fill_kpm_meas_data_item(const meas_info_format_1_lst_t* m
     char* meas_info_name_str = cp_ba_to_str(meas_info_lst[i].meas_type.name);
 
     for (size_t j = 0; j < meas_info_lst[i].label_info_lst_len; j++) {
-      data_item.meas_record_lst[num_records++] = get_kpm_meas_value(meas_info_name_str, meas_info_lst[i].label_info_lst[j], gran_period_ms, ue_info, ue_idx, node_stats);
+      data_item.meas_record_lst[num_records++] = get_kpm_meas_value(meas_info_name_str, meas_info_lst[i].label_info_lst[j], gran_period_ms, ue_info, node_stats);
     }
     free(meas_info_name_str);
   }
@@ -80,7 +80,7 @@ static meas_data_lst_t fill_kpm_meas_data_item(const meas_info_format_1_lst_t* m
   return data_item;
 }
 
-static kpm_ind_msg_format_1_t fill_kpm_ind_msg_frm_1(cudu_ue_info_pair_t ue_info, const size_t ue_idx, const kpm_act_def_format_1_t* act_def_fr_1)
+static kpm_ind_msg_format_1_t fill_kpm_ind_msg_frm_1(cudu_ue_info_pair_t ue_info, const kpm_act_def_format_1_t* act_def_fr_1)
 {
   kpm_ind_msg_format_1_t msg_frm_1 = {0};
 
@@ -94,8 +94,7 @@ static kpm_ind_msg_format_1_t fill_kpm_ind_msg_frm_1(cudu_ue_info_pair_t ue_info
   msg_frm_1.meas_data_lst[0] = fill_kpm_meas_data_item(act_def_fr_1->meas_info_lst,
                                                        act_def_fr_1->meas_info_lst_len,
                                                        act_def_fr_1->gran_period_ms,
-                                                       ue_info,
-                                                       ue_idx);
+                                                       ue_info);
 
   // Measurement Information - OPTIONAL
   msg_frm_1.meas_info_lst_len = act_def_fr_1->meas_info_lst_len;
@@ -146,7 +145,7 @@ static kpm_ind_msg_format_3_t fill_kpm_ind_msg_frm_3(arr_ue_id_t* arr_ue_id, con
     cudu_ue_info_pair_t ue_info = fill_ue_related_info(arr_ue_id, i);
 
     // Fill UE measurements
-    msg_frm_3.meas_report_per_ue[i].ind_msg_format_1 = fill_kpm_ind_msg_frm_1(ue_info, i, act_def_fr_1);
+    msg_frm_3.meas_report_per_ue[i].ind_msg_format_1 = fill_kpm_ind_msg_frm_1(ue_info, act_def_fr_1);
   }
 
   node_stats[0] = cp_node_level_stats(&node_stats[1]);
@@ -425,8 +424,7 @@ bool read_kpm_sm(void* data)
 
       kpm->ind.msg.type = FORMAT_1_INDICATION_MESSAGE;
       cudu_ue_info_pair_t ue_info = {0}; // not used
-      const size_t ue_idx = 0; // not used
-      kpm->ind.msg.frm_1 = fill_kpm_ind_msg_frm_1(ue_info, ue_idx, &kpm->act_def->frm_1);
+      kpm->ind.msg.frm_1 = fill_kpm_ind_msg_frm_1(ue_info, &kpm->act_def->frm_1);
       break;
     }
 
