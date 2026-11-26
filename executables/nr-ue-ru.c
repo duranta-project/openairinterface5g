@@ -552,12 +552,11 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
 
   // UE 0 needs to write to all RUs that are not used by any other UE
 
+  // silence for those RUs, shared and only read: the write reorder flush writes at most its grain (2048 samples) at once
+  static uint32_t silence[2048];
   void *tmp_buf[num_antennas];
-  uint32_t tmp_samples[nsamps];
-  memset(tmp_samples, 0, sizeof(tmp_samples));
   for (int ant = 0; ant < num_antennas; ant++)
-    tmp_buf[ant] = tmp_samples;
-
+    tmp_buf[ant] = silence;
   for (int ru_id = 0; ru_id < nrue_rus.count; ru_id++) {
     if (ru_id == UE->rf_map.card) // already written above
       continue;
@@ -567,6 +566,7 @@ int nrue_ru_write(PHY_VARS_NR_UE *UE, openair0_timestamp_t timestamp, void **buf
       continue;
     if (nrue_rus.cfg[ru_id].nb_clients) // written by its own UEs, even before they set used_by_ue
       continue;
+    AssertFatal(nsamps <= sizeofArray(silence), "write of %d samples larger than the silence buffer\n", nsamps);
     dev = &nrue_rus.openair0_dev[ru_id];
     dev->trx_write_func(dev, timestamp + dev->firstTS, tmp_buf, nsamps, num_antennas, flags);
   }
