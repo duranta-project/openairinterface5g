@@ -91,11 +91,9 @@ TEST_F(WriteReorder, tdd_burst_flags)
   EXPECT_EQ(writes.back().flags, TX_BURST_END);
   for (size_t i = 1; i + 1 < writes.size(); i++)
     EXPECT_EQ(writes[i].flags, TX_BURST_MIDDLE);
-  for (auto &w : writes)
-    EXPECT_LE(w.n, dev.reOrder.grain);
 }
 
-// FDD: every write is TX_BURST_MIDDLE, all samples are sent, in timestamp order, in full grains
+// FDD: every write is TX_BURST_MIDDLE, all samples are sent, in timestamp order, at least min_write at a time
 TEST_F(WriteReorder, fdd_in_order)
 {
   for (int i = 0; i < 10; i++)
@@ -103,10 +101,23 @@ TEST_F(WriteReorder, fdd_in_order)
   EXPECT_EQ(sent(0, 8192), 8192);
   for (size_t i = 0; i < writes.size(); i++) {
     EXPECT_EQ(writes[i].flags, TX_BURST_MIDDLE);
-    EXPECT_EQ(writes[i].n, dev.reOrder.grain);
+    EXPECT_GE(writes[i].n, dev.reOrder.min_write);
     if (i) {
       EXPECT_EQ(writes[i].ts, writes[i - 1].ts + writes[i - 1].n);
     }
+  }
+}
+
+// a slot written at once is sent in one write, not cut in grains
+TEST_F(WriteReorder, one_write_per_slot)
+{
+  const int slot = 7680;
+  for (int i = 0; i < 4; i++)
+    write(i * slot, slot, TX_BURST_MIDDLE);
+  ASSERT_EQ(writes.size(), 4u);
+  for (size_t i = 0; i < writes.size(); i++) {
+    EXPECT_EQ(writes[i].ts, (int64_t)i * slot);
+    EXPECT_EQ(writes[i].n, slot);
   }
 }
 
@@ -127,10 +138,13 @@ TEST_F(WriteReorder, out_of_order)
   write(4096, 2048, TX_BURST_MIDDLE, 3);
   write(2048, 2048, TX_BURST_MIDDLE, 2);
   write(6144, 2048, TX_BURST_MIDDLE, 4);
-  ASSERT_GE(writes.size(), 3u);
-  for (int i = 0; i < 3; i++) {
-    EXPECT_EQ(writes[i].ts, i * 2048);
-    EXPECT_EQ(writes[i].s[0].r, i + 1);
+  ASSERT_EQ(sent(0, 6144), 6144);
+  int64_t next = 0;
+  for (auto &w : writes) {
+    EXPECT_EQ(w.ts, next);
+    for (int k = 0; k < w.n; k++)
+      EXPECT_EQ(w.s[k].r, (w.ts + k) / 2048 + 1);
+    next = w.ts + w.n;
   }
 }
 
@@ -202,6 +216,60 @@ TEST_F(WriteReorder, clear_context)
   EXPECT_EQ(writes[0].ts, 100000);
   for (auto &c : writes[0].s)
     EXPECT_EQ(c.r, 9);
+}
+
+// a device that queues the sample pointers and sends them later, as the USRP TX thread: the samples must stay
+// in the ring after the write returns, until the writers reuse that part of the ring
+struct Queued {
+  openair0_timestamp_t ts;
+  int n;
+  const c16_t *p;
+};
+static std::vector<Queued> queued;
+
+static int queue_ptr(openair0_device_t *dev, openair0_timestamp_t ts, void **buff, int n, int nb_ant, int flags)
+{
+  queued.push_back({ts, n, (const c16_t *)buff[0]});
+  return n;
+}
+
+TEST_F(WriteReorder, queued_samples_kept)
+{
+  queued.clear();
+  dev.trx_write_func = queue_ptr;
+  const int slot = 7680; // the ring holds 5 slots
+  const int lag = 2; // the device sends a write when 2 more writes are queued
+  size_t checked = 0;
+  for (int i = 0; i < 12; i++) {
+    write((int64_t)i * slot, slot, TX_BURST_MIDDLE, i + 1);
+    for (; checked + lag < queued.size(); checked++) {
+      const Queued &q = queued[checked];
+      const int16_t expect = q.ts / slot + 1;
+      int bad = 0;
+      for (int k = 0; k < q.n; k++)
+        bad += q.p[k].r != expect;
+      EXPECT_EQ(bad, 0) << "write at " << q.ts;
+    }
+  }
+  EXPECT_GE(checked, 9u);
+}
+
+// after the ring wrapped, samples that no writer wrote are sent as zeros, not as the samples of the previous ring
+// (with the RF simulator, the samples outside a burst are sent too)
+TEST_F(WriteReorder, unwritten_after_wrap)
+{
+  params.optmask.bit.SOFTMODEM_RFSIM_BIT = 1;
+  const int slot = 7680;
+  for (int i = 0; i < 7; i++)
+    write((int64_t)i * slot, slot, TX_BURST_MIDDLE, i + 1);
+  writes.clear();
+  flush(1, 8 * slot, 0); // [7 slots, 8 slots) not written
+  ASSERT_EQ(sent(7 * slot, 8 * slot), slot);
+  for (auto &w : writes)
+    for (int k = 0; k < w.n; k++)
+      if (w.ts + k >= 7 * slot) {
+        ASSERT_EQ(w.s[k].r, 0) << "sample " << w.ts + k;
+      }
 }
 
 int main(int argc, char **argv)
