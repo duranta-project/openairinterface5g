@@ -64,6 +64,8 @@ typedef struct {
     frame_t frame;
     /// slot tx
     uint32_t slot;
+    /// True when the time-domain UE has no samples for this Uu transmit slot.
+    bool empty_tx_slot;
 
     /// dci reception indication structure
     fapi_nr_dci_indication_t *dci_ind;

@@ -2633,8 +2633,12 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
     ra_resource_selection(mac);
   }
 
-  if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_GENERATE_PREAMBLE)
-    nr_ue_prach_scheduler(mac, frame_tx, slot_tx);
+  if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_GENERATE_PREAMBLE) {
+    // Wait for a slot that can carry the dedicated preamble before starting the response window.
+    const bool defer_preamble = ul_info->empty_tx_slot && ra->ra_type == RA_4_STEP && ra->cfra && !ra->pdcch_order.active;
+    if (!defer_preamble)
+      nr_ue_prach_scheduler(mac, frame_tx, slot_tx);
+  }
 
   bool BSRsent = false;
   if (mac->state == UE_CONNECTED) {
