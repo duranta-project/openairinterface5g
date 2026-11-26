@@ -7,6 +7,8 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <limits.h>
 #include "F1AP_CauseMisc.h"
 #include "F1AP_CauseProtocol.h"
 #include "F1AP_CauseRadioNetwork.h"
@@ -34,6 +36,9 @@
 #include "openair2/F1AP/f1ap_ids.h"
 #include "lib/f1ap_interface_management.h"
 #include "rrc_gNB_NGAP.h"
+#include "rrc_gNB_NRPPA.h"
+#include "openair2/RRC/NR/lpp_prs.h"
+#include "openair3/NRPPA/nrppa_pos_assistance.h"
 #include "rrc_gNB_UE_context.h"
 #include "rrc_messages_types.h"
 #include "s1ap_messages_types.h"
@@ -42,6 +47,9 @@
 #include "common/utils/oai_asn1.h"
 #include "utils.h"
 #include "xer_encoder.h"
+
+static void start_possib_for_du(gNB_RRC_INST *rrc, nr_rrc_du_container_t *du);
+enum { TRP_PENDING_NRPPA = 1, TRP_PENDING_POSSIB = 2 };
 
 static int get_dl_band(const f1ap_served_cell_info_t *cell_info)
 {
@@ -854,6 +862,8 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
   LOG_I(NR_RRC, "DU %ld (%s): sending F1 Setup Response\n", req->gNB_DU_id, req->gNB_DU_name);
   rrc->mac_rrc.f1_setup_response(assoc_id, &resp);
   free_f1ap_setup_response(&resp);
+  if (!get_softmodem_params()->phy_test)
+    start_possib_for_du(rrc, du);
 
   /* we need to setup one default UE for phy-test and do-ra modes in the MAC */
   if (get_softmodem_params()->phy_test > 0 || get_softmodem_params()->do_ra > 0)
@@ -988,6 +998,7 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
 
   nr_rrc_du_container_t *du = get_du_by_assoc_id(rrc, assoc_id);
   AssertError(du != NULL, return, "no DU found for assoc_id %d\n", assoc_id);
+  bool refresh_possib = false;
   // Validate each cell to add for uniqueness (cell_id globally; PCI within this DU)
   for (uint16_t i = 0; i < conf_up->num_cells_to_add; i++) {
     f1ap_served_cell_info_t *cell_info = &conf_up->cell_to_add[i].info;
@@ -1031,6 +1042,10 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
 
 
     nr_rrc_cell_container_t *cell = get_cell_by_cell_id(&rrc->cells, old_nci);
+    if (!cell) {
+      LOG_W(NR_RRC, "cell %lu not found for DU configuration update\n", old_nci);
+      return;
+    }
     if (cell->assoc_id != du->assoc_id) {
       LOG_W(NR_RRC,
             "cell %ld belongs to different DU (assoc_id %d vs %d), ignoring gNB-DU configuration update\n",
@@ -1038,6 +1053,32 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
             cell->assoc_id,
             du->assoc_id);
       return;
+    }
+    bool same_identity = old_nci == new_ci->nr_cellid && cell->info.pci == new_ci->nr_pci &&
+        cell->info.plmn.mcc == new_ci->plmn.mcc && cell->info.plmn.mnc == new_ci->plmn.mnc &&
+        cell->info.plmn.mnc_digit_length == new_ci->plmn.mnc_digit_length;
+    if (new_ci->mode == F1AP_MODE_TDD)
+      same_identity &= cell->info.mode == NR_MODE_TDD && cell->info.tdd.dlul.arfcn == new_ci->tdd.freqinfo.arfcn &&
+                       cell->info.tdd.dlul.scs == new_ci->tdd.tbw.scs && cell->info.tdd.dlul.band == new_ci->tdd.freqinfo.band &&
+                       cell->info.tdd.dlul.nrb == new_ci->tdd.tbw.nrb;
+    else
+      same_identity &= cell->info.mode == NR_MODE_FDD && cell->info.fdd.dl.arfcn == new_ci->fdd.dl_freqinfo.arfcn &&
+                       cell->info.fdd.dl.scs == new_ci->fdd.dl_tbw.scs && cell->info.fdd.dl.band == new_ci->fdd.dl_freqinfo.band &&
+                       cell->info.fdd.dl.nrb == new_ci->fdd.dl_tbw.nrb;
+    if (!same_identity) {
+      for (int id = 0; id < 256; ++id) {
+        if (du->trp_transactions[id].kind == TRP_PENDING_POSSIB && du->trp_transactions[id].cell_id == old_nci) {
+          f1ap_trp_information_failure_t fail = {.transaction_id = id, .cause = F1AP_CAUSE_MISC};
+          rrc_handle_trp_information_failure(rrc, assoc_id, &fail);
+        }
+      }
+      if (cell->possib_control_sent) {
+        f1ap_pos_assistance_control_t stop = {.start = false, .has_cell = true,
+            .cell = {.plmn = cell->info.plmn, .nr_cellid = old_nci}};
+        rrc->mac_rrc.pos_assistance_control(assoc_id, &stop);
+        cell->possib_control_sent = false;
+      }
+      refresh_possib = true;
     }
     cell = update_cell_info(rrc, old_nci, new_ci);
     if (cell == NULL) {
@@ -1048,6 +1089,8 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
     const f1ap_gnb_du_system_info_t *sys_info = conf_up->cell_to_modify[0].sys_info;
 
     if (sys_info != NULL && sys_info->mib != NULL && !(sys_info->sib1 == NULL && IS_SA_MODE(get_softmodem_params()))) {
+      const long old_power = cell->sib1 && cell->sib1->servingCellConfigCommon
+                                 ? cell->sib1->servingCellConfigCommon->ss_PBCH_BlockPower : LONG_MIN;
       // MIB is mandatory, so will be overwritten. SIB1 is optional, so will
       // only be overwritten if present in sys_info
       ASN_STRUCT_FREE(asn_DEF_NR_MIB, cell->mib);
@@ -1063,11 +1106,46 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
         DevAssert(mib != NULL);
         cell->mib = mib;
         LOG_I(NR_RRC, "update system information of DU %ld\n", du->gNB_DU_id);
+        const long new_power = cell->sib1 && cell->sib1->servingCellConfigCommon
+                                   ? cell->sib1->servingCellConfigCommon->ss_PBCH_BlockPower : LONG_MIN;
+        if (same_identity && old_power != new_power) {
+          for (int id = 0; id < 256; ++id) {
+            if (du->trp_transactions[id].kind == TRP_PENDING_POSSIB && du->trp_transactions[id].cell_id == old_nci) {
+              f1ap_trp_information_failure_t fail = {.transaction_id = id, .cause = F1AP_CAUSE_MISC};
+              rrc_handle_trp_information_failure(rrc, assoc_id, &fail);
+            }
+          }
+          if (cell->possib_control_sent) {
+            f1ap_pos_assistance_control_t stop = {.start = false, .has_cell = true,
+                .cell = {.plmn = cell->info.plmn, .nr_cellid = cell->info.cell_id}};
+            rrc->mac_rrc.pos_assistance_control(assoc_id, &stop);
+            cell->possib_control_sent = false;
+          }
+          refresh_possib = true;
+        }
       }
     }
   }
 
   if (conf_up->num_cells_to_delete > 0) {
+    for (int i = 0; i < conf_up->num_cells_to_delete; ++i) {
+      const uint64_t cell_id = conf_up->cell_to_delete[i].nr_cellid;
+      nr_rrc_cell_container_t *cell = get_cell_by_cell_id(&rrc->cells, cell_id);
+      if (!cell || cell->assoc_id != assoc_id)
+        continue;
+      for (int id = 0; id < 256; ++id) {
+        if (du->trp_transactions[id].kind == TRP_PENDING_POSSIB && du->trp_transactions[id].cell_id == cell_id) {
+          f1ap_trp_information_failure_t fail = {.transaction_id = id, .cause = F1AP_CAUSE_MISC};
+          rrc_handle_trp_information_failure(rrc, assoc_id, &fail);
+        }
+      }
+      if (cell->possib_control_sent) {
+        f1ap_pos_assistance_control_t stop = {.start = false, .has_cell = true,
+            .cell = {.plmn = cell->info.plmn, .nr_cellid = cell_id}};
+        rrc->mac_rrc.pos_assistance_control(assoc_id, &stop);
+        cell->possib_control_sent = false;
+      }
+    }
     // delete the cell and send cell to desactive IE in the response.
     LOG_W(NR_RRC, "du_configuration_update->cells_to_delete_list is not supported yet");
   }
@@ -1082,6 +1160,8 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
   /* Send DU Configuration Acknowledgement */
   f1ap_gnb_du_configuration_update_acknowledge_t ack = {.transaction_id = conf_up->transaction_id};
   rrc->mac_rrc.gnb_du_configuration_update_acknowledge(assoc_id, &ack);
+  if (refresh_possib && !get_softmodem_params()->phy_test)
+    start_possib_for_du(rrc, du);
 }
 
 void rrc_CU_process_f1_lost_connection(gNB_RRC_INST *rrc, f1ap_lost_connection_t *lc, sctp_assoc_t assoc_id)
@@ -1094,6 +1174,13 @@ void rrc_CU_process_f1_lost_connection(gNB_RRC_INST *rrc, f1ap_lost_connection_t
   if (du == NULL) {
     LOG_W(NR_RRC, "no DU connected or not found for assoc_id %d: F1 Setup Failed?\n", assoc_id);
     return;
+  }
+
+  for (int id = 0; id < 256; ++id) {
+    if (du->trp_transactions[id].kind) {
+      f1ap_trp_information_failure_t fail = {.transaction_id = id, .cause = F1AP_CAUSE_MISC};
+      rrc_handle_trp_information_failure(rrc, assoc_id, &fail);
+    }
   }
 
   // Clean up DU and associated cell resources
@@ -1271,12 +1358,182 @@ void rrc_send_paging_to_dus(gNB_RRC_INST *rrc, const nr_tai_t tais[], uint8_t n_
   msg->cells = NULL; // Stack allocation, no need to free
 }
 
+static uint64_t trp_now(void)
+{
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return now.tv_sec;
+}
+
+static int allocate_trp_transaction(nr_rrc_du_container_t *du, uint8_t kind)
+{
+  const uint64_t now = trp_now();
+  for (int id = 0; id < 256; ++id) {
+    if (!du->trp_transactions[id].kind && du->trp_transactions[id].reusable_at <= now) {
+      du->trp_transactions[id].kind = kind;
+      du->trp_transactions[id].expires_at = now + 10;
+      return id;
+    }
+  }
+  LOG_E(NR_RRC, "No free F1 TRP transaction for DU %ld\n", du->gNB_DU_id);
+  return -1;
+}
+
+static void release_trp_transaction(nr_rrc_du_container_t *du, uint8_t id)
+{
+  du->trp_transactions[id].kind = 0;
+  du->trp_transactions[id].reusable_at = trp_now() + 60;
+}
+
+static void start_possib_for_du(gNB_RRC_INST *rrc, nr_rrc_du_container_t *du)
+{
+  FOR_EACH_SEQ_ARR(nr_rrc_cell_container_t **, cellp, &du->cells) {
+    nr_rrc_cell_container_t *cell = *cellp;
+    FOR_EACH_SEQ_ARR(nr_possib_policy_t *, policy, &rrc->possib_policies) {
+      if (policy->cell_id != cell->info.cell_id)
+        continue;
+      int id = allocate_trp_transaction(du, TRP_PENDING_POSSIB);
+      if (id < 0)
+        continue;
+      du->trp_transactions[id].cell_id = policy->cell_id;
+      du->trp_transactions[id].trp_id = policy->trp_id;
+      du->trp_transactions[id].period_frames = policy->period_frames;
+      f1ap_trp_list_item_t trp = {.trp_id = policy->trp_id};
+      f1ap_trp_information_type_item_pr types[] = {F1AP_TRP_INFORMATION_TYPE_ITEM_NR_PCI,
+          F1AP_TRP_INFORMATION_TYPE_ITEM_NG_RAN_CGI, F1AP_TRP_INFORMATION_TYPE_ITEM_PRS_CONFIG};
+      f1ap_trp_information_req_t request = {.transaction_id = id, .has_trp_list = true,
+          .trp_list = {.trp_list_length = 1, .trp_list_item = &trp},
+          .trp_information_type_list = {.trp_information_type_list_length = sizeofArray(types),
+                                        .trp_information_type_item = types}};
+      LOG_I(NR_RRC, "Request PRS for PosSIB cell %lu TRP %u via DU %ld\n", policy->cell_id, policy->trp_id, du->gNB_DU_id);
+      rrc->mac_rrc.trp_information_request(du->assoc_id, &request);
+    }
+  }
+}
+
+static void handle_possib_response(gNB_RRC_INST *rrc, nr_rrc_du_container_t *du,
+                                   const f1ap_trp_information_resp_t *resp)
+{
+  const uint8_t id = resp->transaction_id;
+  const uint64_t cell_id = du->trp_transactions[id].cell_id;
+  nr_rrc_cell_container_t *cell = get_cell_by_cell_id(&rrc->cells, cell_id);
+  if (!cell || cell->assoc_id != du->assoc_id || resp->trp_information_list.trp_information_item_length != 1 ||
+      resp->trp_information_list.trp_information_item[0].trp_id != du->trp_transactions[id].trp_id) {
+    LOG_E(NR_RRC, "PosSIB TRP response does not match the requested DU, cell, and TRP\n");
+    return;
+  }
+  const f1ap_trp_information_type_response_list_t *list =
+      &resp->trp_information_list.trp_information_item[0].trp_information_type_response_list;
+  const f1ap_prs_configuration_t *prs = NULL;
+  const f1ap_ng_ran_cgi_t *cgi = NULL;
+  int pci = -1;
+  for (int i = 0; i < list->trp_information_type_response_item_length; ++i) {
+    const f1ap_trp_information_type_response_item_t *item = &list->trp_information_type_response_item[i];
+    switch (item->present) {
+      case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PCI_NR:
+        if (pci != -1) return;
+        pci = item->choice.pci_nr;
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_NG_RAN_CGI:
+        if (cgi) return;
+        cgi = &item->choice.ng_ran_cgi;
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION:
+        if (prs) return;
+        prs = &item->choice.prs_configuration;
+        break;
+      default: return;
+    }
+  }
+  if (!prs || !cgi || pci != cell->info.pci || cgi->nr_cellid != cell_id ||
+      cgi->plmn.mcc != cell->info.plmn.mcc || cgi->plmn.mnc != cell->info.plmn.mnc ||
+      cgi->plmn.mnc_digit_length != cell->info.plmn.mnc_digit_length) {
+    LOG_E(NR_RRC, "PosSIB PRS response has missing or mismatched cell information\n");
+    return;
+  }
+  uint8_t *segment = NULL, *assistance = NULL;
+  size_t segment_len = 0, assistance_len = 0;
+  if (!lpp_prs_from_f1(prs, cgi, pci, &segment, &segment_len) ||
+      !nrppa_encode_pos_assistance(segment, segment_len, du->trp_transactions[id].period_frames,
+                                   &assistance, &assistance_len)) {
+    LOG_E(NR_RRC, "Cannot build positioning assistance for cell %lu\n", cell_id);
+    free(segment);
+    return;
+  }
+  free(segment);
+  f1ap_pos_assistance_control_t control = {.transaction_id = id, .start = true, .has_cell = true,
+      .cell = *cgi, .assistance = assistance, .assistance_length = assistance_len};
+  LOG_I(NR_RRC, "Sending positioning assistance control for cell %lu to DU %ld\n", cell_id, du->gNB_DU_id);
+  cell->possib_control_sent = true;
+  rrc->mac_rrc.pos_assistance_control(du->assoc_id, &control);
+  free(assistance);
+}
+
+void rrc_handle_trp_information_response(gNB_RRC_INST *rrc, sctp_assoc_t assoc_id, f1ap_trp_information_resp_t *resp)
+{
+  nr_rrc_du_container_t *du = get_du_by_assoc_id(rrc, assoc_id);
+  if (!du || !du->trp_transactions[resp->transaction_id].kind) {
+    LOG_W(NR_RRC, "Unexpected or late TRP response from association %d\n", assoc_id);
+    return;
+  }
+  uint8_t id = resp->transaction_id;
+  if (du->trp_transactions[id].kind == TRP_PENDING_POSSIB)
+    handle_possib_response(rrc, du, resp);
+  else {
+    resp->transaction_id = du->trp_transactions[id].nrppa_transaction_id;
+    rrc_CU_process_trp_information_response(resp);
+  }
+  release_trp_transaction(du, id);
+}
+
+void rrc_handle_trp_information_failure(gNB_RRC_INST *rrc, sctp_assoc_t assoc_id, f1ap_trp_information_failure_t *fail)
+{
+  nr_rrc_du_container_t *du = get_du_by_assoc_id(rrc, assoc_id);
+  if (!du || !du->trp_transactions[fail->transaction_id].kind) {
+    LOG_W(NR_RRC, "Unexpected or late TRP failure from association %d\n", assoc_id);
+    return;
+  }
+  uint8_t id = fail->transaction_id;
+  if (du->trp_transactions[id].kind == TRP_PENDING_NRPPA) {
+    fail->transaction_id = du->trp_transactions[id].nrppa_transaction_id;
+    rrc_CU_process_trp_information_failure(fail);
+  } else {
+    LOG_E(NR_RRC, "DU %ld cannot provide PRS information for cell %lu\n",
+          du->gNB_DU_id, du->trp_transactions[id].cell_id);
+  }
+  release_trp_transaction(du, id);
+}
+
+void rrc_trp_transaction_tick(gNB_RRC_INST *rrc)
+{
+  if (!rrc)
+    return;
+  const uint64_t now = trp_now();
+  nr_rrc_du_container_t *du = NULL;
+  RB_FOREACH(du, rrc_du_tree, &rrc->dus) {
+    for (int id = 0; id < 256; ++id) {
+      if (du->trp_transactions[id].kind && du->trp_transactions[id].expires_at <= now) {
+        f1ap_trp_information_failure_t fail = {.transaction_id = id, .cause = F1AP_CAUSE_MISC};
+        LOG_W(NR_RRC, "TRP transaction %d timed out for DU %ld\n", id, du->gNB_DU_id);
+        rrc_handle_trp_information_failure(rrc, du->assoc_id, &fail);
+      }
+    }
+  }
+}
+
 void rrc_send_trp_information_request_to_dus(gNB_RRC_INST *rrc, f1ap_trp_information_req_t *msg)
 {
   nr_rrc_du_container_t *du = NULL;
+  const uint8_t nrppa_id = msg->transaction_id;
   RB_FOREACH (du, rrc_du_tree, &rrc->dus) {
+    int id = allocate_trp_transaction(du, TRP_PENDING_NRPPA);
+    if (id < 0)
+      continue;
+    du->trp_transactions[id].nrppa_transaction_id = nrppa_id;
+    msg->transaction_id = id;
     rrc->mac_rrc.trp_information_request(du->assoc_id, msg);
   }
+  msg->transaction_id = nrppa_id;
 }
 
 void rrc_send_positioning_measurement_request_to_dus(gNB_RRC_INST *rrc, f1ap_positioning_measurement_req_t *msg)

@@ -368,9 +368,6 @@ typedef struct
 } nfapi_nr_ue_pusch_pdu_t;
 
 typedef struct {
-} fapi_nr_ul_srs_parms_v4;
-
-typedef struct {
   uint16_t rnti;                      // UE RNTI, Value: 1->65535
   uint32_t handle;                    // An opaque handling returned in the SRS.indication
   uint16_t bwp_size;                  // Bandwidth part size [3GPP TS 38.213, sec 12]. Number of contiguous PRBs allocated to the BWP, Value: 1->275
@@ -567,6 +564,8 @@ typedef struct {
 } fapi_nr_dl_config_prs_pdu_rel16_t;
 
 typedef struct {
+  uint8_t gnb_id;
+  uint8_t rsc_id;
   fapi_nr_dl_config_prs_pdu_rel16_t prs_config_rel16;
 } fapi_nr_dl_config_prs_pdu;
 

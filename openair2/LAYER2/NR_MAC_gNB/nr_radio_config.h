@@ -73,7 +73,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
 void update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1, int num_sibs, int sibs[num_sibs]);
 int encode_sysinfo_ie(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len);
 void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1);
-int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size);
+int encode_SIB_NR(const NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size);
 void add_sib_to_systeminformation(NR_SystemInformation_IEs_t *si, struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type);
 NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc);
 
@@ -137,7 +137,7 @@ long ue_supported_ul_layers(const NR_UE_NR_Capability_t *uecap, int ul_id);
 long ue_supported_dl_layers(const NR_ServingCellConfigCommon_t *scc, const NR_UE_NR_Capability_t *uecap, int dl_id);
 void create_trp_info_item(const f1ap_trp_information_req_t *req,
                           f1ap_trp_information_t *trp_info_item,
-                          positioning_config_t *positioning_config,
+                          trp_info_config_t *trp_info_config,
                           int trp_idx);
 f1ap_srs_configuration_t cp_rrc_to_f1ap_srs_configuration(NR_UE_UL_BWP_t *current_UL_BWP, NR_ServingCellConfigCommon_t *scc);
 #endif

@@ -3108,7 +3108,7 @@ void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1)
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, sib1);
 }
 
-int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size)
+int encode_SIB_NR(const NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size)
 {
   AssertFatal(max_buffer_size <= NR_MAX_SIB_LENGTH / 8,
               "Maximum buffer size too large: 3GPP TS 38.331 section 5.2.1 - The physical layer imposes a limit to the "
@@ -4553,11 +4553,10 @@ int encode_measgap_config(const measgap_config_t *c, uint8_t *buf)
   return (int)((enc_rval_mgc.encoded + 7) >> 3);
 }
 
-#define NR_MAC_PRS_TX_POWER_DBM 0
-
 static void fill_prs_configuration(f1ap_prs_configuration_t *out,
                                    const nr_mac_prs_config_t *cfg,
-                                   const f1ap_served_cell_info_t *du_cell)
+                                   const f1ap_served_cell_info_t *du_cell,
+                                   int prs_power)
 {
   out->prs_resource_set_list_length = 1;
   out->prs_resource_set = calloc_or_fail(1, sizeof(*out->prs_resource_set));
@@ -4571,36 +4570,43 @@ static void fill_prs_configuration(f1ap_prs_configuration_t *out,
     set->subcarrier_spacing = du_cell->tdd.tbw.scs;
     set->point_a = du_cell->tdd.freqinfo.arfcn;
   }
-  set->num_rb = cfg->num_rb;
-  set->start_prb = cfg->rb_offset;
-  set->comb_size = cfg->comb_size;
-  set->cp_type = 0;
+  const nfapi_nr_dl_tti_prs_pdu_rel16_t *pdu0 = &cfg->resource[0].pdu;
+  set->num_rb = pdu0->numRbs;
+  set->start_prb = pdu0->startRb;
+  set->comb_size = pdu0->combSize;
+  set->cp_type = pdu0->cyclicPrefix;
   set->resource_set_periodicity = cfg->period;
   set->resource_set_slot_offset = cfg->offset;
   set->resource_repetition_factor = cfg->repetition;
   set->resource_time_gap = cfg->time_gap;
   for (int k = 1; k < cfg->num_prs_resources; k++)
-    AssertFatal(cfg->resource[k].num_symbols == cfg->resource[0].num_symbols,
+    AssertFatal(cfg->resource[k].pdu.numSymbols == pdu0->numSymbols,
                 "PRS resources %d and 0 have different NumPRSSymbols: NRPPa has one value per resource set\n",
                 k);
-  set->resource_number_of_symbols = cfg->resource[0].num_symbols;
-  set->prs_resource_transmit_power = NR_MAC_PRS_TX_POWER_DBM;
+  set->resource_number_of_symbols = pdu0->numSymbols;
+  set->prs_resource_transmit_power = prs_power;
+  set->muting1_length = cfg->muting1_length;
+  set->muting1_repetition = cfg->muting1_repetition;
+  memcpy(set->muting1_bits, cfg->muting1_bits, sizeof(set->muting1_bits));
+  set->muting2_length = cfg->muting2_length;
+  memcpy(set->muting2_bits, cfg->muting2_bits, sizeof(set->muting2_bits));
 
   set->prs_resource_list_length = cfg->num_prs_resources;
   set->prs_resource = calloc_or_fail(cfg->num_prs_resources, sizeof(*set->prs_resource));
   for (int k = 0; k < cfg->num_prs_resources; k++) {
+    const nr_mac_prs_resource_t *res = &cfg->resource[k];
     f1ap_prs_resource_t *r = &set->prs_resource[k];
     r->prs_resource_id = k;
-    r->sequence_id = cfg->resource[k].sequence_id;
-    r->re_offset = cfg->resource[k].re_offset;
-    r->resource_slot_offset = cfg->resource[k].slot_offset;
-    r->resource_symbol_offset = cfg->resource[k].symbol_start;
+    r->sequence_id = res->pdu.nIdPrs;
+    r->re_offset = res->pdu.combOffset;
+    r->resource_slot_offset = res->slot_offset;
+    r->resource_symbol_offset = res->pdu.firstSymbol;
   }
 }
 
 void create_trp_info_item(const f1ap_trp_information_req_t *req,
                           f1ap_trp_information_t *trp_info_item,
-                          positioning_config_t *positioning_config,
+                          trp_info_config_t *trp_info_config,
                           int trp_idx)
 {
   gNB_MAC_INST *mac = RC.nrmac[0];
@@ -4641,7 +4647,10 @@ void create_trp_info_item(const f1ap_trp_information_req_t *req,
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_PRS_CONFIG:
         trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-        fill_prs_configuration(&trp_info_type_resp_item->choice.prs_configuration, mac->prs_config, du_cell);
+        /* The softmodem sends PRS and SSB with the same amplitude. */
+        nr_cell_sched_t *cell = nr_mac_get_cell_by_cgi(mac, du_cell->plmn, du_cell->nr_cellid);
+        fill_prs_configuration(&trp_info_type_resp_item->choice.prs_configuration, mac->prs_config, du_cell,
+                               cell->common_channels.ServingCellConfigCommon->ss_PBCH_BlockPower);
         break;
       case F1AP_TRP_INFORMATION_TYPE_ITEM_SSB_CONFIG:
         AssertFatal(false, "SSB config not supported\n");
@@ -4671,10 +4680,10 @@ void create_trp_info_item(const f1ap_trp_information_req_t *req,
         f1ap_relative_cartesian_location_t *trp_pos_cart = &referencePointType->choice.trp_position_relative_cartesian;
 
         // 0 = millimeter
-        trp_pos_cart->xyz_unit = positioning_config->trps[trp_idx].unit;
-        trp_pos_cart->xvalue = positioning_config->trps[trp_idx].x_axis;
-        trp_pos_cart->yvalue = positioning_config->trps[trp_idx].y_axis;
-        trp_pos_cart->zvalue = positioning_config->trps[trp_idx].z_axis;
+        trp_pos_cart->xyz_unit = trp_info_config->trps[trp_idx].unit;
+        trp_pos_cart->xvalue = trp_info_config->trps[trp_idx].x_axis;
+        trp_pos_cart->yvalue = trp_info_config->trps[trp_idx].y_axis;
+        trp_pos_cart->zvalue = trp_info_config->trps[trp_idx].z_axis;
 
         // random values for uncertainity and confidence
         trp_pos_cart->location_uncertainty.horizontal_uncertainty = 1;

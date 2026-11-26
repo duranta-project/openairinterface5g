@@ -214,9 +214,10 @@ typedef struct trp_s {
 typedef struct {
   trp_t trps[MAX_NUM_TRPs];
   uint8_t num_trp;
+  bool has_coordinates;
   // Serving gNB indicator
   bool is_serving_gNB;
-} positioning_config_t;
+} trp_info_config_t;
 
 /** @brief Returns NR RSRP index per 3GPP TS 38.133 Table 10.1.6.1-1 */
 uint8_t get_rsrp_index(int rsrp_dBm);

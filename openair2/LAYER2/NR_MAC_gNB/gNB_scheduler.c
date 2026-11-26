@@ -184,9 +184,13 @@ void gNB_dlsch_ulsch_scheduler(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t
     if (IS_SA_MODE(get_softmodem_params())) {
       schedule_nr_sib1(cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
       schedule_nr_other_sib(cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
+      schedule_nr_pos_sib(cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
       schedule_nr_pcch(gNB, cell, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
     }
   }
+
+  // This schedules PRS
+  nr_schedule_prs(gNB, cell, frame, slot, &sched_info->DL_req);
 
   // This schedule PRACH if we are not in phy_test mode
   if (get_softmodem_params()->phy_test == 0) {

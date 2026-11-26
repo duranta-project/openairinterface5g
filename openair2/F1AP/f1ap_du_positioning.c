@@ -8,6 +8,18 @@
 #include "lib/f1ap_positioning.h"
 #include "openair2/LAYER2/NR_MAC_gNB/mac_rrc_dl_handler.h"
 
+int DU_handle_POS_ASSISTANCE_CONTROL(instance_t instance, sctp_assoc_t assoc_id, uint32_t stream, F1AP_F1AP_PDU_t *pdu)
+{
+  f1ap_pos_assistance_control_t control = {0};
+  if (!decode_pos_assistance_control(pdu, &control)) {
+    LOG_E(F1AP, "Cannot decode positioning assistance control\n");
+    return -1;
+  }
+  pos_assistance_control(&control);
+  free_pos_assistance_control(&control);
+  return 0;
+}
+
 int DU_handle_TRP_INFORMATION_REQUEST(instance_t instance, sctp_assoc_t assoc_id, uint32_t stream, F1AP_F1AP_PDU_t *pdu)
 {
   f1ap_trp_information_req_t req = {0};

@@ -4,6 +4,8 @@
 
 #include "f1ap_positioning.h"
 
+#include <limits.h>
+
 #include "f1ap_lib_common.h"
 #include "f1ap_lib_includes.h"
 #include "f1ap_messages_types.h"
@@ -13,6 +15,12 @@
 #include "common/utils/oai_asn1.h"
 #include "common/utils/utils.h"
 #include "common/utils/ds/byte_array.h"
+#include "F1AP_PRSMuting.h"
+#include "F1AP_PRSMutingOption1.h"
+#include "F1AP_PRSMutingOption2.h"
+#include "F1AP_PRSResource-QCLInfo.h"
+#include "F1AP_PRSResource-QCLSourceSSB.h"
+#include "F1AP_PRSResource-QCLSourcePRS.h"
 
 static F1AP_SRSConfig_t encode_srs_config(const f1ap_srs_config_t *in_config)
 {
@@ -2628,6 +2636,8 @@ static const int prs_periodicity_lut[] = {4,   5,   8,   10,   16,   20,   32,  
 static const int prs_repetition_factor_lut[] = {1, 2, 4, 6, 8, 16, 32};
 static const int prs_time_gap_lut[] = {1, 2, 4, 8, 16, 32};
 static const int prs_num_symbols_lut[] = {2, 4, 6, 12};
+static const int prs_muting_length_lut[] = {2, 4, 6, 8, 16, 32};
+static const int prs_muting_repetition_lut[] = {1, 2, 4, 8};
 
 static long encode_prs_value(int value, const int *lut, int n, const char *name)
 {
@@ -2636,6 +2646,30 @@ static long encode_prs_value(int value, const int *lut, int n, const char *name)
       return i;
   AssertFatal(false, "PRS %s %d not representable in F1AP\n", name, value);
   return 0;
+}
+
+static void encode_prs_muting_pattern(F1AP_DL_PRSMutingPattern_t *out, uint8_t length, const uint8_t bits[4])
+{
+  long index = encode_prs_value(length, prs_muting_length_lut, sizeofArray(prs_muting_length_lut), "muting length");
+  out->present = F1AP_DL_PRSMutingPattern_PR_two + index;
+  BIT_STRING_t *dst = &out->choice.two;
+  dst->size = (length + 7) / 8;
+  dst->bits_unused = dst->size * 8 - length;
+  dst->buf = calloc_or_fail(dst->size, 1);
+  memcpy(dst->buf, bits, dst->size);
+}
+
+static bool decode_prs_muting_pattern(const F1AP_DL_PRSMutingPattern_t *in, uint8_t *length, uint8_t bits[4])
+{
+  int index = in->present - F1AP_DL_PRSMutingPattern_PR_two;
+  if (index < 0 || index >= sizeofArray(prs_muting_length_lut))
+    return false;
+  *length = prs_muting_length_lut[index];
+  const BIT_STRING_t *src = &in->choice.two;
+  if (!src->buf || src->size != (*length + 7) / 8 || src->bits_unused != src->size * 8 - *length)
+    return false;
+  memcpy(bits, src->buf, src->size);
+  return true;
 }
 
 static void encode_prs_configuration(const f1ap_prs_configuration_t *in, F1AP_PRSConfiguration_t *out)
@@ -2666,6 +2700,19 @@ static void encode_prs_configuration(const f1ap_prs_configuration_t *in, F1AP_PR
     set->resourceNumberofSymbols =
         encode_prs_value(s->resource_number_of_symbols, prs_num_symbols_lut, sizeofArray(prs_num_symbols_lut), "number of symbols");
     set->pRSResourceTransmitPower = s->prs_resource_transmit_power;
+    if (s->muting1_length || s->muting2_length) {
+      asn1cCalloc(set->pRSMuting, muting);
+      if (s->muting1_length) {
+        asn1cCalloc(muting->pRSMutingOption1, option1);
+        encode_prs_muting_pattern(&option1->mutingPattern, s->muting1_length, s->muting1_bits);
+        option1->mutingBitRepetitionFactor = encode_prs_value(s->muting1_repetition, prs_muting_repetition_lut,
+                                                              sizeofArray(prs_muting_repetition_lut), "muting repetition");
+      }
+      if (s->muting2_length) {
+        asn1cCalloc(muting->pRSMutingOption2, option2);
+        encode_prs_muting_pattern(&option2->mutingPattern, s->muting2_length, s->muting2_bits);
+      }
+    }
     for (int k = 0; k < s->prs_resource_list_length; k++) {
       const f1ap_prs_resource_t *r = &s->prs_resource[k];
       asn1cSequenceAdd(set->pRSResource_List.list, F1AP_PRSResource_Item_t, res);
@@ -2674,16 +2721,45 @@ static void encode_prs_configuration(const f1ap_prs_configuration_t *in, F1AP_PR
       res->rEOffset = r->re_offset;
       res->resourceSlotOffset = r->resource_slot_offset;
       res->resourceSymbolOffset = r->resource_symbol_offset;
+      if (r->has_qcl_ssb) {
+        AssertFatal(!r->has_qcl_prs, "PRS resource has two QCL sources\n");
+        asn1cCalloc(res->qCLInfo, qcl);
+        qcl->present = F1AP_PRSResource_QCLInfo_PR_qCLSourceSSB;
+        asn1cCalloc(qcl->choice.qCLSourceSSB, ssb);
+        ssb->pCI_NR = r->qcl_ssb_pci;
+        if (r->has_qcl_ssb_index)
+          asn1cCallocOne(ssb->sSB_Index, r->qcl_ssb_index);
+      } else if (r->has_qcl_prs) {
+        asn1cCalloc(res->qCLInfo, qcl);
+        qcl->present = F1AP_PRSResource_QCLInfo_PR_qCLSourcePRS;
+        asn1cCalloc(qcl->choice.qCLSourcePRS, prs);
+        prs->qCLSourcePRSResourceSetID = r->qcl_prs_set_id;
+        if (r->has_qcl_prs_resource_id)
+          asn1cCallocOne(prs->qCLSourcePRSResourceID, r->qcl_prs_resource_id);
+      }
     }
   }
 }
 
 static bool decode_prs_configuration(const F1AP_PRSConfiguration_t *in, f1ap_prs_configuration_t *out)
 {
+  if (in->pRSResourceSet_List.list.count <= 0 || in->pRSResourceSet_List.list.count > UINT8_MAX)
+    return false;
   out->prs_resource_set_list_length = in->pRSResourceSet_List.list.count;
   out->prs_resource_set = calloc_or_fail(out->prs_resource_set_list_length, sizeof(*out->prs_resource_set));
   for (int i = 0; i < out->prs_resource_set_list_length; i++) {
     const F1AP_PRSResourceSet_Item_t *set = in->pRSResourceSet_List.list.array[i];
+    if (!set || set->iE_Extensions || set->subcarrierSpacing < 0 ||
+        set->subcarrierSpacing > F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz120 ||
+        set->pRSbandwidth < 1 || set->pRSbandwidth > 63 || set->cPType < 0 ||
+        set->cPType > F1AP_PRSResourceSet_Item__cPType_extended ||
+        set->combSize < 0 || set->combSize >= sizeofArray(prs_comb_size_lut) ||
+        set->resourceSetPeriodicity < 0 || set->resourceSetPeriodicity >= sizeofArray(prs_periodicity_lut) ||
+        set->resourceRepetitionFactor < 0 || set->resourceRepetitionFactor >= sizeofArray(prs_repetition_factor_lut) ||
+        set->resourceTimeGap < 0 || set->resourceTimeGap >= sizeofArray(prs_time_gap_lut) ||
+        set->resourceNumberofSymbols < 0 || set->resourceNumberofSymbols >= sizeofArray(prs_num_symbols_lut) ||
+        set->pRSResource_List.list.count <= 0 || set->pRSResource_List.list.count > UINT8_MAX)
+      return false;
     f1ap_prs_resource_set_t *s = &out->prs_resource_set[i];
     s->prs_resource_set_id = set->pRSResourceSetID;
     _F1_CHECK_EXP(set->subcarrierSpacing <= F1AP_PRSResourceSet_Item__subcarrierSpacing_kHz120);
@@ -2706,16 +2782,58 @@ static bool decode_prs_configuration(const F1AP_PRSConfiguration_t *in, f1ap_prs
     _F1_CHECK_EXP(set->resourceNumberofSymbols >= 0 && set->resourceNumberofSymbols < sizeofArray(prs_num_symbols_lut));
     s->resource_number_of_symbols = prs_num_symbols_lut[set->resourceNumberofSymbols];
     s->prs_resource_transmit_power = set->pRSResourceTransmitPower;
+    if (set->pRSMuting) {
+      const F1AP_PRSMuting_t *muting = set->pRSMuting;
+      if (muting->iE_Extensions)
+        return false;
+      if (muting->pRSMutingOption1) {
+        const F1AP_PRSMutingOption1_t *option1 = muting->pRSMutingOption1;
+        if (option1->iE_Extensions || option1->mutingBitRepetitionFactor < 0 ||
+            option1->mutingBitRepetitionFactor >= sizeofArray(prs_muting_repetition_lut) ||
+            !decode_prs_muting_pattern(&option1->mutingPattern, &s->muting1_length, s->muting1_bits))
+          return false;
+        s->muting1_repetition = prs_muting_repetition_lut[option1->mutingBitRepetitionFactor];
+      }
+      if (muting->pRSMutingOption2 &&
+          (muting->pRSMutingOption2->iE_Extensions ||
+           !decode_prs_muting_pattern(&muting->pRSMutingOption2->mutingPattern, &s->muting2_length, s->muting2_bits)))
+        return false;
+    }
     s->prs_resource_list_length = set->pRSResource_List.list.count;
     s->prs_resource = calloc_or_fail(s->prs_resource_list_length, sizeof(*s->prs_resource));
     for (int k = 0; k < s->prs_resource_list_length; k++) {
       const F1AP_PRSResource_Item_t *res = set->pRSResource_List.list.array[k];
+      if (!res || res->iE_Extensions)
+        return false;
       f1ap_prs_resource_t *r = &s->prs_resource[k];
       r->prs_resource_id = res->pRSResourceID;
       r->sequence_id = res->sequenceID;
       r->re_offset = res->rEOffset;
       r->resource_slot_offset = res->resourceSlotOffset;
       r->resource_symbol_offset = res->resourceSymbolOffset;
+      if (res->qCLInfo) {
+        if (res->qCLInfo->present == F1AP_PRSResource_QCLInfo_PR_qCLSourceSSB) {
+          const F1AP_PRSResource_QCLSourceSSB_t *ssb = res->qCLInfo->choice.qCLSourceSSB;
+          if (!ssb || ssb->iE_Extensions)
+            return false;
+          r->has_qcl_ssb = true;
+          r->qcl_ssb_pci = ssb->pCI_NR;
+          r->has_qcl_ssb_index = ssb->sSB_Index != NULL;
+          if (ssb->sSB_Index)
+            r->qcl_ssb_index = *ssb->sSB_Index;
+        } else if (res->qCLInfo->present == F1AP_PRSResource_QCLInfo_PR_qCLSourcePRS) {
+          const F1AP_PRSResource_QCLSourcePRS_t *source = res->qCLInfo->choice.qCLSourcePRS;
+          if (!source || source->iE_Extensions)
+            return false;
+          r->has_qcl_prs = true;
+          r->qcl_prs_set_id = source->qCLSourcePRSResourceSetID;
+          r->has_qcl_prs_resource_id = source->qCLSourcePRSResourceID != NULL;
+          if (source->qCLSourcePRSResourceID)
+            r->qcl_prs_resource_id = *source->qCLSourcePRSResourceID;
+        } else {
+          return false;
+        }
+      }
     }
   }
   return true;
@@ -2788,6 +2906,9 @@ static bool decode_trp_info_type_response_item(const F1AP_TRPInformationTypeResp
       break;
     case F1AP_TRPInformationTypeResponseItem_PR_nG_RAN_CGI:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_NG_RAN_CGI;
+      if (!in->choice.nG_RAN_CGI || in->choice.nG_RAN_CGI->pLMN_Identity.size != 3 ||
+          in->choice.nG_RAN_CGI->nRCellIdentity.size != 5 || in->choice.nG_RAN_CGI->nRCellIdentity.bits_unused != 4)
+        return false;
       // NR CGI (M)
       PLMNID_TO_MCC_MNC(&(in->choice.nG_RAN_CGI->pLMN_Identity),
                         out->choice.ng_ran_cgi.plmn.mcc,
@@ -2802,20 +2923,18 @@ static bool decode_trp_info_type_response_item(const F1AP_TRPInformationTypeResp
       break;
     case F1AP_TRPInformationTypeResponseItem_PR_pRSConfiguration:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
-      _F1_CHECK_EXP(decode_prs_configuration(in->choice.pRSConfiguration, &out->choice.prs_configuration));
+      if (!in->choice.pRSConfiguration || !decode_prs_configuration(in->choice.pRSConfiguration, &out->choice.prs_configuration))
+        return false;
       break;
     case F1AP_TRPInformationTypeResponseItem_PR_sSBinformation:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SSBINFORMATION;
-      AssertFatal(false, "TRP information type response item SSB Information unsupported\n");
-      break;
+      return false;
     case F1AP_TRPInformationTypeResponseItem_PR_sFNInitialisationTime:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SFNINITIALISATIONTIME;
-      AssertFatal(false, "TRP information type response item SFN Initialization Time unsupported\n");
-      break;
+      return false;
     case F1AP_TRPInformationTypeResponseItem_PR_spatialDirectionInformation:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_SPATIALDIRECTIONINFORMATION;
-      AssertFatal(false, "TRP information type response item Spatial Direction Information unsupported\n");
-      break;
+      return false;
     case F1AP_TRPInformationTypeResponseItem_PR_geographicalCoordinates:
       out->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_GEOGRAPHICALCOORDINATES;
       decode_geographical_coordinates(in->choice.geographicalCoordinates, &out->choice.geographical_coordinates);
@@ -2864,6 +2983,11 @@ static bool eq_prs_configuration(const f1ap_prs_configuration_t *a, const f1ap_p
     _EQ_CHECK_INT(sa->resource_repetition_factor, sb->resource_repetition_factor);
     _EQ_CHECK_INT(sa->resource_time_gap, sb->resource_time_gap);
     _EQ_CHECK_INT(sa->resource_number_of_symbols, sb->resource_number_of_symbols);
+    _EQ_CHECK_INT(sa->muting1_length, sb->muting1_length);
+    _EQ_CHECK_INT(sa->muting1_repetition, sb->muting1_repetition);
+    _F1_CHECK_EXP(!memcmp(sa->muting1_bits, sb->muting1_bits, sizeof(sa->muting1_bits)));
+    _EQ_CHECK_INT(sa->muting2_length, sb->muting2_length);
+    _F1_CHECK_EXP(!memcmp(sa->muting2_bits, sb->muting2_bits, sizeof(sa->muting2_bits)));
     _EQ_CHECK_INT(sa->prs_resource_transmit_power, sb->prs_resource_transmit_power);
     _EQ_CHECK_INT(sa->prs_resource_list_length, sb->prs_resource_list_length);
     for (int k = 0; k < sa->prs_resource_list_length; k++) {
@@ -2874,6 +2998,20 @@ static bool eq_prs_configuration(const f1ap_prs_configuration_t *a, const f1ap_p
       _EQ_CHECK_INT(ra->re_offset, rb->re_offset);
       _EQ_CHECK_INT(ra->resource_slot_offset, rb->resource_slot_offset);
       _EQ_CHECK_INT(ra->resource_symbol_offset, rb->resource_symbol_offset);
+      _EQ_CHECK_INT(ra->has_qcl_ssb, rb->has_qcl_ssb);
+      if (ra->has_qcl_ssb) {
+        _EQ_CHECK_INT(ra->qcl_ssb_pci, rb->qcl_ssb_pci);
+        _EQ_CHECK_INT(ra->has_qcl_ssb_index, rb->has_qcl_ssb_index);
+        if (ra->has_qcl_ssb_index)
+          _EQ_CHECK_INT(ra->qcl_ssb_index, rb->qcl_ssb_index);
+      }
+      _EQ_CHECK_INT(ra->has_qcl_prs, rb->has_qcl_prs);
+      if (ra->has_qcl_prs) {
+        _EQ_CHECK_INT(ra->qcl_prs_set_id, rb->qcl_prs_set_id);
+        _EQ_CHECK_INT(ra->has_qcl_prs_resource_id, rb->has_qcl_prs_resource_id);
+        if (ra->has_qcl_prs_resource_id)
+          _EQ_CHECK_INT(ra->qcl_prs_resource_id, rb->qcl_prs_resource_id);
+      }
     }
   }
   return true;
@@ -6573,4 +6711,141 @@ void free_positioning_measurement_update(f1ap_positioning_measurement_update_t *
     free_srs_carrier_list(srs_carrier_list);
     free(msg->srs_configuration);
   }
+}
+
+F1AP_F1AP_PDU_t *encode_pos_assistance_control(const f1ap_pos_assistance_control_t *msg)
+{
+  if ((msg->start && (!msg->assistance || !msg->assistance_length)) ||
+      (msg->assistance_length && !msg->assistance) || msg->assistance_length > INT_MAX)
+    return NULL;
+
+  F1AP_F1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+  pdu->present = F1AP_F1AP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, init);
+  init->procedureCode = F1AP_ProcedureCode_id_PositioningAssistanceInformationControl;
+  init->criticality = F1AP_Criticality_ignore;
+  init->value.present = F1AP_InitiatingMessage__value_PR_PositioningAssistanceInformationControl;
+  F1AP_PositioningAssistanceInformationControl_t *out = &init->value.choice.PositioningAssistanceInformationControl;
+  asn1cSequenceAdd(out->protocolIEs.list, F1AP_PositioningAssistanceInformationControlIEs_t, tid);
+  tid->id = F1AP_ProtocolIE_ID_id_TransactionID;
+  tid->criticality = F1AP_Criticality_reject;
+  tid->value.present = F1AP_PositioningAssistanceInformationControlIEs__value_PR_TransactionID;
+  tid->value.choice.TransactionID = msg->transaction_id;
+  asn1cSequenceAdd(out->protocolIEs.list, F1AP_PositioningAssistanceInformationControlIEs_t, broadcast);
+  broadcast->id = F1AP_ProtocolIE_ID_id_PosBroadcast;
+  broadcast->criticality = F1AP_Criticality_reject;
+  broadcast->value.present = F1AP_PositioningAssistanceInformationControlIEs__value_PR_PosBroadcast;
+  broadcast->value.choice.PosBroadcast = msg->start ? F1AP_PosBroadcast_start : F1AP_PosBroadcast_stop;
+  if (msg->assistance_length) {
+    asn1cSequenceAdd(out->protocolIEs.list, F1AP_PositioningAssistanceInformationControlIEs_t, assistance);
+    assistance->id = F1AP_ProtocolIE_ID_id_PosAssistance_Information;
+    assistance->criticality = F1AP_Criticality_reject;
+    assistance->value.present = F1AP_PositioningAssistanceInformationControlIEs__value_PR_PosAssistance_Information;
+    OCTET_STRING_fromBuf(&assistance->value.choice.PosAssistance_Information,
+                         (const char *)msg->assistance, msg->assistance_length);
+  }
+  if (msg->has_cell) {
+    asn1cSequenceAdd(out->protocolIEs.list, F1AP_PositioningAssistanceInformationControlIEs_t, cells);
+    cells->id = F1AP_ProtocolIE_ID_id_PositioningBroadcastCells;
+    cells->criticality = F1AP_Criticality_reject;
+    cells->value.present = F1AP_PositioningAssistanceInformationControlIEs__value_PR_PositioningBroadcastCells;
+    asn1cSequenceAdd(cells->value.choice.PositioningBroadcastCells.list, F1AP_NRCGI_t, cell);
+    MCC_MNC_TO_PLMNID(msg->cell.plmn.mcc, msg->cell.plmn.mnc, msg->cell.plmn.mnc_digit_length, &cell->pLMN_Identity);
+    NR_CELL_ID_TO_BIT_STRING(msg->cell.nr_cellid, &cell->nRCellIdentity);
+  }
+  return pdu;
+}
+
+bool decode_pos_assistance_control(const F1AP_F1AP_PDU_t *pdu, f1ap_pos_assistance_control_t *out)
+{
+  memset(out, 0, sizeof(*out));
+  if (!pdu || pdu->present != F1AP_F1AP_PDU_PR_initiatingMessage || !pdu->choice.initiatingMessage ||
+      pdu->choice.initiatingMessage->procedureCode != F1AP_ProcedureCode_id_PositioningAssistanceInformationControl ||
+      pdu->choice.initiatingMessage->value.present != F1AP_InitiatingMessage__value_PR_PositioningAssistanceInformationControl)
+    return false;
+  const F1AP_PositioningAssistanceInformationControl_t *in =
+      &pdu->choice.initiatingMessage->value.choice.PositioningAssistanceInformationControl;
+  bool has_tid = false, has_broadcast = false, has_assistance = false;
+  for (int i = 0; i < in->protocolIEs.list.count; ++i) {
+    const F1AP_PositioningAssistanceInformationControlIEs_t *ie = in->protocolIEs.list.array[i];
+    if (!ie)
+      goto fail;
+    switch (ie->id) {
+      case F1AP_ProtocolIE_ID_id_TransactionID:
+        if (has_tid || ie->value.present != F1AP_PositioningAssistanceInformationControlIEs__value_PR_TransactionID ||
+            ie->value.choice.TransactionID < 0 || ie->value.choice.TransactionID > 255)
+          goto fail;
+        has_tid = true;
+        out->transaction_id = ie->value.choice.TransactionID;
+        break;
+      case F1AP_ProtocolIE_ID_id_PosBroadcast:
+        if (has_broadcast || ie->value.present != F1AP_PositioningAssistanceInformationControlIEs__value_PR_PosBroadcast ||
+            (ie->value.choice.PosBroadcast != F1AP_PosBroadcast_start && ie->value.choice.PosBroadcast != F1AP_PosBroadcast_stop))
+          goto fail;
+        has_broadcast = true;
+        out->start = ie->value.choice.PosBroadcast == F1AP_PosBroadcast_start;
+        break;
+      case F1AP_ProtocolIE_ID_id_PosAssistance_Information: {
+        if (has_assistance ||
+            ie->value.present != F1AP_PositioningAssistanceInformationControlIEs__value_PR_PosAssistance_Information)
+          goto fail;
+        has_assistance = true;
+        const OCTET_STRING_t *s = &ie->value.choice.PosAssistance_Information;
+        if (!s->buf || !s->size)
+          goto fail;
+        out->assistance = malloc_or_fail(s->size);
+        memcpy(out->assistance, s->buf, s->size);
+        out->assistance_length = s->size;
+        break;
+      }
+      case F1AP_ProtocolIE_ID_id_PositioningBroadcastCells: {
+        if (out->has_cell ||
+            ie->value.present != F1AP_PositioningAssistanceInformationControlIEs__value_PR_PositioningBroadcastCells ||
+            ie->value.choice.PositioningBroadcastCells.list.count != 1)
+          goto fail;
+        const F1AP_NRCGI_t *cell = ie->value.choice.PositioningBroadcastCells.list.array[0];
+        if (!cell || cell->pLMN_Identity.size != 3 || cell->nRCellIdentity.size != 5 || cell->nRCellIdentity.bits_unused != 4)
+          goto fail;
+        out->has_cell = true;
+        PLMNID_TO_MCC_MNC(&cell->pLMN_Identity, out->cell.plmn.mcc, out->cell.plmn.mnc, out->cell.plmn.mnc_digit_length);
+        BIT_STRING_TO_NR_CELL_IDENTITY(&cell->nRCellIdentity, out->cell.nr_cellid);
+        break;
+      }
+      default:
+        goto fail;
+    }
+  }
+  if (!has_tid || !has_broadcast || (out->start && !has_assistance))
+    goto fail;
+  return true;
+fail:
+  free_pos_assistance_control(out);
+  return false;
+}
+
+f1ap_pos_assistance_control_t cp_pos_assistance_control(const f1ap_pos_assistance_control_t *orig)
+{
+  f1ap_pos_assistance_control_t copy = *orig;
+  copy.assistance = NULL;
+  if (orig->assistance_length) {
+    copy.assistance = malloc_or_fail(orig->assistance_length);
+    memcpy(copy.assistance, orig->assistance, orig->assistance_length);
+  }
+  return copy;
+}
+
+bool eq_pos_assistance_control(const f1ap_pos_assistance_control_t *a, const f1ap_pos_assistance_control_t *b)
+{
+  return a->transaction_id == b->transaction_id && a->start == b->start && a->has_cell == b->has_cell &&
+         (!a->has_cell || (a->cell.nr_cellid == b->cell.nr_cellid && a->cell.plmn.mcc == b->cell.plmn.mcc &&
+                          a->cell.plmn.mnc == b->cell.plmn.mnc &&
+                          a->cell.plmn.mnc_digit_length == b->cell.plmn.mnc_digit_length)) &&
+         a->assistance_length == b->assistance_length &&
+         (!a->assistance_length || !memcmp(a->assistance, b->assistance, a->assistance_length));
+}
+
+void free_pos_assistance_control(f1ap_pos_assistance_control_t *msg)
+{
+  free(msg->assistance);
+  memset(msg, 0, sizeof(*msg));
 }

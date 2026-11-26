@@ -26,6 +26,7 @@ typedef void (*dl_rrc_message_transfer_func_t)(sctp_assoc_t assoc_id, const f1ap
 typedef void (*f1_paging_transfer_func_t)(sctp_assoc_t assoc_id, const f1ap_paging_t *paging);
 
 typedef void (*trp_information_request_func_t)(sctp_assoc_t assoc_id, const f1ap_trp_information_req_t *req);
+typedef void (*pos_assistance_control_func_t)(sctp_assoc_t assoc_id, const f1ap_pos_assistance_control_t *control);
 typedef void (*positioning_information_request_func_t)(sctp_assoc_t assoc_id, const f1ap_positioning_information_req_t *req);
 typedef void (*positioning_activation_request_func_t)(sctp_assoc_t assoc_id, const f1ap_positioning_activation_req_t *req);
 typedef void (*positioning_measurement_request_func_t)(sctp_assoc_t assoc_id, const f1ap_positioning_measurement_req_t *req);

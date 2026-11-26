@@ -5,63 +5,76 @@
 #include "nrppa_gNB_config.h"
 #include "assertions.h"
 #include "common/ran_context.h"
-#include "positioning_nr_paramdef.h"
+#include "trp_info_nr_paramdef.h"
 #include "common/config/config_userapi.h"
 #include "common/utils/LOG/log.h"
 
-positioning_config_t *RCconfig_nr_positioning(void)
+trp_info_config_t *RCconfig_nr_trp_info(void)
 {
-  positioning_config_t *positioning_config = NULL;
-  paramdef_t positioning_params_desc[] = POSITIONING_PARAMS_DESC;
-  int num_params = sizeofArray(positioning_params_desc);
-  GET_PARAMS_LIST(POSITIONING_ParamList, POSITIONING_Params, POSITIONING_PARAMS_DESC, CONFIG_STRING_POSITIONING_CONFIG, NULL);
-
-  if (POSITIONING_ParamList.numelt > 0) {
-    paramdef_t *params = POSITIONING_ParamList.paramarray[0];
-
-    uint8_t num_trp = *gpd(params, num_params, CONFIG_STRING_POSITIONING_NUM_TRPS)->uptr;
-    if (num_trp == 0) {
-      return NULL;
-    } else if (num_trp > MAX_NUM_TRPs) {
-      AssertFatal(false, "Exceeded MAX number of TRPs\n");
-    }
-
-    uint8_t num_ids = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_IDS_LIST)->numelt;
-    uint8_t num_x = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_X_AXIS_LIST)->numelt;
-    uint8_t num_y = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_Y_AXIS_LIST)->numelt;
-    uint8_t num_z = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_Z_AXIS_LIST)->numelt;
-    uint8_t num_unit = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_UNIT_LIST)->numelt;
-
-    if (num_trp != num_ids || num_trp != num_x || num_trp != num_y || num_trp != num_z || num_trp != num_unit) {
-      AssertFatal(false, "Mismatch in the number of TRPs with the number of ids, x-axis, y-axis, z-axis, units\n");
-    }
-
-    positioning_config = calloc_or_fail(1, sizeof(positioning_config_t));
-    positioning_config->num_trp = num_trp;
-    for (int l = 0; l < num_trp; l++) {
-      positioning_config->trps[l].id = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_IDS_LIST)->uptr[l];
-      positioning_config->trps[l].x_axis = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_X_AXIS_LIST)->uptr[l];
-      positioning_config->trps[l].y_axis = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_Y_AXIS_LIST)->uptr[l];
-      positioning_config->trps[l].z_axis = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_Z_AXIS_LIST)->uptr[l];
-      positioning_config->trps[l].unit = gpd(params, num_params, CONFIG_STRING_POSITIONING_TRP_UNIT_LIST)->uptr[l];
-      }
-  } else {
-    LOG_I(NR_PHY, "No " CONFIG_STRING_POSITIONING_CONFIG " configuration found..!!\n");
+  trp_info_config_t *trp_info_config = NULL;
+  GET_PARAMS_LIST(TRP_INFO_ParamList, TRP_INFO_Params, TRP_INFO_PARAMS_DESC, CONFIG_STRING_TRP_INFO_CONFIG, NULL);
+  if (TRP_INFO_ParamList.numelt == 0) {
+    LOG_I(NR_PHY, "No " CONFIG_STRING_TRP_INFO_CONFIG " configuration found\n");
+    return NULL;
   }
-  return positioning_config;
+
+  paramdef_t *params = TRP_INFO_ParamList.paramarray[0];
+  const int num_params = sizeofArray(TRP_INFO_Params);
+  const unsigned num_trp = *gpd(params, num_params, CONFIG_STRING_TRP_INFO_NUM_TRPS)->uptr;
+  if (num_trp == 0)
+    return NULL;
+  if (num_trp > MAX_NUM_TRPs) {
+    LOG_E(NR_PHY, "Number of TRPs %u exceeds maximum %d\n", num_trp, MAX_NUM_TRPs);
+    return NULL;
+  }
+
+  const paramdef_t *ids = gpd(params, num_params, CONFIG_STRING_TRP_INFO_TRP_IDS_LIST);
+  const paramdef_t *x = gpd(params, num_params, CONFIG_STRING_TRP_INFO_TRP_X_AXIS_LIST);
+  const paramdef_t *y = gpd(params, num_params, CONFIG_STRING_TRP_INFO_TRP_Y_AXIS_LIST);
+  const paramdef_t *z = gpd(params, num_params, CONFIG_STRING_TRP_INFO_TRP_Z_AXIS_LIST);
+  const paramdef_t *units = gpd(params, num_params, CONFIG_STRING_TRP_INFO_TRP_UNIT_LIST);
+  if (ids->numelt != num_trp) {
+    LOG_E(NR_PHY, "TRPIDs must contain NumTRPs (%u) entries\n", num_trp);
+    return NULL;
+  }
+
+  const bool has_coordinates = x->numelt || y->numelt || z->numelt || units->numelt;
+  if (has_coordinates &&
+      (x->numelt != num_trp || y->numelt != num_trp || z->numelt != num_trp || units->numelt != num_trp)) {
+    LOG_E(NR_PHY, "TRPxAxis, TRPyAxis, TRPzAxis and Units must all contain NumTRPs (%u) entries or all be omitted\n", num_trp);
+    return NULL;
+  }
+
+  trp_info_config = calloc_or_fail(1, sizeof(*trp_info_config));
+  trp_info_config->num_trp = num_trp;
+  trp_info_config->has_coordinates = has_coordinates;
+  for (unsigned i = 0; i < num_trp; i++) {
+    trp_info_config->trps[i].id = ids->uptr[i];
+    if (has_coordinates) {
+      trp_info_config->trps[i].x_axis = x->uptr[i];
+      trp_info_config->trps[i].y_axis = y->uptr[i];
+      trp_info_config->trps[i].z_axis = z->uptr[i];
+      trp_info_config->trps[i].unit = units->uptr[i];
+    }
+  }
+  return trp_info_config;
 }
 
-void dump_positioning_config(const positioning_config_t *positioning_config)
+void dump_trp_info_config(const trp_info_config_t *trp_info_config)
 {
-  uint8_t num_trp = positioning_config->num_trp;
+  uint8_t num_trp = trp_info_config->num_trp;
   LOG_I(NR_PHY, "-----------------------------------------\n");
   LOG_I(NR_PHY, "Positioning Config\n");
   LOG_I(NR_PHY, "-----------------------------------------\n");
   LOG_I(NR_PHY, "Number of TRPs \t\t%d\n", num_trp);
   for (int i = 0; i < num_trp; i++) {
-    LOG_I(NR_PHY, "X-axis of TRP ID %d \t\t%d\n", positioning_config->trps[i].id, positioning_config->trps[i].x_axis);
-    LOG_I(NR_PHY, "Y-axis of TRP ID %d \t\t%d\n", positioning_config->trps[i].id, positioning_config->trps[i].y_axis);
-    LOG_I(NR_PHY, "Z-axis of TRP ID %d \t\t%d\n", positioning_config->trps[i].id, positioning_config->trps[i].z_axis);
+    if (!trp_info_config->has_coordinates) {
+      LOG_I(NR_PHY, "TRP ID %u: coordinates not configured\n", trp_info_config->trps[i].id);
+      continue;
+    }
+    LOG_I(NR_PHY, "X-axis of TRP ID %d \t\t%d\n", trp_info_config->trps[i].id, trp_info_config->trps[i].x_axis);
+    LOG_I(NR_PHY, "Y-axis of TRP ID %d \t\t%d\n", trp_info_config->trps[i].id, trp_info_config->trps[i].y_axis);
+    LOG_I(NR_PHY, "Z-axis of TRP ID %d \t\t%d\n", trp_info_config->trps[i].id, trp_info_config->trps[i].z_axis);
   }
   LOG_I(NR_PHY, "-----------------------------------------\n");
 }

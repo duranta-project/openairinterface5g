@@ -21,6 +21,7 @@
 /* IF */
 #include "NR_UE_PHY_INTERFACE/NR_IF_Module.h"
 #include "fapi_nr_ue_interface.h"
+#include "nr_ue_prs_config.h"
 
 /* MAC */
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
@@ -738,7 +739,8 @@ typedef struct {
 
 typedef enum {
   NR_SI_INFO,
-  NR_SI_INFO_v1700
+  NR_SI_INFO_v1700,
+  NR_POS_SI_INFO_r16
 } nr_si_info_type;
 
 typedef struct {
@@ -774,6 +776,15 @@ typedef struct {
 } nr_ue_paging_cfg_t;
 
 /*!\brief Top level UE MAC structure */
+typedef struct {
+  uint32_t period;
+  uint32_t offset;
+  uint8_t repetition;
+  uint8_t time_gap;
+  uint8_t num_resources;
+  nr_ue_prs_resource_t resource[];
+} nr_ue_prs_config_t;
+
 typedef struct NR_UE_MAC_INST_s {
   module_id_t ue_id;
   NR_UE_L2_STATE_t state;
@@ -794,6 +805,8 @@ typedef struct NR_UE_MAC_INST_s {
   NR_ControlResourceSet_t *coreset0;
   NR_SearchSpace_t *search_space_zero;
   NR_UE_DL_BWP_t *current_DL_BWP;
+  nr_ue_prs_config_t **prs_config;
+  int prs_num_gnbs;
   NR_UE_UL_BWP_t *current_UL_BWP;
 
   bool harq_ACK_SpatialBundlingPUCCH;

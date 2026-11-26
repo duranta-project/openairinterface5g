@@ -29,7 +29,7 @@ uint16_t mcc = 1;
 uint16_t mnc = 1;
 uint8_t mnc_len = 2;
 int NB_UE_INST = 1;
-positioning_config_t *positioning_config = NULL;
+trp_info_config_t *trp_info_config = NULL;
 
 nfapi_mode_t nfapi_mod = -1;
 void nfapi_setmode(nfapi_mode_t nfapi_mode)
@@ -87,19 +87,19 @@ configmodule_interface_t *uniqCfg = NULL;
 
 static nrppa_trp_information_resp_t fill_trp_resp(uint8_t transaction_id)
 {
-  dump_positioning_config(positioning_config);
+  dump_trp_info_config(trp_info_config);
   nrppa_trp_information_resp_t resp = {0};
   resp.transaction_id = transaction_id;
 
   nrppa_trp_information_list_t *list = &resp.trp_information_list;
-  uint32_t trp_info_item_len = positioning_config->num_trp;
+  uint32_t trp_info_item_len = trp_info_config->num_trp;
   list->trp_information_item_length = trp_info_item_len;
   list->trp_information_item = calloc_or_fail(trp_info_item_len, sizeof(*list->trp_information_item));
 
-  uint8_t resp_item_len = 3;
+  uint8_t resp_item_len = trp_info_config->has_coordinates ? 3 : 2;
   for (int i = 0; i < trp_info_item_len; i++) {
     nrppa_trp_information_t *tRPInformation = &list->trp_information_item[i];
-    tRPInformation->trp_id = positioning_config->trps[i].id;
+    tRPInformation->trp_id = trp_info_config->trps[i].id;
     nrppa_trp_information_type_response_list_t *resp_list = &tRPInformation->trp_information_type_response_list;
     resp_list->trp_information_type_response_item_length = resp_item_len;
     nrppa_trp_information_type_response_item_t *resp_item = calloc_or_fail(resp_item_len, sizeof(*resp_item));
@@ -116,6 +116,9 @@ static nrppa_trp_information_resp_t fill_trp_resp(uint8_t transaction_id)
     resp_item[1].choice.ng_ran_cgi.plmn.mnc_digit_length = 2;
     resp_item[1].choice.ng_ran_cgi.nr_cellid = gnb_id << 8; // HACK: Made to work with lmf
 
+    if (!trp_info_config->has_coordinates)
+      continue;
+
     // geographicalCoordinates
     resp_item[2].present = NRPPA_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_GEOGRAPHICALCOORDINATES;
     nrppa_geographical_coordinates_t *geographicalCoordinates = &resp_item[2].choice.geographical_coordinates;
@@ -131,12 +134,12 @@ static nrppa_trp_information_resp_t fill_trp_resp(uint8_t transaction_id)
     referencePointType->present = NRPPA_TRP_REFERENCE_POINT_TYPE_PR_TRPPOSITION_RELATIVE_CARTESIAN;
     nrppa_relative_cartesian_location_t *trp_pos_cart = &referencePointType->choice.trp_position_relative_cartesian;
     // 0 = millimeter
-    trp_pos_cart->xyz_unit = positioning_config->trps[i].unit;
+    trp_pos_cart->xyz_unit = trp_info_config->trps[i].unit;
 
     // random reference cartesian coordinates in millimeter
-    trp_pos_cart->xvalue = positioning_config->trps[i].x_axis;
-    trp_pos_cart->yvalue = positioning_config->trps[i].y_axis;
-    trp_pos_cart->zvalue = positioning_config->trps[i].z_axis;
+    trp_pos_cart->xvalue = trp_info_config->trps[i].x_axis;
+    trp_pos_cart->yvalue = trp_info_config->trps[i].y_axis;
+    trp_pos_cart->zvalue = trp_info_config->trps[i].z_axis;
     // testing random values for uncertainity and confidence
     trp_pos_cart->location_uncertainty.horizontal_uncertainty = i + 1;
     trp_pos_cart->location_uncertainty.horizontal_confidence = i + 2;
@@ -436,13 +439,13 @@ static nrppa_measurement_resp_t fill_measurement_response(uint16_t transaction_i
   resp.lmf_measurement_id = lmf_measurement_id;
   resp.ran_measurement_id = 1;
   resp.measurement_response_list = calloc_or_fail(1, sizeof(*resp.measurement_response_list));
-  uint32_t meas_response_list_len = positioning_config->num_trp;
+  uint32_t meas_response_list_len = trp_info_config->num_trp;
   resp.measurement_response_list->measurement_response_list_length = meas_response_list_len;
   resp.measurement_response_list->measurement_response_item =
       calloc_or_fail(meas_response_list_len, sizeof(*resp.measurement_response_list->measurement_response_item));
   for (int i = 0; i < meas_response_list_len; i++) {
     nrppa_measurement_response_item_t *meas_response_item = &resp.measurement_response_list->measurement_response_item[i];
-    meas_response_item->trp_id = positioning_config->trps[i].id;
+    meas_response_item->trp_id = trp_info_config->trps[i].id;
 
     nrppa_measurement_result_t *MeasurementResult = &meas_response_item->measurement_result;
     uint32_t meas_result_length = 4;
@@ -661,8 +664,8 @@ int main(int argc, char **argv)
   }
   logInit();
 
-  positioning_config = RCconfig_nr_positioning();
-  if (positioning_config == NULL) {
+  trp_info_config = RCconfig_nr_trp_info();
+  if (trp_info_config == NULL) {
     LOG_E(NRPPA, "No TRPs configured for positioning in the configuration file.\n");
     exit(EXIT_FAILURE);
   }
@@ -706,7 +709,7 @@ int main(int argc, char **argv)
   itti_wait_tasks_end(NULL);
 
   logClean();
-  free(positioning_config);
+  free(trp_info_config);
   printf("Bye.\n");
   return 0;
 }
