@@ -147,6 +147,7 @@ void openair0_write_reorder_init(re_order_t *r, const openair0_config_t *openair
   pthread_cond_init(&r->written, NULL);
 
   r->sz = ring_elements(openair0_cfg->sample_rate / 100, sizeof(c16_t)); // 10 ms storage
+  r->single_writer_max_samples = 0;
   r->grain = 2048; // arbitrary write size, chosen to fit in a ethernet jumbo frame
   r->nb_ant = openair0_cfg->tx_num_channels;
   r->nb_writers = create_ring(r->sz * sizeof(*r->nb_writers));
@@ -213,10 +214,10 @@ void *load_transport_shlib(char *fname)
   return shlib_fdesc.fptr;
 }
 
-/* Send the samples from nextTS on, in chunks of at most one grain cut at burst boundaries, with the
+/* Send the samples from nextTS on, in chunks cut at burst boundaries, with the
    flags of the burst state stored with the samples. Samples before force_until are sent even if some
    writer has not written them: a writer that stops must not block the others. A chunk that does not
-   reach a boundary is kept until it fills a grain. */
+   reach a boundary is kept until it fills a grain unless the driver accepts a shorter ready burst from a single writer. */
 static void reorder_flush(nrue_ru_write_t nrue_ru_write,
                           PHY_VARS_NR_UE *UE,
                           openair0_device_t *device,
@@ -235,10 +236,12 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
 
   for (int consumed = 0; ready > 0;) {
     wr = ctx->nb_writers + ctx->nextTS % ctx->sz;
+    const int max_write =
+        ctx->max_writers == 1 && ctx->single_writer_max_samples > 0 ? min(ready, ctx->single_writer_max_samples) : ctx->grain;
     const int active = wr[0] & RO_ACTIVE;
     int len = 0;
     bool boundary = false;
-    while (len < ready && len < ctx->grain) {
+    while (len < ready && len < max_write) {
       if (len > 0 && ((wr[len] & RO_ACTIVE) != active || (wr[len] & RO_START))) {
         boundary = true;
         break;
@@ -248,7 +251,7 @@ static void reorder_flush(nrue_ru_write_t nrue_ru_write,
         break;
       }
     }
-    if (len < ctx->grain && !boundary && consumed >= forced)
+    if (len < max_write && !boundary && consumed >= forced)
       break; // wait for more samples
     int flags = TX_BURST_INVALID;
     if (active) {

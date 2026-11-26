@@ -299,6 +299,7 @@ typedef struct {
 #define RO_END (1 << 18)
 typedef struct {
   bool initDone;
+  int single_writer_max_samples; // optional driver limit for sending a ready burst with one writer
   pthread_mutex_t mutex_store;
   pthread_cond_t written; // signaled after each write
   /* writers (one per UE sharing the RU): end of their last write, and absent when a flush waited in vain for them,
