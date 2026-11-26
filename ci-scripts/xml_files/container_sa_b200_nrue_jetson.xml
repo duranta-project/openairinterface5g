@@ -82,10 +82,10 @@
 
   <testCase>
     <class>Ping</class>
-    <desc>Ping: 20pings in 20sec</desc>
+    <desc>Ping: 100pings in 5sec</desc>
     <id>oai_ue_jetson2</id>
     <svr_id>oc-cn5g-00104</svr_id>
-    <ping_args>-c 20</ping_args>
+    <ping_args>-c 100 -i 0.05</ping_args>
     <ping_packetloss_threshold>1</ping_packetloss_threshold>
     <ping_rttavg_threshold>25</ping_rttavg_threshold>
   </testCase>

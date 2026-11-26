@@ -57,10 +57,10 @@
 
   <testCase>
     <class>Ping</class>
-    <desc>Ping: 100pings in 20sec</desc>
+    <desc>Ping: 100pings in 5sec</desc>
     <id>up2-aerial</id>
     <svr_id>oc-cn5g-20897-aerial</svr_id>
-    <ping_args>-c 100 -i 0.2</ping_args>
+    <ping_args>-c 100 -i 0.05</ping_args>
     <ping_packetloss_threshold>5</ping_packetloss_threshold>
   </testCase>
 
