@@ -46,6 +46,7 @@ extern int get_currentchannels_type(const char *buf,
 #include <sstream>
 #include <algorithm>
 #include <numeric>
+#include <atomic>
 
 #define PORT 4043 // default TCP port for this simulator
 #define sampleToByte(a, b) ((a) * (b) * sizeof(sample_t))
@@ -72,6 +73,7 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
 #define RFSIMU_OFFSET "offset"
 #define RFSIMU_PROP_DELAY "prop_delay"
 #define RFSIMU_WAIT_TIMEOUT "wait_timeout"
+#define RFSIMU_SYNC_START "sync_start"
 #define RFSIMU_ENABLE_BEAMS "enable_beams"
 #define RFSIMU_BEAM_GAINS "beam_gains"
 
@@ -98,6 +100,7 @@ typedef enum { SIMU_ROLE_SERVER = 1, SIMU_ROLE_CLIENT } simuRole;
   UINT64PARAM(RFSIMU_OFFSET,            "<channel offset in samps>\n",              simOpt, NULL,                             0L),                    \
   DOUBLEPARAM(RFSIMU_PROP_DELAY,        "<propagation delay in ms>\n",              simOpt, NULL,                             0.0),                   \
   INTPARAM(RFSIMU_WAIT_TIMEOUT,         "<wait timeout if no UE connected>\n",      simOpt, NULL,                             1),                     \
+  BOOLPARAM(RFSIMU_SYNC_START,          "<shared zero epoch; server waits for initial client>\n", simBool, NULL,                  0),                     \
   BOOLPARAM(RFSIMU_ENABLE_BEAMS,        "<enable simplified beam simulation>\n",    simBool,NULL,                             0),                     \
   STRINGPARAM(RFSIMU_BEAM_GAINS,        "<per-beam gain in dB, one value per gNB beam id>\n", simOpt, NULL,                   NULL),                  \
 };
@@ -178,7 +181,7 @@ typedef struct {
   beam_state_t active;
 } rfsim_beam_ctrl_t;
 
-typedef struct {
+typedef struct rfsimulator_state_s {
   int listen_sock, epollfd;
   pthread_mutex_t Sockmutex;
   int ru_id;
@@ -203,6 +206,9 @@ typedef struct {
   void *telnetcmd_qid;
   poll_telnetcmdq_func_t poll_telnetcmdq;
   int wait_timeout;
+  int sync_start;
+  uint64_t read_count;
+  std::atomic<bool> stopped{false};
   double prop_delay_ms;
   rfsim_beam_ctrl_t *beam_ctrl;
 } rfsimulator_state_t;
@@ -386,7 +392,7 @@ static void socketError(rfsimulator_state_t *bridge, buffer_t *buf)
     LOG_W(HW, "Lost socket\n");
     removeCirBuf(bridge, buf);
 
-    if (bridge->role == SIMU_ROLE_CLIENT)
+    if (!bridge->stopped && (bridge->role == SIMU_ROLE_CLIENT || bridge->sync_start))
       exit(1);
   }
 }
@@ -517,6 +523,7 @@ static void rfsimulator_readconfig(rfsimulator_state_t *rfsimulator)
   rfsimulator->chan_offset = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_OFFSET)->u64ptr);
   rfsimulator->prop_delay_ms = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_PROP_DELAY)->dblptr);
   rfsimulator->wait_timeout = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_WAIT_TIMEOUT)->iptr);
+  rfsimulator->sync_start = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_SYNC_START)->iptr);
 
   rfsim_beam_ctrl_t *beam_ctrl = rfsimulator->beam_ctrl;
   beam_ctrl->enable_beams = *(gpd(rfsimuParam, sizeofArray(rfsimuParams), RFSIMU_ENABLE_BEAMS)->iptr);
@@ -896,9 +903,13 @@ static int startClient(openair0_device_t *device)
   if (b->lastReceivedTS > 0)
     b->lastReceivedTS--;
   t->nextRxTstamp = b->lastReceivedTS;
+  if (t->sync_start && b->th.timestamp != 0) {
+    LOG_E(HW, "sync_start requires a server at epoch zero; received %lu\n", b->th.timestamp);
+    return -1;
+  }
   LOG_D(HW, "Client got first timestamp: starting at %lu\n", t->nextRxTstamp);
   if (b->channel_model)
-    b->channel_model->start_TS = t->nextRxTstamp;
+    b->channel_model->start_TS = t->sync_start ? 0 : t->nextRxTstamp;
   return 0;
 }
 
@@ -1000,6 +1011,11 @@ static bool add_client(rfsimulator_state_t *t)
     LOG_E(HW, "accept() failed, errno(%d)\n", errno);
     return false;
   }
+  if (t->sync_start && (t->nb_cnx != 0 || t->nextRxTstamp != 0)) {
+    LOG_W(HW, "sync_start supports one initial client; rejecting additional or late connection\n");
+    close(conn_sock);
+    return false;
+  }
   if (setblocking(conn_sock, notBlocking)) {
     return false;
   }
@@ -1027,7 +1043,7 @@ static bool add_client(rfsimulator_state_t *t)
   fullwrite(conn_sock, v, sizeof(v), t);
 
   if (new_buf->channel_model)
-    new_buf->channel_model->start_TS = t->lastWroteTS;
+    new_buf->channel_model->start_TS = t->sync_start ? 0 : t->lastWroteTS;
   mutexunlock(t->Sockmutex);
   return true;
 }
@@ -1333,6 +1349,7 @@ static void rfsimulator_read_internal(rfsimulator_state_t *t,
 static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *ptimestamp, void **samplesVoid, int nsamps, int nbAnt)
 {
   rfsimulator_state_t *t = static_cast<rfsimulator_state_t *>(device->priv);
+  *ptimestamp = t->nextRxTstamp;
   LOG_D(HW,
         "Enter rfsimulator_read, expect %d samples, will release at TS: %ld, nbAnt %d\n",
         nsamps,
@@ -1348,21 +1365,32 @@ static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *pti
       break;
 
   if (first_sock == MAX_FD_RFSIMU) {
-    // no connected device (we are eNB, no UE is connected)
-    if (t->nextRxTstamp == 0)
-      LOG_I(HW, "No connected device, generating void samples...\n");
+    // Accept and send the handshake while holding sample time. The first empty RX
+    // block bootstraps gNB TX; waiting for UL here would deadlock UE acquisition.
+    if (t->sync_start && t->role == SIMU_ROLE_SERVER) {
+      if (t->nextRxTstamp == 0)
+        LOG_I(HW, "RFsim waiting for initial client at epoch zero\n");
+      while (t->nb_cnx == 0 && !t->stopped)
+        flushInput(t, 10, false);
+      if (t->stopped)
+        return 0;
+    } else {
+      // no connected device (we are eNB, no UE is connected)
+      if (t->nextRxTstamp == 0)
+        LOG_I(HW, "No connected device, generating void samples...\n");
 
-    if (!flushInput(t, t->wait_timeout, false)) {
-      for (int x = 0; x < nbAnt; x++)
-        memset(samplesVoid[x], 0, sampleToByte(nsamps, 1));
+      if (!flushInput(t, t->wait_timeout, false)) {
+        for (int x = 0; x < nbAnt; x++)
+          memset(samplesVoid[x], 0, sampleToByte(nsamps, 1));
 
-      t->nextRxTstamp += nsamps;
+        t->nextRxTstamp += nsamps;
 
-      if (((t->nextRxTstamp / nsamps) % 100) == 0)
-        LOG_D(HW, "No UE, Generating void samples for Rx: %ld\n", t->nextRxTstamp);
+        if (((t->nextRxTstamp / nsamps) % 100) == 0)
+          LOG_D(HW, "No UE, Generating void samples for Rx: %ld\n", t->nextRxTstamp);
 
-      *ptimestamp = t->nextRxTstamp - nsamps;
-      return nsamps;
+        *ptimestamp = t->nextRxTstamp - nsamps;
+        return nsamps;
+      }
     }
   } else {
     bool have_to_wait;
@@ -1384,7 +1412,9 @@ static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *pti
               t->nextRxTstamp + nsamps);
         flushInput(t, 30, false);
       }
-    } while (have_to_wait);
+    } while (have_to_wait && !t->stopped);
+    if (t->stopped)
+      return 0;
   }
 
   struct timespec start_time;
@@ -1398,6 +1428,24 @@ static int rfsimulator_read(openair0_device_t *device, openair0_timestamp_t *pti
       update_channel_model(ptr->channel_model, nsamps, t->nextRxTstamp);
     }
   }
+
+  // Log timing every 1024 reads to compare sample timestamps and channel epochs across RUs.
+  if (t->sync_start && t->read_count % 1024 == 0) {
+    const buffer_t *peer = nullptr;
+    for (const auto &b : t->buf)
+      if (b.conn_sock != -1) {
+        peer = &b;
+        break;
+      }
+    const channel_desc_t *ch = peer ? peer->channel_model : nullptr;
+    LOG_I(HW,
+          "RFsim timing role=%s ru=%d read=%lu ts=%lu nsamps=%d rate=%.0f model=%d epoch=%lu delay=%lu doppler=%.9g\n",
+          t->role == SIMU_ROLE_SERVER ? "server" : "client",
+          t->ru_id, t->read_count, t->nextRxTstamp, nsamps, t->sample_rate,
+          ch != nullptr, ch ? ch->start_TS : 0, ch ? ch->channel_offset : t->chan_offset,
+          ch ? ch->Doppler_phase_inc : 0.0);
+  }
+  t->read_count++;
 
   if (t->poll_telnetcmdq)
     t->poll_telnetcmdq(t->telnetcmd_qid, t);
@@ -1497,7 +1545,8 @@ static void stopServer(openair0_device_t *device)
 
 static int rfsimulator_stop(openair0_device_t *device)
 {
-  UNUSED(device);
+  auto *t = static_cast<rfsimulator_state_t *>(device->priv);
+  t->stopped = true;
   return 0;
 }
 static int rfsimulator_set_freq(openair0_device_t *device, openair0_config_t *openair0_cfg)

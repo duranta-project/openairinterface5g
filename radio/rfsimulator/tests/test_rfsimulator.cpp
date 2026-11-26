@@ -576,6 +576,38 @@ TEST(RFSimulatorBeamTest, GainMatrixAndScheduledSwitchApplyAtExactSample)
     StopDevice(client_device, client_cfg);
 }
 
+TEST(RFSimulatorSyncStartTest, StopInterruptsInitialClientWait)
+{
+  openair0_device_t device = {0};
+  openair0_config_t config = {0};
+  configmodule_interface_t *cfg =
+      StartDevice(device, config, "test_rfsimulator_stop", "server", PickPort(), 1, 1, {"--rfsimulator.sync_start", "1"});
+  ASSERT_EQ(device.trx_start_func(&device), 0);
+
+  std::atomic<bool> read_started{false};
+  std::atomic<bool> read_done{false};
+  openair0_timestamp_t timestamp = -1;
+  int result = -1;
+  std::thread reader([&] {
+    c16_t samples[256] = {};
+    void *rx[] = {samples};
+    read_started = true;
+    result = device.trx_read_func(&device, &timestamp, rx, 256, 1);
+    read_done = true;
+  });
+
+  while (!read_started)
+    std::this_thread::yield();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_FALSE(read_done);
+  EXPECT_EQ(device.trx_stop_func(&device), 0);
+  reader.join();
+
+  EXPECT_EQ(result, 0);
+  EXPECT_EQ(timestamp, 0);
+  StopDevice(device, cfg);
+}
+
 int main(int argc, char **argv)
 {
   logInit();
