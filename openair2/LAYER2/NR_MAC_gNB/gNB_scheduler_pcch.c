@@ -566,7 +566,7 @@ void schedule_nr_pcch(gNB_MAC_INST *mac,
   bool pdsch_ok = false;
   for (int t = 0; t < tdalist->list.count && !pdsch_ok; t++) {
     NR_tda_info_t tda_info = set_tda_info_from_list(tdalist, t);
-    NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, NULL, &tda_info, 1);
+    NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, NULL, &tda_info, 1, 1);
     pdsch_pcch = (NR_sched_pdsch_t){
         .bwp_info = get_pdsch_bwp_start_size(cell, NULL),
         .time_domain_allocation = t,

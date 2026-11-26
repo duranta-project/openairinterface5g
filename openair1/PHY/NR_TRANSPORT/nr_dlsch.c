@@ -7,6 +7,7 @@
  */
 
 #include "nr_dlsch.h"
+#include "assertions.h"
 #include "nr_dci.h"
 #include "nr_sch_dmrs.h"
 #include "PHY/MODULATION/nr_modulation.h"
@@ -862,19 +863,11 @@ static void nr_pdsch_symbol_processing(void *arg)
   for (int l_symbol = rdata->startSymbol; l_symbol < rdata->startSymbol + rdata->numSymbols; l_symbol++) {
     start_single_meas(&rdata->dlsch_resource_mapping_stats);
     int l_prime = 0; // single symbol layer 0
-    int l_overline = get_l0(rel15->dlDmrsSymbPos);
 
     /// DMRS QPSK modulation
-    if ((rel15->dlDmrsSymbPos & (1 << l_symbol))) { // DMRS time occasion
-      // The reference point for is subcarrier -1 of the lowest-numbered resource block in CORESET 0 if the corresponding
-      // PDCCH is associated with CORESET -1 and Type0-PDCCH common search space and is addressed to SI-RNTI
-      // 2GPP TS 38.211 V15.8.0 Section 7.4.1.1.2 Mapping to physical resources
-      if (l_symbol == (l_overline + 1)) // take into account the double DMRS symbols
-        l_prime = 1;
-      else if (l_symbol > (l_overline + 1)) { // new DMRS pair
-        l_overline = l_symbol;
-        l_prime = 0;
-      }
+    if (IS_BIT_SET(rel15->dlDmrsSymbPos, l_symbol)) { // DMRS time occasion
+      l_prime = get_dmrs_l_prime(rel15->dlDmrsSymbPos, l_symbol);
+      AssertFatal(l_prime > -1, "Invalid l_prime %d\n", l_prime);
       const uint32_t *gold = nr_gold_pdsch(frame_parms->N_RB_DL,
                                            frame_parms->symbols_per_slot,
                                            rel15->dlDmrsScramblingId,
@@ -883,7 +876,6 @@ static void nr_pdsch_symbol_processing(void *arg)
                                            l_symbol);
       // Qm = 1 as DMRS is QPSK modulated
       nr_modulation(gold, n_dmrs * DMRS_MOD_ORDER, DMRS_MOD_ORDER, (int16_t *)mod_dmrs);
-
     }
     uint32_t dmrs_idx = freq_alloc->first_rb;
     if (rel15->refPoint == 0)

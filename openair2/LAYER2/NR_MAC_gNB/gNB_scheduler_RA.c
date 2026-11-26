@@ -1804,7 +1804,7 @@ static bool nr_generate_Msg2(gNB_MAC_INST *nr_mac,
   const int pduindex = cell->pdu_index++;
   uint8_t mcsTableIdx = dl_bwp->mcsTableIdx;
 
-  NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &tda_info, 1);
+  NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &tda_info, 1, 1);
 
   int mcsIndex = -1; // initialization value
   uint8_t tb_scaling = 0;
@@ -2018,7 +2018,7 @@ static void nr_generate_Msg4_MsgB(gNB_MAC_INST *nr_mac,
       // BI MAC subheader (1 Oct) + SuccessRAR MAC subheader (1 Oct) + SuccessRAR (11 Oct)
     }
 
-    NR_pdsch_dmrs_t dmrs_info = get_dl_dmrs_params(scc, dl_bwp, &msg4_tda, 1);
+    NR_pdsch_dmrs_t dmrs_info = get_dl_dmrs_params(scc, dl_bwp, &msg4_tda, 1, 1);
     bwp_info_t bwp_info = get_pdsch_bwp_start_size(cell, UE);
     uint8_t mcsTableIdx = dl_bwp->mcsTableIdx;
     uint8_t mcsIndex = 0;

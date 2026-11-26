@@ -442,6 +442,12 @@ static void nr_ue_measurement_procedures(uint16_t l,
   }
 }
 
+static bool is_double_symb_dmrs(int x)
+{
+  uint32_t lo = x & 0x3fffu;
+  return (x & (lo << 1)) != 0;
+}
+
 static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                   const UE_nr_rxtx_proc_t *proc,
                                   NR_UE_DLSCH_t *dlsch,
@@ -485,6 +491,13 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   const uint32_t pdsch_est_size = scratch->pdsch_est_size;
   const uint32_t pdsch_buf_size_max = scratch->pdsch_buf_size_max;
   const int max_layers = min(ue->frame_parms.nb_antennas_rx, NR_MAX_NB_LAYERS);
+  // the per-actor PDSCH scratch buffers (rxdataF_comp, dl_ch_mag*, channel estimates, rho) are sized for max_layers
+  AssertFatal(dlsch->cw_info.Nl >= 1 && dlsch->cw_info.Nl <= max_layers,
+              "PDSCH with %d layers (DMRS ports 0x%x) but the UE supports at most %d layers (%d RX antennas)\n",
+              dlsch->cw_info.Nl,
+              dlschCfg->dmrs_ports,
+              max_layers,
+              ue->frame_parms.nb_antennas_rx);
   int32_t (*pdsch_dl_ch_estimates)[pdsch_est_size] = (int32_t (*)[pdsch_est_size])scratch->pdsch_dl_ch_estimates;
   c16_t(*rxdataF_comp)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->rxdataF_comp;
   c16_t(*dl_ch_mag)[pdsch_buf_size_max] = (c16_t(*)[pdsch_buf_size_max])scratch->dl_ch_mag;
@@ -495,9 +508,11 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
   uint32_t nvar = 0;
 
+  const uint32_t dmrs_group_bitmap = get_dmrs_group_bitmap(dmrs_symb_bitmap);
+  const bool is_dbl_symb_dmrs = is_double_symb_dmrs(dmrs_symb_bitmap);
   start_meas_nr_ue_phy(ue, DLSCH_CHANNEL_ESTIMATION_STATS);
   for (int m = dlschCfg->start_symbol; m < (dlschCfg->start_symbol + dlschCfg->number_symbols); m++) {
-    if (dmrs_symb_bitmap & (1 << m)) {
+    if (dmrs_group_bitmap & (1 << m)) {
       for (int nl = 0; nl < dlsch->cw_info.Nl; nl++) { // for MIMO Config: it shall loop over no_layers
         LOG_D(PHY, "PDSCH Channel estimation layer %d, slot %d, symbol %d\n", nl, nr_slot_rx, m);
         uint32_t nvar_tmp = 0;
@@ -512,7 +527,8 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                     pdsch_dl_ch_estimates,
                                     frame_parms->samples_per_slot_wCP,
                                     rxdataF,
-                                    &nvar_tmp);
+                                    &nvar_tmp,
+                                    is_dbl_symb_dmrs);
         nvar += nvar_tmp;
       }
     }

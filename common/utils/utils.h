@@ -48,8 +48,8 @@ extern "C" {
                      __typeof__ (b) _b = (b); \
                      _a < _b ? _a : _b; })
 
-#define IS_BIT_SET(a, b) ((a >> b) & 1)
-#define SET_BIT(a, b) (a | (1 << b))
+#define IS_BIT_SET(a, b) ((a >> (b)) & 1)
+#define SET_BIT(a, b) (a | (1 << (b)))
 
 #ifdef __cplusplus
 #ifdef min

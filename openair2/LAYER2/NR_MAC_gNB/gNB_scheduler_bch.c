@@ -223,7 +223,7 @@ static NR_sched_pdsch_t allocate_sib1(nr_cell_sched_t *cell,
 {
   NR_COMMON_channels_t *cc = &cell->common_channels;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, NULL, tda_info, 1);
+  NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, NULL, tda_info, 1, 1);
   const uint16_t *sidx = cell->radio_config.spatial_stream_index;
   NR_sched_pdsch_t pdsch = {
       .bwp_info = get_pdsch_bwp_start_size(cell, NULL),
@@ -553,7 +553,7 @@ static void other_sib_sched_control(nr_cell_sched_t *cell,
   NR_tda_info_t tda_info = set_tda_info_from_list(pdsch_ConfigCommon->pdsch_TimeDomainAllocationList, time_domain_allocation);
   LOG_D(NR_MAC,"tda_info.startSymbolIndex: %d, tda_info.nrOfSymbols: %d\n", tda_info.startSymbolIndex, tda_info.nrOfSymbols);
 
-  NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, NULL, &tda_info, 1);
+  NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, NULL, &tda_info, 1, 1);
 
   int aggregation_level = 0;
   int nr_of_candidates = 0;

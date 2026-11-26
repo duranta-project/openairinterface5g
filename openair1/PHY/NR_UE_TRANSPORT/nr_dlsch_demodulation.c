@@ -201,10 +201,12 @@ static void nr_dlsch_extract_rbs(uint32_t rxdataF_sz,
   uint32_t dmrs_csi_overlap_even = csi_res_even | dmrs_rb_bitmap;
   uint32_t dmrs_csi_overlap_odd = csi_res_odd | dmrs_rb_bitmap;
   int8_t validDmrsEst;
+  // estimates are contained in the first symbol of double-symbol dmrs.
+  const int dmrs_group_bitmap = get_dmrs_group_bitmap(dlsch_config->dlDmrsSymbPos);
   if (chest_time_type == 0)
-    validDmrsEst = get_valid_dmrs_idx_for_channel_est(dlsch_config->dlDmrsSymbPos, symbol);
+    validDmrsEst = get_valid_dmrs_idx_for_channel_est(dmrs_group_bitmap, symbol);
   else
-    validDmrsEst = get_next_dmrs_symbol_in_slot(dlsch_config->dlDmrsSymbPos, 0, 14); // get first dmrs symbol index
+    validDmrsEst = get_next_dmrs_symbol_in_slot(dmrs_group_bitmap, 0, 14); // get first dmrs symbol index
 
   const uint k_rb_ref = is_ptrs ? get_ptrs_k_RB(freq_alloc->num_rbs, dlsch_config->PTRSFreqDensity, rnti) : 0;
   const uint k_ptrs = dlsch_config->PTRSFreqDensity;
@@ -1109,9 +1111,8 @@ uint32_t nr_rx_pdsch(PHY_VARS_NR_UE *ue,
 #endif
 
   if (ue->phy_sim_pdsch_rxdataF_comp) {
-    for (int a = 0; a < nbRx; a++) {
-      memcpy((c16_t *)ue->phy_sim_pdsch_dl_ch_estimates + pdsch_est_size * a, dl_ch_estimates, pdsch_est_size * sizeof(c16_t));
-    }
+    /* all [layer * nbRx + rx][symbol * ofdm_symbol_size] estimate rows, same layout as dl_ch_estimates */
+    memcpy(ue->phy_sim_pdsch_dl_ch_estimates, dl_ch_estimates, (size_t)nl * nbRx * pdsch_est_size * sizeof(c16_t));
     for (int l = 0; l < nl; l++) {
       /* Reproduce the [symbol][layer][re] layout that dlsim expects in phy_sim_pdsch_rxdataF_comp. */
       size_t byte_offset = (size_t)(symbol * max_layers + l) * pdsch_buf_size_max * sizeof(c16_t);
