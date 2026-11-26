@@ -6,7 +6,7 @@
 #include "mac_proto.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
-int nr_mac_handle_slot_indication(const nfapi_nr_slot_indication_scf_t *ind, NR_Sched_Rsp_t *rsp)
+int nr_mac_handle_slot_indication(const nfapi_nr_slot_indication_scf_t *ind, const nr_slot_time_t *slot_time, NR_Sched_Rsp_t *rsp)
 {
   module_id_t mod_id = 0;
   int phy_id = ind->header.phy_id;
@@ -15,7 +15,7 @@ int nr_mac_handle_slot_indication(const nfapi_nr_slot_indication_scf_t *ind, NR_
   NR_SCHED_LOCK(&nrmac->sched_lock);
   nr_cell_sched_t* cell = nr_mac_get_cell_by_phy_id(nrmac, ind->header.phy_id);
   start_meas(&cell->gNB_scheduler);
-  gNB_dlsch_ulsch_scheduler(nrmac, cell, ind->sfn, ind->slot, rsp);
+  gNB_dlsch_ulsch_scheduler(nrmac, cell, ind->sfn, ind->slot, slot_time, rsp);
   stop_meas(&cell->gNB_scheduler);
   NR_SCHED_UNLOCK(&nrmac->sched_lock);
   return 0;

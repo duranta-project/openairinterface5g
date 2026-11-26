@@ -37,6 +37,7 @@
 #include "NR_SIB2.h"
 #include "NR_SIB3.h"
 #include "NR_SIB4.h"
+#include "NR_SIB9.h"
 #include "NR_PagingUE-Identity.h"
 #include "ds/seq_arr.h"
 #include "ds/byte_array.h"
@@ -73,6 +74,7 @@ int xer_sprint_NR(char *string, size_t string_size, struct asn_TYPE_descriptor_s
 byte_array_t do_SIB2_NR(const NR_SIB2_t *sib2);
 byte_array_t do_SIB3_NR(const NR_SIB3_t *sib3);
 byte_array_t do_SIB4_NR(NR_SIB4_t *sib4);
+byte_array_t do_SIB9_NR(const NR_SIB9_t *sib9);
 
 int do_RRCReject(uint8_t *const buffer);
 

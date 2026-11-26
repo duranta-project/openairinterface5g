@@ -453,6 +453,7 @@ target_link_libraries(lte_rrc PRIVATE nr_rrc SECURITY)
 #NR RRC
 #######
 add_library(nr_rrc
+    ${OPENAIR2_DIR}/RRC/NR/nr_sib9.c
     ${OPENAIR2_DIR}/RRC/NR/MESSAGES/asn1_msg.c
     ${OPENAIR2_DIR}/RRC/NR/rrc_gNB_measurements.c)
 target_link_libraries(nr_rrc PUBLIC asn1_nr_rrc asn1_lte_rrc rrc_cell_management)
@@ -1238,6 +1239,7 @@ set (MAC_NR_SRC
   ${NR_GNB_MAC_DIR}/main.c
   ${NR_GNB_MAC_DIR}/config.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler.c
+  ${NR_GNB_MAC_DIR}/nr_sib9_mac.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_bch.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_dlsch.c
   ${NR_GNB_MAC_DIR}/gNB_scheduler_dlsch_default_policies.c
@@ -1295,6 +1297,7 @@ set (ENB_APP_SRC
   )
 
 set (GNB_APP_SRC
+  ${OPENAIR2_DIR}/GNB_APP/gnb_sib9.c
   ${OPENAIR2_DIR}/GNB_APP/gnb_app.c
   ${OPENAIR2_DIR}/E1AP/e1ap_setup.c
   ${OPENAIR2_DIR}/GNB_APP/gnb_config.c

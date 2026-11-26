@@ -1073,105 +1073,215 @@ void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t 
 #endif /* E3_AGENT */
 }
 
-bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib])
+static struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *decode_cu_si(const f1ap_sib_msg_t *msg)
+{
+  const asn_TYPE_descriptor_t *descriptor = NULL;
+  switch (msg->SI_type) {
+    case NR_SIB_2:
+      descriptor = &asn_DEF_NR_SIB2;
+      break;
+    case NR_SIB_3:
+      descriptor = &asn_DEF_NR_SIB3;
+      break;
+    case NR_SIB_4:
+      descriptor = &asn_DEF_NR_SIB4;
+      break;
+    case NR_SIB_9:
+      descriptor = &asn_DEF_NR_SIB9;
+      break;
+    default:
+      LOG_W(NR_MAC, "Unsupported CU SIB%d: not advertising it\n", msg->SI_type);
+      return NULL;
+  }
+  const byte_array_t *bytes = &msg->SI_container;
+  if (!bytes->buf || !bytes->len || bytes->len > NR_MAX_SIB_LENGTH / 8) {
+    LOG_W(NR_MAC, "Invalid CU SIB%d container: not advertising it\n", msg->SI_type);
+    return NULL;
+  }
+  void *decoded = NULL;
+  asn_dec_rval_t dec = uper_decode_complete(NULL, descriptor, &decoded, bytes->buf, bytes->len);
+  bool valid =
+      dec.code == RC_OK && dec.consumed == bytes->len && decoded && asn_check_constraints(descriptor, decoded, NULL, NULL) == 0;
+  if (valid && msg->SI_type == NR_SIB_9)
+    valid = nr_sib9_valid_broadcast(decoded);
+  if (!valid) {
+    LOG_W(NR_MAC, "Rejected CU SIB%d decode/constraints: not advertising it\n", msg->SI_type);
+    ASN_STRUCT_FREE(*descriptor, decoded);
+    return NULL;
+  }
+  struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *member = calloc_or_fail(1, sizeof(*member));
+  switch (msg->SI_type) {
+    case NR_SIB_2:
+      member->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib2;
+      member->choice.sib2 = decoded;
+      break;
+    case NR_SIB_3:
+      member->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib3;
+      member->choice.sib3 = decoded;
+      break;
+    case NR_SIB_4:
+      member->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib4;
+      member->choice.sib4 = decoded;
+      break;
+    case NR_SIB_9:
+      member->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib9;
+      member->choice.sib9 = decoded;
+      break;
+  }
+  return member;
+}
+
+typedef struct {
+  NR_BCCH_DL_SCH_Message_t *sib1;
+  NR_SystemInformation_IEs_t *sib9;
+  uint8_t sib1_pdu[NR_MAX_SIB_LENGTH / 8];
+  uint8_t other_pdu[2][NR_MAX_SIB_LENGTH / 8];
+  uint8_t sib9_pdu[NR_SIB9_MAX_BYTES];
+  int sib1_length, other_length[2], sib9_length;
+  bool unchanged;
+} nr_si_candidate_t;
+
+static void free_si_candidate(nr_si_candidate_t *candidate)
+{
+  if (!candidate)
+    return;
+  ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, candidate->sib1);
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, candidate->sib9);
+  free(candidate);
+}
+
+static nr_si_candidate_t *prepare_si_candidate(nr_cell_sched_t *cell, int count, const f1ap_sib_msg_t *list)
+{
+  if (!cell || !cell->common_channels.sib1 || count < 0 || count > F1AP_MAX_NO_SIB_TYPES || (count && !list))
+    return NULL;
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  nr_si_candidate_t *candidate = calloc_or_fail(1, sizeof(*candidate));
+  NR_SystemInformation_IEs_t *regular = calloc_or_fail(1, sizeof(*regular));
+  NR_SystemInformation_IEs_t *v17 = calloc_or_fail(1, sizeof(*v17));
+  candidate->sib9 = calloc_or_fail(1, sizeof(*candidate->sib9));
+  bool seen[21] = {0};
+  int accepted[21], n = 0;
+  for (int i = 0; i < count; ++i) {
+    const int type = list[i].SI_type;
+    if (type < 2 || type > 20 || seen[type])
+      goto reject;
+    seen[type] = true;
+    struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *member = decode_cu_si(&list[i]);
+    if (!member)
+      goto reject;
+    add_sib_to_systeminformation(type == NR_SIB_9 ? candidate->sib9 : regular, member);
+    accepted[n++] = type;
+  }
+  if (cc->du_SIBs) {
+    for (size_t i = 0; i < seq_arr_size(cc->du_SIBs); ++i) {
+      const nr_SIBs_t *local = seq_arr_at(cc->du_SIBs, i);
+      if (local->SIB_type != NR_SIB_19 || seen[NR_SIB_19])
+        goto reject;
+      const NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
+      if (!scc || !scc->ext2 || !scc->ext2->ntn_Config_r17)
+        goto reject;
+      seen[NR_SIB_19] = true;
+      struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *member = calloc_or_fail(1, sizeof(*member));
+      member->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
+      member->choice.sib19_v1700 = get_SIB19_NR(scc);
+      add_sib_to_systeminformation(v17, member);
+      accepted[n++] = NR_SIB_19;
+    }
+  }
+  candidate->other_length[0] = encode_sysinfo_ie(regular, candidate->other_pdu[0], sizeof(candidate->other_pdu[0]));
+  candidate->other_length[1] = encode_sysinfo_ie(v17, candidate->other_pdu[1], sizeof(candidate->other_pdu[1]));
+  candidate->sib9_length = encode_sysinfo_ie(candidate->sib9, candidate->sib9_pdu, sizeof(candidate->sib9_pdu));
+  if (candidate->other_length[0] < 0 || candidate->other_length[1] < 0 || candidate->sib9_length < 0
+      || asn_copy(&asn_DEF_NR_BCCH_DL_SCH_Message, (void **)&candidate->sib1, cc->sib1) != 0
+      || !update_SIB1_NR_SI(candidate->sib1, n, accepted))
+    goto reject;
+  candidate->sib1_length = try_encode_SIB_NR(candidate->sib1, candidate->sib1_pdu, sizeof(candidate->sib1_pdu));
+  if (candidate->sib1_length <= 0)
+    goto reject;
+  candidate->unchanged =
+      candidate->sib1_length == cc->sib1_bcch_length && !memcmp(candidate->sib1_pdu, cc->sib1_bcch_pdu, candidate->sib1_length)
+      && candidate->other_length[0] == cc->other_sib_bcch_length[0] && candidate->other_length[1] == cc->other_sib_bcch_length[1]
+      && !memcmp(candidate->other_pdu, cc->other_sib_bcch_pdu, sizeof(candidate->other_pdu))
+      && candidate->sib9_length == cc->sib9_bcch_length && !memcmp(candidate->sib9_pdu, cc->sib9_bcch_pdu, candidate->sib9_length);
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, regular);
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, v17);
+  return candidate;
+reject:
+  LOG_E(NR_MAC, "Rejected SI candidate for cell %lu; active snapshot retained\n", cell->nr_cellid);
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, regular);
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, v17);
+  free_si_candidate(candidate);
+  return NULL;
+}
+
+static nr_si_result_t publish_si_candidate(nr_cell_sched_t *cell, nr_si_candidate_t *candidate)
 {
   NR_COMMON_channels_t *cc = &cell->common_channels;
-  seq_arr_t *du_SIBs = cell->common_channels.du_SIBs;
-  int num_du_sib = 0;
-  if (du_SIBs)
-    num_du_sib = du_SIBs->size;
-  if (num_cu_sib + num_du_sib == 0)
-    return false; /* no updates */
-
-  int config_sibs[num_cu_sib + num_du_sib];
-  NR_SystemInformation_IEs_t *sysInfo = calloc(1, sizeof(*sysInfo)); //for SIB up to 14 included
-  NR_SystemInformation_IEs_t *sysInfov17 = calloc(1, sizeof(*sysInfov17)); // for othersibs
-  for (int i = 0; i < num_cu_sib; i++) {
-    config_sibs[i] = cu_sib[i].SI_type;
-    const byte_array_t *container = &cu_sib[i].SI_container;
-    if (!container->buf || container->len == 0) {
-      LOG_W(NR_MAC, "SIB%d container is invalid (ptr=%p len=%zu), skipping\n", config_sibs[i], container->buf, container->len);
-      continue;
-    }
-    switch (config_sibs[i]) {
-      case NR_SIB_2: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type = calloc(1, sizeof(*type));
-        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib2;
-        // SIB2 coming from CU need to decode it
-        NR_SIB2_t *sib2 = NULL;
-        asn_dec_rval_t dec_rval = uper_decode(NULL, &asn_DEF_NR_SIB2, (void **)&sib2, container->buf, container->len, 0, 0);
-        if (dec_rval.code != RC_OK) {
-          LOG_E(NR_MAC, "cannot decode SIB%d from CU\n", config_sibs[i]);
-          ASN_STRUCT_FREE(asn_DEF_NR_SIB2, sib2);
-        }
-        type->choice.sib2 = sib2;
-        add_sib_to_systeminformation(sysInfo, type);
-        break;
-      }
-      case NR_SIB_3: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type = calloc_or_fail(1, sizeof(*type));
-        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib3;
-        NR_SIB3_t *sib3 = NULL;
-        asn_dec_rval_t dec_rval = uper_decode(NULL, &asn_DEF_NR_SIB3, (void **)&sib3, container->buf, container->len, 0, 0);
-        if (dec_rval.code != RC_OK) {
-          LOG_E(NR_MAC, "cannot decode SIB%d from CU\n", config_sibs[i]);
-          ASN_STRUCT_FREE(asn_DEF_NR_SIB3, sib3);
-          free(type);
-          break;
-        }
-        type->choice.sib3 = sib3;
-        add_sib_to_systeminformation(sysInfo, type);
-        break;
-      }
-      case NR_SIB_4: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type = calloc_or_fail(1, sizeof(*type));
-        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib4;
-        NR_SIB4_t *sib4 = NULL;
-        asn_dec_rval_t dec_rval = uper_decode(NULL, &asn_DEF_NR_SIB4, (void **)&sib4, container->buf, container->len, 0, 0);
-        if (dec_rval.code != RC_OK) {
-          LOG_E(NR_MAC, "cannot decode SIB%d from CU\n", config_sibs[i]);
-          ASN_STRUCT_FREE(asn_DEF_NR_SIB4, sib4);
-          free(type);
-          break;
-        }
-        type->choice.sib4 = sib4;
-        add_sib_to_systeminformation(sysInfo, type);
-        break;
-      }
-      default :
-        AssertFatal(false, "Invalid or not supported SIB%d\n", config_sibs[i]);
-    }
+  const nr_si_result_t result = candidate->unchanged ? NR_SI_UNCHANGED : NR_SI_PUBLISHED;
+  if (!candidate->unchanged) {
+    ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, cc->sib1);
+    cc->sib1 = candidate->sib1;
+    candidate->sib1 = NULL;
+    memcpy(cc->sib1_bcch_pdu, candidate->sib1_pdu, sizeof(candidate->sib1_pdu));
+    cc->sib1_bcch_length = candidate->sib1_length;
+    memcpy(cc->other_sib_bcch_pdu, candidate->other_pdu, sizeof(candidate->other_pdu));
+    memcpy(cc->other_sib_bcch_length, candidate->other_length, sizeof(candidate->other_length));
+    ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, cc->sib9_si);
+    cc->sib9_si = candidate->sib9_length ? candidate->sib9 : NULL;
+    if (candidate->sib9_length)
+      candidate->sib9 = NULL;
+    memcpy(cc->sib9_bcch_pdu, candidate->sib9_pdu, sizeof(candidate->sib9_pdu));
+    cc->sib9_bcch_length = candidate->sib9_length;
+    cc->sib9_window = (nr_sib9_window_t){0};
   }
+  free_si_candidate(candidate);
+  return result;
+}
 
-  for (int i = 0; i < num_du_sib; i++) {
-    nr_SIBs_t *si = (nr_SIBs_t *)seq_arr_at(du_SIBs, i);
-    int sib_idx = i + num_cu_sib;
-    config_sibs[sib_idx] = si->SIB_type;
-    switch (config_sibs[sib_idx]) {
-      case NR_SIB_19: {
-        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));
-        type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
-        NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);
-        type_du->choice.sib19_v1700 = sib19;
-        add_sib_to_systeminformation(sysInfov17, type_du);
-        break;
-      }
-      default :
-        AssertFatal(false, "Invalid or not supported SIB%d\n", sib_idx);
-    }
+nr_si_result_t nr_mac_configure_other_sib(nr_cell_sched_t *cell, int count, const f1ap_sib_msg_t list[count])
+{
+  nr_si_candidate_t *candidate = prepare_si_candidate(cell, count, list);
+  return candidate ? publish_si_candidate(cell, candidate) : NR_SI_REJECTED;
+}
+
+bool nr_mac_configure_f1_sibs(gNB_MAC_INST *mac, const f1ap_setup_resp_t *resp, nr_si_result_t *results)
+{
+  if (!mac || !resp || !results || !mac->f1_config.setup_req || !mac->f1_config.setup_req->cell || resp->num_cells_to_activate < 1
+      || (size_t)resp->num_cells_to_activate > seq_arr_size(&mac->cells)
+      || resp->num_cells_to_activate > mac->f1_config.setup_req->num_cells_available || !resp->cells_to_activate)
+    return false;
+  const int count = resp->num_cells_to_activate;
+  nr_cell_sched_t **cells = calloc_or_fail(count, sizeof(*cells));
+  nr_si_candidate_t **candidates = calloc_or_fail(count, sizeof(*candidates));
+  /* F1 Setup must not advertise one cell before another cell's candidate can fail. */
+  for (int i = 0; i < count; ++i) {
+    const served_cells_to_activate_t *cu_cell = &resp->cells_to_activate[i];
+    const f1ap_served_cell_info_t *info = get_f1ap_cell_info_by_cgi(mac->f1_config.setup_req, cu_cell->plmn, cu_cell->nr_cellid);
+    cells[i] = nr_mac_get_cell_by_cgi(mac, cu_cell->plmn, cu_cell->nr_cellid);
+    if (!info || !cells[i] || info->nr_pci != cu_cell->nrpci)
+      goto reject;
+    for (int j = 0; j < i; ++j)
+      if (cells[i] == cells[j])
+        goto reject;
+    candidates[i] = prepare_si_candidate(cells[i], cu_cell->num_SI, cu_cell->SI_msg);
+    if (!candidates[i])
+      goto reject;
   }
-
-  update_SIB1_NR_SI(cc->sib1, num_cu_sib + num_du_sib, config_sibs);
-  cc->sib1_bcch_length = encode_SIB_NR(cc->sib1, cc->sib1_bcch_pdu, sizeof(cc->sib1_bcch_pdu));
-  AssertFatal(cc->sib1_bcch_length > 0, "could not encode SIB1\n");
-
-  // generate otherSIB payloads
-  cc->other_sib_bcch_length[0] = encode_sysinfo_ie(sysInfo, cc->other_sib_bcch_pdu[0], sizeof(cc->other_sib_bcch_pdu[0]));
-  cc->other_sib_bcch_length[1] = encode_sysinfo_ie(sysInfov17, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]));
-
-  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfo);
-  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
+  for (int i = 0; i < count; ++i) {
+    results[i] = publish_si_candidate(cells[i], candidates[i]);
+    candidates[i] = NULL;
+    cells[i]->common_channels.sib9_window = (nr_sib9_window_t){0};
+  }
+  free(candidates);
+  free(cells);
   return true;
+reject:
+  LOG_E(NR_MAC, "Rejected F1 SI candidates; no cell published\n");
+  for (int i = 0; i < count; ++i)
+    free_si_candidate(candidates[i]);
+  free(candidates);
+  free(cells);
+  return false;
 }
 
 static void nr_update_sib19_cell(nr_cell_sched_t *cell, const gnb_sat_position_update_t *sat_position)

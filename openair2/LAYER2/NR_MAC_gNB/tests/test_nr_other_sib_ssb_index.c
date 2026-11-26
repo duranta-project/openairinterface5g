@@ -78,7 +78,7 @@ int test_other_sib_ssb_index(uint64_t ssb_bitmap)
   // config SIB-1 and SIB-2
   nr_mac_configure_sib1(cell, &plmn, 12345678, 1);
   f1ap_sib_msg_t sib2 = encode_sib2();
-  AssertFatal(nr_mac_configure_other_sib(cell, 1, &sib2), "could not configure SIB2\n");
+  AssertFatal(nr_mac_configure_other_sib(cell, 1, &sib2) == NR_SI_PUBLISHED, "could not configure SIB2\n");
   free(sib2.SI_container.buf);
 
   NR_Sched_Rsp_t *rsp = calloc_or_fail(1, sizeof(*rsp));

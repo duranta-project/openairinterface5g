@@ -23,6 +23,7 @@
 #include "executables/softmodem-common.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "asn1_msg.h"
+#include "../nr_sib9.h"
 #include "../nr_rrc_proto.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_asn1_utils.h"
 #include "openair2/RRC/NR/rrc_gNB_measurements.h"
@@ -285,6 +286,24 @@ byte_array_t do_SIB4_NR(NR_SIB4_t *sib4)
   }
 
   msg.len = val;
+  return msg;
+}
+
+byte_array_t do_SIB9_NR(const NR_SIB9_t *sib9)
+{
+  byte_array_t msg = {0};
+  if (!nr_sib9_valid_broadcast(sib9)) {
+    LOG_E(NR_RRC, "SIB9 profile violates supported broadcast constraints\n");
+    return msg;
+  }
+  int len = uper_encode_to_new_buffer(&asn_DEF_NR_SIB9, NULL, sib9, (void **)&msg.buf);
+  if (len <= 0 || len > NR_SIB9_MAX_BYTES) {
+    free(msg.buf);
+    msg.buf = NULL;
+    LOG_E(NR_RRC, "Failed to encode SIB9\n");
+    return msg;
+  }
+  msg.len = len;
   return msg;
 }
 

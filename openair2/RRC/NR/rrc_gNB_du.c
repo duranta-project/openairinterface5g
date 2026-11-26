@@ -842,6 +842,19 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
             free_byte_array(enc);
             LOG_I(NR_RRC, "DU %ld: added SIB4 to F1 Setup Response (cell %ld)\n", du->gNB_DU_id, new->info.cell_id);
           } break;
+          case NR_SIB_9: {
+            NR_SIB9_t *sib9 = get_SIB9_NR(&rrc->sib9_config);
+            byte_array_t enc = do_SIB9_NR(sib9);
+            ASN_STRUCT_FREE(asn_DEF_NR_SIB9, sib9);
+            if (!enc.buf || enc.len == 0) {
+              free_byte_array(enc);
+              LOG_E(NR_RRC, "SIB9 encoding failed\n");
+              break;
+            }
+            add_si_msg(&cell, sib->SIB_type, &enc);
+            free_byte_array(enc);
+            LOG_I(NR_RRC, "DU %ld: added SIB9 to F1 Setup Response (cell %ld)\n", du->gNB_DU_id, new->info.cell_id);
+          } break;
           default:
             AssertFatal(false, "SIB%d not handled yet\n", sib->SIB_type);
         }

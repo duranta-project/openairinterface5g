@@ -2665,9 +2665,31 @@ void add_sib_to_systeminformation(NR_SystemInformation_IEs_t *si, struct NR_Syst
   asn1cSeqAdd(&si->sib_TypeAndInfo.list, type);
 }
 
-void update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1_bcch, int num_sibs, int sibs[num_sibs])
+bool update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1_bcch, int num_sibs, int sibs[num_sibs])
 {
   NR_SIB1_t *sib1 = sib1_bcch->message.choice.c1->choice.systemInformationBlockType1;
+  bool regular = false, v17 = false;
+  for (int i = 0; i < num_sibs; ++i) {
+    regular |= sibs[i] >= 2 && sibs[i] < 15;
+    v17 |= sibs[i] >= 15;
+  }
+  // The inherited v17 scheduler requires an ordinary SI window configuration.
+  if (v17 && !regular) {
+    LOG_E(NR_MAC, "v17 SI requires an accepted regular SI message on this baseline\n");
+    return false;
+  }
+  NR_SIB1_v1700_IEs_t *old_v17 = NULL;
+  if (sib1->nonCriticalExtension && sib1->nonCriticalExtension->nonCriticalExtension)
+    old_v17 = sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension;
+  if (old_v17) {
+    ASN_STRUCT_FREE(asn_DEF_NR_SI_SchedulingInfo_v1700, old_v17->si_SchedulingInfo_v1700);
+    old_v17->si_SchedulingInfo_v1700 = NULL;
+  }
+  if (num_sibs == 0) {
+    ASN_STRUCT_FREE(asn_DEF_NR_SI_SchedulingInfo, sib1->si_SchedulingInfo);
+    sib1->si_SchedulingInfo = NULL;
+    return true;
+  }
   //si-SchedulingInfo
   NR_SI_SchedulingInfo_t *info = calloc(1, sizeof(*info));
   // TODO need to compute optimal SI-windowlength automatically
@@ -2677,11 +2699,20 @@ void update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1_bcch, int num_sibs, int si
   schedulingInfo->si_BroadcastStatus = NR_SchedulingInfo__si_BroadcastStatus_broadcasting;
   schedulingInfo->si_Periodicity = NR_SchedulingInfo__si_Periodicity_rf16;
   bool reg_sib = false;
+  NR_SchedulingInfo_t *time_info = NULL;
   NR_SchedulingInfo2_r17_t *schedulingInfo2_r17 = NULL;
   for (int i = 0; i < num_sibs; i++) {
     int sib_num = sibs[i];
     AssertFatal(sib_num > 1 && sib_num < 21, "other SIB invalid type\n");
-    if (sib_num < 15) {
+    if (sib_num == NR_SIB_9) {
+      time_info = calloc_or_fail(1, sizeof(*time_info));
+      time_info->si_BroadcastStatus = NR_SchedulingInfo__si_BroadcastStatus_broadcasting;
+      time_info->si_Periodicity = NR_SchedulingInfo__si_Periodicity_rf16;
+      NR_SIB_TypeInfo_t *mapping = calloc_or_fail(1, sizeof(*mapping));
+      mapping->type = NR_SIB_TypeInfo__type_sibType9;
+      mapping->valueTag = calloc_or_fail(1, sizeof(long));
+      asn1cSeqAdd(&time_info->sib_MappingInfo.list, mapping);
+    } else if (sib_num < 15) {
       reg_sib = true;
       NR_SIB_TypeInfo_t *mapping = calloc(1, sizeof(*mapping));
       // NR_SIB_TypeInfo__type_sibType2 = 0
@@ -2711,8 +2742,17 @@ void update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1_bcch, int num_sibs, int si
       asn1cSeqAdd(&schedulingInfo2_r17->sib_MappingInfo_r17.list, mapping17);
     }
   }
-  AssertFatal(reg_sib, "At least 1 SIB from SchedulingInfo (SIB2 to SIB14 included) needs to be present\n");
-  asn1cSeqAdd(&info->schedulingInfoList.list, schedulingInfo);
+  if (reg_sib) {
+    asn1cSeqAdd(&info->schedulingInfoList.list, schedulingInfo);
+  } else {
+    ASN_STRUCT_FREE(asn_DEF_NR_SchedulingInfo, schedulingInfo);
+  }
+  if (time_info) {
+    asn1cSeqAdd(&info->schedulingInfoList.list, time_info);
+  }
+  if (schedulingInfo2_r17)
+    schedulingInfo2_r17->si_WindowPosition_r17 = info->schedulingInfoList.list.count + 1;
+  ASN_STRUCT_FREE(asn_DEF_NR_SI_SchedulingInfo, sib1->si_SchedulingInfo);
   sib1->si_SchedulingInfo = info;
   if (schedulingInfo2_r17) {
     NR_SI_SchedulingInfo_v1700_t *si_schedulingInfo_v17 = calloc_or_fail(1, sizeof(*si_schedulingInfo_v17));
@@ -2738,11 +2778,13 @@ void update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1_bcch, int num_sibs, int si
       sib1_v17 = calloc_or_fail(1, sizeof(*sib1_v17));
       sib1_v1630->nonCriticalExtension = sib1_v17;
     }
+    ASN_STRUCT_FREE(asn_DEF_NR_SI_SchedulingInfo_v1700, sib1_v17->si_SchedulingInfo_v1700);
     sib1_v17->si_SchedulingInfo_v1700 = si_schedulingInfo_v17;
   }
   if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
     xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message, sib1_bcch);
   }
+  return true;
 }
 
 int encode_sysinfo_ie(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len)
@@ -2756,7 +2798,7 @@ int encode_sysinfo_ie(NR_SystemInformation_IEs_t *sysInfo, uint8_t *buf, int len
   NR_BCCH_DL_SCH_MessageType_t message_type = {.present = NR_BCCH_DL_SCH_MessageType_PR_c1};
   message_type.choice.c1 = &c1;
   NR_BCCH_DL_SCH_Message_t sib_message = {.message = message_type};
-  return encode_SIB_NR(&sib_message, buf, len);
+  return try_encode_SIB_NR(&sib_message, buf, len);
 }
 
 static bool is_ntn_band(int band)
@@ -3108,18 +3150,29 @@ void free_SIB1_NR(NR_BCCH_DL_SCH_Message_t *sib1)
   ASN_STRUCT_FREE(asn_DEF_NR_BCCH_DL_SCH_Message, sib1);
 }
 
+int try_encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size)
+{
+  if (!sib || !buffer || max_buffer_size <= 0 || max_buffer_size > NR_MAX_SIB_LENGTH / 8)
+    return -1;
+  char error[256] = {0};
+  size_t size = sizeof(error);
+  if (asn_check_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, sib, error, &size) != 0) {
+    LOG_W(NR_MAC, "Cannot encode candidate BCCH SI: %s\n", error);
+    return -1;
+  }
+  asn_enc_rval_t enc = uper_encode_to_buffer(&asn_DEF_NR_BCCH_DL_SCH_Message, NULL, sib, buffer, max_buffer_size);
+  if (enc.encoded <= 0 || enc.encoded > max_buffer_size * 8) {
+    LOG_W(NR_MAC, "Candidate BCCH SI exceeds encoding budget\n");
+    return -1;
+  }
+  return (enc.encoded + 7) / 8;
+}
+
 int encode_SIB_NR(NR_BCCH_DL_SCH_Message_t *sib, uint8_t *buffer, int max_buffer_size)
 {
-  AssertFatal(max_buffer_size <= NR_MAX_SIB_LENGTH / 8,
-              "Maximum buffer size too large: 3GPP TS 38.331 section 5.2.1 - The physical layer imposes a limit to the "
-              "maximum size a SIB can take. The maximum SIB1 or SI message size is 2976 bits.\n");
-  char errbuf[256] = {0};
-  size_t errlen = sizeof(errbuf);
-  const int ret = asn_check_constraints(&asn_DEF_NR_BCCH_DL_SCH_Message, sib, errbuf, &errlen);
-  AssertFatal(ret == 0, "BCCH-DL-SCH ASN.1 constraint check failed: %s\n", errbuf);
-  asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_BCCH_DL_SCH_Message, NULL, sib, buffer, max_buffer_size);
-  AssertFatal(enc_rval.encoded > 0 && enc_rval.encoded <= max_buffer_size * 8, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
-  return (enc_rval.encoded + 7) / 8;
+  int length = try_encode_SIB_NR(sib, buffer, max_buffer_size);
+  AssertFatal(length > 0, "Could not encode required BCCH SI message\n");
+  return length;
 }
 
 NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc)

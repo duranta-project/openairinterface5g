@@ -27,8 +27,10 @@
 
 static NR_IF_Module_t *nr_if_inst[MAX_IF_MODULES];
 
-static int pnf_send_slot_ind(const nfapi_nr_slot_indication_scf_t *ind, NR_Sched_Rsp_t *rsp)
+static int pnf_send_slot_ind(const nfapi_nr_slot_indication_scf_t *ind, const nr_slot_time_t *slot_time, NR_Sched_Rsp_t *rsp)
 {
+  (void)slot_time;
+  (void)time;
   module_id_t module_id = 0;
   int phy_id = 0;
   reset_sched_response(rsp, ind->sfn, ind->slot, module_id, phy_id);

@@ -77,10 +77,15 @@ typedef struct {
   nfapi_nr_config_request_scf_t *cfg;
 } NR_PHY_Config_t;
 
+typedef struct nr_slot_time {
+  frame_t rx_frame, tx_frame;
+  slot_t rx_slot, tx_slot;
+} nr_slot_time_t;
+
 typedef struct NR_IF_Module_s {
   void (*NR_PHY_config_req)(NR_PHY_Config_t *config_INFO);
 
-  int (*nr_slot_indication)(const nfapi_nr_slot_indication_scf_t *ind, NR_Sched_Rsp_t *rsp);
+  int (*nr_slot_indication)(const nfapi_nr_slot_indication_scf_t *ind, const nr_slot_time_t *slot_time, NR_Sched_Rsp_t *rsp);
 
   int (*nr_rx_data_indication)(const nfapi_nr_rx_data_indication_t *ind);
   int (*nr_crc_indication)(const nfapi_nr_crc_indication_t *ind);
