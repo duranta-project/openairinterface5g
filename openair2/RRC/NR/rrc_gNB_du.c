@@ -33,6 +33,7 @@
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/F1AP/f1ap_ids.h"
 #include "lib/f1ap_interface_management.h"
+#include "lib/f1ap_paging.h"
 #include "rrc_gNB_NGAP.h"
 #include "rrc_gNB_UE_context.h"
 #include "rrc_messages_types.h"
@@ -1210,25 +1211,24 @@ void trigger_f1_reset(gNB_RRC_INST *rrc, sctp_assoc_t du_assoc_id)
  *  @param rrc RRC instance
  *  @param tais Array of TAIs (PLMN + TAC) to match against
  *  @param n_tai Number of TAIs in the array (must be > 0)
- *  @param msg Pre-filled F1AP paging message */
-void rrc_send_paging_to_dus(gNB_RRC_INST *rrc, const nr_tai_t tais[], uint8_t n_tai, f1ap_paging_t *msg)
+ *  @param paging Pre-filled F1AP paging message, without cells */
+void rrc_send_paging_to_dus(gNB_RRC_INST *rrc, const nr_tai_t tais[], uint8_t n_tai, const f1ap_paging_t *paging)
 {
-  DevAssert(msg && !msg->cells);
+  DevAssert(paging && !paging->cells);
   DevAssert(n_tai > 0);
+
+  // Message sent to each DU: a copy of paging with a cell list refilled for each DU, freed below
+  f1ap_paging_t msg = cp_f1ap_paging(paging);
+  msg.cells = calloc_or_fail(F1AP_MAX_NB_CELLS, sizeof(*msg.cells));
 
   nr_rrc_du_container_t *du = NULL;
   // Loop over DUs once, for each DU, collects matching cells
   RB_FOREACH (du, rrc_du_tree, &rrc->dus) {
-    RETURN_IF_INVALID_ASSOC_ID(du->assoc_id);
-
-    // Stack-allocated cell list for this DU iteration
-    f1ap_paging_cell_item_t cells[F1AP_MAX_NB_CELLS] = {0};
-    msg->cells = cells;
-    msg->n_cells = 0;
+    msg.n_cells = 0;
 
     // For each cell in this DU, check if it matches any of the matching TAIs
     FOR_EACH_SEQ_ARR (nr_rrc_cell_container_t **, cell, &du->cells) {
-      if (msg->n_cells >= F1AP_MAX_NB_CELLS) {
+      if (msg.n_cells >= F1AP_MAX_NB_CELLS) {
         LOG_W(F1AP,
               "[gNB] Paging: DU assoc_id %d has more than %d matching cells, skipping next cells\n",
               du->assoc_id,
@@ -1246,7 +1246,7 @@ void rrc_send_paging_to_dus(gNB_RRC_INST *rrc, const nr_tai_t tais[], uint8_t n_
         const uint16_t req_tac = req_tai->tac;
         if (cell_plmn->mcc == req_plmn->mcc && cell_plmn->mnc == req_plmn->mnc
             && cell_plmn->mnc_digit_length == req_plmn->mnc_digit_length && cell_tac == req_tac) {
-          f1ap_paging_cell_item_t *paging_cell = &msg->cells[msg->n_cells++];
+          f1ap_paging_cell_item_t *paging_cell = &msg.cells[msg.n_cells++];
           paging_cell->plmn = *cell_plmn;
           paging_cell->nr_cellid = info->cell_id;
           break; // Found match, no need to check other TAIs
@@ -1255,20 +1255,20 @@ void rrc_send_paging_to_dus(gNB_RRC_INST *rrc, const nr_tai_t tais[], uint8_t n_
     }
 
     // Skip DUs with no matching cells
-    if (msg->n_cells == 0)
+    if (msg.n_cells == 0)
       continue;
-    DevAssert(msg->n_cells <= F1AP_MAX_NB_CELLS);
+    DevAssert(msg.n_cells <= F1AP_MAX_NB_CELLS);
     LOG_I(F1AP,
           "[gNB] Paging transfer to DU assoc_id %d: ue_identity_index_value=%u, paging_identity=%lu, n_cells=%u\n",
           du->assoc_id,
-          msg->ue_identity_index_value,
-          msg->identity.cn_ue_paging_identity,
-          msg->n_cells);
+          msg.ue_identity_index_value,
+          msg.identity.cn_ue_paging_identity,
+          msg.n_cells);
     // Send one message to the DU with all matching cells
-    rrc->mac_rrc.paging_transfer(du->assoc_id, msg);
+    rrc->mac_rrc.paging_transfer(du->assoc_id, &msg);
   }
 
-  msg->cells = NULL; // Stack allocation, no need to free
+  free_f1ap_paging(&msg);
 }
 
 void rrc_send_trp_information_request_to_dus(gNB_RRC_INST *rrc, f1ap_trp_information_req_t *msg)
