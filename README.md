@@ -118,19 +118,37 @@ Steering Committee (TSC). See the
 Governance decisions are discussed in the
 [TSC Meetings](https://github.com/duranta-project/openairinterface5g/wiki/Technical-Steering-Committee-(TSC)--Meeting).
 
-## How to get support from the Community
+## Community and Support
 
-You can ask your question on the [mailing lists](https://github.com/duranta-project/openairinterface5g/wiki/MailingList).
+Before asking a question or reporting an issue, check the existing
+[issues](https://github.com/duranta-project/openairinterface5g/issues) and
+[discussions](https://github.com/duranta-project/openairinterface5g/discussions).
 
-Your email should contain below information:
+- [GitHub Issues](https://github.com/duranta-project/openairinterface5g/issues):
+  report bugs and request features.
+- [GitHub Discussions](https://github.com/duranta-project/openairinterface5g/discussions):
+  ask questions, share ideas, and follow announcements.
+- [Mailing Lists](https://github.com/duranta-project/openairinterface5g/wiki/MailingList):
+  technical questions and troubleshooting by email.
+- [Developer Meetings](https://github.com/duranta-project/openairinterface5g/wiki/Developer-Meetings):
+  follow ongoing development and technical discussions.
+- [Security Policy](./SECURITY.md): how to report security vulnerabilities.
 
-- A clear subject in your email.
-- For all the queries there should be [Query\] in the subject of the email and for problems there should be [Problem\].
-- In case of a problem, add a small description.
-- Do not share any photos unless you want to share a diagram.
-- OAI gNB/DU/CU/CU-CP/CU-UP configuration file in `.conf` format only.
-- Logs of OAI gNB/DU/CU/CU-CP/CU-UP in `.log` or `.txt` format only.
-- In case your question is related to performance, include a small description of the machine (Operating System, Kernel version, CPU, RAM and networking card) and diagram of your testing environment.
-- Known/open issues are present on [Github](https://github.com/duranta-project/openairinterface5g/issues), so keep checking.
+### What to Include in Your Request
 
-Always remember a structured email will help us understand your issues quickly.
+To get a quick answer, include:
+
+- A clear subject, prefixed with `[Query]` for questions or `[Problem]` for
+  problems (mailing lists).
+- For problems, a short description and the steps to reproduce it.
+- The commit (`git rev-parse HEAD`) or release tag you are using, and any
+  local changes or patches (`git diff`).
+- The command line used to start the affected gNB, DU, CU, CU-CP, CU-UP, or UE.
+- Configuration files (`.conf` or `.yaml`) and logs (`.log` or `.txt`) of the
+  affected gNB, DU, CU, CU-CP, CU-UP, or UE.
+- For performance questions, the OS, kernel version, CPU, RAM, network card,
+  and a diagram of your setup.
+- Diagrams rather than photos or screenshots, whenever possible.
+- Whether you used an AI tool to write the request or analyze the problem,
+  as `TOOL-NAME: LLM-MODEL-VERSION`. Keep AI-generated text short and to the
+  point; do not submit long AI-written descriptions.
