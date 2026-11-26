@@ -107,6 +107,20 @@ openairinterface5g
 └── tools             : Developer and CI analysis, formatting, and plotting tools
 ```
 
+## Governance
+
+This repository is part of [Duranta](https://lfnetworking.org/projects/duranta/),
+an [LF Networking](https://lfnetworking.org/) project overseen by its Technical
+Steering Committee (TSC). See the
+[governance repository](https://github.com/duranta-project/governance) for:
+
+- [Technical Charter](https://github.com/duranta-project/governance/blob/main/Duranta_Project_Technical_Charter.pdf)
+- [Contributor License Agreement](https://github.com/duranta-project/governance/blob/main/docs/easy_cla_process.md)
+- [TSC members, maintainers, and collaborators](https://github.com/duranta-project/governance/blob/main/CONTRIBUTING.md)
+
+Governance decisions are discussed in the
+[TSC Meetings](https://github.com/duranta-project/openairinterface5g/wiki/Technical-Steering-Committee-(TSC)--Meeting).
+
 ## How to get support from the Community
 
 You can ask your question on the [mailing lists](https://github.com/duranta-project/openairinterface5g/wiki/MailingList).
