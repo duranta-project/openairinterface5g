@@ -12,7 +12,7 @@ bool configure_csi_resource_mapping(fapi_nr_dl_config_csirs_pdu_rel15_t *out,
 {
   const long configured_start = resourceMapping->freqBand.startingRB;
   const long configured_rbs = resourceMapping->freqBand.nrofRBs;
-  // TS 38.331 section 6.3.2, CSI-FrequencyOccupation: constraints on signalled values.
+  // TS 38.331 section 6.3.2, CSI-FrequencyOccupation: the 24-RB minimum applies to the signalled width, before BWP clipping.
   if (bwp_size == 0 || bwp_size > MAX_BWP_SIZE || bwp_start > MAX_BWP_SIZE - bwp_size || configured_start < 0
       || configured_start >= MAX_BWP_SIZE || configured_start % 4 != 0 || configured_rbs < 24 || configured_rbs > MAX_BWP_SIZE + 1
       || configured_rbs % 4 != 0) {
