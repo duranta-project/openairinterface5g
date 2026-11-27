@@ -74,13 +74,14 @@ typedef enum { PDU_SESSION_INACTIVE = 0, PDU_SESSION_ACTIVE } PSI_status_t;
 typedef enum { REACTIVATION_SUCCESS = 0, REACTIVATION_FAILED } PSI_reactivation_t;
 
 #define FOREACH_SA_IEI(IEI_DEF)                           \
+  IEI_DEF(IEI_T3502_VALUE, 0x16)                          \
   IEI_DEF(IEI_ALLOWED_PDU_SESSION_STATUS, 0x25)           \
   IEI_DEF(IEI_PDU_SESSION_REACT_RESULT, 0x26)             \
   IEI_DEF(IEI_PAGING_RESTRICTION, 0x28)                   \
   IEI_DEF(IEI_UE_REQUEST_TYPE, 0x29)                      \
   IEI_DEF(IEI_UPLINK_DATA_STATUS, 0x40)                   \
   IEI_DEF(IEI_PDU_SESSION_STATUS, 0x50)                   \
-  IEI_DEF(IEI_T3446_VALUE, 0x5F)                          \
+  IEI_DEF(IEI_T3346_VALUE, 0x5F)                          \
   IEI_DEF(IEI_T3448_VALUE, 0x6B)                          \
   IEI_DEF(IEI_FGS_NAS_MESSAGE_CONTAINER, 0x71)            \
   IEI_DEF(IEI_PDU_SESSION_REACT_RESULT_ERROR_CAUSE, 0x72) \
@@ -141,7 +142,7 @@ typedef enum { FOREACH_CAUSE(TO_ENUM) } cause_id_t;
 
 static const text_info_t fgmm_cause_s[] = {FOREACH_CAUSE(TO_TEXT)};
 
-/* 10.5.7.3 3GPP TS 24.008 */
+/* GPRS timer 2 (TS 24.008 clause 10.5.7.4); value coding from clause 10.5.7.3. */
 typedef struct {
   uint8_t value;
   uint8_t unit;

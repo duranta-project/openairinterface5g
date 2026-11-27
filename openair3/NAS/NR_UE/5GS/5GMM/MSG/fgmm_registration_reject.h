@@ -10,6 +10,8 @@
 
 typedef struct {
   cause_id_t cause;
+  gprs_timer_t *t3346;
+  gprs_timer_t *t3502;
 } fgs_registration_reject_msg_t;
 
 int decode_fgs_registration_reject(fgs_registration_reject_msg_t *msg, const byte_array_t *buffer);
