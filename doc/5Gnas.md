@@ -41,9 +41,31 @@ The following table lists NAS messages with dedicated `encode_*` / `decode_*` co
 | 5GMM  | Configuration Update Command              | yes      | yes      | yes        |
 | 5GMM  | Configuration Update Complete             | yes      | no       | no         |
 | 5GSM  | PDU Session Establishment Request         | yes      | no       | no         |
-| 5GSM  | PDU Session Establishment Accept          | no       | yes      | no         |
-| 5GSM  | PDU Session Modification Command          | no       | yes      | no         |
+| 5GSM  | PDU Session Establishment Accept          | no       | yes      | yes        |
+| 5GSM  | PDU Session Modification Command          | no       | yes      | yes        |
 | 5GSM  | PDU Session Modification Complete         | yes      | no       | no         |
+
+### Initial QoS rules
+
+`PduSessionEstablishmentAccept.c` and `PduSessionModificationCommand.c` share
+`decode_qos_rules()` in `fgsm_lib.c`. The decoder bounds each rule by the QoS rules IE
+and the enclosing NAS message. It accepts the one-octet contents of delete operations
+and leaves operation semantics to the NAS handler. A valid PDU Address IE with SI6LLA
+set preserves the UE address and skips the SMF IPv6 link-local address.
+
+During initial establishment, NAS selects the default QFI using DQR and installs
+the accepted rules through `nr_sdap_qos_rule_add()` before requesting the TUN reader.
+SDAP matches uplink IP packets by packet filters in precedence order. A new
+non-default rule with an existing non-default ID replaces the old rule under the
+rule-table lock. SDAP rejects a repeated ID involving a default rule.
+NAS accesses SDAP through `nr_sdap_qos_rule.h`.
+
+The establishment handler skips invalid non-default rules and requires a single
+valid default rule. Sending NAS feedback for invalid QoS rules is follow-up work.
+
+`nas_lib_test` covers initial rules in both orders, modification operations,
+truncated rule IEs and SI6LLA. `nr_sdap_qos_rule_test` uses the production
+installer and matcher to check replacement, collisions and fallback classification.
 
 ### Runtime-handled messages
 

@@ -246,7 +246,7 @@ uint8_t nr_sdap_match_ul_packet(nr_sdap_entity_t *entity, const uint8_t *ip_pkt,
   return default_qfi;
 }
 
-void nr_sdap_qos_rule_add(ue_id_t ue_id,
+bool nr_sdap_qos_rule_add(ue_id_t ue_id,
                           int pdusession_id,
                           uint8_t rule_id,
                           uint8_t qfi,
@@ -258,7 +258,7 @@ void nr_sdap_qos_rule_add(ue_id_t ue_id,
   nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdusession_id);
   if (entity == NULL || entity->tun.is_gnb) {
     LOG_E(SDAP, "UE %ld PDU session %d: no UE entity for QoS rule add\n", ue_id, pdusession_id);
-    return;
+    return false;
   }
 
   nr_sdap_qos_rule_t rule = {.qfi = qfi, .rule_id = rule_id, .precedence = precedence, .is_default = is_default};
@@ -266,7 +266,15 @@ void nr_sdap_qos_rule_add(ue_id_t ue_id,
   add_packet_filters(&rule.packet_filters, pf_list, num_pf);
 
   pthread_mutex_lock(&entity->qos_rules_lock);
-  if (seq_arr_size(&entity->qos_rules) >= MAX_NUM_SDAP_QOS_RULES) {
+  nr_sdap_qos_rule_t *existing = find_qos_rule(&entity->qos_rules, rule_id);
+  // TS 24.501 §6.4.1.3 a), case 6: only non-default rules can replace an existing ID.
+  if (existing != NULL && (existing->is_default || is_default)) {
+    pthread_mutex_unlock(&entity->qos_rules_lock);
+    free_qos_rule(&rule);
+    LOG_E(SDAP, "UE %ld PDU session %d: QoS rule %d conflicts with a default rule\n", ue_id, pdusession_id, rule_id);
+    return false;
+  }
+  if (existing == NULL && seq_arr_size(&entity->qos_rules) >= MAX_NUM_SDAP_QOS_RULES) {
     pthread_mutex_unlock(&entity->qos_rules_lock);
     free_qos_rule(&rule);
     LOG_E(SDAP,
@@ -275,8 +283,10 @@ void nr_sdap_qos_rule_add(ue_id_t ue_id,
           pdusession_id,
           rule_id,
           MAX_NUM_SDAP_QOS_RULES);
-    return;
+    return false;
   }
+  if (existing != NULL)
+    seq_arr_erase_deep(&entity->qos_rules, existing, free_qos_rule);
   seq_arr_push_back(&entity->qos_rules, &rule, sizeof(rule));
   qsort(entity->qos_rules.data, seq_arr_size(&entity->qos_rules), sizeof(nr_sdap_qos_rule_t), compare_precedence);
   if (is_default)
@@ -293,6 +303,7 @@ void nr_sdap_qos_rule_add(ue_id_t ue_id,
         precedence,
         num_pf,
         is_default ? " (default)" : "");
+  return true;
 }
 
 void nr_sdap_qos_rule_remove(ue_id_t ue_id, int pdusession_id, uint8_t rule_id)
