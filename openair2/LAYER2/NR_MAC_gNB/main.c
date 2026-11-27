@@ -174,7 +174,8 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     for (int i = 1; i < cell->dl_bler.harq_round_max; i++)
       output = st_append(output, end, "/%"PRIu64, stats->dl.rounds[i]);
 
-    float pucch_snr = nr_mac_get_snr(&sched_ctrl->pucch_pc);
+    // measured SNR, without the TPC commands in flight: a UE that does not follow the commands must be visible
+    float pucch_snr = sched_ctrl->pucch_pc.avg_snr;
     float pucch_snr_diff = (pucch_snr * 10.0f - sched_ctrl->pucch_pc.target_snrx10) / 10.0f;
     float pucch_rssi = nr_mac_get_rssi(&sched_ctrl->pucch_pc);
     float bler = olla_get_current_bler(&sched_ctrl->dl_olla_stats);
@@ -208,7 +209,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     for (int i = 1; i < cell->ul_bler.harq_round_max; i++)
       output = st_append(output, end, "/%"PRIu64, stats->ul.rounds[i]);
 
-    float snr = nr_mac_get_snr(&sched_ctrl->pusch_pc);
+    float snr = sched_ctrl->pusch_pc.avg_snr;
     float rssi = nr_mac_get_rssi(&sched_ctrl->pusch_pc);
     float diff_target = (snr * 10.0f - sched_ctrl->pusch_pc.target_snrx10) / 10.0f;
     bler = olla_get_current_bler(&sched_ctrl->ul_olla_stats);
