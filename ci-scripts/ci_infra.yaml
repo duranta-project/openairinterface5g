@@ -348,6 +348,13 @@ oai_ue_jetson2:
   NetworkScript: ip a show dev oaitun_ue1
   IF: oaitun_ue1
 
+oai_ue_rocket:
+  Host: rocket
+  AttachScript: 'docker start oai-nr-ue'
+  DetachScript: 'docker stop oai-nr-ue'
+  NetworkScript: ip a show dev oaitun_ue1
+  IF: oaitun_ue1
+
 lte_oai_ue_carabe:
   Host: carabe
   NetworkScript: docker exec lte-b200-ue-fdd-10Mhz-tm1 ip a show dev oaitun_ue1
