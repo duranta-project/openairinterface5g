@@ -10,6 +10,7 @@
 #include "nr_rlc_asn1_utils.h"
 #include "nr_rlc_ue_manager.h"
 #include "nr_rlc_entity.h"
+#include "nr_rlc_sdu.h"
 #include "nr_rlc_oai_api.h"
 #include "NR_RLC-BearerConfig.h"
 #include "NR_DRB-ToAddMod.h"
@@ -154,6 +155,8 @@ void nr_mac_rlc_data_ind(const module_id_t  module_idP,
     for (int i = 0; i < num_data; ++i)
       T(T_ENB_RLC_MAC_UL, T_INT(module_idP), T_INT(ue_id), T_INT(data[i].ch), T_INT(data[i].len));
 
+  /* STATUS PDUs free the SDUs they acknowledge: do the free() calls after the unlock */
+  nr_rlc_defer_free_begin();
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
 
@@ -162,6 +165,7 @@ void nr_mac_rlc_data_ind(const module_id_t  module_idP,
   if (ue == NULL) {
     LOG_I(RLC, "RLC instance for UE %04x not found, dropping %d UL PDU(s)\n", ue_id, num_data);
     nr_rlc_manager_unlock(nr_rlc_ue_manager);
+    nr_rlc_defer_free_end();
     return;
   }
 
@@ -178,6 +182,7 @@ void nr_mac_rlc_data_ind(const module_id_t  module_idP,
   }
 
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
+  nr_rlc_defer_free_end();
 }
 
 int nr_mac_rlc_multi_data_req(const module_id_t module_idP,
@@ -403,6 +408,7 @@ int nr_rlc_module_init(nr_rlc_op_mode_t mode)
     inited_ue = 1;
 
   nr_rlc_ue_manager = new_nr_rlc_ue_manager(mode);
+  nr_rlc_free_thread_start();
 
   if (pthread_mutex_unlock(&lock)) abort();
 
