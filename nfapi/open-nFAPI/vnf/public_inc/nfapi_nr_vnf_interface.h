@@ -30,6 +30,10 @@ typedef struct nfapi_nr_vnf_config
   nfapi_vnf_pnf_info_t* pnf_list;
   nfapi_vnf_phy_info_t* phy_list;
 
+  uint16_t timing_window;
+  uint8_t timing_info_mode;
+  uint8_t timing_info_period;
+
   nfapi_p4_p5_codec_config_t codec_config;
 
   void* user_data;

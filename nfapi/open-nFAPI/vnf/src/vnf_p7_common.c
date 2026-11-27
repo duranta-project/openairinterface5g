@@ -244,26 +244,35 @@ void vnf_p7_rx_reassembly_queue_remove_old_msgs(vnf_p7_t* vnf_p7, vnf_p7_rx_reas
 	}
 }
 
+static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
+{
+  // Extract seconds and microseconds
+  int32_t sec_a = TIMEHR_SEC(time_hr_a);
+  int32_t sec_b = TIMEHR_SEC(time_hr_b);
+  int32_t usec_a = TIMEHR_USEC(time_hr_a);
+  int32_t usec_b = TIMEHR_USEC(time_hr_b);
+
+  // Handle 12-bit second wrap-around
+  // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
+  int32_t sec_diff = sec_a - sec_b;
+  if (sec_diff > 2047) {
+    sec_diff -= 4096; // sec_a wrapped, sec_b didn't
+  }
+  if (sec_diff < -2048) {
+    sec_diff += 4096; // sec_b wrapped, sec_a didn't
+  }
+
+  return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
+}
 uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
 {
-	if(now_hr < slot_start_hr)
-	{
+	// Use proper signed difference to handle wrap-around
+	int64_t diff_us = timehr_diff_us(now_hr, slot_start_hr);
+	if (diff_us < 0) {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of slot\n");
 		return 0;
 	}
-	else
-	{
-		uint32_t now_us = TIMEHR_USEC(now_hr);
-		uint32_t slot_start_us = TIMEHR_USEC(slot_start_hr);
-
-		// if the us have wrapped adjust for it
-		if(now_hr < slot_start_us)
-		{
-			now_us += 1000000;
-		}
-
-		return now_us - slot_start_us;
-	}
+	return (uint32_t)diff_us;
 }
 
 uint32_t calculate_transmit_timestamp(int mu, uint16_t sfn, uint16_t slot, uint32_t slot_start_time_hr)
