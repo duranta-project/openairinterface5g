@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start and monitor CELEOS, stop with --stop, or fetch retained logs with --logs."""
+"""Start CELEOS, stop with --stop, or fetch the retained debug.txt with --logs."""
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -147,59 +147,41 @@ class Celeos:
                 print(line.replace(self.key, "<redacted>"), flush=True)
         self.log_tail = entries
 
-    def fetch_logs(self, output=None):
-        folder = output.expanduser().resolve() if output is not None else None
-        if folder is not None:
-            folder.mkdir(parents=True, exist_ok=True)
-        failures = []
-        for name, endpoint in (("debug.txt", "/debug/emulation-log-download"),
-                               ("status_logs.json", "/status/log")):
-            temporary = None
-            try:
-                if folder is not None:
-                    with NamedTemporaryFile(prefix=f".{name}.", dir=folder, delete=False) as stream:
-                        temporary = Path(stream.name)
-                else:
-                    print(f"=== {name} ===", flush=True)
-                if name == "debug.txt":
-                    self.request("GET", endpoint, download_to=temporary if temporary is not None else sys.stdout.buffer)
-                    if folder is None:
-                        print(flush=True)
-                else:
-                    logs = self.request("GET", endpoint)
-                    if not isinstance(logs.get("list"), list):
-                        raise ValueError("Invalid /status/log response")
-                    text = json.dumps(logs, indent=2, ensure_ascii=False) + "\n"
-                    if folder is None:
-                        print(text, end="", flush=True)
-                    else:
-                        temporary.write_text(text, encoding="utf-8")
-                if folder is not None:
-                    target = folder / name
-                    temporary.replace(target)
-                    print(f"Saved: {target}", file=sys.stderr, flush=True)
-            except KeyboardInterrupt:
-                raise
-            except Exception as exc:
-                failures.append(f"{name}: {exc}")
-            finally:
-                if temporary is not None:
-                    temporary.unlink(missing_ok=True)
-        if failures:
-            raise RuntimeError("Log retrieval incomplete: " + "; ".join(failures))
+    def fetch_logs(self, target=None):
+        """Write debug.txt to the given file, or to standard output."""
+        endpoint = "/debug/emulation-log-download"
+        if target is None:
+            self.request("GET", endpoint, download_to=sys.stdout.buffer)
+            print(flush=True)
+            return
+        target = target.expanduser().resolve()
+        if target.is_dir():
+            raise ValueError(f"{target} is a directory; give a file path for debug.txt")
+        if not target.parent.is_dir():
+            raise ValueError(f"{target.parent} does not exist")
+        with NamedTemporaryFile(prefix=f".{target.name}.", dir=target.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+        try:
+            self.request("GET", endpoint, download_to=temporary)
+            temporary.replace(target)  # Keep an existing file unless the download succeeds.
+        finally:
+            temporary.unlink(missing_ok=True)
+        print(f"Saved: {target}", file=sys.stderr, flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", nargs="?", help="saved profile name")
     parser.add_argument("--stop", action="store_true", help="stop the current emulation")
-    parser.add_argument("--logs", action="store_true", help="print retained debug.txt and status logs")
-    parser.add_argument("--output", "-o", type=Path, metavar="DIRECTORY",
-                        help="with --logs, save both logs here instead of printing them")
+    parser.add_argument("--logs", action="store_true",
+                        help="print the retained debug.txt (with --stop: after stopping)")
+    parser.add_argument("--output", "-o", type=Path, metavar="FILE",
+                        help="with --logs, save debug.txt to this file instead of printing it")
     parser.add_argument("--env", type=Path, default=Path(__file__).with_name(".env"))
     args = parser.parse_args()
-    if sum((bool(args.profile), args.stop, args.logs)) != 1 or (args.profile and not args.profile.strip()):
-        parser.error("provide exactly one of: a profile name, --stop, or --logs")
+    if (args.profile is not None and (args.stop or args.logs or not args.profile.strip())) or \
+            not (args.profile or args.stop or args.logs):
+        parser.error("provide exactly one of: a profile name, --stop (optionally with --logs), or --logs")
     if args.output is not None and not args.logs:
         parser.error("--output requires --logs")
 
@@ -207,7 +189,7 @@ def main():
     cleanup, exit_code = False, 0
     try:
         api = Celeos(args.env)
-        if args.logs:
+        if args.logs and not args.stop:
             api.fetch_logs(args.output)
         elif args.stop:
             api.print_logs(skip=True)
@@ -232,28 +214,21 @@ def main():
                 api.status()
             pending.result()
             pending = None
-            has_run = False
             while True:
                 state = api.status()
                 if state == "running":
-                    if not has_run:
-                        print(f"Running: {args.profile}. Monitoring; Ctrl+C stops emulation.", flush=True)
-                    has_run = True
-                elif has_run and state in TERMINAL:
+                    # Success: leave the emulation running and exit 0.
                     cleanup = False
-                    exit_code = int(state in {"error", "failed"})
+                    print(f"Running: {args.profile}. Use --stop to stop the emulation.", flush=True)
                     break
-                elif not has_run and state not in {"starting", "loading"}:
+                if state not in {"starting", "loading"}:
                     raise RuntimeError(f"Startup ended in state '{state}' before running.")
-                if not has_run:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise RuntimeError("Timed out waiting for the running state.")
-                    time.sleep(min(api.poll_interval, remaining))
-                else:
-                    time.sleep(api.poll_interval)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("Timed out waiting for the running state.")
+                time.sleep(min(api.poll_interval, remaining))
     except KeyboardInterrupt:
-        if args.logs:
+        if args.logs and not args.stop:
             print("\nLog retrieval interrupted.", file=sys.stderr, flush=True)
         else:
             print("\nInterrupted; requesting stop.", flush=True)
@@ -273,6 +248,16 @@ def main():
                 exit_code = 1
         if worker is not None:
             worker.shutdown(wait=True)
+        if args.stop and args.logs and api is not None:
+            # Collect debug.txt after the stop attempt, even if it was not confirmed.
+            try:
+                api.fetch_logs(args.output)
+            except KeyboardInterrupt:
+                print("\nLog retrieval interrupted.", file=sys.stderr, flush=True)
+                exit_code = exit_code or 130
+            except Exception as exc:
+                print(f"Error: {str(exc).replace(api.key, '<redacted>')}", file=sys.stderr)
+                exit_code = exit_code or 1
     return exit_code
 
 

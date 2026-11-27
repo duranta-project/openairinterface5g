@@ -37,7 +37,7 @@
 
   <testCase>
     <class>Create_Workspace</class>
-    <desc>Create new Workspace on rocket</desc>
+    <desc>Create new Workspace on jetson2-oai</desc>
     <node>jetson2-oai</node>
   </testCase>
 
@@ -106,7 +106,16 @@
     <always_exec>true</always_exec>
     <desc>Stop NTN GEO emulation</desc>
     <node>jetson2-oai</node>
-    <command>python3 %%workspace%%/ci-scripts/celeos_channel_emulation.py --stop --logs --output %%log_dir%% --env /opt/celeos-emulation-client/.env</command>
+    <command>python3 %%workspace%%/ci-scripts/celeos_channel_emulation.py --stop --logs --output /tmp/celeos.log --env /opt/celeos-emulation-client/.env</command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Script</class>
+    <always_exec>true</always_exec>
+    <desc>Collect logs from CELEOS channel emulator</desc>
+    <node>localhost</node>
+    <script>scripts/remote-collect-log.sh</script>
+    <options>/tmp/celeos.log %%log_dir%% jetson2-oai</options>
   </testCase>
 
   <testCase>
