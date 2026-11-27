@@ -314,6 +314,12 @@ typedef struct
 
 } nfapi_nr_ue_ul_beamforming_t;
 
+// Power values for the Type 1 report for this PUSCH, in dBm.
+typedef struct {
+  float required_power;
+  int pcmax;
+} nr_ue_pusch_phr_t;
+
 typedef struct
 {
   uint16_t pdu_bit_map;//Bitmap indicating presence of optional PDUs (see above)
@@ -364,6 +370,7 @@ typedef struct
   nfapi_nr_ue_ul_beamforming_t beamforming;
   //OAI specific
   int16_t tx_power;
+  nr_ue_pusch_phr_t phr;
   fapi_nr_tx_request_body_t tx_request_body;
 } nfapi_nr_ue_pusch_pdu_t;
 

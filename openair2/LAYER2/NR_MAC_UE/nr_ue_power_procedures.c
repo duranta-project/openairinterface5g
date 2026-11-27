@@ -433,7 +433,8 @@ int get_pusch_tx_power_ue(NR_UE_MAC_INST_t *mac,
                           uint32_t sum_bits_in_codeblocks,
                           int delta_pusch,
                           bool is_rar_tx_retx,
-                          bool transform_precoding)
+                          bool transform_precoding,
+                          nr_ue_pusch_phr_t *phr)
 {
   LOG_D(NR_MAC,
         "PUSCH tx power determination num_rb=%d start_prb=%d nb_symb_sch=%u nb_dmrs_prb=%u nb_ptrs_prb=%u Qm=%u R= %u "
@@ -536,7 +537,8 @@ int get_pusch_tx_power_ue(NR_UE_MAC_INST_t *mac,
   int16_t pathloss = compute_nr_SSB_PL(mac);
   int P_CMIN = mac->current_UL_BWP->P_CMIN;
 
-  float pusch_power_without_f_b_f_c = P_O_PUSCH + M_pusch_component + alpha * pathloss + DELTA_TF;
+  const float power_with_pathloss = P_O_PUSCH + M_pusch_component + alpha * pathloss;
+  float pusch_power_without_f_b_f_c = power_with_pathloss + DELTA_TF;
 
   int f_b_f_c = 0;
   if (has_pusch_power_control_config && pusch_Config->pusch_PowerControl->tpc_Accumulation) {
@@ -565,7 +567,13 @@ int get_pusch_tx_power_ue(NR_UE_MAC_INST_t *mac,
         alpha * pathloss,
         DELTA_TF,
         f_b_f_c);
-  return min(P_CMAX, P_O_PUSCH + M_pusch_component + alpha * pathloss + DELTA_TF + f_b_f_c);
+  const float required_power = pusch_power_without_f_b_f_c + f_b_f_c;
+  if (phr) {
+    // Alpha is specified in tenths and pathloss in whole dB. Recover the decimal value before adding the other power terms.
+    const float report_base_power = roundf(10.0f * power_with_pathloss) / 10.0f;
+    *phr = (nr_ue_pusch_phr_t){.required_power = report_base_power + DELTA_TF + f_b_f_c, .pcmax = P_CMAX};
+  }
+  return min(P_CMAX, required_power);
 }
 
 int get_srs_tx_power_ue(NR_UE_MAC_INST_t *mac,

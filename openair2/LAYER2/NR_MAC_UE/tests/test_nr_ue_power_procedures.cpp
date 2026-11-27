@@ -235,7 +235,8 @@ TEST(pusch_power_control, pusch_power_control_msg3)
                                     sum_bits_in_codeblocks,
                                     delta_pusch,
                                     is_rar_tx_retx,
-                                    false);
+                                    false,
+                                    nullptr);
   EXPECT_EQ(power, -84);
   EXPECT_LT(power, P_CMAX);
   mac.ra.prach_resources.ra_preamble_rx_target_power -= 2;
@@ -252,7 +253,8 @@ TEST(pusch_power_control, pusch_power_control_msg3)
                                             sum_bits_in_codeblocks,
                                             delta_pusch,
                                             is_rar_tx_retx,
-                                            false);
+                                            false,
+                                            nullptr);
   EXPECT_EQ(std::min(P_CMAX, power - 2), reduced_power) << "Incorrect handling of preambleReceivedTargetPower";
   EXPECT_LT(reduced_power, P_CMAX) << "Power above P_CMAX";
 
@@ -269,7 +271,8 @@ TEST(pusch_power_control, pusch_power_control_msg3)
                                               sum_bits_in_codeblocks,
                                               delta_pusch,
                                               is_rar_tx_retx,
-                                              false);
+                                              false,
+                                              nullptr);
   EXPECT_EQ(std::min(P_CMAX, reduced_power + delta_pusch), increased_power) << "delta_pusch should increase tx power";
   EXPECT_LT(increased_power, P_CMAX) << "Power above P_CMAX";
 }
@@ -334,7 +337,8 @@ TEST(pusch_power_control, pusch_power_data)
                                     sum_bits_in_codeblocks,
                                     delta_pusch,
                                     is_rar_tx_retx,
-                                    transform_precoding);
+                                    transform_precoding,
+                                    nullptr);
   EXPECT_LE(power, P_CMAX);
   EXPECT_EQ(power, 18);
 
@@ -352,7 +356,8 @@ TEST(pusch_power_control, pusch_power_data)
                                 sum_bits_in_codeblocks,
                                 delta_pusch,
                                 is_rar_tx_retx,
-                                transform_precoding);
+                                transform_precoding,
+                                nullptr);
   EXPECT_EQ(power, P_CMAX) << "Expecting max tx power because of deltaMCS with CSI-only";
 }
 
@@ -399,7 +404,8 @@ TEST(pusch_power_control, pusch_power_control_state_initialization)
                         sum_bits_in_codeblocks,
                         delta_pusch,
                         is_rar_tx_retx,
-                        false);
+                        false,
+                        nullptr);
   EXPECT_EQ(mac.pusch_power_control_initialized, true);
 }
 
@@ -463,7 +469,8 @@ TEST(pusch_power_control, pusch_power_control_state)
                                     sum_bits_in_codeblocks,
                                     delta_pusch,
                                     is_rar_tx_retx,
-                                    transform_precoding);
+                                    transform_precoding,
+                                    nullptr);
   EXPECT_LE(power, P_CMAX);
   EXPECT_EQ(power, 11);
   for (int i = 0; i < 20; i++) {
@@ -479,7 +486,8 @@ TEST(pusch_power_control, pusch_power_control_state)
                                                 sum_bits_in_codeblocks,
                                                 delta_pusch,
                                                 is_rar_tx_retx,
-                                                transform_precoding);
+                                                transform_precoding,
+                                                nullptr);
     EXPECT_GE(increased_power, power);
     EXPECT_LE(increased_power, P_CMAX);
     power = increased_power;
@@ -499,7 +507,8 @@ TEST(pusch_power_control, pusch_power_control_state)
                                               sum_bits_in_codeblocks,
                                               delta_pusch,
                                               is_rar_tx_retx,
-                                              transform_precoding);
+                                              transform_precoding,
+                                              nullptr);
     EXPECT_LE(reduced_power, power);
     EXPECT_LE(reduced_power, P_CMAX);
     power = reduced_power;
@@ -550,7 +559,8 @@ TEST(pusch_power_control, pusch_power_100_rb)
                                     sum_bits_in_codeblocks,
                                     delta_pusch,
                                     is_rar_tx_retx,
-                                    transform_precoding);
+                                    transform_precoding,
+                                    nullptr);
   num_rb = 100;
   sum_bits_in_codeblocks = nr_compute_tbs(Qm, R, num_rb, nb_symb_sch, nb_dmrs_prb, 0, 0, 1);
 
@@ -566,7 +576,8 @@ TEST(pusch_power_control, pusch_power_100_rb)
                                              sum_bits_in_codeblocks,
                                              delta_pusch,
                                              is_rar_tx_retx,
-                                             transform_precoding);
+                                             transform_precoding,
+                                             nullptr);
   EXPECT_GT(power_100_prbs, power);
 }
 
