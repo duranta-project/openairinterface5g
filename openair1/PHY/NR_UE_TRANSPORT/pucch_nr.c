@@ -563,7 +563,8 @@ void nr_uci_encoding(uint64_t payload, uint8_t nr_bit, uint8_t aggregation_level
     // Polar encoder handles encoding and rate matching internally
     payload = reverse_bits(payload, A);
     int type = onPUSCH ? NR_POLAR_UCI_PUSCH_MESSAGE_TYPE : NR_POLAR_UCI_PUCCH_MESSAGE_TYPE;
-    polar_encoder_fast(&payload, b, 0, 0, type, A, aggregation_level);
+    // on PUSCH the polar code is rate matched to E (38.212 6.3.2.4), not to 16 times the aggregation level of PUCCH
+    polar_encoder_fast(&payload, b, 0, 0, type, A, onPUSCH ? E : aggregation_level);
   }
 }
 
