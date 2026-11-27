@@ -161,10 +161,6 @@ void nr_feptx(void *arg)
   int startSymbol = feptx->startSymbol;
   int numSymbols = feptx->numSymbols;
 
-  // Without digital beamforming the gNB frequency-domain data (fftshifted layout) is modulated directly
-  AssertFatal(ru->config.dbt_config.num_dig_beams == 0 || ru->gNB_list[0]->common_vars.analog_bf,
-              "This needs to be fixed by using appropriate beams from config\n");
-
   ////////////FEPTX////////////
   const NR_DL_FRAME_PARMS *fp = &ru->gNB_list[0]->frame_parms;
   nr_feptx0(ru, slot, startSymbol, numSymbols, aa, ru->gNB_list[0]->common_vars.txdataF[aa], fp->N_RB_DL * NR_NB_SC_PER_RB);
@@ -177,13 +173,12 @@ void nr_feptx(void *arg)
 void nr_feptx_tp(RU_t *ru, int frame_tx, int slot)
 {
   nfapi_nr_config_request_scf_t *cfg = &ru->gNB_list[0]->gNB_config;
-  const NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
 
   if (nr_slot_select(cfg, frame_tx, slot) == NR_UPLINK_SLOT)
     return;
   start_meas(&ru->ofdm_total_stats);
 
-  int nt = fp->nb_antennas_tx;
+  int nt = ru->gNB_list[0]->common_vars.num_tx_bb;
   size_t const sz = nt + (ru->half_slot_parallelization > 0) * nt;
   feptx_cmd_t arr[sz];
   task_ans_t ans;
