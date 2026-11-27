@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: LicenseRef-CSSL-1.0
+
+uicc0:
+  imsi: 208990100001100
+  key: fec86ba6eb707ed08905757b1bb44b8f
+  opc: C42449363BBAD02B66D16BC975D77CC1
+  pdu_sessions:
+    - dnn: oai
+      nssai_sst: 1
+
+thread-pool: "-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1"
+
+band: 78
+C: 3339660000
+r: 217
+numerology: 1
+ssb: 516
+ue-capability-rx2tx: 2
+
+device:
+  name: vrtsim
+vrtsim:
+  role: client
+
+#/* configuration for channel modelisation */
+#/* To be included in main config file when */
+#/* channel modelisation is used (rfsimulator with chanmod options enabled) */
+#channelmod:
+#  max_chan: 10
+#  modellist: modellist_rfsimu_1
+#  modellist_rfsimu_1:
+#    - model_name: rfsimu_channel_enB0
+#      type: AWGN
+#      ploss_dB: 10
+#      noise_power_dB: -19
+#      forgetfact: 0
+#      offset: 0
+#      ds_tdl: 0
+#    - model_name: rfsimu_channel_ue0
+#      type: AWGN
+#      ploss_dB: 10
+#      noise_power_dB: -17
+#      forgetfact: 0
+#      offset: 0
+#      ds_tdl: 0
