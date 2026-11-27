@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
+#include <type_traits>
 #include "gtest/gtest.h"
 extern "C" {
 #include "common/platform_types.h"
@@ -219,6 +220,51 @@ TEST(test_init_ra, four_step_cfra)
   EXPECT_EQ(mac.state, UE_PERFORMING_RA);
   EXPECT_EQ(mac.ra.RA_active, true);
   EXPECT_EQ(mac.ra.cfra, 1);
+}
+
+// contention-free RA on the second of two SSBs, one SSB per RO: the UE has to take the second RO
+TEST(test_ra_resource_selection, four_step_cfra_second_ssb)
+{
+  NR_UE_MAC_INST_t mac = {0};
+  RA_config_t *ra = &mac.ra;
+  NR_RACH_ConfigCommon_t nr_rach_ConfigCommon = {0};
+  NR_UE_UL_BWP_t current_bwp = {0};
+  long scs = 0;
+  current_bwp.scs = scs;
+  nr_rach_ConfigCommon.msg1_SubcarrierSpacing = &scs;
+  current_bwp.rach_ConfigCommon = &nr_rach_ConfigCommon;
+  mac.current_UL_BWP = &current_bwp;
+  mac.frame_structure.frame_type = FDD;
+  mac.frame_structure.numb_slots_frame = 10;
+  mac.frequency_range = FR1;
+  // format 0, subframes 1 and 6: two ROs per frame
+  ra->ra_config_index = 19;
+  ra->num_fd_occasions = 1;
+  mac.ssb_ro_preambles = (ssb_ro_preambles_t){.ssb_per_ro = 1, .preambles_per_ssb = 32};
+  mac.ssb_list.nb_tx_ssb = 2;
+  mac.ssb_list.nb_ssb_per_index[0] = 0;
+  mac.ssb_list.nb_ssb_per_index[1] = 1;
+  mac.mib_ssb = 1;
+
+  NR_CFRA_SSB_Resource_t res[2] = {{.ssb = 0, .ra_PreambleIndex = 60}, {.ssb = 1, .ra_PreambleIndex = 61}};
+  NR_CFRA_SSB_Resource_t *res_list[2] = {&res[0], &res[1]};
+  NR_CFRA_t cfra = {0};
+  std::remove_pointer_t<decltype(cfra.resources.choice.ssb)> ssb_res = {};
+  ssb_res.ssb_ResourceList.list.array = res_list;
+  ssb_res.ssb_ResourceList.list.count = 2;
+  cfra.resources.present = NR_CFRA__resources_PR_ssb;
+  cfra.resources.choice.ssb = &ssb_res;
+  NR_RACH_ConfigDedicated_t rach_ConfigDedicated = {0};
+  rach_ConfigDedicated.cfra = &cfra;
+  ra->rach_ConfigDedicated = &rach_ConfigDedicated;
+  ra->ra_type = RA_4_STEP;
+
+  ra_resource_selection(&mac);
+
+  EXPECT_EQ(ra->ra_PreambleIndex, 61);
+  EXPECT_EQ(ra->ra_ssb, 1);
+  EXPECT_EQ(ra->sched_ro_info.slot, 6);
+  EXPECT_EQ(ra->sched_ro_info.association_period_idx, 0);
 }
 
 int main(int argc, char **argv)

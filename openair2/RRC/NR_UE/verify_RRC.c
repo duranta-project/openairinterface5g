@@ -25,6 +25,7 @@ static bool check_resourcesForInterference(const NR_CSI_MeasConfig_t *meas, NR_C
       }
     } else {
       if (res->csi_RS_ResourceSetList.present != NR_CSI_ResourceConfig__csi_RS_ResourceSetList_PR_nzp_CSI_RS_SSB
+          || !res->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB
           || !res->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList) {
         LOG_E(NR_RRC, "NZP CSI-RS resourcesForInterference doesn't point to NZP CSI-RS resource\n");
         return false;
@@ -53,11 +54,12 @@ static bool check_resourcesForChannelMeasurement(const NR_CSI_MeasConfig_t *meas
       LOG_E(NR_RRC, "resourcesForChannelMeasurement doesn't point to CSI-RS-SSB resource\n");
       return false;
     } else {
-      if (!res->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList
-          && (quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP
-          && quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_NOTHING
-          && quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_none)) {
-        LOG_E(NR_RRC, "resourcesForChannelMeasurement is for CRI measurement but doen't point to an CRI-RS resource\n");
+      if (!res->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB
+          || (!res->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->nzp_CSI_RS_ResourceSetList
+              && (quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP
+                  && quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_NOTHING
+                  && quantity.present != NR_CSI_ReportConfig__reportQuantity_PR_none))) {
+        LOG_E(NR_RRC, "resourcesForChannelMeasurement is for CRI measurement but doesn't point to a CSI-RS resource\n");
         return false;
       }
     }
@@ -225,7 +227,11 @@ static bool check_csi_resource_consistency(const NR_CSI_MeasConfig_t *meas)
 
 static bool check_csi_MeasConfig(struct NR_SetupRelease_CSI_MeasConfig *csi_MeasConfig)
 {
+  if (csi_MeasConfig->present != NR_SetupRelease_CSI_MeasConfig_PR_setup)
+    return true;
   const NR_CSI_MeasConfig_t *meas = csi_MeasConfig->choice.setup;
+  if (!meas)
+    return false;
   if (!check_csi_resource_consistency(meas))
     return false;
   return true;

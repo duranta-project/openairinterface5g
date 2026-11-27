@@ -46,6 +46,8 @@ nr_cell_sched_t *nr_mac_get_cell_by_cgi(gNB_MAC_INST *mac, plmn_id_t plmn, uint6
 bool add_new_UE_RA(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 int nr_mac_get_reconfig_delay_slots(NR_SubcarrierSpacing_t scs);
 
+void free_beam_information(NR_beam_info_t *bi);
+
 int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_info);
 
 void clear_nr_nfapi_information(nr_cell_sched_t *cell, frame_t frameP, slot_t slotP);
@@ -553,9 +555,9 @@ bool nr_mac_request_release_ue(const gNB_MAC_INST *nrmac, int rnti);
 void clean_bwp_structures(NR_SpCellConfig_t *spCellConfig);
 bool nr_mac_ue_is_active(const NR_UE_info_t *ue);
 
-void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing);
-void nr_mac_reset_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl);
-bool nr_mac_check_ul_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *sched_ctrl);
+void nr_mac_trigger_link_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing);
+void nr_mac_reset_link_failure(NR_UE_sched_ctrl_t *sched_ctrl);
+bool nr_mac_check_link_failure(gNB_MAC_INST *nrmac, int rnti, NR_UE_sched_ctrl_t *sched_ctrl);
 
 void nr_mac_trigger_reconfiguration(const gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, NR_UE_info_t *UE, int new_bwp_id, int new_beam);
 void reset_sc_info(NR_UE_ServingCell_Info_t *sc_info);
@@ -572,7 +574,8 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
                                      const NR_BCCH_DL_SCH_Message_t *sib1);
 
 void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group);
-
+void free_sched_ctrlSIB1(nr_cell_sched_t *cell);
+void free_ul_vrb_map(nr_cell_sched_t *cell);
 void post_process_dlsch(gNB_MAC_INST *nr_mac,
                         nr_cell_sched_t *cell,
                         post_process_pdsch_t *pdsch,

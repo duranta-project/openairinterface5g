@@ -471,8 +471,8 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
         AssertFatal(re >= -1.0f && re <= 1.0f, "DBT real weight out of range [-1,1]: %f\n", re);
         AssertFatal(im >= -1.0f && im <= 1.0f, "DBT imag weight out of range [-1,1]: %f\n", im);
         c16_t q15 = convert_precoder_weight(config->bt.beam_weights[b][w]);
-        beam->txru_list[w].dig_beam_weight_Re = (uint16_t)q15.r;
-        beam->txru_list[w].dig_beam_weight_Im = (uint16_t)q15.i;
+        beam->txru_list[w].dig_beam_weight_Re = q15.r;
+        beam->txru_list[w].dig_beam_weight_Im = q15.i;
       }
     }
 
@@ -784,7 +784,8 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
    * antenna ports. The TXRU counts come from the Aerial config section; when
    * not set (0) fall back to the previous behavior. */
   const nr_aerial_config_t *aerial_cfg = &config->aerial;
-  if (config->beam_config.bf_method == BF_METHOD_PREDEFINED && !config->beam_config.beam_id_to_ru) {
+  if (NFAPI_MODE == NFAPI_MODE_AERIAL && config->beam_config.bf_method == BF_METHOD_PREDEFINED
+      && !config->beam_config.beam_id_to_ru) {
     // if we are doing BF in Aerial we need these Custom TLV. The weights are applied
     // per TXRU, so the count has to be configured rather than guessed
     AssertFatal(aerial_cfg->num_tx_ant > 0 && aerial_cfg->num_rx_ant > 0,
@@ -842,7 +843,8 @@ static void config_common(nr_cell_sched_t *cell, const nr_mac_config_t *config, 
     cfg->analog_beamforming_ve.num_beams_period_vendor_ext.value = config->beam_config.beams_per_period;
     cfg->num_tlv++;
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.tl.tag = NFAPI_NR_FAPI_ANALOG_BF_VENDOR_EXTENSION_TAG;
-    cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = 1;  // analog BF enabled
+    // beam IDs for the radio or fronthaul; with a digital beam table L1 applies the weights itself
+    cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = config->beam_config.beam_id_to_ru;
     cfg->num_tlv++;
   } else {
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = 0;  // analog BF disabled
@@ -909,6 +911,39 @@ static NR_beam_info_t initialize_beam_information(const NR_beam_config_t *beam_c
       beam_info.beam_allocation[i][j] = -1;
   }
   return beam_info;
+}
+
+void free_beam_information(NR_beam_info_t *bi)
+{
+  if (!bi->beam_allocation)
+    return;
+  /* otherwise we have a beam config */
+  for (int b = 0; b < bi->config.beams_per_period; b++)
+    free(bi->beam_allocation[b]);
+  free(bi->beam_allocation);
+}
+
+void free_sched_ctrlSIB1(nr_cell_sched_t *cell)
+{
+  if (!cell->sched_ctrlSIB1)
+    return;
+  NR_COMMON_channels_t *cc = &cell->common_channels;
+  for (int i = 0; i < get_max_ssbs(cc->ServingCellConfigCommon); i++) {
+    if (!is_ssb_configured(cc->ServingCellConfigCommon, i))
+      continue;
+    free(cell->sched_ctrlSIB1->search_space[i].controlResourceSetId);
+    free(cell->sched_ctrlSIB1->search_space[i].nrofCandidates);
+    free(cell->sched_ctrlSIB1->search_space[i].monitoringSymbolsWithinSlot->buf);
+    free(cell->sched_ctrlSIB1->search_space[i].monitoringSymbolsWithinSlot);
+    free(cell->sched_ctrlSIB1->search_space[i].monitoringSlotPeriodicityAndOffset);
+    free(cell->sched_ctrlSIB1->search_space[i].duration);
+    free(cell->sched_ctrlSIB1->search_space[i].searchSpaceType->choice.common->dci_Format0_0_AndFormat1_0);
+    free(cell->sched_ctrlSIB1->search_space[i].searchSpaceType->choice.common);
+    free(cell->sched_ctrlSIB1->search_space[i].searchSpaceType);
+  }
+  free(cell->sched_ctrlSIB1->coreset.frequencyDomainResources.buf);
+  free(cell->sched_ctrlSIB1->coreset.cce_REG_MappingType.choice.interleaved);
+  free(cell->sched_ctrlSIB1);
 }
 
 static int config_sched_ctrlSIB1(nr_cell_sched_t *cell)
@@ -994,6 +1029,15 @@ static void init_ul_tda_info(const NR_PUSCH_TimeDomainResourceAllocationList_t *
     LOG_I(NR_MAC, "TDA index %d: start %d length %d k2 %ld\n", i, tda.startSymbolIndex, tda.nrOfSymbols, tda.k2);
     seq_arr_push_back(sa_tda, &tda, sizeof(tda));
   }
+}
+
+void free_ul_vrb_map(nr_cell_sched_t *cell)
+{
+  int num_beams = 1;
+  if (cell->beam_info.config.bf_method != BF_METHOD_STRAIGHT_WIRE)
+    num_beams = cell->beam_info.config.beams_per_period;
+  for (int i = 0; i < num_beams; i++)
+    free(cell->common_channels.vrb_map_UL[i]);
 }
 
 void nr_mac_cell_config_scc(nr_cell_sched_t *cell, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)

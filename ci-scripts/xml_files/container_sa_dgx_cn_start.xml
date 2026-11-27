@@ -1,0 +1,12 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabName>Deploy 5GC</htmlTabName>
+
+  <testCase>
+    <class>DeployCoreNetwork</class>
+    <desc>Initialize 5G Core</desc>
+    <cn_id>oc-cn5g-00104</cn_id>
+  </testCase>
+
+</testCaseList>

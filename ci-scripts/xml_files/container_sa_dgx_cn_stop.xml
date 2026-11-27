@@ -1,0 +1,13 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+
+<testCaseList>
+  <htmlTabName>Undeploy 5GC</htmlTabName>
+
+  <testCase>
+    <class>UndeployCoreNetwork</class>
+    <always_exec>true</always_exec>
+    <desc>Terminate 5G Core</desc>
+    <cn_id>oc-cn5g-00104</cn_id>
+  </testCase>
+
+</testCaseList>

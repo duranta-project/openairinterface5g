@@ -56,7 +56,7 @@ void nr_fill_du(uint16_t N_ZC, const uint16_t* prach_root_sequence_map, uint16_t
 
 }
 
-void compute_nr_prach_seq(uint8_t short_sequence, uint8_t num_sequences, uint8_t rootSequenceIndex, c16_t X_u[64][839])
+void compute_nr_prach_seq(uint8_t short_sequence, uint8_t num_sequences, uint16_t rootSequenceIndex, c16_t X_u[64][839])
 {
   // Compute DFT of x_u => X_u[k] = x_u(inv(u)*k)^* X_u[k] = exp(j\pi u*inv(u)*k*(inv(u)*k+1)/N_ZC)
   LOG_D(PHY,"compute_prach_seq: prach short sequence %x, num_sequences %d, rootSequenceIndex %d\n", short_sequence, num_sequences, rootSequenceIndex);

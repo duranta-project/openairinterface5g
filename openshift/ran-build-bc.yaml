@@ -14,7 +14,7 @@ spec:
         type: "Binary"
     strategy:
         dockerStrategy:
-            dockerfilePath: "docker/Dockerfile.build.rhel9"
+            dockerfilePath: "docker/Dockerfile.build.centos"
     output:
         to:
             kind: "ImageStreamTag"

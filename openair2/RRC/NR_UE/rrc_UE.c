@@ -2308,7 +2308,7 @@ static void nr_rrc_handle_msg3_indication(NR_UE_RRC_INST_t *rrc, rnti_t rnti)
 static void nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(NR_UE_RRC_INST_t *rrc,
                                                     const uint8_t gNB_index,
                                                     uint8_t *const Sdu,
-                                                    const uint8_t Sdu_len,
+                                                    const uint32_t Sdu_len,
                                                     int hfn,
                                                     int frame,
                                                     int slot)

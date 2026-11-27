@@ -166,6 +166,21 @@ static void select_preamble_group(NR_UE_MAC_INST_t *mac)
   // else if Msg3 is being retransmitted, we keep what used in first transmission of Msg3
 }
 
+// SSBs per RACH occasion and preambles per SSB, for contention-based and contention-free RA alike
+static void config_ssb_ro(NR_UE_MAC_INST_t *mac)
+{
+  RA_config_t *ra = &mac->ra;
+  ra->ssb_ro_config = mac->ssb_ro_preambles;
+  if (ra->ra_type == RA_2_STEP) {
+    NR_RACH_ConfigCommonTwoStepRA_r16_t *twostep = &mac->current_UL_BWP->msgA_ConfigCommon_r16->rach_ConfigCommonTwoStepRA_r16;
+    // For Type-2 random access procedure with separate configuration of PRACH occasions with Type-1 random access procedure
+    // configuration by msgA-SSB-PerRACH-OccasionAndCB-PreamblesPerSSB when provided;
+    // otherwise, by ssb-perRACH-OccasionAndCB-PreamblesPerSSB
+    if (twostep->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16)
+      ra->ssb_ro_config = get_ssb_ro_preambles_2step(twostep->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
+  }
+}
+
 static void config_preamble_index(NR_UE_MAC_INST_t *mac)
 {
   RA_config_t *ra = &mac->ra;
@@ -184,7 +199,6 @@ static void config_preamble_index(NR_UE_MAC_INST_t *mac)
   bool groupBconfigured = false;
   int preamb_ga = 0;
   if (ra->ra_type == RA_4_STEP) {
-    ra->ssb_ro_config = mac->ssb_ro_preambles;
     if (nr_rach_ConfigCommon->totalNumberOfRA_Preambles)
       nb_of_preambles = *nr_rach_ConfigCommon->totalNumberOfRA_Preambles;
     // Amongst the contention-based Random Access Preambles associated with an SSB the first numberOfRA-PreamblesGroupA
@@ -203,14 +217,6 @@ static void config_preamble_index(NR_UE_MAC_INST_t *mac)
     // otherwise the field is not present
     bool sharedROs = twostep->msgA_CB_PreamblesPerSSB_PerSharedRO_r16 != NULL;
     AssertFatal(sharedROs == false, "Shared ROs between 2- and 4-step RA not supported\n");
-
-    // For Type-2 random access procedure with separate configuration of PRACH occasions with Type-1 random access procedure
-    // configuration by msgA-SSB-PerRACH-OccasionAndCB-PreamblesPerSSB when provided;
-    // otherwise, by ssb-perRACH-OccasionAndCB-PreamblesPerSSB
-    if (twostep->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16)
-      ra->ssb_ro_config = get_ssb_ro_preambles_2step(twostep->msgA_SSB_PerRACH_OccasionAndCB_PreamblesPerSSB_r16);
-    else
-      ra->ssb_ro_config = mac->ssb_ro_preambles;
     if (twostep->msgA_TotalNumberOfRA_Preambles_r16)
       nb_of_preambles = *twostep->msgA_TotalNumberOfRA_Preambles_r16;
   }
@@ -241,6 +247,7 @@ static void configure_ra_preamble(NR_UE_MAC_INST_t *mac)
   int ssb = -1; // init as not selected
   ra->ro_mask_index = -1; // init as not selected
   NR_RACH_ConfigDedicated_t *rach_ConfigDedicated = ra->rach_ConfigDedicated;
+  config_ssb_ro(mac);
   if (ra->ra_type == RA_4_STEP) {
     // TODO if the Random Access procedure was initiated for SpCell beam failure recovery
     // TODO if the Random Access procedure was initiated for SI request

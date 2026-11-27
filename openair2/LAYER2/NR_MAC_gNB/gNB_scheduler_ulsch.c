@@ -830,6 +830,7 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
     if (!transition_ra_connected_nr_ue(mac, UE)) {
       LOG_E(NR_MAC, "cannot add UE %04x: list is full\n", UE->rnti);
       release_nr_ue_inst(&mac->UE_info.uid_allocator, UE);
+      return;
     } else {
       LOG_A(NR_MAC, "(rnti 0x%04x) CFRA procedure succeeded!\n", UE->rnti);
     }
@@ -917,8 +918,8 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
     }
     // in case UE beam has changed
     old_UE->UE_beam_index = UE->UE_beam_index;
-    // Reset UL failure for old UE
-    nr_mac_reset_ul_failure(&old_UE->UE_sched_ctrl);
+    // Reset link failure for old UE
+    nr_mac_reset_link_failure(&old_UE->UE_sched_ctrl);
     // Reset HARQ processes
     reset_dl_harq_list(&old_UE->UE_sched_ctrl);
     reset_ul_harq_list(&old_UE->UE_sched_ctrl);
@@ -945,6 +946,10 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
     return;
   }
 
+  // Decode MAC PDU
+  *rlc_rnti = UE->rnti;
+  nr_process_mac_pdu(mac, cell, UE, frame, slot, rx->pdu, rx->pdu_length, rx->harq_id, data_ind, num_data_ind);
+
   if (cfra)
     return; // rest not relevant for CFRA
 
@@ -952,10 +957,6 @@ static void nr_rx_ra_sdu_rx(gNB_MAC_INST *mac,
   // Store the first 48 bits belonging to the uplink CCCH SDU within Msg3 to fill in Msg4
   // First byte corresponds to R/LCID MAC sub-header
   memcpy(ra->cont_res_id, &rx->pdu[1], sizeof(uint8_t) * 6);
-
-  // Decode MAC PDU
-  *rlc_rnti = UE->rnti;
-  nr_process_mac_pdu(mac, cell, UE, frame, slot, rx->pdu, rx->pdu_length, rx->harq_id, data_ind, num_data_ind);
 
   LOG_I(NR_MAC,
         "Activating scheduling %s for %s 0x%04x (state %s)\n",
@@ -1066,7 +1067,7 @@ static void _nr_rx_sdu_crc(gNB_MAC_INST *gNB_mac,
             slotP,
             UE->rnti,
             UE->UE_sched_ctrl.pusch_consecutive_dtx_cnt);
-      nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
+      nr_mac_trigger_link_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
     }
   }
 

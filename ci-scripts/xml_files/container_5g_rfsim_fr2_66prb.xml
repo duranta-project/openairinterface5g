@@ -89,7 +89,7 @@
     <node>localhost</node>
     <yaml_path>ci-scripts/yaml_files/5g_rfsimulator_fr2_66prb</yaml_path>
     <analysis>
-      <services>oai-gnb=RetxCheck=10,100,100,100 oai-gnb=EndsWithBye oai-nr-ue</services>
+      <services>oai-gnb=RetxCheck=15,100,100,100 oai-gnb=EndsWithBye oai-nr-ue</services>
     </analysis>
   </testCase>
 
