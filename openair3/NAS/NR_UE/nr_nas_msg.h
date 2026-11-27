@@ -22,7 +22,9 @@
 #define NAS_INTEGRITY_SIZE 4
 
 /* 3GPP TS 24.501: 9.11.3.50 Service type */
+#define SERVICE_TYPE_SIGNALLING 0x0
 #define SERVICE_TYPE_DATA 0x1
+#define SERVICE_TYPE_MOBILE_TERMINATED_SERVICES 0x2
 
 typedef enum fgs_mm_state_e {
   FGS_DEREGISTERED,
@@ -83,11 +85,14 @@ typedef struct {
   /* Active PDU sessions for PDU session status IE (TS 24.501 8.2.16.3 / 9.11.3.44) */
   uint8_t psi_status[MAX_NUM_PSI]; /* index 0 is spare */
   nas_ue_pdu_tun_t pdu_tun[MAX_NUM_PSI];
+  /* PDU session request that waits for the Service Request from 5GMM-IDLE (TS 24.501 5.6.1.1 case c) */
+  bool pdu_session_req_pending;
+  nas_pdu_session_req_t pending_pdu_session_req;
 } nr_ue_nas_t;
 
 nr_ue_nas_t *get_ue_nas_info(module_id_t module_id);
 void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, bool is_security_mode);
-void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, bool mo_ul_data);
+void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas, uint8_t service_type, bool mo_ul_data);
 void *nas_nrue_task(void *args_p);
 void *nas_nrue(void *args_p);
 void nas_init_nrue(int num_ues);
