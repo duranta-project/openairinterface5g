@@ -3216,3 +3216,232 @@ void free_e1ap_context_mod_confirm(const e1ap_bearer_mod_confirm_t *msg)
   UNUSED(msg);
   // do nothing
 }
+
+/* ====================================
+ *   E1AP Bearer Context Inactivity Notification
+ * ==================================== */
+
+/** @brief Encode Bearer Context Inactivity Notification (TS 38.463 clause 8.3.6)
+ *         gNB-CU-UP -> gNB-CU-CP. PDU Session Resource Activity List only */
+E1AP_E1AP_PDU_t *encode_e1_bearer_context_inactivity_notification(const e1ap_bearer_context_inactivity_notification_t *msg)
+{
+  DevAssert(msg != NULL);
+  DevAssert(msg->numPDUSessionActivity > 0);
+  DevAssert(msg->pduSessionActivity != NULL);
+
+  E1AP_E1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+  pdu->present = E1AP_E1AP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, initMsg);
+  initMsg->procedureCode = E1AP_ProcedureCode_id_bearerContextInactivityNotification;
+  initMsg->criticality = E1AP_Criticality_ignore;
+  initMsg->value.present = E1AP_InitiatingMessage__value_PR_BearerContextInactivityNotification;
+  E1AP_BearerContextInactivityNotification_t *out =
+      &pdu->choice.initiatingMessage->value.choice.BearerContextInactivityNotification;
+
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextInactivityNotificationIEs_t, ie1);
+  ie1->id = E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID;
+  ie1->criticality = E1AP_Criticality_reject;
+  ie1->value.present = E1AP_BearerContextInactivityNotificationIEs__value_PR_GNB_CU_CP_UE_E1AP_ID;
+  ie1->value.choice.GNB_CU_CP_UE_E1AP_ID = msg->gNB_cu_cp_ue_id;
+
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextInactivityNotificationIEs_t, ie2);
+  ie2->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID;
+  ie2->criticality = E1AP_Criticality_reject;
+  ie2->value.present = E1AP_BearerContextInactivityNotificationIEs__value_PR_GNB_CU_UP_UE_E1AP_ID;
+  ie2->value.choice.GNB_CU_UP_UE_E1AP_ID = msg->gNB_cu_up_ue_id;
+
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextInactivityNotificationIEs_t, ie3);
+  ie3->id = E1AP_ProtocolIE_ID_id_ActivityInformation;
+  ie3->criticality = E1AP_Criticality_reject;
+  ie3->value.present = E1AP_BearerContextInactivityNotificationIEs__value_PR_ActivityInformation;
+  E1AP_ActivityInformation_t *ai = &ie3->value.choice.ActivityInformation;
+  ai->present = E1AP_ActivityInformation_PR_pDU_Session_Resource_Activity_List;
+  asn1cCalloc(ai->choice.pDU_Session_Resource_Activity_List, actList);
+  for (int i = 0; i < msg->numPDUSessionActivity; i++) {
+    asn1cSequenceAdd(actList->list, E1AP_PDU_Session_Resource_Activity_Item_t, item);
+    item->pDU_Session_ID = msg->pduSessionActivity[i].sessionId;
+    item->pDU_Session_Resource_Activity = msg->pduSessionActivity[i].active ? E1AP_PDU_Session_Resource_Activity_active
+                                                                            : E1AP_PDU_Session_Resource_Activity_not_active;
+  }
+
+  return pdu;
+}
+
+/** @brief Decode Bearer Context Inactivity Notification (TS 38.463 clause 8.3.6) */
+bool decode_e1_bearer_context_inactivity_notification(e1ap_bearer_context_inactivity_notification_t *out,
+                                                      const E1AP_E1AP_PDU_t *pdu)
+{
+  DevAssert(out != NULL);
+  DevAssert(pdu != NULL);
+  _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_initiatingMessage);
+  E1AP_InitiatingMessage_t *type = pdu->choice.initiatingMessage;
+  _EQ_CHECK_LONG(type->procedureCode, E1AP_ProcedureCode_id_bearerContextInactivityNotification);
+  _EQ_CHECK_INT(type->value.present, E1AP_InitiatingMessage__value_PR_BearerContextInactivityNotification);
+  const E1AP_BearerContextInactivityNotification_t *in = &type->value.choice.BearerContextInactivityNotification;
+
+  E1AP_BearerContextInactivityNotificationIEs_t *ie;
+  E1AP_LIB_FIND_IE(E1AP_BearerContextInactivityNotificationIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID, true);
+  E1AP_LIB_FIND_IE(E1AP_BearerContextInactivityNotificationIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID, true);
+  E1AP_LIB_FIND_IE(E1AP_BearerContextInactivityNotificationIEs_t, ie, in, E1AP_ProtocolIE_ID_id_ActivityInformation, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    ie = in->protocolIEs.list.array[i];
+    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    switch (ie->id) {
+      case E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID:
+        _EQ_CHECK_INT(ie->value.present, E1AP_BearerContextInactivityNotificationIEs__value_PR_GNB_CU_CP_UE_E1AP_ID);
+        out->gNB_cu_cp_ue_id = ie->value.choice.GNB_CU_CP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID:
+        _EQ_CHECK_INT(ie->value.present, E1AP_BearerContextInactivityNotificationIEs__value_PR_GNB_CU_UP_UE_E1AP_ID);
+        out->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_ActivityInformation: {
+        _EQ_CHECK_INT(ie->value.present, E1AP_BearerContextInactivityNotificationIEs__value_PR_ActivityInformation);
+        const E1AP_ActivityInformation_t *ai = &ie->value.choice.ActivityInformation;
+        _EQ_CHECK_INT(ai->present, E1AP_ActivityInformation_PR_pDU_Session_Resource_Activity_List);
+        const E1AP_PDU_Session_Resource_Activity_List_t *list = ai->choice.pDU_Session_Resource_Activity_List;
+        if (list == NULL || list->list.count < 1) {
+          PRINT_ERROR("Missing PDU Session Resource Activity List\n");
+          return false;
+        }
+        out->numPDUSessionActivity = list->list.count;
+        out->pduSessionActivity = calloc_or_fail(out->numPDUSessionActivity, sizeof(*out->pduSessionActivity));
+        for (int j = 0; j < list->list.count; j++) {
+          const E1AP_PDU_Session_Resource_Activity_Item_t *item = list->list.array[j];
+          out->pduSessionActivity[j].sessionId = item->pDU_Session_ID;
+          out->pduSessionActivity[j].active = item->pDU_Session_Resource_Activity == E1AP_PDU_Session_Resource_Activity_active;
+        }
+        break;
+      }
+      default:
+        PRINT_ERROR("%s decoding failure: IE %ld is invalid\n", __func__, ie->id);
+        return false;
+    }
+  }
+  return true;
+}
+
+bool eq_bearer_context_inactivity_notification(const e1ap_bearer_context_inactivity_notification_t *a,
+                                               const e1ap_bearer_context_inactivity_notification_t *b)
+{
+  _EQ_CHECK_INT(a->gNB_cu_cp_ue_id, b->gNB_cu_cp_ue_id);
+  _EQ_CHECK_INT(a->gNB_cu_up_ue_id, b->gNB_cu_up_ue_id);
+  _EQ_CHECK_INT(a->numPDUSessionActivity, b->numPDUSessionActivity);
+  _EQ_CHECK_OPTIONAL_PTR(a, b, pduSessionActivity);
+  if (a->pduSessionActivity != NULL && b->pduSessionActivity != NULL) {
+    for (int i = 0; i < a->numPDUSessionActivity; i++) {
+      _EQ_CHECK_LONG(a->pduSessionActivity[i].sessionId, b->pduSessionActivity[i].sessionId);
+      _EQ_CHECK_INT(a->pduSessionActivity[i].active, b->pduSessionActivity[i].active);
+    }
+  }
+  return true;
+}
+
+e1ap_bearer_context_inactivity_notification_t cp_bearer_context_inactivity_notification(
+    const e1ap_bearer_context_inactivity_notification_t *msg)
+{
+  e1ap_bearer_context_inactivity_notification_t cp = *msg;
+  if (msg->numPDUSessionActivity > 0 && msg->pduSessionActivity != NULL) {
+    cp.pduSessionActivity = calloc_or_fail(msg->numPDUSessionActivity, sizeof(*cp.pduSessionActivity));
+    for (int i = 0; i < msg->numPDUSessionActivity; i++)
+      cp.pduSessionActivity[i] = msg->pduSessionActivity[i];
+  }
+  return cp;
+}
+
+void free_e1_bearer_context_inactivity_notification(const e1ap_bearer_context_inactivity_notification_t *msg)
+{
+  free(msg->pduSessionActivity);
+}
+
+/* ====================================
+ *   E1AP DL Data Notification
+ * ==================================== */
+
+/** @brief Encode DL Data Notification (TS 38.463 clause 8.3.7 / 9.2.2.13)
+ *         gNB-CU-UP -> gNB-CU-CP */
+E1AP_E1AP_PDU_t *encode_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg)
+{
+  DevAssert(msg != NULL);
+
+  E1AP_E1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+  pdu->present = E1AP_E1AP_PDU_PR_initiatingMessage;
+  asn1cCalloc(pdu->choice.initiatingMessage, initMsg);
+  initMsg->procedureCode = E1AP_ProcedureCode_id_dLDataNotification;
+  initMsg->criticality = E1AP_Criticality_ignore;
+  initMsg->value.present = E1AP_InitiatingMessage__value_PR_DLDataNotification;
+  E1AP_DLDataNotification_t *out = &pdu->choice.initiatingMessage->value.choice.DLDataNotification;
+
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_DLDataNotificationIEs_t, ie1);
+  ie1->id = E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID;
+  ie1->criticality = E1AP_Criticality_reject;
+  ie1->value.present = E1AP_DLDataNotificationIEs__value_PR_GNB_CU_CP_UE_E1AP_ID;
+  ie1->value.choice.GNB_CU_CP_UE_E1AP_ID = msg->gNB_cu_cp_ue_id;
+
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_DLDataNotificationIEs_t, ie2);
+  ie2->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID;
+  ie2->criticality = E1AP_Criticality_reject;
+  ie2->value.present = E1AP_DLDataNotificationIEs__value_PR_GNB_CU_UP_UE_E1AP_ID;
+  ie2->value.choice.GNB_CU_UP_UE_E1AP_ID = msg->gNB_cu_up_ue_id;
+
+  return pdu;
+}
+
+/** @brief Decode DL Data Notification (TS 38.463 clause 8.3.7 / 9.2.2.13) */
+bool decode_e1_dl_data_notification(e1ap_dl_data_notification_t *out, const E1AP_E1AP_PDU_t *pdu)
+{
+  DevAssert(out != NULL);
+  DevAssert(pdu != NULL);
+  _EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_initiatingMessage);
+  E1AP_InitiatingMessage_t *type = pdu->choice.initiatingMessage;
+  _EQ_CHECK_LONG(type->procedureCode, E1AP_ProcedureCode_id_dLDataNotification);
+  _EQ_CHECK_INT(type->value.present, E1AP_InitiatingMessage__value_PR_DLDataNotification);
+  const E1AP_DLDataNotification_t *in = &type->value.choice.DLDataNotification;
+
+  E1AP_DLDataNotificationIEs_t *ie;
+  E1AP_LIB_FIND_IE(E1AP_DLDataNotificationIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID, true);
+  E1AP_LIB_FIND_IE(E1AP_DLDataNotificationIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    ie = in->protocolIEs.list.array[i];
+    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    switch (ie->id) {
+      case E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID:
+        _EQ_CHECK_INT(ie->value.present, E1AP_DLDataNotificationIEs__value_PR_GNB_CU_CP_UE_E1AP_ID);
+        out->gNB_cu_cp_ue_id = ie->value.choice.GNB_CU_CP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID:
+        _EQ_CHECK_INT(ie->value.present, E1AP_DLDataNotificationIEs__value_PR_GNB_CU_UP_UE_E1AP_ID);
+        out->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_PPI:
+      case E1AP_ProtocolIE_ID_id_PDU_Session_To_Notify_List:
+        /* optional IEs not decoded in this slice */
+        break;
+      default:
+        PRINT_ERROR("%s decoding failure: IE %ld is invalid\n", __func__, ie->id);
+        return false;
+    }
+  }
+  return true;
+}
+
+bool eq_e1_dl_data_notification(const e1ap_dl_data_notification_t *a, const e1ap_dl_data_notification_t *b)
+{
+  _EQ_CHECK_INT(a->gNB_cu_cp_ue_id, b->gNB_cu_cp_ue_id);
+  _EQ_CHECK_INT(a->gNB_cu_up_ue_id, b->gNB_cu_up_ue_id);
+  return true;
+}
+
+e1ap_dl_data_notification_t cp_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg)
+{
+  // Shallow copy only
+  e1ap_dl_data_notification_t cp = *msg;
+  return cp;
+}
+
+void free_e1_dl_data_notification(const e1ap_dl_data_notification_t *msg)
+{
+  UNUSED(msg);
+}

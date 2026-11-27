@@ -701,4 +701,26 @@ typedef struct e1ap_bearer_mod_confirm_s {
   uint32_t gNB_cu_up_ue_id;
 } e1ap_bearer_mod_confirm_t;
 
+typedef struct {
+  long sessionId;
+  bool active;
+} e1ap_pdu_session_activity_item_t;
+
+/** Bearer Context Inactivity Notification (9.2.2.x / §8.3.6 3GPP TS 38.463)
+ * gNB-CU-UP -> gNB-CU-CP. */
+typedef struct e1ap_bearer_context_inactivity_notification_s {
+  uint32_t gNB_cu_cp_ue_id;
+  uint32_t gNB_cu_up_ue_id;
+  // ActivityInformation CHOICE (M): PDU Session Resource Activity List
+  int numPDUSessionActivity;
+  e1ap_pdu_session_activity_item_t *pduSessionActivity;
+} e1ap_bearer_context_inactivity_notification_t;
+
+/** DL Data Notification (TS 38.463 clause 9.2.2.13 / 8.3.7)
+ * gNB-CU-UP -> gNB-CU-CP */
+typedef struct e1ap_dl_data_notification_s {
+  uint32_t gNB_cu_cp_ue_id;
+  uint32_t gNB_cu_up_ue_id;
+} e1ap_dl_data_notification_t;
+
 #endif /* E1AP_MESSAGES_TYPES_H */
