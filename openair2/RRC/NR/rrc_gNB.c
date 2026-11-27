@@ -2649,7 +2649,7 @@ void store_du_f1u_tunnel(const f1ap_drb_setup_t *drbs, int n, gNB_RRC_UE_t *ue)
   for (int i = 0; i < n; i++) {
     const f1ap_drb_setup_t *drb_f1 = &drbs[i];
     AssertFatal(drb_f1->up_dl_tnl_len == 1, "can handle only one UP param\n");
-    AssertFatal(drb_f1->id < MAX_DRBS_PER_UE, "illegal DRB ID %d\n", drb_f1->id);
+    AssertFatal(drb_f1->id > 0 && drb_f1->id <= MAX_DRBS_PER_UE, "illegal DRB ID %d\n", drb_f1->id);
     drb_t *drb = get_drb(&ue->drbs, drb_f1->id);
     DevAssert(drb);
     drb->du_tunnel_config = f1u_gtp_update(drb_f1->up_dl_tnl[0].teid, drb_f1->up_dl_tnl[0].tl_address);
@@ -3355,7 +3355,7 @@ static int fill_f1_drbs_from_e1(const gNB_RRC_INST *rrc,
       qfis[j] = drb_config->qosFlows[j].qfi;
     drbs[nb_drb++] = fill_f1_drb_to_be_setup(rrc, rrc_drb, pdu, qfis, nb_qos_flows);
   }
-  DevAssert(nb_drb < MAX_DRBS_PER_UE);
+  DevAssert(nb_drb <= MAX_DRBS_PER_UE);
   return nb_drb;
 }
 
@@ -3374,7 +3374,7 @@ static int fill_drb_to_be_setup_from_e1_resp(const gNB_RRC_INST *rrc,
     DevAssert(pdu);
     nb_drb += fill_f1_drbs_from_e1(rrc, UE, pdu, session->DRBnGRanList, session->numDRBSetup, &drbs[nb_drb]);
   }
-  DevAssert(nb_drb < MAX_DRBS_PER_UE);
+  DevAssert(nb_drb <= MAX_DRBS_PER_UE);
   return nb_drb;
 }
 
