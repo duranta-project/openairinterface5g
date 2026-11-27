@@ -115,12 +115,11 @@ uint8_t push16(uint16_t in, uint8_t **out, uint8_t *end)
   uint8_t *pOut = *out;
 
   if ((end - pOut) >= 2) {
-#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
-    pOut[1] = (in & 0xFF00) >> 8;
-    pOut[0] = (in & 0xFF);
+#if FAPI_BYTES_NEEDS_BSWAP
+    const uint16_t swapped = __builtin_bswap16(in);
+    memcpy(pOut, &swapped, sizeof(swapped));
 #else
-    pOut[0] = (in & 0xFF00) >> 8;
-    pOut[1] = (in & 0xFF);
+    memcpy(pOut, &in, sizeof(in));
 #endif
     (*out) += 2;
     return 2;
@@ -136,12 +135,11 @@ uint8_t pushs16(int16_t in, uint8_t **out, uint8_t *end)
   uint8_t *pOut = *out;
 
   if ((end - pOut) >= 2) {
-#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
-    pOut[1] = (in & 0xFF00) >> 8;
-    pOut[0] = (in & 0xFF);
+#if FAPI_BYTES_NEEDS_BSWAP
+    const int16_t swapped = (int16_t)__builtin_bswap16(in);
+    memcpy(pOut, &swapped, sizeof(swapped));
 #else
-    pOut[0] = (in & 0xFF00) >> 8;
-    pOut[1] = (in & 0xFF);
+    memcpy(pOut, &in, sizeof(in));
 #endif
     (*out) += 2;
     return 2;
@@ -157,16 +155,11 @@ uint8_t push32(uint32_t in, uint8_t **out, uint8_t *end)
   uint8_t *pOut = *out;
 
   if ((end - pOut) >= 4) {
-#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
-    pOut[3] = (in & 0xFF000000) >> 24;
-    pOut[2] = (in & 0xFF0000) >> 16;
-    pOut[1] = (in & 0xFF00) >> 8;
-    pOut[0] = (in & 0xFF);
+#if FAPI_BYTES_NEEDS_BSWAP
+    const uint32_t swapped = __builtin_bswap32(in);
+    memcpy(pOut, &swapped, sizeof(swapped));
 #else
-    pOut[0] = (in & 0xFF000000) >> 24;
-    pOut[1] = (in & 0xFF0000) >> 16;
-    pOut[2] = (in & 0xFF00) >> 8;
-    pOut[3] = (in & 0xFF);
+    memcpy(pOut, &in, sizeof(in));
 #endif
     (*out) += 4;
     return 4;
@@ -182,16 +175,11 @@ uint8_t pushs32(int32_t in, uint8_t **out, uint8_t *end)
   uint8_t *pOut = *out;
 
   if ((end - pOut) >= 4) {
-#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
-    pOut[3] = (in & 0xFF000000) >> 24;
-    pOut[2] = (in & 0xFF0000) >> 16;
-    pOut[1] = (in & 0xFF00) >> 8;
-    pOut[0] = (in & 0xFF);
+#if FAPI_BYTES_NEEDS_BSWAP
+    const int32_t swapped = (int32_t)__builtin_bswap32(in);
+    memcpy(pOut, &swapped, sizeof(swapped));
 #else
-    pOut[0] = (in & 0xFF000000) >> 24;
-    pOut[1] = (in & 0xFF0000) >> 16;
-    pOut[2] = (in & 0xFF00) >> 8;
-    pOut[3] = (in & 0xFF);
+    memcpy(pOut, &in, sizeof(in));
 #endif
     (*out) += 4;
     return 4;
@@ -237,10 +225,9 @@ uint8_t pull16(uint8_t **in, uint16_t *out, uint8_t *end)
   uint8_t *pIn = *in;
 
   if ((end - pIn) >= 2) {
-#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
-    *out = ((pIn[1]) << 8) | pIn[0];
-#else
-    *out = ((pIn[0]) << 8) | pIn[1];
+    memcpy(out, *in, sizeof(*out));
+#if FAPI_BYTES_NEEDS_BSWAP
+    *out = __builtin_bswap16(*out);
 #endif
     (*in) += 2;
     return 2;
@@ -256,10 +243,9 @@ uint8_t pulls16(uint8_t **in, int16_t *out, uint8_t *end)
   uint8_t *pIn = *in;
 
   if ((end - pIn) >= 2) {
-#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
-    *out = ((pIn[1]) << 8) | pIn[0];
-#else
-    *out = ((pIn[0]) << 8) | pIn[1];
+    memcpy(out, *in, sizeof(*out));
+#if FAPI_BYTES_NEEDS_BSWAP
+    *out = (int16_t)__builtin_bswap16(*out);
 #endif
     (*in) += 2;
     return 2;
@@ -302,10 +288,9 @@ uint8_t pull32(uint8_t **in, uint32_t *out, uint8_t *end)
   uint8_t *pIn = *in;
 
   if ((end - pIn) >= 4) {
-#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
-    *out = ((uint32_t)pIn[3] << 24) | (pIn[2] << 16) | (pIn[1] << 8) | pIn[0];
-#else
-    *out = ((uint32_t)pIn[0] << 24) | (pIn[1] << 16) | (pIn[2] << 8) | pIn[3];
+    memcpy(out, *in, sizeof(*out));
+#if FAPI_BYTES_NEEDS_BSWAP
+    *out = __builtin_bswap32(*out);
 #endif
     (*in) += 4;
     return 4;
@@ -321,10 +306,9 @@ uint8_t pulls32(uint8_t **in, int32_t *out, uint8_t *end)
   uint8_t *pIn = *in;
 
   if ((end - pIn) >= 4) {
-#if FAPI_TARGET_BYTE_ORDER == __ORDER_LITTLE_ENDIAN__
-    *out = (pIn[3] << 24) | (pIn[2] << 16) | (pIn[1] << 8) | pIn[0];
-#else
-    *out = (pIn[0] << 24) | (pIn[1] << 16) | (pIn[2] << 8) | pIn[3];
+    memcpy(out, *in, sizeof(*out));
+#if FAPI_BYTES_NEEDS_BSWAP
+    *out = (int32_t)__builtin_bswap32(*out);
 #endif
     (*in) += 4;
     return 4;
