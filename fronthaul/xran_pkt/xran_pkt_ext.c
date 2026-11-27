@@ -6,6 +6,7 @@
 #include "xran_pkt_cp.h"
 #include "common/utils/assertions.h"
 #include <stdbool.h>
+#include <string.h>
 
 const char *xran_ext_strerror(xran_ext_err_t err)
 {
@@ -24,6 +25,12 @@ const char *xran_ext_strerror(xran_ext_err_t err)
       return "reserved numBundPrb 0";
     case XRAN_EXT_ERR_TOO_MANY:
       return "more elements than the caller has room for";
+    case XRAN_EXT_ERR_EXT_TYPE:
+      return "wrong extType";
+    case XRAN_EXT_ERR_RANGE:
+      return "field value out of its range or reserved";
+    case XRAN_EXT_ERR_RESERVED:
+      return "reserved or forbidden value in a field that sets the layout";
     default:
       return "unknown error";
   }
@@ -44,5 +51,28 @@ xran_ext_err_t xran_section_ext_len(uint8_t ext_type, const uint8_t *ext, size_t
   if (words * 4 > avail)
     return XRAN_EXT_ERR_TRUNCATED;
   *len_out = words * 4;
+  return XRAN_EXT_OK;
+}
+
+xran_ext_err_t xran_section_ext_open(const uint8_t *ext, size_t len, uint8_t ext_type, size_t hdr_len, size_t *ext_len_out)
+{
+  if (len < hdr_len)
+    return XRAN_EXT_ERR_TRUNCATED;
+  if ((ext[0] & 0x7F) != ext_type)
+    return XRAN_EXT_ERR_EXT_TYPE;
+  return xran_section_ext_len(ext_type, ext, len, ext_len_out);
+}
+
+xran_ext_err_t xran_section_ext_begin(uint8_t *buf, size_t avail, uint8_t ext_type, uint8_t ef, size_t content_len, size_t *len_out)
+{
+  size_t len = xran_section_ext_pad4(content_len);
+  if (ef > 1 || len / 4 > 0xFF)
+    return XRAN_EXT_ERR_RANGE;
+  if (len > avail)
+    return XRAN_EXT_ERR_TRUNCATED;
+  memset(buf, 0, len);
+  buf[0] = (uint8_t)(ef << 7 | ext_type);
+  buf[1] = (uint8_t)(len / 4);
+  *len_out = len;
   return XRAN_EXT_OK;
 }
