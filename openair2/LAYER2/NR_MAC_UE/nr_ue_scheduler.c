@@ -1289,6 +1289,34 @@ static void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int sl
   }
 }
 
+static void nr_schedule_prs_reception(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl_config, int frame, int slot)
+{
+  const int slots_frame = mac->frame_structure.numb_slots_frame;
+  for (int g = 0; g < mac->prs_num_gnbs; g++) {
+    const nr_ue_prs_config_t *prs = mac->prs_config[g];
+    if (prs == NULL)
+      continue;
+    for (int k = 0; k < prs->num_resources; k++) {
+      const nr_ue_prs_resource_t *res = &prs->resource[k];
+      for (int i = 0; i < prs->repetition; i++) {
+        if ((frame * slots_frame + slot - prs->offset - res->slot_offset + prs->period) % prs->period != i * prs->time_gap)
+          continue;
+        if (dl_config->number_pdus >= FAPI_NR_DL_CONFIG_LIST_NUM) {
+          LOG_E(NR_MAC, "%d.%d no space in DL config for PRS gNB %d resource %d\n", frame, slot, g, k);
+          return;
+        }
+        fapi_nr_dl_config_request_pdu_t *pdu = &dl_config->dl_config_list[dl_config->number_pdus++];
+        pdu->pdu_type = FAPI_NR_DL_CONFIG_TYPE_PRS;
+        pdu->prs_config_pdu.gnb_id = g;
+        pdu->prs_config_pdu.rsc_id = k;
+        pdu->prs_config_pdu.prs_config_rel16 = res->pdu;
+        if (mac->current_DL_BWP)
+          pdu->prs_config_pdu.prs_config_rel16.subcarrier_spacing = mac->current_DL_BWP->scs;
+      }
+    }
+  }
+}
+
 static void nr_schedule_csi_for_im(NR_UE_MAC_INST_t *mac, int frame, int slot)
 {
   if (!mac->sc_info.csi_MeasConfig)
@@ -1357,6 +1385,8 @@ void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info
 
   if (mac->state == UE_NOT_SYNC || mac->state == UE_NOT_SYNC_RECONF || mac->state == UE_DETACHING)
     return;
+
+  nr_schedule_prs_reception(mac, dl_config, rx_frame, rx_slot);
 
   if (mac->state == UE_CONNECTED) {
     nr_schedule_csirs_reception(mac, rx_frame, rx_slot);

@@ -188,6 +188,9 @@ void gNB_dlsch_ulsch_scheduler(gNB_MAC_INST *gNB, nr_cell_sched_t *cell, frame_t
     }
   }
 
+  // This schedules PRS
+  nr_schedule_prs(gNB, cell, frame, slot, &sched_info->DL_req);
+
   // This schedule PRACH if we are not in phy_test mode
   if (get_softmodem_params()->phy_test == 0) {
     /* we need to make sure that resources for PRACH are free. To avoid that

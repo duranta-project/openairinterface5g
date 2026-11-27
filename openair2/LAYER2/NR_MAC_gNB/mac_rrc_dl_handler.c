@@ -1296,11 +1296,149 @@ void f1_paging(const f1ap_paging_t *paging)
   }
 }
 
+#define NR_MAC_PRS_TX_POWER_DBM 0
+
+static void fill_prs_configuration(f1ap_prs_configuration_t *out,
+                                   const nr_mac_prs_config_t *cfg,
+                                   const f1ap_served_cell_info_t *du_cell)
+{
+  out->prs_resource_set_list_length = 1;
+  out->prs_resource_set = calloc_or_fail(1, sizeof(*out->prs_resource_set));
+  f1ap_prs_resource_set_t *set = &out->prs_resource_set[0];
+
+  set->prs_resource_set_id = 0;
+  if (du_cell->mode == F1AP_MODE_FDD) {
+    set->subcarrier_spacing = du_cell->fdd.dl_tbw.scs;
+    set->point_a = du_cell->fdd.dl_freqinfo.arfcn;
+  } else {
+    set->subcarrier_spacing = du_cell->tdd.tbw.scs;
+    set->point_a = du_cell->tdd.freqinfo.arfcn;
+  }
+  const nfapi_nr_dl_tti_prs_pdu_rel16_t *pdu0 = &cfg->resource[0].pdu;
+  set->num_rb = pdu0->numRbs;
+  set->start_prb = pdu0->startRb;
+  set->comb_size = pdu0->combSize;
+  set->cp_type = pdu0->cyclicPrefix;
+  set->resource_set_periodicity = cfg->period;
+  set->resource_set_slot_offset = cfg->offset;
+  set->resource_repetition_factor = cfg->repetition;
+  set->resource_time_gap = cfg->time_gap;
+  for (int k = 1; k < cfg->num_prs_resources; k++)
+    AssertFatal(cfg->resource[k].pdu.numSymbols == pdu0->numSymbols,
+                "PRS resources %d and 0 have different NumPRSSymbols: NRPPa has one value per resource set\n",
+                k);
+  set->resource_number_of_symbols = pdu0->numSymbols;
+  set->prs_resource_transmit_power = NR_MAC_PRS_TX_POWER_DBM;
+
+  set->prs_resource_list_length = cfg->num_prs_resources;
+  set->prs_resource = calloc_or_fail(cfg->num_prs_resources, sizeof(*set->prs_resource));
+  for (int k = 0; k < cfg->num_prs_resources; k++) {
+    const nr_mac_prs_resource_t *res = &cfg->resource[k];
+    f1ap_prs_resource_t *r = &set->prs_resource[k];
+    r->prs_resource_id = k;
+    r->sequence_id = res->pdu.nIdPrs;
+    r->re_offset = res->pdu.combOffset;
+    r->resource_slot_offset = res->slot_offset;
+    r->resource_symbol_offset = res->pdu.firstSymbol;
+  }
+}
+
+static void create_trp_info_item(const f1ap_trp_information_req_t *req,
+                          f1ap_trp_information_t *trp_info_item,
+                          trp_info_config_t *trp_info_config,
+                          int trp_idx)
+{
+  gNB_MAC_INST *mac = RC.nrmac[0];
+  const f1ap_setup_req_t *setup_req = mac->f1_config.setup_req;
+  const f1ap_served_cell_info_t *du_cell = &setup_req->cell[0].info;
+  const f1ap_trp_information_type_list_t *req_list = &req->trp_information_type_list;
+  uint8_t trp_info_type_len = req_list->trp_information_type_list_length;
+  DevAssert(trp_info_type_len > 0);
+
+  f1ap_trp_information_type_response_list_t *resp_list = &trp_info_item->trp_information_type_response_list;
+  resp_list->trp_information_type_response_item_length = trp_info_type_len;
+  resp_list->trp_information_type_response_item =
+      calloc_or_fail(trp_info_type_len, sizeof(*resp_list->trp_information_type_response_item));
+
+  for (int i = 0; i < trp_info_type_len; i++) {
+    f1ap_trp_information_type_response_item_t *trp_info_type_resp_item = &resp_list->trp_information_type_response_item[i];
+    switch (req_list->trp_information_type_item[i]) {
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_NR_PCI:
+        trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PCI_NR;
+        trp_info_type_resp_item->choice.pci_nr = du_cell->nr_pci;
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_NG_RAN_CGI:
+        trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_NG_RAN_CGI;
+        trp_info_type_resp_item->choice.ng_ran_cgi.plmn.mcc = du_cell->plmn.mcc;
+        trp_info_type_resp_item->choice.ng_ran_cgi.plmn.mnc = du_cell->plmn.mnc;
+        trp_info_type_resp_item->choice.ng_ran_cgi.plmn.mnc_digit_length = du_cell->plmn.mnc_digit_length;
+        trp_info_type_resp_item->choice.ng_ran_cgi.nr_cellid = du_cell->nr_cellid;
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_NR_ARFCN:
+        trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_NRARFCN;
+        if (du_cell->mode == F1AP_MODE_TDD) {
+          trp_info_type_resp_item->choice.nr_arfcn = du_cell->tdd.freqinfo.arfcn;
+        } else if (du_cell->mode == F1AP_MODE_FDD) {
+          trp_info_type_resp_item->choice.nr_arfcn = du_cell->fdd.ul_freqinfo.arfcn;
+        } else {
+          AssertFatal(false, "illegal mode\n");
+        }
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_PRS_CONFIG:
+        trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_PRSCONFIGURATION;
+        fill_prs_configuration(&trp_info_type_resp_item->choice.prs_configuration, mac->prs_config, du_cell);
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_SSB_CONFIG:
+        AssertFatal(false, "SSB config not supported\n");
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_SFN_INIT_TIME:
+        AssertFatal(false, "SFN INIT TIME not supported\n");
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_SPATIAL_DIRECTION_INFO:
+        AssertFatal(false, "SPATIAL DIRECTION INFO not supported\n");
+        break;
+      case F1AP_TRP_INFORMATION_TYPE_ITEM_GEO_COORDINATES:
+        trp_info_type_resp_item->present = F1AP_TRP_INFORMATION_TYPE_RESPONSE_ITEM_PR_GEOGRAPHICALCOORDINATES;
+        f1ap_geographical_coordinates_t *geographicalCoordinates = &trp_info_type_resp_item->choice.geographical_coordinates;
+        f1ap_trp_position_definition_type_t *tRPPositionDefinitionType = &geographicalCoordinates->trp_position_definition_type;
+
+        // referenced
+        tRPPositionDefinitionType->present = F1AP_TRP_POSITION_DEFINITION_TYPE_PR_REFERENCED;
+        f1ap_trp_position_referenced_t *referenced = &tRPPositionDefinitionType->choice.referenced;
+
+        // coordinate ID
+        referenced->reference_point.present = F1AP_REFERENCE_POINT_PR_COORDINATEID;
+        referenced->reference_point.choice.coordinate_id = 2;
+
+        // relative cartesian
+        f1ap_trp_reference_point_type_t *referencePointType = &referenced->reference_point_type;
+        referencePointType->present = F1AP_TRP_REFERENCE_POINT_TYPE_PR_TRPPOSITION_RELATIVE_CARTESIAN;
+        f1ap_relative_cartesian_location_t *trp_pos_cart = &referencePointType->choice.trp_position_relative_cartesian;
+
+        // 0 = millimeter
+        trp_pos_cart->xyz_unit = trp_info_config->trps[trp_idx].unit;
+        trp_pos_cart->xvalue = trp_info_config->trps[trp_idx].x_axis;
+        trp_pos_cart->yvalue = trp_info_config->trps[trp_idx].y_axis;
+        trp_pos_cart->zvalue = trp_info_config->trps[trp_idx].z_axis;
+
+        // random values for uncertainity and confidence
+        trp_pos_cart->location_uncertainty.horizontal_uncertainty = 1;
+        trp_pos_cart->location_uncertainty.horizontal_confidence = 2;
+        trp_pos_cart->location_uncertainty.vertical_uncertainty = 3;
+        trp_pos_cart->location_uncertainty.vertical_confidence = 4;
+        break;
+      default:
+        AssertFatal(false, "Illegal trp information type item\n");
+        break;
+    }
+  }
+}
+
 void trp_information_request(const f1ap_trp_information_req_t *req)
 {
   gNB_MAC_INST *mac = RC.nrmac[0];
-  positioning_config_t *positioning_config = mac->positioning_config;
-  if (positioning_config == NULL) {
+  trp_info_config_t *trp_info_config = mac->trp_info_config;
+  if (trp_info_config == NULL) {
     LOG_E(NR_PHY, "No TRPs configured for positioning in the configuration file\n");
     f1ap_trp_information_failure_t fail = {.transaction_id = req->transaction_id};
     fail.cause = F1AP_CAUSE_RADIO_NETWORK;
@@ -1332,7 +1470,7 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
     }
   }
 
-  uint8_t NumTRPs = positioning_config->num_trp;
+  uint8_t NumTRPs = trp_info_config->num_trp;
   f1ap_trp_information_resp_t resp = {0};
 
   resp.transaction_id = req->transaction_id;
@@ -1345,10 +1483,10 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
         calloc_or_fail(trp_list_length, sizeof(*resp.trp_information_list.trp_information_item));
     for (int i = 0; i < trp_list_length; i++) {
       for (int j = 0; j < NumTRPs; j++) {
-        if (positioning_config->trps[j].id == req->trp_list.trp_list_item[i].trp_id) {
+        if (trp_info_config->trps[j].id == req->trp_list.trp_list_item[i].trp_id) {
           f1ap_trp_information_t *trp_info_item = &resp.trp_information_list.trp_information_item[trp_resp_len];
-          trp_info_item->trp_id = positioning_config->trps[j].id;
-          create_trp_info_item(req, trp_info_item, positioning_config, j);
+          trp_info_item->trp_id = trp_info_config->trps[j].id;
+          create_trp_info_item(req, trp_info_item, trp_info_config, j);
           trp_resp_len++;
         }
       }
@@ -1359,8 +1497,8 @@ void trp_information_request(const f1ap_trp_information_req_t *req)
         calloc_or_fail(NumTRPs, sizeof(*resp.trp_information_list.trp_information_item));
     for (int i = 0; i < NumTRPs; i++) {
       f1ap_trp_information_t *trp_info_item = &resp.trp_information_list.trp_information_item[i];
-      trp_info_item->trp_id = positioning_config->trps[i].id;
-      create_trp_info_item(req, trp_info_item, positioning_config, i);
+      trp_info_item->trp_id = trp_info_config->trps[i].id;
+      create_trp_info_item(req, trp_info_item, trp_info_config, i);
     }
     resp.trp_information_list.trp_information_item_length = NumTRPs;
   }

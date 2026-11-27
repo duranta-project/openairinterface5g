@@ -460,6 +460,9 @@ int main(int argc, char **argv)
 
   nrue_ru_end();
 
+  for (int inst = 0; inst < NB_UE_INST; inst++)
+    nr_ue_free_prs_config(get_mac_inst(inst));
+
   free_nrLDPC_coding_interface(&nrLDPC_coding_interface);
 
   time_manager_finish();
