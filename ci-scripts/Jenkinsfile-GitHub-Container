@@ -191,16 +191,16 @@ pipeline {
             }
           }
         }
-        stage ("RHEL-Cluster-Image-Builder") {
+        stage ("RAN-CentOS-Cluster-Image-Builder") {
           steps {
             script {
-              triggerDownstreamJob ('RAN-RHEL-Cluster-Image-Builder')
+              triggerDownstreamJob ('RAN-CentOS-Cluster-Image-Builder')
             }
           }
           post {
             always {
               script {
-                finalizeDownstreamJob('RAN-RHEL-Cluster-Image-Builder')
+                finalizeDownstreamJob('RAN-CentOS-Cluster-Image-Builder')
               }
             }
           }

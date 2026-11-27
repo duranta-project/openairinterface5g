@@ -3,7 +3,7 @@
 #---------------------------------------------------------------------
 #
 # Dockerfile for the Open-Air-Interface BUILD service
-#   Valid for RHEL9
+#   Valid for CentOS Stream 10
 #
 #---------------------------------------------------------------------
 
@@ -20,7 +20,7 @@ RUN dnf install -y libasan libubsan
 RUN /bin/sh oaienv && \ 
     mkdir -p cmake_targets/ran_build/build && \
     cd cmake_targets/ran_build/build && \
-    cmake3 -GNinja ../../.. \
+    cmake -GNinja ../../.. \
         -DAVX512=OFF -DCMAKE_C_FLAGS=-Werror -DCMAKE_CXX_FLAGS=-Werror \
         -DENABLE_PHYSIM_TESTS=ON \
         -DSANITIZE_ADDRESS=ON -DSANITIZE_UNDEFINED=ON \
@@ -29,7 +29,7 @@ RUN /bin/sh oaienv && \
     ninja -k10 -j36
 
 #start from scratch for target executable
-FROM registry.redhat.io/ubi9/ubi:latest AS oai-physim
+FROM quay.io/centos/centos:stream10 AS oai-physim
 
 RUN dnf update -y && \
     dnf install -y \
@@ -52,7 +52,7 @@ COPY --from=phy-sim-build /opt/oai-physim/bin/ /opt/oai-physim/bin/
 
 COPY --from=phy-sim-build \
     /oai-ran/cmake_targets/ran_build/build/libcoding.so \
-    /usr/lib64/libasan.so.6 \
+    /usr/lib64/libasan.so.8 \
     /usr/lib64/libubsan.so.1 \
     /oai-ran/cmake_targets/ran_build/build/libdfts.so \
     /oai-ran/cmake_targets/ran_build/build/libldpc*.so \

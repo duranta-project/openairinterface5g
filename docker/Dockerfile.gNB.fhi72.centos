@@ -2,34 +2,43 @@
 
 #---------------------------------------------------------------------
 #
-# Dockerfile for the Open-Air-Interface BUILD service
-#   Valid for Rocky 9
+# Dockerfile for the Open-Air-Interface 7.2 Fronthaul 
+#      Valid for CentOS Stream 10
 #
 #---------------------------------------------------------------------
 
-ARG BASE_IMAGE=docker.io/rockylinux:9
 FROM ran-base:latest AS gnb-base
 
-FROM ran-build:latest AS gnb-build
-
+FROM ran-build-fhi72:latest AS gnb-build
 
 #start from scratch for target executable
-FROM $BASE_IMAGE AS oai-gnb
+FROM quay.io/centos/centos:stream10 AS oai-gnb-fhi72
 ENV TZ=Europe/Paris
 
-RUN dnf update -y && \
+# Install EPEL for CentOS Stream 10
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm
+
+RUN dnf install -y 'dnf-command(config-manager)' && \
+    dnf config-manager --set-enabled crb && \
+    dnf update -y && \
+    cat /etc/os-release && \
     dnf install -y \
         procps-ng \
         libXpm \
         libX11 \
-        libusbx \
         lksctp-tools \
+        xz \
+        numactl-libs \
+        numactl-devel \
+        pkg-config \
+        pciutils \
         tzdata \
         gdb \
         python3 \
         python3-pip \
         net-tools \
         iputils \
+        libatomic \
         yaml-cpp-devel && \
     pip3 install six && \
     pip3 install requests && \
@@ -43,9 +52,9 @@ COPY ./docker/scripts/gnb_entrypoint.sh ./entrypoint.sh
 COPY ./docker/scripts/check-prach-io.sh ./check-prach-io.sh
 
 COPY --from=gnb-build \
-    /oai-ran/cmake_targets/ran_build/build/liboai_eth_transpro.so \
     /oai-ran/cmake_targets/ran_build/build/librfsimulator.so \
-    /oai-ran/cmake_targets/ran_build/build/liboai_usrpdevif.so \
+    /oai-ran/cmake_targets/ran_build/build/liboran_fhlib_5g.so \
+    /oai-ran/cmake_targets/ran_build/build/liboai_transpro.so \
     /oai-ran/cmake_targets/ran_build/build/libcoding.so \
     /oai-ran/cmake_targets/ran_build/build/libparams_libconfig.so \
     /oai-ran/cmake_targets/ran_build/build/libdfts.so \
@@ -53,59 +62,43 @@ COPY --from=gnb-build \
     /oai-ran/cmake_targets/ran_build/build/libtelnetsrv.so \
     /oai-ran/cmake_targets/ran_build/build/libtelnetsrv_ci.so \
     /oai-ran/cmake_targets/ran_build/build/libparams_yaml.so \
-    /oai-ran/cmake_targets/ran_build/build/libvrtsim.so \
     /usr/local/lib/
 
+## Libxran library
+COPY --from=gnb-build \
+    /opt/phy/fhi_lib/lib/build/libxran.so \
+    /opt/phy/fhi_lib/lib/build/
+
+## Copy all DPDK libraries as liboran_fhlib_5g.so require most of them
+COPY --from=gnb-build /usr/local/lib64/ /usr/local/lib64/
+
+## Copy E2 SM models
+COPY --from=gnb-build /usr/local/lib64/flexric /usr/local/lib64/flexric
+
+# Copying file for configuration module
 COPY --from=gnb-base \
     /lib64/libconfig.so.11 \
-    /lib64/libforms.so.2 \
-    /lib64/libboost_chrono.so.1.75.0 \
-    /lib64/libboost_date_time.so.1.75.0 \
-    /lib64/libboost_filesystem.so.1.75.0 \
-    /lib64/libboost_program_options.so.1.75.0 \
-    /lib64/libboost_serialization.so.1.75.0 \
-    /lib64/libboost_thread.so.1.75.0 \
-    /lib64/libboost_system.so.1.75.0 \
-    /lib64/libboost_unit_test_framework.so.1.75.0 \
-    /lib64/libboost_atomic.so.1.75.0 \
-    /lib64/libboost_timer.so.1.75.0 \
-    /lib64/libboost_regex.so.1.75.0 \
-    /lib64/libicudata.so.67 \
-    /lib64/libicui18n.so.67 \
-    /lib64/libicuuc.so.67 \
+    /lib64/libicudata.so.74 \
+    /lib64/libicui18n.so.74 \
+    /lib64/libicuuc.so.74 \
     /lib64/
 
-# Now we are copying from builder-image the UHD files.
-COPY --from=gnb-base /usr/local/bin/uhd_find_devices /usr/local/bin
-COPY --from=gnb-base /usr/local/lib64/libuhd.so.4.8.0 /usr/local/lib64
-COPY --from=gnb-base /usr/local/lib64/uhd/utils/uhd_images_downloader.py /opt/oai-gnb/bin
-
-WORKDIR /usr/local/share/uhd/rfnoc
-COPY --from=gnb-base /usr/local/share/uhd/rfnoc/ .
-
-RUN /bin/bash -c "ln -s /usr/local/lib/liboai_usrpdevif.so /usr/local/lib/liboai_device.so" && \
-    ldconfig && \
+RUN ldconfig && \
     echo "---- ldd on executable nr-softmodem ----" && \
     ldd /opt/oai-gnb/bin/nr-softmodem && \
     echo "---- ldd on shared libraries ----" && \
-    ldd /usr/local/lib/liboai_eth_transpro.so \
-        /usr/local/lib/librfsimulator.so \
-        /usr/local/lib/liboai_usrpdevif.so \
+    ldd /usr/local/lib/librfsimulator.so \
+        /usr/local/lib/liboran_fhlib_5g.so \
+        /usr/local/lib/liboai_transpro.so \
         /usr/local/lib/libcoding.so \
         /usr/local/lib/libparams_libconfig.so \
         /usr/local/lib/libdfts.so \
         /usr/local/lib/libldpc*.so \
         /usr/local/lib/libtelnetsrv.so \
         /usr/local/lib/libtelnetsrv_ci.so \
-        /usr/local/lib64/libuhd.so.4.8.0
+        /opt/phy/fhi_lib/lib/build/libxran.so
 
 WORKDIR /opt/oai-gnb
-#EXPOSE 2152/udp  # S1U, GTP/UDP
-#EXPOSE 22100/tcp # ?
-#EXPOSE 36412/udp # S1C, SCTP/UDP
-#EXPOSE 36422/udp # X2C, SCTP/UDP
-#EXPOSE 50000/udp # IF5 / ORI (control)
-#EXPOSE 50001/udp # IF5 / ECPRI (data)
 
 COPY --from=gnb-base /usr/local/bin/yq /usr/local/bin/yq
 COPY --from=gnb-base /tini /tini

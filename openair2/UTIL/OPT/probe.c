@@ -101,7 +101,6 @@ trace_mode_t opt_type = OPT_NONE;
 static char *in_type=NULL;
 static char *in_path=NULL;
 static char *in_ip=NULL;
-static unsigned int subframesSinceCaptureStart;
 
 static int g_socksd = -1;/* UDP socket used for sending frames */
 static struct sockaddr_in g_serv_addr;
@@ -515,7 +514,6 @@ int init_opt(void) {
   int sz=sizeofArray(opt_params);
   config_set_checkfunctions(opt_params, opt_checkParams, sz);
   config_get(config_get_if(), opt_params, sz, OPT_CONFIGPREFIX);
-  subframesSinceCaptureStart = 0;
   int tmptype = config_get_processedint(config_get_if(), &(opt_params[OPTTYPE_IDX]));
 
   if (tmptype == OPT_NONE) {
