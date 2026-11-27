@@ -68,6 +68,8 @@ typedef struct {
   bool termination_procedure;
   /// the termination procedure of this UE completed (counted once in the process)
   bool terminated;
+  /* Re-registration pending upon N1 signalling connection release (TS 24.501 §5.6.1.5) */
+  bool re_registration_pending;
   instance_t UE_id;
   /* RRC Inactive Indication */
   bool is_rrc_inactive;
