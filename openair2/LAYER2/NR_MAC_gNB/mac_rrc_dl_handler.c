@@ -826,7 +826,18 @@ void ue_context_setup_request(const f1ap_ue_context_setup_req_t *req)
   resp.du_to_cu_rrc_info.cell_group_config = encode_cellgroup_config(new_CellGroup);
 
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
-  UE->reconfigCellGroup = new_CellGroup;
+  if (ue_id_provided) {
+    // enqueue cellGroupConfig for application on ack
+    UE->reconfigCellGroup = new_CellGroup;
+  } else {
+    // HO, NSA, phy-test, do-ra: the UE will come with the cellGroupConfig
+    // applied, apply now new_CellGroup was cloned from UE->CellGroup, replace
+    // the latter with the former
+    ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
+    UE->CellGroup = new_CellGroup;
+    UE->reconfigCellGroup = NULL;
+  }
+
   int ss_type = cg_configinfo ? NR_SearchSpace__searchSpaceType_PR_ue_Specific: NR_SearchSpace__searchSpaceType_PR_common;
   configure_UE_BWP(cell, scc, UE, false, ss_type, -1, -1);
 
@@ -1119,13 +1130,13 @@ void ue_context_release_command(const f1ap_ue_context_rel_cmd_t *cmd)
   if (f1inst >= 0)
     newGtpuDeleteAllTunnels(f1inst, cmd->gNB_DU_ue_id);
 
-  if (UE->UE_sched_ctrl.ul_failure || !cmd->rrc_container) {
+  if (UE->UE_sched_ctrl.link_failure || !cmd->rrc_container) {
     /* The UE is already not connected anymore or we have nothing to forward*/
     nr_mac_release_ue(mac, cmd->gNB_DU_ue_id);
     nr_mac_trigger_release_complete(mac, cmd->gNB_DU_ue_id);
   } else if (cmd->rrc_container && cmd->srb_id){
     /* UE is in sync: forward release message and mark to be deleted
-     * after UL failure */
+     * after link failure */
     byte_array_t *rrc_cont = cmd->rrc_container;
     nr_rlc_srb_recv_sdu(cmd->gNB_DU_ue_id, *cmd->srb_id, rrc_cont->buf, rrc_cont->len);
     nr_mac_trigger_release_timer(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
