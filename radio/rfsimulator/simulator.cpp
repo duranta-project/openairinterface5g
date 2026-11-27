@@ -1531,6 +1531,10 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   rfsimulator->rx_freq = openair0_cfg->rx_freq[0];
   rfsimulator->tx_bw = openair0_cfg->tx_bw;
   rfsimulator->beam_ctrl = new rfsim_beam_ctrl_t;
+  // before rfsimulator_readconfig(): loading a TDL channel model draws Gaussian samples (channel power
+  // normalisation), which aborts if the RNG is not initialised yet. Also used by the telnet server.
+  randominit();
+  set_taus_seed(0);
   rfsimulator_readconfig(rfsimulator);
   AssertFatal(!rfsimulator->beam_ctrl->enable_beams || rfsimulator->tx_num_channels == rfsimulator->rx_num_channels,
               "rfsimulator beam simulation does not support uneven tx/rx antenna counts (tx_num_channels=%d, "
@@ -1572,9 +1576,6 @@ extern "C" __attribute__((__visibility__("default"))) int device_init(openair0_d
   rfsimulator->next_buf = 0;
 
   AssertFatal((rfsimulator->epollfd = epoll_create1(0)) != -1, "epoll_create1() failed, errno(%d)", errno);
-  // we need to call randominit() for telnet server (use gaussdouble=>uniformrand)
-  randominit();
-  set_taus_seed(0);
   /* look for telnet server, if it is loaded, add the channel modeling commands to it */
   add_telnetcmd_func_t addcmd = (add_telnetcmd_func_t)get_shlibmodule_fptr("telnetsrv", TELNET_ADDCMD_FNAME);
 

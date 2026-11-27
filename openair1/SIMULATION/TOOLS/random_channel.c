@@ -499,6 +499,9 @@ static void tdlModel(const int tdl_paths,
 
   chan_desc->aoa = 0;
   chan_desc->random_aoa = 0;
+  // per receive antenna Doppler phase, read by rxAddInput() (rfsimulator); fill_channel_desc() does the same for
+  // the other models
+  chan_desc->Doppler_phase_cur = calloc(nb_rx, sizeof(double));
 
   const int matrix_size = nb_tx * nb_rx;
   // TS 38.104 Annex G spatial correlation matrix R (matrix_size x matrix_size, row major), NULL for low correlation
