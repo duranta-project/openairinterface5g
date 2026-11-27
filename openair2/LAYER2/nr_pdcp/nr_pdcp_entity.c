@@ -67,7 +67,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
 
   if (entity->has_sdap_rx) sdap_header_size = 1; // SDAP Header is one byte
 
-  if (entity->sn_size == SHORT_SN_SIZE) {
+  if (entity->sn_size_rx == SHORT_SN_SIZE) {
     rcvd_sn = ((buffer[0] & 0xf) <<  8) |
                 buffer[1];
     header_size = SHORT_PDCP_HEADER_SIZE;
@@ -95,8 +95,8 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
     return;
   }
 
-  rx_deliv_sn  = entity->rx_deliv & entity->sn_max;
-  rx_deliv_hfn = entity->rx_deliv >> entity->sn_size;
+  rx_deliv_sn  = entity->rx_deliv & entity->rx_sn_max;
+  rx_deliv_hfn = entity->rx_deliv >> entity->sn_size_rx;
 
   if (rcvd_sn < rx_deliv_sn - entity->window_size) {
     rcvd_hfn = rx_deliv_hfn + 1;
@@ -106,7 +106,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
     rcvd_hfn = rx_deliv_hfn;
   }
 
-  rcvd_count = (rcvd_hfn << entity->sn_size) | rcvd_sn;
+  rcvd_count = (rcvd_hfn << entity->sn_size_rx) | rcvd_sn;
 
   nr_pdcp_integrity_data_t msg_integrity = { 0 };
 
@@ -232,7 +232,7 @@ static int nr_pdcp_entity_process_sdu(nr_pdcp_entity_t *entity,
 
 
   count = entity->tx_next;
-  sn = entity->tx_next & entity->sn_max;
+  sn = entity->tx_next & entity->tx_sn_max;
 
   if (entity->has_sdap_tx) sdap_header_size = 1; // SDAP header is one byte
 
@@ -243,7 +243,7 @@ static int nr_pdcp_entity_process_sdu(nr_pdcp_entity_t *entity,
     dc_bit = 0;
   }
 
-  if (entity->sn_size == SHORT_SN_SIZE) {
+  if (entity->sn_size_tx == SHORT_SN_SIZE) {
     buf[0] = dc_bit | ((sn >> 8) & 0xf);
     buf[1] = sn & 0xff;
     header_size = SHORT_PDCP_HEADER_SIZE;
@@ -593,8 +593,8 @@ static void nr_pdcp_entity_get_stats(nr_pdcp_entity_t *entity,
 static nr_pdcp_count_t nr_pdcp_entity_get_count_dl(nr_pdcp_entity_t *entity)
 {
   nr_pdcp_count_t count = {0};
-  const int sn_bits = entity->sn_size;
-  const uint32_t sn_mask = entity->sn_max;
+  const int sn_bits = entity->sn_size_rx;
+  const uint32_t sn_mask = entity->rx_sn_max;
   count.hfn = entity->rx_deliv >> sn_bits;
   count.sn = entity->rx_deliv & sn_mask;
   return count;
@@ -604,11 +604,20 @@ static nr_pdcp_count_t nr_pdcp_entity_get_count_dl(nr_pdcp_entity_t *entity)
 static nr_pdcp_count_t nr_pdcp_entity_get_count_ul(nr_pdcp_entity_t *entity)
 {
   nr_pdcp_count_t count = {0};
-  const int sn_bits = entity->sn_size;
-  const uint32_t sn_mask = entity->sn_max;
+  const int sn_bits = entity->sn_size_tx;
+  const uint32_t sn_mask = entity->tx_sn_max;
   count.hfn = entity->tx_next >> sn_bits;
   count.sn = entity->tx_next & sn_mask;
   return count;
+}
+
+static void nr_pdcp_entity_set_sn_sizes(nr_pdcp_entity_t *entity, int sn_size_ul, int sn_size_dl)
+{
+  entity->sn_size_tx  = entity->is_gnb ? sn_size_dl : sn_size_ul;
+  entity->sn_size_rx  = entity->is_gnb ? sn_size_ul : sn_size_dl;
+  entity->tx_sn_max   = (1 << entity->sn_size_tx) - 1;
+  entity->rx_sn_max   = (1 << entity->sn_size_rx) - 1;
+  entity->window_size = 1 << (entity->sn_size_rx - 1);
 }
 
 /** @note: this function applies to the gNB only */
@@ -641,8 +650,8 @@ static void nr_pdcp_entity_set_count_dl(nr_pdcp_entity_t *entity, nr_pdcp_count_
         sn_size == LONG_SN_SIZE ? "18-bit" : "12-bit",
         entity->rx_next,
         entity->rx_deliv,
-        entity->sn_size,
-        entity->sn_max,
+        entity->sn_size_rx,
+        entity->rx_sn_max,
         entity->window_size);
 }
 
@@ -673,8 +682,8 @@ static void nr_pdcp_entity_set_count_ul(nr_pdcp_entity_t *entity, nr_pdcp_count_
         count,
         sn_size == LONG_SN_SIZE ? "18-bit" : "12-bit",
         entity->tx_next,
-        entity->sn_size,
-        entity->sn_max,
+        entity->sn_size_tx,
+        entity->tx_sn_max,
         entity->window_size);
 }
 
@@ -693,7 +702,8 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
     void *deliver_sdu_data,
     void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id, char *buf, int size, int sdu_id),
     void *deliver_pdu_data,
-    int sn_size,
+    int sn_size_ul,
+    int sn_size_dl,
     int t_reordering,
     int discard_timer,
     const nr_pdcp_entity_security_keys_and_algos_t *security_parameters)
@@ -741,14 +751,11 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
   ret->pdusession_id = pdusession_id;
   ret->has_sdap_rx   = has_sdap_rx;
   ret->has_sdap_tx   = has_sdap_tx;
-  ret->sn_size       = sn_size;
   ret->t_reordering  = t_reordering;
   ret->discard_timer = discard_timer;
 
-  ret->sn_max        = (1 << sn_size) - 1;
-  ret->window_size   = 1 << (sn_size - 1);
-
   ret->is_gnb = is_gnb;
+  nr_pdcp_entity_set_sn_sizes(ret, sn_size_ul, sn_size_dl);
 
   nr_pdcp_entity_set_security(ret, security_parameters);
 

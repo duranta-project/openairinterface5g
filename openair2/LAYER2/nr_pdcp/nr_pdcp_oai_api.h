@@ -110,7 +110,8 @@ void nr_pdcp_count_update(ue_id_t ue_id,
                           rb_id_t drb_id,
                           nr_pdcp_count_t dl_count,
                           nr_pdcp_count_t ul_count,
-                          int sn_size);
+                          int sn_size_dl,
+                          int sn_size_ul);
 
 void nr_pdcp_get_drb_count_values(ue_id_t ue_id, rb_id_t rb_id, nr_pdcp_count_t *ul_count, nr_pdcp_count_t *dl_count);
 
