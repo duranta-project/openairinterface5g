@@ -57,16 +57,16 @@ int nr_mac_handle_uci_indication(const nfapi_nr_uci_indication_t *uci_ind)
   nr_cell_sched_t *cell = nr_mac_get_cell_by_phy_id(nrmac, uci_ind->header.phy_id);
   for (const nfapi_nr_uci_t *uci = uci_ind->uci_list; uci < uci_ind->uci_list + uci_ind->num_ucis; ++uci) {
     switch (uci->pdu_type) {
-      case NFAPI_NR_UCI_PUSCH_PDU_TYPE:
-        LOG_E(MAC, "%s(): unhandled NFAPI_NR_UCI_PUSCH_PDU_TYPE\n", __func__);
+      case NFAPI_NR_UCI_PUSCH_PDU_TYPE: {
+        const nfapi_nr_uci_pusch_pdu_t *pusch_pdu = &uci->pusch_pdu;
+        handle_nr_uci_pusch(nrmac, cell, uci_ind->sfn, uci_ind->slot, pusch_pdu);
         break;
-
+      }
       case NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE: {
         const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu = &uci->pucch_pdu_format_0_1;
         handle_nr_uci_pucch_0_1(nrmac, cell, uci_ind->sfn, uci_ind->slot, uci_pdu);
         break;
       }
-
       case NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE: {
         const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu = &uci->pucch_pdu_format_2_3_4;
         handle_nr_uci_pucch_2_3_4(nrmac, cell, uci_ind->sfn, uci_ind->slot, uci_pdu);

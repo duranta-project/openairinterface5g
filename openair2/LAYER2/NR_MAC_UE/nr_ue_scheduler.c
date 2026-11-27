@@ -336,16 +336,9 @@ static void fill_pusch_uci_struct(const NR_PUSCH_Config_t *pusch_Config,
   pusch_config_pdu->pusch_uci.csi_payload = *csi_payload;
   AssertFatal(pusch_Config && pusch_Config->uci_OnPUSCH, "UCI on PUSCH need to be configured\n");
   NR_UCI_OnPUSCH_t *onPusch = pusch_Config->uci_OnPUSCH->choice.setup;
-  AssertFatal(onPusch && onPusch->betaOffsets && onPusch->betaOffsets->present == NR_UCI_OnPUSCH__betaOffsets_PR_semiStatic,
-              "Only semistatic beta offset is supported\n");
-  NR_BetaOffsets_t *beta_offsets = onPusch->betaOffsets->choice.semiStatic;
-
-  pusch_config_pdu->pusch_uci.beta_offset_csi1 = pusch_config_pdu->pusch_uci.csi_payload.p1_bits < 12
-                                                     ? *beta_offsets->betaOffsetCSI_Part1_Index1
-                                                     : *beta_offsets->betaOffsetCSI_Part1_Index2;
-  pusch_config_pdu->pusch_uci.beta_offset_csi2 = pusch_config_pdu->pusch_uci.csi_payload.p2_bits < 12
-                                                     ? *beta_offsets->betaOffsetCSI_Part2_Index1
-                                                     : *beta_offsets->betaOffsetCSI_Part2_Index2;
+  pusch_config_pdu->pusch_uci.beta_offset_harq_ack = configure_harq_beta_offset(onPusch, pusch_config_pdu->pusch_uci.harq_ack_bit_length);
+  pusch_config_pdu->pusch_uci.beta_offset_csi1 = configure_csi1_beta_offsets(onPusch, pusch_config_pdu->pusch_uci.csi_payload.p1_bits);
+  pusch_config_pdu->pusch_uci.beta_offset_csi2 = configure_csi2_beta_offsets(onPusch, pusch_config_pdu->pusch_uci.csi_payload.p2_bits);
   pusch_config_pdu->pusch_uci.alpha_scaling = onPusch->scaling;
 }
 
@@ -1837,17 +1830,9 @@ static bool schedule_uci_on_pusch(NR_UE_MAC_INST_t *mac,
     NR_PUSCH_Config_t *pusch_Config = mac->current_UL_BWP->pusch_Config;
     if (pusch_Config && pusch_Config->uci_OnPUSCH) {
       NR_UCI_OnPUSCH_t *onPusch = pusch_Config->uci_OnPUSCH->choice.setup;
-      AssertFatal(onPusch &&
-                  onPusch->betaOffsets &&
-                  onPusch->betaOffsets->present == NR_UCI_OnPUSCH__betaOffsets_PR_semiStatic,
-                  "Only semistatic beta offset is supported\n");
-      NR_BetaOffsets_t *beta_offsets = onPusch->betaOffsets->choice.semiStatic;
       pusch_pdu->pusch_uci.harq_ack_bit_length = pucch->n_harq;
       pusch_pdu->pusch_uci.harq_payload = pucch->ack_payload;
-      pusch_pdu->pusch_uci.beta_offset_harq_ack = pucch->n_harq > 2 ?
-                                                  (pucch->n_harq < 12 ? *beta_offsets->betaOffsetACK_Index2 :
-                                                  *beta_offsets->betaOffsetACK_Index3) :
-                                                  *beta_offsets->betaOffsetACK_Index1;
+      pusch_pdu->pusch_uci.beta_offset_harq_ack = configure_harq_beta_offset(onPusch, pucch->n_harq);
       pusch_pdu->pusch_uci.alpha_scaling = onPusch->scaling;
       mux_done = true;
     } else {

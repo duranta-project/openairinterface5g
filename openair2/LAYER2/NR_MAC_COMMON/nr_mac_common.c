@@ -3170,12 +3170,13 @@ uint16_t nr_dci_size(const NR_UE_DL_BWP_t *DL_BWP,
         dci_pdu->ptrs_dmrs_association.nbits = 2;
       size += dci_pdu->ptrs_dmrs_association.nbits;
       // beta offset indicator
-      if (pusch_Config &&
-          pusch_Config->uci_OnPUSCH!=NULL){
-        if (pusch_Config->uci_OnPUSCH->choice.setup->betaOffsets->present == NR_UCI_OnPUSCH__betaOffsets_PR_dynamic) {
-          dci_pdu->beta_offset_indicator.nbits = 2;
-          size += dci_pdu->beta_offset_indicator.nbits;
-        }
+      if (pusch_Config
+          && pusch_Config->uci_OnPUSCH
+          && pusch_Config->uci_OnPUSCH->choice.setup
+          && pusch_Config->uci_OnPUSCH->choice.setup->betaOffsets
+          &&  pusch_Config->uci_OnPUSCH->choice.setup->betaOffsets->present == NR_UCI_OnPUSCH__betaOffsets_PR_dynamic) {
+        dci_pdu->beta_offset_indicator.nbits = 2;
+        size += dci_pdu->beta_offset_indicator.nbits;
       }
       // DMRS sequence init
       if (transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled) {
@@ -5265,6 +5266,56 @@ int get_j_for_k2(int mu)
   int j_table[] = {1, 1, 2, 3, 11, 21};
   AssertFatal(mu >= 0 && mu < sizeofArray(j_table), "Invalid numerology %d\n", mu);
   return j_table[mu];
+}
+
+static NR_BetaOffsets_t *get_beta_offset_config(const NR_UCI_OnPUSCH_t *uci_config)
+{
+  if (!uci_config->betaOffsets)
+    return NULL;
+  AssertFatal(uci_config->betaOffsets->present == NR_UCI_OnPUSCH__betaOffsets_PR_semiStatic,
+              "Only semistatic beta for UCI on PUSCH supported\n");
+  return uci_config->betaOffsets->choice.semiStatic;
+}
+
+uint8_t configure_harq_beta_offset(const NR_UCI_OnPUSCH_t *uci_config, int n_bits)
+{
+  NR_BetaOffsets_t *betaoffsets = get_beta_offset_config(uci_config);
+  if (betaoffsets) {
+    if (n_bits <= 2 && betaoffsets->betaOffsetACK_Index1)
+      return *betaoffsets->betaOffsetACK_Index1;
+    if (n_bits > 2 && n_bits <= 11 && betaoffsets->betaOffsetACK_Index2)
+      return *betaoffsets->betaOffsetACK_Index2;
+    if (n_bits > 11 && betaoffsets->betaOffsetACK_Index3)
+      return *betaoffsets->betaOffsetACK_Index3;
+  }
+  // When the field is absent the UE applies the value 11 for HARQ-ACK
+  return 11;
+}
+
+uint8_t configure_csi1_beta_offsets(const NR_UCI_OnPUSCH_t *uci_config, int n_bits)
+{
+  NR_BetaOffsets_t *betaoffsets = get_beta_offset_config(uci_config);
+  if (betaoffsets) {
+    if (n_bits <= 11 && betaoffsets->betaOffsetCSI_Part1_Index1)
+      return *betaoffsets->betaOffsetCSI_Part1_Index1;
+    if (n_bits > 11 && betaoffsets->betaOffsetCSI_Part1_Index2)
+      return *betaoffsets->betaOffsetCSI_Part1_Index2;
+  }
+  // When the field is absent the UE applies the value 13 for CSI
+  return 13;
+}
+
+uint8_t configure_csi2_beta_offsets(const NR_UCI_OnPUSCH_t *uci_config, int n_bits)
+{
+  NR_BetaOffsets_t *betaoffsets = get_beta_offset_config(uci_config);
+  if (betaoffsets) {
+    if (n_bits <= 11 && betaoffsets->betaOffsetCSI_Part2_Index1)
+      return *betaoffsets->betaOffsetCSI_Part2_Index1;
+    if (n_bits > 11 && betaoffsets->betaOffsetCSI_Part2_Index2)
+      return *betaoffsets->betaOffsetCSI_Part2_Index2;
+  }
+  // When the field is absent the UE applies the value 13 for CSI
+  return 13;
 }
 
 /** @brief T: DRX cycle of the UE in radio frames (TS 38.304 §7.1).

@@ -222,6 +222,7 @@ typedef struct nr_mac_config_s {
   int pusch_AntennaPorts;
   int minRXTXTIME;
   int do_CSIRS;
+  bool do_aperiodic_CSI_report;
   nr_srs_type_t do_SRS;
   int do_TCI;
   int max_num_rsrp;
@@ -785,7 +786,7 @@ typedef struct {
 
   /// sri, ul_ri and tpmi based on SRS
   nr_srs_feedback_t srs_feedback;
-
+  NR_timer_t aperiodic_csirep_trigger;
   /// per-LC configuration
   seq_arr_t lc_config;
 
@@ -1108,6 +1109,11 @@ typedef struct nr_ul_sched_params {
   const NR_bler_options_t *bler_opts; ///< UL BLER options (for adapt_ul_mcs)
 } nr_ul_sched_params_t;
 
+typedef struct {
+  int sched_srs;
+  int sched_csirep;
+} nr_aperiodic_channel_t;
+
 struct nr_ul_candidate {
   /* ── UE identity / scheduling state (set by collect, never modified after) ── */
   NR_UE_info_t *UE;
@@ -1116,7 +1122,7 @@ struct nr_ul_candidate {
   int8_t retx_harq_pid;
   int retx_rbSize;
   bool sched_long_inactivity;
-  int sched_srs;
+  nr_aperiodic_channel_t sched_aperiodic;
   uint32_t pending_bytes;
   float avg_throughput;
   float bler;
