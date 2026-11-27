@@ -36,9 +36,9 @@ sidelink frequency, one bandwidth part, one active RX pool, and one active TX
 pool.
 
 Reference configuration files are available for the
-[synchronization-reference UE](../../targets/PROJECTS/NR-SIDELINK/CONF/sl_sync_ref.conf),
-the [nearby UE](../../targets/PROJECTS/NR-SIDELINK/CONF/sl_ue1.conf), and a
-[resource-pool example](../../targets/PROJECTS/NR-SIDELINK/CONF/sidelink_preconfig_1rxpool_1txpool.conf).
+[synchronization-reference UE](../ci-scripts/conf_files/sl_sync_ref.conf),
+the [nearby UE](../ci-scripts/conf_files/sl_ue1.conf), and a
+[resource-pool example](../targets/PROJECTS/NR-SIDELINK/CONF/sidelink_preconfig_1rxpool_1txpool.conf).
 The carrier, numerology, bandwidth part, TDD pattern, sidelink symbols,
 SL-SSB occasions, resource-pool geometry, and PSFCH configuration must be
 compatible at both UEs.
@@ -143,7 +143,7 @@ namespace:
 
 ```bash
 sudo ./nr-uesoftmodem \
-  -O ../targets/PROJECTS/NR-SIDELINK/CONF/sl_sync_ref.conf \
+  -O ../ci-scripts/conf_files/sl_sync_ref.conf \
   --sl-mode 2 --sync-ref 4 --rfsim
 ```
 
@@ -153,7 +153,7 @@ namespace:
 ```bash
 sudo ../tools/scripts/multi-ue.sh -c1 -e
 ./nr-uesoftmodem \
-  -O ../targets/PROJECTS/NR-SIDELINK/CONF/sl_ue1.conf \
+  -O ../ci-scripts/conf_files/sl_ue1.conf \
   --sl-mode 2 --rfsim --rfsimulator.[0].serveraddr 10.201.1.100
 ```
 

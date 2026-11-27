@@ -1,0 +1,174 @@
+<!-- SPDX-License-Identifier: LicenseRef-CSSL-1.0 -->
+<testCaseList>
+  <htmlTabName>Sidelink N310 OTA MCS 9</htmlTabName>
+  <testCase>
+    <class>Pull_Cluster_Image</class>
+    <desc>Pull NR-UE image from cluster on matix</desc>
+    <node>matix</node>
+    <images>oai-nr-ue</images>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create workspace on matix</desc>
+    <node>matix</node>
+  </testCase>
+
+  <testCase>
+    <class>Pull_Cluster_Image</class>
+    <desc>Pull NR-UE image from cluster on avra</desc>
+    <node>avra</node>
+    <images>oai-nr-ue</images>
+  </testCase>
+
+  <testCase>
+    <class>Create_Workspace</class>
+    <desc>Create workspace on avra</desc>
+    <node>avra</node>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy sidelink sync-reference UE on matix</desc>
+    <node>matix</node>
+    <yaml_path>ci-scripts/yaml_files/5g_sidelink_n310_sync_ref_nrue</yaml_path>
+    <services>oai-sl-sync-ref</services>
+    <num_attempts>3</num_attempts>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Check configured PSSCH MCS 9 on matix</desc>
+    <node>matix</node>
+    <command><![CDATA[
+for t in {1..30}; do
+  docker logs oai-sl-sync-ref 2>&1 | grep -q 'Sidelink PSSCH MCS: 9$' && exit 0
+  sleep 1
+done
+exit 1
+    ]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Deploy_Object</class>
+    <desc>Deploy nearby sidelink UE on avra</desc>
+    <node>avra</node>
+    <yaml_path>ci-scripts/yaml_files/5g_sidelink_n310_nrue</yaml_path>
+    <services>oai-sl-ue1</services>
+    <num_attempts>3</num_attempts>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Check configured PSSCH MCS 9 on avra</desc>
+    <node>avra</node>
+    <command><![CDATA[
+for t in {1..30}; do
+  docker logs oai-sl-ue1 2>&1 | grep -q 'Sidelink PSSCH MCS: 9$' && exit 0
+  sleep 1
+done
+exit 1
+    ]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Custom_Command</class>
+    <desc>Wait for nearby UE PSBCH synchronization</desc>
+    <node>avra</node>
+    <command><![CDATA[
+for t in {1..60}; do
+  docker logs oai-sl-ue1 2>&1 | grep -q 'PSBCH RX:OK' && exit 0
+  sleep 1
+done
+exit 1
+    ]]></command>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Wait for sidelink tunnel on matix</desc>
+    <id>sl_ota_sync_ref</id>
+    <node>matix</node>
+  </testCase>
+
+  <testCase>
+    <class>Attach_UE</class>
+    <desc>Wait for sidelink tunnel on avra</desc>
+    <id>sl_ota_ue1</id>
+    <node>avra</node>
+  </testCase>
+
+  <testCase>
+    <class>Ping</class>
+    <desc>Ping sync-reference UE from nearby UE</desc>
+    <id>sl_ota_ue1</id>
+    <node>avra</node>
+    <svr_id>sl_ota_sync_ref</svr_id>
+    <svr_node>matix</svr_node>
+    <ping_args>-c 10</ping_args>
+    <ping_packetloss_threshold>5</ping_packetloss_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Nearby UE to sync-reference UE (MCS 9/7Mbps/UDP/10 sec)</desc>
+    <id>sl_ota_ue1</id>
+    <node>avra</node>
+    <svr_id>sl_ota_sync_ref</svr_id>
+    <svr_node>matix</svr_node>
+    <iperf_args>-u -b 7M -l 1200 -t 10</iperf_args>
+    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Iperf</class>
+    <desc>Sync-reference UE to nearby UE (MCS 9/7Mbps/UDP/10 sec)</desc>
+    <id>sl_ota_ue1</id>
+    <node>avra</node>
+    <svr_id>sl_ota_sync_ref</svr_id>
+    <svr_node>matix</svr_node>
+    <iperf_args>-u -b 7M -l 1200 -t 10 -R</iperf_args>
+    <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
+    <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <desc>Undeploy sidelink UE on avra</desc>
+    <always_exec>true</always_exec>
+    <node>avra</node>
+    <yaml_path>ci-scripts/yaml_files/5g_sidelink_n310_nrue</yaml_path>
+    <analysis>
+      <service>oai-sl-ue1=EndsWithBye</service>
+      <service>oai-sl-ue1=ContainsString=PSBCH RX:OK</service>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Undeploy_Object</class>
+    <desc>Undeploy sidelink UE on matix</desc>
+    <always_exec>true</always_exec>
+    <node>matix</node>
+    <yaml_path>ci-scripts/yaml_files/5g_sidelink_n310_sync_ref_nrue</yaml_path>
+    <analysis>
+      <service>oai-sl-sync-ref=EndsWithBye</service>
+    </analysis>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <desc>Clean NR-UE test image on matix</desc>
+    <always_exec>true</always_exec>
+    <node>matix</node>
+    <images>oai-nr-ue</images>
+  </testCase>
+
+  <testCase>
+    <class>Clean_Test_Server_Images</class>
+    <desc>Clean NR-UE test image on avra</desc>
+    <always_exec>true</always_exec>
+    <node>avra</node>
+    <images>oai-nr-ue</images>
+  </testCase>
+</testCaseList>

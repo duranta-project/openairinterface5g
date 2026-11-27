@@ -1092,6 +1092,9 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
   if (!pduP) {
     return;
   }
+  NR_SL_UE_info_t *UE = find_UE(mac, rx_slsch_pdu->source_id);
+  if (!UE || (rx_slsch_pdu->cast_type == 2 && rx_slsch_pdu->dest_id != (uint16_t)mac->src_id))
+    return;
   uint8_t psfch_period = 0;
   // sl_PSFCH_Period_r16 is an enum index (0..3); map it to the actual slot period
   // {0,1,2,4} as everywhere else (raw index 3 maps to period 4).
@@ -1108,10 +1111,6 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
     configure_psfch_params_tx(module_idP, mac, rx_ind, pdu_id);
   }
 
-  NR_SL_UE_info_t *UE = find_UE(mac, rx_slsch_pdu->source_id);
-
-  if (UE == NULL)
-    return;
 
   if (pdu_type == SL_NR_RX_PDU_TYPE_SLSCH_PSFCH) {
     handle_nr_ue_sl_harq(module_idP, frame, slot, rx_slsch_pdu, rx_slsch_pdu->source_id);
@@ -1147,6 +1146,11 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
     return;
   }
   NR_SLSCH_MAC_SUBHEADER_FIXED *sl_sch_subheader = (NR_SLSCH_MAC_SUBHEADER_FIXED *)pduP;
+  // TS 38.321 section 5.22.2.2.2: complete the unicast identity check before delivery.
+  if (rx_slsch_pdu->cast_type == 2
+      && (sl_sch_subheader->SRC != (((uint32_t)UE->uid >> 8) & 0xffff)
+          || sl_sch_subheader->DST != (((uint32_t)mac->src_id >> 16) & 0xff)))
+    return;
   if (!sl_rx_harq_should_deliver(mac, rx_slsch_pdu, sl_sch_subheader)) {
     LOG_D(NR_MAC, "%4d.%2d Suppressing duplicate SL-SCH delivery for HARQ PID %u\n", frame, slot, rx_slsch_pdu->harq_pid);
     return;
