@@ -634,6 +634,10 @@ static void nr_dlsch_mmse(uint32_t pdsch_buf_size_max,
       QAM_amp128 = simde_mm_set1_epi16(QAM256_n1); //8/sqrt{170}
       QAM_amp128b = simde_mm_set1_epi16(QAM256_n2);//4/sqrt{170}
       QAM_amp128r = simde_mm_set1_epi16(QAM256_n3);//2/sqrt{170}
+    } else if (mod_order == 10) {
+      QAM_amp128 = simde_mm_set1_epi16(QAM1024_n1); // 16/sqrt{682}
+      QAM_amp128b = simde_mm_set1_epi16(QAM1024_n2); // 8/sqrt{682}
+      QAM_amp128r = simde_mm_set1_epi16(QAM1024_n3); // 4/sqrt{682}
     }
     dl_ch_mag128_0 = (simde__m128i *)dl_ch_mag[0];
     dl_ch_mag128b_0 = (simde__m128i *)dl_ch_magb[0];
@@ -693,6 +697,11 @@ static int nr_dlsch_llr(const NR_UE_DLSCH_t *dlsch,
     case 8:
       for(int l=0; l < dlsch->cw_info.Nl; l++)
         nr_256qam_llr(rxdataF_comp[l], dl_ch_mag, dl_ch_magb, dl_ch_magr, layer_llr[l], len);
+      break;
+
+    case 10:
+      for (int l = 0; l < dlsch->cw_info.Nl; l++)
+        nr_1024qam_llr(rxdataF_comp[l], dl_ch_mag, dl_ch_magb, dl_ch_magr, layer_llr[l], len);
       break;
 
     default:

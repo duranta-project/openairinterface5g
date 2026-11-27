@@ -451,7 +451,7 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
   nr_sl_pssch_pscch_pdu->num_layers = sci_pdu->number_of_dmrs_port+1;
   if (slot % 10 == 6)
     LOG_D(NR_MAC,"PSSCH: mcs %d, coderate %d, Nl %d => tbs %d\n", sci_pdu->mcs,nr_sl_pssch_pscch_pdu->target_coderate,nr_sl_pssch_pscch_pdu->num_layers,nr_sl_pssch_pscch_pdu->tb_size);
-  nr_sl_pssch_pscch_pdu->tbslbrm = nr_compute_tbslbrm(mcs_tb_ind,NRRIV2BW(sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth,273),nr_sl_pssch_pscch_pdu->num_layers);
+  nr_sl_pssch_pscch_pdu->tbslbrm = nr_compute_tbslbrm(nr_get_max_Qm_ul(mcs_tb_ind),NRRIV2BW(sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth,273),nr_sl_pssch_pscch_pdu->num_layers);
   nr_sl_pssch_pscch_pdu->mcs_table=mcs_tb_ind;
   nr_sl_pssch_pscch_pdu->rv_index = sci2_pdu->rv_index;
   nr_sl_pssch_pscch_pdu->ndi = sci2_pdu->ndi;
@@ -832,7 +832,7 @@ void config_pssch_slsch_pdu_rx(sl_nr_rx_config_pssch_pdu_t *nr_sl_pssch_pdu,
   nr_sl_pssch_pdu->cast_type = sci_pdu->cast_type;
   nr_sl_pssch_pdu->harq_feedback = sci_pdu->harq_feedback;
   nr_sl_pssch_pdu->second_stage_sci_format = sci_pdu->second_stage_sci_format;
-  nr_sl_pssch_pdu->tbslbrm = nr_compute_tbslbrm(sci_pdu->additional_mcs.val,
+  nr_sl_pssch_pdu->tbslbrm = nr_compute_tbslbrm(nr_get_max_Qm_ul(sci_pdu->additional_mcs.val),
 		                                NRRIV2BW(sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth,273),
 						nr_sl_pssch_pdu->num_layers);
   int pssch_numsym = get_num_pssch_symbols(sl_bwp, sl_res_pool, sci_pdu);
