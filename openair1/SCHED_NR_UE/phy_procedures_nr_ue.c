@@ -324,7 +324,7 @@ void ue_srs_procedures_nr(PHY_VARS_NR_UE *ue,
                         // is a problem
 }
 
-bool phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp)
+bool phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_tx_t *phy_data, c16_t **txp, bool prach)
 {
   const int slot_tx = proc->nr_slot_tx;
   const int frame_tx = proc->frame_tx;
@@ -362,8 +362,6 @@ bool phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
   LOG_D(PHY, "Sending Uplink data \n");
 
   // Don't do OFDM Mod if txdata contains prach
-  const NR_UE_PRACH *prach_var = ue->prach_vars[proc->gNB_id];
-  const bool prach = prach_var->active; // nr_ue_prach_procedures() clears it in the last PRACH slot
   bool symbol_used = false;
   for (int s = 0; s < NR_SYMBOLS_PER_SLOT; s++)
     symbol_used |= was_symbol_used[s];
@@ -394,7 +392,8 @@ bool phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
     stop_meas_nr_ue_phy(ue, OFDM_MOD_STATS);
   }
 
-  nr_ue_prach_procedures(ue, proc, txp);
+  if (prach)
+    nr_ue_prach_procedures(ue, proc, txp);
 
   LOG_D(PHY, "****** end TX-Chain for AbsSubframe %d.%d ******\n", proc->frame_tx, proc->nr_slot_tx);
 

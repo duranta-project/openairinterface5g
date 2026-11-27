@@ -100,8 +100,8 @@ int create_tasks_nrue(uint32_t ue_nb) {
 
   if (ue_nb > 0) {
     LOG_I(NR_RRC,"create TASK_RRC_NRUE \n");
-    const ittiTask_parms_t parmsRRC = {NULL, rrc_nrue};
-    if (itti_create_task(TASK_RRC_NRUE, rrc_nrue_task, &parmsRRC) < 0) {
+    /* PRACH table preparation requires the RRC task even with --no-itti-threads. */
+    if (itti_create_task(TASK_RRC_NRUE, rrc_nrue_task, NULL) < 0) {
       LOG_E(NR_RRC, "Create task for RRC UE failed\n");
       return -1;
     }
@@ -438,6 +438,12 @@ int main(int argc, char **argv)
   oai_exit = 1;
 
   nrue_ru_stop();
+
+  /* TX owns its selected row. Stop publishing tables before the radio threads shut down. */
+  for (int inst = 0; inst < NB_UE_INST; inst++)
+    for (int cc = 0; cc < MAX_NUM_CCs; cc++)
+      if (nrPHY_vars_UE_g[inst][cc])
+        nr_ue_stop_prach_lut(inst, cc);
 
   if (get_nrUE_params()->use_ue_fd) {
     PHY_VARS_NR_UE *UE_list[MAX_NUM_NR_UE_INST];

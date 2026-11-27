@@ -1039,7 +1039,7 @@ int main(int argc, char *argv[])
           c16_t *tx[UE[u]->frame_parms.nb_antennas_tx];
           for (int i = 0; i < UE[u]->frame_parms.nb_antennas_tx; i++)
             tx[i] = UE[u]->common_vars.txData[i] + slot_start;
-          phy_procedures_nrUE_TX(UE[u], &UE_proc[u], &phy_data[u], tx);
+          phy_procedures_nrUE_TX(UE[u], &UE_proc[u], &phy_data[u], tx, false);
 
           if (n_trials == 1) {
             LOG_M("txsig0.m", "txs0", &UE[u]->common_vars.txData[0][slot_offset], slot_length, 1, 1 | log_format);
