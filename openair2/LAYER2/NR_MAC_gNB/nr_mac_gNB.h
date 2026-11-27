@@ -797,12 +797,33 @@ typedef struct {
   nr_power_control_t pucch_pc;
 } NR_UE_sched_ctrl_t;
 
+// temporary PUCCH debug statistics, reset at every periodic stats print
+typedef struct nr_pucch_dbg_meas {
+  uint32_t cnt;        // number of PDUs with a valid SNR (ul_cqi != 0xff)
+  int64_t snrx10_sum;  // sum of SNR x10
+  uint32_t rssi_cnt;   // number of PDUs with a valid RSSI
+  int64_t rssi_sum;    // sum of RSSI in FAPI units (0.1 dB, 1280 = 0 dBm)
+} nr_pucch_dbg_meas_t;
+
+typedef struct nr_pucch_dbg_stats {
+  nr_pucch_dbg_meas_t f0;          // F0 with HARQ detected (confidence 0)
+  nr_pucch_dbg_meas_t f0_dtx;      // F0 with HARQ DTX (confidence 1)
+  nr_pucch_dbg_meas_t f2_harq;     // F2 carrying HARQ (HARQ resource from set 1)
+  nr_pucch_dbg_meas_t f2_noharq;   // F2 without HARQ (periodic CSI/RSRP resource)
+  uint32_t f2_harq_crc_fail;
+  uint32_t f2_csi_crc_fail;
+  uint32_t tpc[4];                 // PUCCH TPC commands sent: -1dB, 0dB, +1dB, +3dB
+  uint32_t ta_cmd;                 // TA MAC CEs sent
+  int32_t ta_sum;                  // sum of (TA command - 31)
+} nr_pucch_dbg_stats_t;
+
 typedef struct NR_mac_stats {
   NR_mac_dir_stats_t dl;
   NR_mac_dir_stats_t ul;
   uint32_t ulsch_DTX;
   uint64_t ulsch_total_bytes_scheduled;
   uint32_t pucch0_DTX;
+  nr_pucch_dbg_stats_t pucch_dbg;
   int cumul_rsrp;
   uint32_t num_rsrp_meas;
   int cumul_sinrx10;

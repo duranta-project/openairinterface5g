@@ -607,6 +607,18 @@ void nr_csi_meas_reporting(gNB_MAC_INST *nrmac, nr_cell_sched_t *cell, frame_t f
   }
 }
 
+static void pucch_dbg_add(nr_pucch_dbg_meas_t *m, uint8_t ul_cqi, uint16_t rssi)
+{
+  if (ul_cqi != 0xff) {
+    m->cnt++;
+    m->snrx10_sum += ul_cqi * 5 - 640;
+  }
+  if (rssi != 0xFFFF) {
+    m->rssi_cnt++;
+    m->rssi_sum += rssi;
+  }
+}
+
 static void handle_dl_harq(nr_cell_sched_t *cell, NR_UE_info_t * UE, int8_t harq_pid, bool success, int harq_round_max)
 {
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -1246,6 +1258,12 @@ void handle_nr_uci_pucch_0_1(gNB_MAC_INST *nrmac,
       }
     }
 
+    // debug PUCCH stats (once per PDU)
+    if (uci_01->harq.harq_confidence_level == 0)
+      pucch_dbg_add(&UE->mac_stats.pucch_dbg.f0, uci_01->ul_cqi, uci_01->rssi);
+    else
+      pucch_dbg_add(&UE->mac_stats.pucch_dbg.f0_dtx, uci_01->ul_cqi, uci_01->rssi);
+
     // tpc (power control) only if we received AckNack
     if (uci_01->harq.harq_confidence_level == 0 && uci_01->ul_cqi != 0xff) {
       int pucch_snrx10 = uci_01->ul_cqi * 5 - 640;
@@ -1285,6 +1303,16 @@ void handle_nr_uci_pucch_2_3_4(gNB_MAC_INST *nrmac,
   }
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+
+  // debug PUCCH stats
+  nr_pucch_dbg_stats_t *dbg = &UE->mac_stats.pucch_dbg;
+  const bool has_harq = (uci_234->pduBitmap >> 1) & 0x01;
+  const bool has_csi = (uci_234->pduBitmap >> 2) & 0x01;
+  pucch_dbg_add(has_harq ? &dbg->f2_harq : &dbg->f2_noharq, uci_234->ul_cqi, uci_234->rssi);
+  if (has_harq && uci_234->harq.harq_crc == 1)
+    dbg->f2_harq_crc_fail++;
+  if (has_csi && uci_234->csi_part1.csi_part1_crc == 1)
+    dbg->f2_csi_crc_fail++;
 
   // tpc (power control)
   // TODO PUCCH2 SNR computation is not correct -> ignore the following

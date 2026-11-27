@@ -1190,6 +1190,8 @@ static void generate_dl_mac_pdu(gNB_MAC_INST *mac,
 
     // ta command is sent, values are reset
     if (sched_ctrl->ta_apply) {
+      UE->mac_stats.pucch_dbg.ta_cmd++;
+      UE->mac_stats.pucch_dbg.ta_sum += sched_ctrl->ta_update - 31;
       sched_ctrl->ta_apply = false;
       sched_ctrl->ta_update = 31;
       sched_ctrl->ta_frame = (frame + 100) % MAX_FRAME_NUMBER;
@@ -1257,6 +1259,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac,
   NR_sched_pucch_t *pucch = sched_pdsch->pucch_allocation >= 0 ? &sched_ctrl->sched_pucch[sched_pdsch->pucch_allocation] : NULL;
   UE->mac_stats.dl.rounds[harq->round]++;
   int tpc = nr_mac_get_tpc(&sched_ctrl->pucch_pc);
+  UE->mac_stats.pucch_dbg.tpc[tpc & 3]++;
   LOG_D(NR_MAC,
         "%4d.%2d [DLSCH/PDSCH/PUCCH] RNTI %04x DCI L %d start %3d RBs %3d startSymbol %2d nb_symbol %2d dmrspos %x MCS %2d "
         "nrOfLayers %d TBS %4d HARQ PID %2d round %d RV %d NDI %d dl_data_to_ULACK %d (%d.%d) PUCCH allocation %d TPC %d\n",
