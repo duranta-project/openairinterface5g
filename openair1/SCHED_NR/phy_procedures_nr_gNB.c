@@ -1416,7 +1416,7 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB,
     gNB_I0_measurements(gNB, slot_rx, first_symb, num_symb, rb_mask_ul);
   }
 
-  int slot_type = nr_slot_select(&gNB->gNB_config, frame_rx, slot_rx);
+  nr_slot_type_t slot_type = nr_slot_select(&gNB->gNB_config, frame_rx, slot_rx);
   START_MEAS_FULL_SLOT(&gNB->phy_proc_rx, slot_type, NR_UPLINK_SLOT);
   uci_ind->header.transmit_timestamp = 0;
   uci_ind->sfn = frame_rx;

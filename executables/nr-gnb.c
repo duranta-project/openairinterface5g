@@ -50,9 +50,9 @@
 static void rx_func(processingData_L1_t *param);
 
 /* split 7.2: precoding and BF, C-plane and DL U-plane through the fhi_72 library */
-static void tx_split72(PHY_VARS_gNB *gNB, int slot_type, int frame_tx, int slot_tx)
+static void tx_split72(PHY_VARS_gNB *gNB, nr_slot_type_t slot_type, int frame_tx, int slot_tx)
 {
-  const bool dl_slot = slot_type & NR_DOWNLINK_SLOT;
+  const bool dl_slot = SLOT_HAS_DL(slot_type);
   fhi72_transport_t *t = gNB->fhi72_transport;
   if (dl_slot) {
     t->prec_bf(gNB, frame_tx, slot_tx);
@@ -66,9 +66,9 @@ static void tx_split72(PHY_VARS_gNB *gNB, int slot_type, int frame_tx, int slot_
 }
 
 /* other splits: precoding, BF and IDFT, control and TX through the RU */
-static void tx_split8(PHY_VARS_gNB *gNB, int slot_type, int frame_tx, int slot_tx, uint64_t timestamp_tx)
+static void tx_split8(PHY_VARS_gNB *gNB, nr_slot_type_t slot_type, int frame_tx, int slot_tx, uint64_t timestamp_tx)
 {
-  const bool dl_slot = slot_type & NR_DOWNLINK_SLOT;
+  const bool dl_slot = SLOT_HAS_DL(slot_type);
   RU_t *ru = gNB->RU_list[0];
   if (dl_slot) {
     ru->feptx_ofdm(ru, frame_tx, slot_tx);
@@ -128,8 +128,8 @@ static void tx_func(processingData_L1tx_t *info)
   res->key = slot_rx;
   pushNotifiedFIFO(&gNB->resp_L1, res);
 
-  int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
-  if (tx_slot_type & NR_DOWNLINK_SLOT) { // also covers NR_MIXED_SLOT
+  nr_slot_type_t tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
+  if (SLOT_HAS_DL(tx_slot_type)) {
     START_MEAS_FULL_SLOT(&gNB->phy_proc_tx, tx_slot_type, NR_DOWNLINK_SLOT);
     START_MEAS_FULL_SLOT(&gNB->gnb_tx_procedures_stats, tx_slot_type, NR_DOWNLINK_SLOT);
     phy_procedures_gNB_TX(gNB, &sched_response.DL_req, &sched_response.TX_req, &sched_response.UL_dci_req, frame_tx, slot_tx);
@@ -151,7 +151,7 @@ void *L1_rx_thread(void *arg)
      if (res == NULL)
        break;
      processingData_L1_t *info = (processingData_L1_t *)NotifiedFifoData(res);
-     int slot_type = nr_slot_select(&gNB->gNB_config, info->frame_rx, info->slot_rx);
+     nr_slot_type_t slot_type = nr_slot_select(&gNB->gNB_config, info->frame_rx, info->slot_rx);
      START_MEAS_FULL_SLOT(&gNB->l1_rx_proc, slot_type, NR_UPLINK_SLOT);
      rx_func(info);
      STOP_MEAS_FULL_SLOT(&gNB->l1_rx_proc, slot_type, NR_UPLINK_SLOT);
@@ -168,7 +168,7 @@ void *L1_tx_thread(void *arg) {
      if (res == NULL) // stopping condition, happens only when queue is freed
        break;
      processingData_L1tx_t *info = (processingData_L1tx_t *)NotifiedFifoData(res);
-     int slot_type = nr_slot_select(&gNB->gNB_config, info->frame, info->slot);
+     nr_slot_type_t slot_type = nr_slot_select(&gNB->gNB_config, info->frame, info->slot);
      START_MEAS_FULL_SLOT(&gNB->l1_tx_proc, slot_type, NR_DOWNLINK_SLOT);
      tx_func(info);
      STOP_MEAS_FULL_SLOT(&gNB->l1_tx_proc, slot_type, NR_DOWNLINK_SLOT);
@@ -192,8 +192,8 @@ static void rx_func(processingData_L1_t *info)
   T(T_GNB_PHY_UL_TICK, T_INT(gNB->Mod_id), T_INT(frame_rx), T_INT(slot_rx));
 
   // RX processing
-  int rx_slot_type = nr_slot_select(cfg, frame_rx, slot_rx);
-  if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
+  nr_slot_type_t rx_slot_type = nr_slot_select(cfg, frame_rx, slot_rx);
+  if (SLOT_HAS_UL(rx_slot_type)) {
     LOG_D(NR_PHY, "%d.%d Starting RX processing\n", frame_rx, slot_rx);
 
     // UE-specific RX processing for subframe n
