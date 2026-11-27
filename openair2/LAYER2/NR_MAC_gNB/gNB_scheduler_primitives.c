@@ -2984,6 +2984,7 @@ void configure_UE_BWP(nr_cell_sched_t *cell,
   // Reset required fields in sched_ctrl (e.g. ul_ri and tpmi)
   reset_sched_ctrl(sched_ctrl);
   if(!is_RA) {
+    sc_info->maxMIMO_Layers_PDSCH = NULL;
     if (servingCellConfig) {
       if (servingCellConfig->csi_MeasConfig) {
         sc_info->csi_MeasConfig = servingCellConfig->csi_MeasConfig->choice.setup;
@@ -3094,6 +3095,8 @@ void configure_UE_BWP(nr_cell_sched_t *cell,
   // Set MCS tables
   long *dl_mcs_Table = DL_BWP->pdsch_Config ? DL_BWP->pdsch_Config->mcs_Table : NULL;
   DL_BWP->mcsTableIdx = get_pdsch_mcs_table(dl_mcs_Table, DL_BWP->dci_format, TYPE_C_RNTI_, target_ss);
+  if (!is_RA && (sched_ctrl->retrans_dl_harq.head >= 0 || sched_ctrl->feedback_dl_harq.head >= 0))
+    reconfigure_dl_harq_list(cell, UE);
 
   // 0 precoding enabled 1 precoding disabled
   UL_BWP->transform_precoding = get_transformPrecoding(UL_BWP, UL_BWP->dci_format, 0);
@@ -3257,6 +3260,7 @@ void reset_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl) {
     sched_ctrl->harq_processes[i].feedback_slot = -1;
     sched_ctrl->harq_processes[i].round = 0;
     sched_ctrl->harq_processes[i].is_waiting = false;
+    sched_ctrl->harq_processes[i].abort_on_nack = false;
   }
 }
 
