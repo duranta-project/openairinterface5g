@@ -482,32 +482,71 @@ static void nr_rrc_send_sib1_to_mac(NR_UE_RRC_INST_t *rrc, NR_SIB1_t *sib1, bool
   nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
 }
 
+static int plmn_digits_value(NR_MCC_MNC_Digit_t *const *digits, int count)
+{
+  if (!digits)
+    return -1;
+  int value = 0;
+  for (int i = 0; i < count; ++i) {
+    if (!digits[i] || *digits[i] < 0 || *digits[i] > 9)
+      return -1;
+    value = 10 * value + *digits[i];
+  }
+  return value;
+}
+
+static bool get_sib1_selected_plmn(const NR_SIB1_t *sib1, long selected, plmn_id_t *result)
+{
+  if (!sib1)
+    return false;
+  const NR_PLMN_IdentityInfoList_t *groups = &sib1->cellAccessRelatedInfo.plmn_IdentityInfoList;
+  if (groups->list.count < 1 || !groups->list.array || !groups->list.array[0])
+    return false;
+  /* This UE currently selects within the first PLMN-IdentityInfo. */
+  const NR_PLMN_IdentityInfo_t *group = groups->list.array[0];
+  if (selected < 1 || selected > group->plmn_IdentityList.list.count || !group->plmn_IdentityList.list.array)
+    return false;
+
+  int mcc = -1;
+  const NR_PLMN_Identity_t *plmn = NULL;
+  for (int i = 0; i < selected; ++i) {
+    plmn = group->plmn_IdentityList.list.array[i];
+    if (!plmn)
+      return false;
+    /* TS 38.331 clause 6.3.2 allows later PLMN identities to inherit the last MCC. */
+    if (plmn->mcc) {
+      if (plmn->mcc->list.count != 3)
+        return false;
+      mcc = plmn_digits_value(plmn->mcc->list.array, 3);
+    }
+    if (mcc < 0)
+      return false;
+  }
+  int length = plmn->mnc.list.count;
+  if (length != 2 && length != 3)
+    return false;
+  int mnc = plmn_digits_value(plmn->mnc.list.array, length);
+  if (mnc < 0)
+    return false;
+  *result = (plmn_id_t){.mcc = mcc, .mnc = mnc, .mnc_digit_length = length};
+  return true;
+}
+
 static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_info, NR_SIB1_t *sib1, bool is_dedicatedSIB1)
 {
-  if(g_log->log_component[NR_RRC].level >= OAILOG_DEBUG)
-    xer_fprint(stdout, &asn_DEF_NR_SIB1, (const void *) sib1);
+  if (sib1 && g_log->log_component[NR_RRC].level >= OAILOG_DEBUG)
+    xer_fprint(stdout, &asn_DEF_NR_SIB1, (const void *)sib1);
+
+  plmn_id_t selected;
+  if (!get_sib1_selected_plmn(sib1, rrc->selected_plmn_identity, &selected)) {
+    RRCLOG_W("Ignoring SIB1: cannot read selected PLMN at index %ld\n", rrc->selected_plmn_identity);
+    asn1cFreeStruc(asn_DEF_NR_SIB1, sib1);
+    return;
+  }
   RRCLOG_A("SIB1 decoded\n");
 
-  plmn_id_t *plmn_id = malloc_or_fail(sizeof(plmn_id_t));
-
-  /* selected_plmn_identity is one-indexed */
-  AssertFatal(rrc->selected_plmn_identity > 0, "No PLMN selected");
-  /* only one PLMN info block is currently supported*/
-  NR_PLMN_Identity_t *plmn = sib1->cellAccessRelatedInfo.plmn_IdentityInfoList.list.array[0]
-                                 ->plmn_IdentityList.list.array[rrc->selected_plmn_identity - 1];
-
-  /* Convert MCC */
-  plmn_id->mcc = (*plmn->mcc->list.array[0]) * 100 + (*plmn->mcc->list.array[1]) * 10 + (*plmn->mcc->list.array[2]);
-
-  plmn_id->mnc_digit_length = plmn->mnc.list.count;
-
-  /* Convert MNC (2 or 3 digits) */
-  if (plmn->mnc.list.count == 3) {
-    plmn_id->mnc = (*plmn->mnc.list.array[0]) * 100 + (*plmn->mnc.list.array[1]) * 10 + (*plmn->mnc.list.array[2]);
-  } else {
-    plmn_id->mnc = (*plmn->mnc.list.array[0]) * 10 + (*plmn->mnc.list.array[1]);
-  }
-
+  plmn_id_t *plmn_id = malloc_or_fail(sizeof(*plmn_id));
+  *plmn_id = selected;
   nr_ue_nas_t *nas = get_ue_nas_info(rrc->ue_id);
   nas->sn_id = plmn_id;
 
@@ -1248,7 +1287,7 @@ static bool nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCRe
       RRCLOG_E("dedicatedSIB1-Delivery decode error\n");
       SEQUENCE_free(&asn_DEF_NR_SIB1, sib1, 1);
     } else {
-      // mac layer will free sib1
+      // The SIB1 handler takes ownership of the decoded message.
       nr_rrc_process_sib1(rrc, SI_info, sib1, reconf_with_sync_scc);
     }
   }
@@ -2341,7 +2380,7 @@ static void nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(NR_UE_RRC_INST_t *rrc,
     switch (bcch_message->message.choice.c1->present) {
       case NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1:
         nr_rrc_process_sib1(rrc, SI_info, bcch_message->message.choice.c1->choice.systemInformationBlockType1, false);
-        // mac layer will free after usage the sib1
+        // The SIB1 handler has taken ownership of the nested message.
         bcch_message->message.choice.c1->choice.systemInformationBlockType1 = NULL;
         break;
       case NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformation:
