@@ -217,6 +217,8 @@ typedef struct gNB_RRC_UE_s {
   uint8_t kgnb[32];
   uint8_t nh[32];
   int8_t  nh_ncc;
+  /* NCC associated with kgnb; nh_ncc != kgnb_ncc: {nh, nh_ncc} is unused (TS 33.501 §6.9.2.3.2) */
+  int8_t  kgnb_ncc;
 
   /* Used integrity/ciphering algorithms */
   NR_CipheringAlgorithm_t            ciphering_algorithm;
