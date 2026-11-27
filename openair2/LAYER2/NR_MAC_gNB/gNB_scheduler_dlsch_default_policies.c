@@ -50,8 +50,8 @@ void nr_dl_ri_pmi_select_default(const nr_cell_sched_t *cell, nr_dl_candidate_t 
 // space / coreset. Marks invalids with skipped=true.
 int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cell, nr_dl_candidate_t *candidates, int n_candidates, frame_t frame, slot_t slot)
 {
-  int tda = get_dl_tda(mac, cell, slot);
-  AssertFatal(tda >= 0, "Unable to find PDSCH time domain allocation in list\n");
+  const int slot_tda = get_dl_tda(mac, cell, slot);
+  AssertFatal(slot_tda >= 0, "Unable to find PDSCH time domain allocation in list\n");
   const NR_ServingCellConfigCommon_t *scc = cell->common_channels.ServingCellConfigCommon;
 
   int n_valid = 0;
@@ -62,6 +62,7 @@ int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cel
     NR_UE_info_t *UE = cand->UE;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
+    int tda = slot_tda;
     int coresetid = sched_ctrl->coreset->controlResourceSetId;
     NR_tda_info_t tda_info = get_dl_tda_info(dl_bwp,
                                              sched_ctrl->search_space->searchSpaceType->present,
@@ -71,24 +72,11 @@ int nr_dl_tda_select_default(const gNB_MAC_INST *mac, const nr_cell_sched_t *cel
                                              TYPE_C_RNTI_,
                                              coresetid,
                                              false);
-    if (!tda_info.valid_tda) {
+    if (cand->is_retx)
+      cand->retx_rbSize = select_dl_retx_allocation(mac, cell, cand, slot, &tda, &tda_info);
+    if (!tda_info.valid_tda || (cand->is_retx && !cand->retx_rbSize)) {
       cand->skipped = true;
       continue;
-    }
-
-    /* For retransmissions with a changed TDA, refit rbSize to preserve TBS */
-    if (cand->is_retx) {
-      const NR_sched_pdsch_t *orig = &sched_ctrl->harq_processes[cand->retx_harq_pid].sched_pdsch;
-      bool tda_changed =
-          tda_info.startSymbolIndex != orig->tda_info.startSymbolIndex || tda_info.nrOfSymbols != orig->tda_info.nrOfSymbols;
-      if (tda_changed) {
-        uint16_t new_rbSize = check_dl_retx_feasibility(cand, tda, &tda_info, scc, dl_bwp->BWPSize);
-        if (!new_rbSize) {
-          cand->skipped = true;
-          continue;
-        }
-        cand->retx_rbSize = new_rbSize;
-      }
     }
 
     cand->sched_pdsch.time_domain_allocation = tda;

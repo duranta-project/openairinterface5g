@@ -569,6 +569,8 @@ typedef struct NR_sched_pdsch {
 
 typedef struct NR_UE_harq {
   bool is_waiting;
+  /// the TB cannot be retransmitted with the current DL configuration: abort it on NACK
+  bool abort_on_nack;
   uint8_t ndi;
   uint8_t round;
   uint16_t feedback_frame;

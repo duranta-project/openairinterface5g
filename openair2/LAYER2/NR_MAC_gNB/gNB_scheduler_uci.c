@@ -376,7 +376,7 @@ static void handle_dl_harq(nr_cell_sched_t *cell, NR_UE_info_t * UE, int8_t harq
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(cell, UE);
     finish_nr_dl_harq(sched_ctrl, harq_pid);
-  } else if (harq->round >= harq_round_max - 1) {
+  } else if (harq->abort_on_nack || harq->round >= harq_round_max - 1) {
     abort_nr_dl_harq(UE, harq_pid);
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
   } else {

@@ -500,6 +500,12 @@ uint16_t check_dl_retx_feasibility(const nr_dl_candidate_t *cand,
                                    const NR_tda_info_t *tda_info,
                                    const NR_ServingCellConfigCommon_t *scc,
                                    uint16_t max_rbSize);
+uint16_t select_dl_retx_allocation(const gNB_MAC_INST *mac,
+                                   const nr_cell_sched_t *cell,
+                                   const nr_dl_candidate_t *cand,
+                                   int slot,
+                                   int *row,
+                                   NR_tda_info_t *tda);
 bool nr_dl_validate_cce_pucch(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand);
 bool commit_alloc(const nr_dl_sched_params_t *params, nr_dl_candidate_t *cand);
 
@@ -544,6 +550,7 @@ void send_initial_ul_rrc_message(int rnti, const uint8_t *sdu, sdu_size_t sdu_le
 
 void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid);
 void abort_nr_dl_harq(NR_UE_info_t* UE, int8_t harq_pid);
+void reconfigure_dl_harq_list(nr_cell_sched_t *cell, NR_UE_info_t *UE);
 
 void nr_mac_trigger_release_timer(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing);
 bool nr_mac_check_release(NR_UE_sched_ctrl_t *sched_ctrl);
