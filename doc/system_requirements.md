@@ -25,7 +25,7 @@ This document describes the minimal and performant system requirements for OpenA
 |-----------------|
 |Ubuntu 22/24/26  |
 |RHEL 9           |
-|Fedora 43/44     |
+|Fedora 44/45     |
 |Debian 11/12/13  |
 |Rocky 9          |
 
