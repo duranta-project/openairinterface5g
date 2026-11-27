@@ -840,7 +840,6 @@ int nr_config_pusch_pdu(NR_UE_MAC_INST_t *mac,
       delta_pusch = table_38_213_7_1_1_1[0][dci->tpc];
     }
   }
-  delta_pusch = 0; // set to 0 as a workaround for PHY not applying PUSCH tx power
 
   bool is_rar_tx_retx = rnti_type == TYPE_TC_RNTI_;
   bool tp_enabled = pusch_config_pdu->transform_precoding == NR_PUSCH_Config__transformPrecoder_enabled;
