@@ -81,18 +81,8 @@ typedef struct qos_fd_s {
   uint16_t length;
 } qos_fd_t; /* TS 24.501 9.11.4.12 - Omitted, only length is processed*/
 
-/**
- * @brief Decode QoS Rule (9.11.4.13 of 3GPP TS 24.501)
- * @param buf Buffer containing the QoS rule
- * @return Decoded QoS rule structure
- */
-qos_rule_t decode_qos_rule(uint8_t *buf);
-
-/**
- * @brief Returns the size of the single QoS rule IE
- * @param rule Pointer to QoS rule structure
- * @return Total length of the QoS rule IE in bytes
- */
-uint16_t get_len_qos_rule(qos_rule_t *rule);
+/** @brief Decode the length and contents of a QoS rules IE (TS 24.501 §9.11.4.13).
+ * @return Bytes consumed, or -1 if the rules exceed the buffer or local storage. */
+int decode_qos_rules(auth_qos_rule_t *rules, uint8_t *buffer, uint32_t length);
 
 #endif /* FGSM_LIB_H */

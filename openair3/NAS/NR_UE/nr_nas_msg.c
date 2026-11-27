@@ -1853,29 +1853,37 @@ static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uin
 
   // decode plain 5GMM message header
   fgmm_msg_header_t mm_header = {0};
-  if ((decoded = decode_5gmm_msg_header(&mm_header, pdu_buffer + size, msg_length - size)) < 0) {
+  if ((decoded = decode_5gmm_msg_header(&mm_header, pdu_buffer + size, msg_length - size)) != sizeof(mm_header)) {
     LOG_E(NAS, "decode_5gmm_msg_header failure in PDU Session Establishment Accept decoding\n");
     return;
   }
   size += decoded;
 
   /* Process container (5GSM message) */
+  if (msg_length - size < 3) {
+    LOG_E(NAS, "Truncated payload container in PDU Session Establishment Accept\n");
+    return;
+  }
   // Payload container type and spare (1 octet)
   size++;
   // Payload container length
   uint16_t iei_len = 0;
   GET_SHORT(pdu_buffer + size, iei_len);
   size += sizeof(iei_len);
+  if (iei_len < sizeof(fgsm_msg_header_t) || iei_len > msg_length - size) {
+    LOG_E(NAS, "Invalid payload container length in PDU Session Establishment Accept\n");
+    return;
+  }
   // decode plain 5GSM message header
   fgsm_msg_header_t sm_header = {0};
-  if ((decoded = decode_5gsm_msg_header(&sm_header, pdu_buffer + size, msg_length - size)) < 0) {
+  if ((decoded = decode_5gsm_msg_header(&sm_header, pdu_buffer + size, iei_len)) != sizeof(sm_header)) {
     LOG_E(NAS, "decode_5gsm_msg_header failure in PDU Session Establishment Accept decoding\n");
     return;
   }
   size += decoded;
 
   // decode PDU Session Establishment Accept
-  if (!decode_pdu_session_establishment_accept_msg(&msg, pdu_buffer + size, msg_length)) {
+  if (decode_pdu_session_establishment_accept_msg(&msg, pdu_buffer + size, iei_len - decoded) < 0) {
     LOG_E(NAS, "decode_pdu_session_establishment_accept_msg failure\n");
     return;
   }
@@ -1893,9 +1901,32 @@ static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uin
               "invalid PDU session ID %d\n",
               sm_header.pdu_session_id);
   nas_ue_pdu_tun_t *t = &nas->pdu_tun[sm_header.pdu_session_id];
+  if (t->reader_thread != 0) {
+    LOG_E(NAS, "PDU session %d: TUN reader already active\n", sm_header.pdu_session_id);
+    return;
+  }
 
-  // Set QFI before starting UE interface thread to avoid early SDUs using 0-initialized QFI.
-  nr_ue_tun_store_qfi(t, msg.qos_rules.rule->qfi);
+  int default_qfi = -1;
+  bool valid_rules[MAX_NUM_QOS_RULES] = {0};
+  // Network feedback for invalid QoS rules (§6.4.1.3 of TS 24.501) requires a separate NAS procedure.
+  for (int i = 0; i < msg.qos_rules.num_rules; i++) {
+    const qos_rule_t *rule = &msg.qos_rules.rule[i];
+    valid_rules[i] = rule->oc == ROC_CREATE_NEW_QOS_RULE && rule->id != 0 && rule->qfi != 0 && rule->nb_pf != 0
+                     && rule->num_packet_filters == rule->nb_pf;
+    if (!valid_rules[i])
+      LOG_W(NAS, "PDU session %d: invalid initial QoS rule %d\n", sm_header.pdu_session_id, rule->id);
+    if (rule->dqr) {
+      if (!valid_rules[i] || default_qfi >= 0) {
+        LOG_E(NAS, "PDU session %d: invalid or repeated default QoS rule\n", sm_header.pdu_session_id);
+        return;
+      }
+      default_qfi = rule->qfi;
+    }
+  }
+  if (default_qfi < 0) {
+    LOG_E(NAS, "PDU session %d: no initial default QoS rule\n", sm_header.pdu_session_id);
+    return;
+  }
 
   // process PDU Session: pass ID -1 to not append PDU ID to interface
   bool is_default = pdu == nas->uicc->pdu_sessions; // if first index
@@ -1919,13 +1950,37 @@ static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uin
     LOG_W(NAS, "Unhandled PDU session type %d, ignoring PDU session ID %d\n", msg.pdu_type, sm_header.pdu_session_id);
     return;
   }
+  if (t->sock <= 0) {
+    LOG_W(NAS, "could not create data interface reader thread, cannot inject data traffic\n");
+    return;
+  }
+
+  // RRC has created SDAP before forwarding this Accept; install before requesting the TUN reader.
+  for (int i = 0; i < msg.qos_rules.num_rules; i++) {
+    const qos_rule_t *rule = &msg.qos_rules.rule[i];
+    if (!valid_rules[i])
+      continue;
+    if (!nr_sdap_qos_rule_add(nas->UE_id,
+                             sm_header.pdu_session_id,
+                             rule->id,
+                             rule->qfi,
+                             rule->precedence,
+                             rule->dqr,
+                             rule->packet_filters,
+                             rule->num_packet_filters)) {
+      for (int j = 0; j < i; j++) {
+        if (valid_rules[j])
+          nr_sdap_qos_rule_remove(nas->UE_id, sm_header.pdu_session_id, msg.qos_rules.rule[j].id);
+      }
+      LOG_E(NAS, "PDU session %d: could not install initial QoS rule %d\n", sm_header.pdu_session_id, rule->id);
+      return;
+    }
+  }
+  nr_ue_tun_store_qfi(t, default_qfi);
   /* Track active PDU session for later PDU session status IE (24.501 8.2.16.3) */
   nas->psi_status[sm_header.pdu_session_id] = PDU_SESSION_ACTIVE;
   // ask RRC to start connected reader for this PSI
-  if (t->sock > 0)
-    send_nas_tun_req(nas, sm_header.pdu_session_id);
-  else
-    LOG_W(NAS, "could not create data interface reader thread, cannot inject data traffic\n");
+  send_nas_tun_req(nas, sm_header.pdu_session_id);
 }
 
 static void send_nas_uplink_data_req(nr_ue_nas_t *nas, const as_nas_info_t *initial_nas_msg)
@@ -2079,7 +2134,7 @@ static void handle_pdu_session_modification_command(nr_ue_nas_t *nas, uint8_t *p
       qos_rule_t *rule = &qos_rules->rule[i];
 
       switch (rule->oc) {
-        case ROC_CREATE_NEW_QOS_RULE:
+        case ROC_CREATE_NEW_QOS_RULE: {
           LOG_I(NAS,
                 "PDU session %d: CREATE new QoS rule %d with QFI %d (precedence %d, %d filters)\n",
                 sm_header.pdu_session_id,
@@ -2087,20 +2142,21 @@ static void handle_pdu_session_modification_command(nr_ue_nas_t *nas, uint8_t *p
                 rule->qfi,
                 rule->precedence,
                 rule->nb_pf);
-          // Only update the legacy entity QFI when this is the default QoS rule
+          if (!nr_sdap_qos_rule_add(nas->UE_id,
+                                   sm_header.pdu_session_id,
+                                   rule->id,
+                                   rule->qfi,
+                                   rule->precedence,
+                                   rule->dqr,
+                                   rule->packet_filters,
+                                   rule->num_packet_filters))
+            return;
           if (rule->dqr) {
             nr_ue_tun_store_qfi(&nas->pdu_tun[sm_header.pdu_session_id], rule->qfi);
             LOG_I(NAS, "PDU session %d: set default QFI to %d\n", sm_header.pdu_session_id, rule->qfi);
           }
-          nr_sdap_qos_rule_add(nas->UE_id,
-                               sm_header.pdu_session_id,
-                               rule->id,
-                               rule->qfi,
-                               rule->precedence,
-                               rule->dqr,
-                               rule->packet_filters,
-                               rule->num_packet_filters);
           break;
+        }
 
         case ROC_DELETE_QOS_RULE:
           LOG_I(NAS, "PDU session %d: DELETE QoS rule %d\n", sm_header.pdu_session_id, rule->id);

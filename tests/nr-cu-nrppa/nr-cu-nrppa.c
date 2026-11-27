@@ -52,7 +52,7 @@ nrUE_params_t *get_nrUE_params(void)
   return &params;
 }
 
-void nr_sdap_qos_rule_add(ue_id_t ue_id,
+bool nr_sdap_qos_rule_add(ue_id_t ue_id,
                          int pdusession_id,
                          uint8_t rule_id,
                          uint8_t qfi,
@@ -61,6 +61,7 @@ void nr_sdap_qos_rule_add(ue_id_t ue_id,
                          const packet_filter_decoded_t *pf_list,
                          int num_pf)
 {
+  return true;
 }
 
 void nr_sdap_qos_rule_remove(ue_id_t ue_id, int pdusession_id, uint8_t rule_id)

@@ -10,15 +10,10 @@
 /**
  * @brief Returns the size of the single QoS rule IE
  */
-uint16_t get_len_qos_rule(qos_rule_t *rule)
-{
-  return rule->length + sizeof(rule->id) + sizeof(rule->length);
-}
-
 /**
  * @brief Decode QoS Rule (9.11.4.13 of 3GPP TS 24.501)
  */
-qos_rule_t decode_qos_rule(uint8_t *buf)
+static qos_rule_t decode_qos_rule(uint8_t *buf)
 {
   qos_rule_t qos_rule = {0};
 
@@ -98,4 +93,29 @@ qos_rule_t decode_qos_rule(uint8_t *buf)
     qos_rule.qfi = *buf++ & 0x3F;
   }
   return qos_rule;
+}
+
+int decode_qos_rules(auth_qos_rule_t *rules, uint8_t *buffer, uint32_t length)
+{
+  if (buffer == NULL || length < 2)
+    return -1;
+  rules->num_rules = 0;
+  rules->length = 0;
+  GET_SHORT(buffer, rules->length);
+  if (rules->length == 0 || rules->length > length - 2)
+    return -1;
+  uint8_t *cursor = buffer + 2;
+  const uint8_t *end = cursor + rules->length;
+  while (cursor < end) {
+    if (rules->num_rules == MAX_NUM_QOS_RULES || end - cursor < 4)
+      return -1;
+    uint16_t content_length = 0;
+    GET_SHORT(cursor + 1, content_length);
+    // Delete operations have only an operation octet (TS 24.501 §9.11.4.13).
+    if (content_length < 1 || content_length > end - cursor - 3)
+      return -1;
+    rules->rule[rules->num_rules++] = decode_qos_rule(cursor);
+    cursor += content_length + 3;
+  }
+  return cursor - buffer;
 }

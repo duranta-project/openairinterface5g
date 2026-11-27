@@ -18,6 +18,8 @@
 #include "fgmm_authentication_reject.h"
 #include "fgmm_configuration_update_command.h"
 #include "nr_nas_msg.h"
+#include "PduSessionEstablishmentAccept.h"
+#include "PduSessionModificationCommand.h"
 
 configmodule_interface_t *uniqCfg = NULL;
 
@@ -679,6 +681,135 @@ static void test_configuration_update_command(void)
   free_fgmm_configuration_update_command(&orig);
 }
 
+static void test_initial_qos_rules(void)
+{
+  // TS 24.501 §8.3.2: synthetic Establishment Accept bodies, without the 5GSM header.
+  uint8_t dedicated[] = {7, 0, 8, 0x21, 0x31, 3, 0x40, 0xc3, 0x50, 7, 5};
+  uint8_t fallback[] = {3, 0, 6, 0x31, 0x21, 1, 1, 10, 9};
+  uint8_t ambr[] = {6, 6, 0, 100, 6, 0, 100};
+  pdu_session_establishment_accept_msg_t *msg = calloc_or_fail(1, sizeof(*msg));
+  for (int test = 0; test < 3; test++) {
+    uint8_t body[3 + sizeof(dedicated) + sizeof(fallback) + sizeof(ambr)] = {0x11};
+    bool default_first = test != 0;
+    bool single = test == 2;
+    body[2] = sizeof(fallback) + (single ? 0 : sizeof(dedicated));
+    if (default_first)
+      memcpy(body + 3, fallback, sizeof(fallback));
+    if (!single)
+      memcpy(body + 3 + (default_first ? sizeof(fallback) : 0), dedicated, sizeof(dedicated));
+    if (!default_first)
+      memcpy(body + 3 + sizeof(dedicated), fallback, sizeof(fallback));
+    memcpy(body + 3 + body[2], ambr, sizeof(ambr));
+
+    memset(msg, 0, sizeof(*msg));
+    int length = 3 + body[2] + sizeof(ambr);
+    int decoded = decode_pdu_session_establishment_accept_msg(msg, body, length);
+    AssertFatal(decoded == length, "Initial Accept body length mismatch\n");
+    AssertFatal(msg->qos_rules.num_rules == (single ? 1 : 2),
+                "Initial Accept decoded %d QoS rules, expected %d\n",
+                msg->qos_rules.num_rules,
+                single ? 1 : 2);
+    const qos_rule_t *default_rule = &msg->qos_rules.rule[default_first ? 0 : 1];
+    AssertFatal(default_rule->id == 3 && default_rule->dqr && default_rule->qfi == 9,
+                "Default QoS rule was not preserved\n");
+    if (!single) {
+      const qos_rule_t *port_rule = &msg->qos_rules.rule[default_first ? 1 : 0];
+      AssertFatal(port_rule->id == 7 && !port_rule->dqr && port_rule->qfi == 5 && port_rule->precedence == 7,
+                  "Dedicated QoS rule was not preserved\n");
+      AssertFatal(port_rule->num_packet_filters == 1 && port_rule->packet_filters[0].num_components == 1
+                      && port_rule->packet_filters[0].components[0].type == PF_COMP_SINGLE_LOCAL_PORT
+                      && port_rule->packet_filters[0].components[0].value.single_port == 50000,
+                  "Dedicated QoS rule lost its local port filter\n");
+    }
+  }
+  free(msg);
+}
+
+static void test_shared_qos_rules(void)
+{
+  // Create, delete, add/replace/delete filters and modify without filters (§9.11.4.13).
+  uint8_t rules[] = {0, 47,
+                    7, 0, 8, 0x21, 0x31, 3, 0x40, 0xc3, 0x50, 7, 5,
+                    7, 0, 1, 0x40,
+                    7, 0, 8, 0x61, 0x31, 3, 0x40, 0xc3, 0x50, 7, 5,
+                    7, 0, 8, 0x81, 0x31, 3, 0x40, 0xc3, 0x50, 7, 5,
+                    7, 0, 4, 0xa1, 1, 7, 5,
+                    7, 0, 3, 0xc0, 7, 5};
+  rules[1] = sizeof(rules) - 2;
+  pdu_session_modification_command_msg_t *msg = calloc_or_fail(1, sizeof(*msg));
+  uint8_t body[1 + sizeof(rules)];
+  body[0] = IEI_MOD_AUTH_QOS_RULES;
+  memcpy(body + 1, rules, sizeof(rules));
+  AssertFatal(decode_pdu_session_modification_command(msg, body, sizeof(body)) == sizeof(body),
+              "Shared QoS decoder rejected a modification command\n");
+  AssertFatal(msg->qos_rules_present && msg->qos_rules.num_rules == 6, "Modification operations lost\n");
+  for (int i = 0; i < 6; i++)
+    AssertFatal(msg->qos_rules.rule[i].oc == i + 1, "Modification operation %d changed\n", i + 1);
+  AssertFatal(msg->qos_rules.rule[1].length == 1 && msg->qos_rules.rule[4].pf_delete_ids[0] == 1,
+              "Delete operation decoded incorrectly\n");
+  for (size_t size = 1; size < sizeof(body); size++) {
+    uint8_t *truncated = malloc_or_fail(size);
+    memcpy(truncated, body, size);
+    AssertFatal(decode_pdu_session_modification_command(msg, truncated, size) < 0,
+                "QoS decoder accepted truncated modification (%zu bytes)\n", size);
+    free(truncated);
+  }
+  uint8_t empty_rule[] = {0, 3, 7, 0, 0};
+  AssertFatal(decode_qos_rules(&msg->qos_rules, empty_rule, sizeof(empty_rule)) < 0, "Empty rule accepted\n");
+  uint8_t overlong_rule[] = {0, 4, 7, 0, 2, 0x40};
+  AssertFatal(decode_qos_rules(&msg->qos_rules, overlong_rule, sizeof(overlong_rule)) < 0, "Overlong rule accepted\n");
+  uint8_t many_rules[2 + 4 * (MAX_NUM_QOS_RULES + 1)] = {0};
+  for (int i = 0; i <= MAX_NUM_QOS_RULES; i++) {
+    many_rules[2 + 4 * i] = i + 1;
+    many_rules[4 + 4 * i] = 1;
+    many_rules[5 + 4 * i] = ROC_DELETE_QOS_RULE << 5;
+  }
+  many_rules[0] = (4 * MAX_NUM_QOS_RULES) >> 8;
+  many_rules[1] = (4 * MAX_NUM_QOS_RULES) & 0xff;
+  AssertFatal(decode_qos_rules(&msg->qos_rules, many_rules, sizeof(many_rules) - 4) == sizeof(many_rules) - 4,
+              "Maximum supported rule count rejected\n");
+  many_rules[0] = (4 * (MAX_NUM_QOS_RULES + 1)) >> 8;
+  many_rules[1] = (4 * (MAX_NUM_QOS_RULES + 1)) & 0xff;
+  AssertFatal(decode_qos_rules(&msg->qos_rules, many_rules, sizeof(many_rules)) < 0, "Rule storage limit exceeded\n");
+  free(msg);
+}
+
+static void test_pdu_address_si6lla(void)
+{
+  const uint8_t prefix[] = {0x11, 0, 9, 3, 0, 6, 0x31, 0x21, 1, 1, 10, 9,
+                            6, 6, 0, 100, 6, 0, 100};
+  const int address_lengths[] = {IPv4_ADDRESS_LENGTH, IPv6_INTERFACE_ID_LENGTH,
+                                 IPv4_ADDRESS_LENGTH + IPv6_INTERFACE_ID_LENGTH};
+  pdu_session_establishment_accept_msg_t *msg = calloc_or_fail(1, sizeof(*msg));
+  for (int type = PDU_SESSION_TYPE_IPV4; type <= PDU_SESSION_TYPE_IPV4V6; type++) {
+    uint8_t body[sizeof(prefix) + 3 + 12 + 16 + 2] = {0};
+    memcpy(body, prefix, sizeof(prefix));
+    body[0] = 0x10 | type;
+    int address_length = address_lengths[type - 1];
+    uint8_t *address = body + sizeof(prefix);
+    address[0] = IEI_PDU_ADDRESS;
+    address[1] = 1 + address_length + 16;
+    address[2] = 0x08 | type;
+    for (int i = 0; i < address_length; i++)
+      address[3 + i] = i + 1;
+    address[3 + address_length] = 0xfe;
+    address[4 + address_length] = 0x80;
+    int length = sizeof(prefix) + 3 + address_length + 16;
+    body[length++] = IEI_5GSM_CAUSE;
+    body[length++] = 0;
+    memset(msg, 0, sizeof(*msg));
+    AssertFatal(decode_pdu_session_establishment_accept_msg(msg, body, length) == length,
+                "Valid SI6LLA address prevented Accept decoding (type %d)\n", type);
+    AssertFatal(msg->pdu_addr_ie.pdu_type == type
+                    && memcmp(msg->pdu_addr_ie.pdu_addr_oct, address + 3, address_length) == 0,
+                "SI6LLA changed the UE address (type %d)\n", type);
+    address[1]--;
+    AssertFatal(decode_pdu_session_establishment_accept_msg(msg, body, length) < 0,
+                "Truncated SMF address accepted (type %d)\n", type);
+  }
+  free(msg);
+}
+
 int main()
 {
   // Initialize logging system
@@ -696,5 +827,8 @@ int main()
   test_security_mode_reject();
   test_msg_headers();
   test_configuration_update_command();
+  test_initial_qos_rules();
+  test_shared_qos_rules();
+  test_pdu_address_si6lla();
   return 0;
 }

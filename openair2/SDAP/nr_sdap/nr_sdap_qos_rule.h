@@ -17,8 +17,9 @@ void nr_sdap_qos_rules_init(struct nr_sdap_entity_s *entity);
 void nr_sdap_qos_rules_free(struct nr_sdap_entity_s *entity);
 uint8_t nr_sdap_match_ul_packet(struct nr_sdap_entity_s *entity, const uint8_t *ip_pkt, size_t pkt_len);
 
-/** @brief Add an Authorized QoS rule */
-void nr_sdap_qos_rule_add(ue_id_t ue_id,
+/** @brief Add or replace a non-default Authorized QoS rule.
+ * @return true if the rule was installed. */
+bool nr_sdap_qos_rule_add(ue_id_t ue_id,
                           int pdusession_id,
                           uint8_t rule_id,
                           uint8_t qfi,
