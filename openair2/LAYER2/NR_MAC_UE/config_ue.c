@@ -3126,13 +3126,30 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
                               int hfn,
                               int frame,
                               NR_CellGroupConfig_t *cell_group_config,
-                              NR_UE_NR_Capability_t *ue_Capability)
+                              NR_UE_NR_Capability_t *ue_Capability,
+                              bool full_config)
 {
   LOG_I(MAC,"[UE %d] Applying CellGroupConfig from gNodeB\n", module_id);
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
   AssertFatal(cell_group_config, "CellGroupConfig should not be NULL\n");
+
+  if (full_config) {
+    // TS 38.331 5.3.5.11: release the dedicated configuration but the C-RNTI, keeping the serving cell's common one
+    // (BWP0, as a re-establishment does), drop every logical channel but SRB0 and SRB1, apply the default MAC Cell
+    // Group configuration; this CellGroupConfig then sets the rest up again. Done here, under the same lock, so that no
+    // slot sees the configuration released without the new one.
+    LOG_I(NR_MAC, "[UE %d] Full configuration: releasing the dedicated MAC configuration\n", module_id);
+    release_mac_configuration(mac, RE_ESTABLISHMENT);
+    for (int i = mac->lc_ordered_list.count; i > 0; i--) {
+      nr_lcordered_info_t *lc = mac->lc_ordered_list.array[i - 1];
+      if (lc->rb.type == NR_LCID_SRB && lc->rb.choice.srb_id <= 1)
+        continue;
+      asn_sequence_del(&mac->lc_ordered_list, i - 1, 1);
+    }
+    nr_ue_mac_default_configs(mac);
+  }
 
   if (cell_group_config->physicalCellGroupConfig)
     configure_physicalcellgroup(mac, cell_group_config->physicalCellGroupConfig);
