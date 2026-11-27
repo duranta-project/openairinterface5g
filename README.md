@@ -14,14 +14,19 @@
     <a href="https://releases.ubuntu.com/24.04/"><img src="https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white" alt="Supported OS Ubuntu 24"></a>
     <a href="https://releases.ubuntu.com/26.04/"><img src="https://img.shields.io/badge/Ubuntu-26.04-E95420?logo=ubuntu&logoColor=white" alt="Supported OS Ubuntu 26"></a>
     <a href="https://www.redhat.com/en/technologies/linux-platforms/enterprise-linux"><img src="https://img.shields.io/badge/RHEL-9-EE0000?logo=redhat&logoColor=white" alt="Supported OS RHEL9"></a>
-    <a href="https://getfedora.org/en/workstation/"><img src="https://img.shields.io/badge/Fedora-44-51A2DA?logo=fedora&logoColor=white" alt="Supported OS Fedora 44"></a>
+    <a href="https://rockylinux.org/"><img src="https://img.shields.io/badge/Rocky-9-10B981?logo=rockylinux&logoColor=white" alt="Supported OS Rocky 9"></a>
+    <a href="https://fedoraproject.org/"><img src="https://img.shields.io/badge/Fedora-44-51A2DA?logo=fedora&logoColor=white" alt="Supported OS Fedora 44"></a>
+    <a href="https://fedoraproject.org/"><img src="https://img.shields.io/badge/Fedora-45-51A2DA?logo=fedora&logoColor=white" alt="Supported OS Fedora 45"></a>
+    <a href="https://www.debian.org/releases/bullseye/"><img src="https://img.shields.io/badge/Debian-11-A81D33?logo=debian&logoColor=white" alt="Supported OS Debian 11"></a>
+    <a href="https://www.debian.org/releases/bookworm/"><img src="https://img.shields.io/badge/Debian-12-A81D33?logo=debian&logoColor=white" alt="Supported OS Debian 12"></a>
+    <a href="https://www.debian.org/releases/trixie/"><img src="https://img.shields.io/badge/Debian-13-A81D33?logo=debian&logoColor=white" alt="Supported OS Debian 13"></a>
 </p>
 
 <p align="center">
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-Image-Builder%2F&label=build-Ubuntu-x86%20Images"></a>
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-RHEL-Cluster-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-RHEL-Cluster-Image-Builder%2F&label=build-RHEL-Cluster%20Images"></a>
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-ARM-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-ARM-Image-Builder%2F&label=build-Ubuntu-ARM%20Images"></a>
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-Jetson-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-Jetson-Image-Builder%2F&label=build-Ubuntu-ARMv8%20Images"></a>
+    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-Image-Builder%2F&label=build-Ubuntu-x86%20Images" alt="Ubuntu x86 image build status"></a>
+    <a href="https://jenkins-oai.eurecom.fr/job/RAN-CentOS-Cluster-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-CentOS-Cluster-Image-Builder%2F&label=build-CentOS-Cluster%20Images" alt="CentOS cluster image build status"></a>
+    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-ARM-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-ARM-Image-Builder%2F&label=build-Ubuntu-ARM%20Images" alt="Ubuntu ARM image build status"></a>
+    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-Jetson-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-Jetson-Image-Builder%2F&label=build-Ubuntu-ARMv8%20Images" alt="Ubuntu ARMv8 image build status"></a>
 </p>
 
 <p align="center">
@@ -43,46 +48,41 @@ under the Collaborative Standards Software License v1.0 (CSSL).
 
 ## License
 
- *  [CSSL v1.0](./LICENSE)
- *  [Licenses](./LICENSES/)
-
-The source code is distributed under [**CSSL v1.0**](LICENSE).
+The source code is distributed under [**CSSL v1.0**](./LICENSE).
 Some files, such as for orchestration, are distributed under
 [MIT license](./LICENSES/preferred/MIT.txt). Documentation is distributed under
-[Creative Commons Attribution 4.0 International license](LICENSES/preferred/CC-BY-4.0.txt).
+[Creative Commons Attribution 4.0 International license](./LICENSES/preferred/CC-BY-4.0.txt).
 
 All the files without an explicit copyright header have an implicit "Copyright
 of OpenAirInterface Authors".
 
-Please see [NOTICE](NOTICE) for other licenses which are used in the software.
+Please see [NOTICE](./NOTICE) for other licenses which are used in the software,
+and [LICENSES](./LICENSES/) for the full license texts.
 
-In the past OAI source code has been re-licensed sometimes, here is the
+In the past OAI source code has been re-licensed several times, here is the
 history:
 
-1. CSSL v1.0 starting tag 2026.w14
-2. OAI Public License v1.1 starting tag v1.0 till af4b0d53
-3. OAI Public License v1.0: starting tag v.04 till v1.0
-4. GPL 3: starting tag v.0 till v.04 (only initial implementation of 4G)
+1. [CSSL v1.0](./LICENSE): starting tag [2026.w14](https://github.com/duranta-project/openairinterface5g/releases/tag/2026.w14)
+2. [OAI Public License v1.1](./LICENSES/deprecated/OAI-PL-v1.1.txt): starting tag [v0.6.1](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.6.1) till [af4b0d53](https://github.com/duranta-project/openairinterface5g/commit/af4b0d53e9f4c3bf0e5f82f58781eac07f312b86)
+3. [OAI Public License v1.0](https://github.com/duranta-project/openairinterface5g/blob/v0.4/LICENSE): starting tag [v0.4](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.4) till [v0.6.1](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.6.1)
+4. [GPL 3](https://github.com/duranta-project/openairinterface5g/blob/v0.3/COPYING): starting tag [v0.1](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.1) till [v0.4](https://github.com/duranta-project/openairinterface5g/releases/tag/v0.4) (only initial implementation of 4G)
 
-## Where to Start
+## Getting Started
 
- *  [General overview of documentation](./doc/README.md)
- *  [The implemented features](./doc/FEATURE_SET.md)
- *  [System Requirements for Using OAI Stack](./doc/system_requirements.md)
- *  [How to build](./doc/BUILD.md)
- *  [How to run the modems](./doc/RUNMODEM.md)
+The [documentation overview](./doc/README.md) is the entry point to all
+guides, tutorials, and design documents. To contribute, read the
+[contributing guidelines](./CONTRIBUTING.md). Sub-system documentation may also
+live in the corresponding directories; to list all READMEs, run
+`find . -iname "readme*"`.
 
-Not all information is available in a central place, and information for
-specific sub-systems might be available in the corresponding sub-directories.
-To find all READMEs, this command might be handy:
+Stable releases are listed on the
+[releases page](https://github.com/duranta-project/openairinterface5g/releases)
+with notable changes in the [changelog](./CHANGELOG.md). Weekly integration
+tags (`YYYY.wXX`) mark the integration branches merged into `develop`.
 
-```
-find . -iname "readme*"
-```
+## RAN Repository Structure
 
-## RAN repository structure
-
-The OpenAirInterface (OAI) software is composed of the following parts:
+The repository is organized as follows:
 
 ```
 openairinterface5g
@@ -102,26 +102,58 @@ openairinterface5g
 ├── openair1          : LTE and NR physical layer
 ├── openair2          : MAC, RLC, PDCP, SDAP, RRC, and application protocols
 ├── openair3          : NAS, S1AP, NGAP, GTP, and related layer-3 protocols
-├── openshift         : OpenShift deployment resources
+├── openshift         : OpenShift build configs and image streams used by CI
 ├── radio             : Radio and simulation drivers
-├── targets           : Legacy configuration files and deployment resources
+├── targets           : Example configuration files and legacy resources
 ├── tests             : Component and integration tests
 └── tools             : Developer and CI analysis, formatting, and plotting tools
 ```
 
-## How to get support from the Community
+## Governance
 
-You can ask your question on the [mailing lists](https://github.com/duranta-project/openairinterface5g/wiki/MailingList).
+This repository is part of [Duranta](https://lfnetworking.org/projects/duranta/),
+an [LF Networking](https://lfnetworking.org/) project overseen by its Technical
+Steering Committee (TSC). See the
+[governance repository](https://github.com/duranta-project/governance) for:
 
-Your email should contain below information:
+- [Technical Charter](https://github.com/duranta-project/governance/blob/main/Duranta_Project_Technical_Charter.pdf)
+- [Contributor License Agreement](https://github.com/duranta-project/governance/blob/main/docs/easy_cla_process.md)
+- [TSC members, maintainers, and collaborators](https://github.com/duranta-project/governance/blob/main/CONTRIBUTING.md)
 
-- A clear subject in your email.
-- For all the queries there should be [Query\] in the subject of the email and for problems there should be [Problem\].
-- In case of a problem, add a small description.
-- Do not share any photos unless you want to share a diagram.
-- OAI gNB/DU/CU/CU-CP/CU-UP configuration file in `.conf` format only.
-- Logs of OAI gNB/DU/CU/CU-CP/CU-UP in `.log` or `.txt` format only.
-- In case your question is related to performance, include a small description of the machine (Operating System, Kernel version, CPU, RAM and networking card) and diagram of your testing environment.
-- Known/open issues are present on [Github](https://github.com/duranta-project/openairinterface5g/issues), so keep checking.
+Governance decisions are discussed in the
+[TSC Meetings](https://github.com/duranta-project/openairinterface5g/wiki/Technical-Steering-Committee-(TSC)--Meeting).
 
-Always remember a structured email will help us understand your issues quickly.
+## Community and Support
+
+Before asking a question or reporting an issue, check the existing
+[issues](https://github.com/duranta-project/openairinterface5g/issues) and
+[discussions](https://github.com/duranta-project/openairinterface5g/discussions).
+
+- [GitHub Issues](https://github.com/duranta-project/openairinterface5g/issues):
+  report bugs and request features.
+- [GitHub Discussions](https://github.com/duranta-project/openairinterface5g/discussions):
+  ask questions, share ideas, and follow announcements.
+- [Mailing Lists](https://github.com/duranta-project/openairinterface5g/wiki/MailingList):
+  technical questions and troubleshooting by email.
+- [Developer Meetings](https://github.com/duranta-project/openairinterface5g/wiki/Developer-Meetings):
+  follow ongoing development and technical discussions.
+- [Security Policy](./SECURITY.md): how to report security vulnerabilities.
+
+### What to Include in Your Request
+
+To get a quick answer, include:
+
+- A clear subject, prefixed with `[Query]` for questions or `[Problem]` for
+  problems (mailing lists).
+- For problems, a short description and the steps to reproduce it.
+- The commit (`git rev-parse HEAD`) or release tag you are using, and any
+  local changes or patches (`git diff`).
+- The command line used to start the affected gNB, DU, CU, CU-CP, CU-UP, or UE.
+- Configuration files (`.conf` or `.yaml`) and logs (`.log` or `.txt`) of the
+  affected gNB, DU, CU, CU-CP, CU-UP, or UE.
+- For performance questions, the OS, kernel version, CPU, RAM, network card,
+  and a diagram of your setup.
+- Diagrams rather than photos or screenshots, whenever possible.
+- Whether you used an AI tool to write the request or analyze the problem,
+  as `TOOL-NAME: LLM-MODEL-VERSION`. Keep AI-generated text short and to the
+  point; do not submit long AI-written descriptions.
