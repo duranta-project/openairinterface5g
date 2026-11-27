@@ -391,6 +391,16 @@ void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
 uint8_t *allocate_transportBlock_buffer(byte_array_t *tb, uint32_t needed);
 void free_transportBlock_buffer(byte_array_t *tb);
 
+/// coefficient of a UL precoder of TS 38.211 Tables 6.3.1.5-1 to 6.3.1.5-5:
+/// '0', '1', 'n' (-1), 'j' or 'o' (-j)
+char get_precoder_matrix_coef(const uint8_t ul_ri,
+                              const uint16_t num_ue_srs_ports,
+                              const long transform_precoding,
+                              const uint8_t tpmi,
+                              const uint8_t uI,
+                              int layer_idx);
+c16_t nr_h_times_w(c16_t h, char w);
+
 void handle_nr_srs_measurements(gNB_MAC_INST *nrmac,
                                 nr_cell_sched_t *cell,
                                 const frame_t frame,
@@ -627,4 +637,10 @@ bool nr_ul_check_phr(const nr_ul_sched_params_t *params,
                      uint8_t mcs,
                      nr_ul_phr_advice_t *advice);
 fsn_t get_fb_frame_slot(int frame, int slot, int K, int n_slots_frame, int NTN_gNB_Koffset);
+
+void nr_mu_update_pair_cache(gNB_MAC_INST *mac, nr_cell_sched_t *cell, NR_UE_info_t *UE);
+
+void nr_mu_invalidate_pair_cache(gNB_MAC_INST *mac, rnti_t disconnected_rnti);
+
+bool needs_default_grant(const nr_ul_candidate_t *c);
 #endif /*__LAYER2_NR_MAC_PROTO_H__*/

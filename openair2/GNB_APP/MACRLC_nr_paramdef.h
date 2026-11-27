@@ -58,6 +58,10 @@
 #define MACRLC_PUCCH_RSSI_THRESHOLD          "pucch_RSSI_Threshold"
 #define MACRLC_STATS_MAX_UE                  "stats_max_ue"
 #define MACRLC_SPATIAL_STREAM_IDX            "spatial_stream_index"
+#define MACRLC_UL_MU_MIMO "ul_mu_mimo"
+#define MACRLC_UL_MU_MIMO_CORR_THRESHOLD "ul_mu_mimo_corr_threshold"
+#define MACRLC_UL_MU_MIMO_PF_BIAS "ul_mu_mimo_pf_bias"
+#define MACRLC_UL_MU_MIMO_SRS_MAX_AGE "ul_mu_mimo_srs_max_age_ms"
 
 #define HLP_MACRLC_UL_PRBBLACK "SNR threshold to decide whether a PRB will be blacklisted or not"
 #define HLP_MACRLC_DL_BLER_UP "Upper threshold of BLER to decrease DL MCS"
@@ -83,6 +87,10 @@
 #define HLP_MACRLC_PUCCH_RSSI_THRESHOLD "Limits PUCCH TPC commands based on RSSI to prevent ADC railing. Value range [-1280, 0], unit 0.1 dBm/dBFS"
 #define HLP_MACRLC_STATS_MAX_UE "Maximum number of UEs before disabling periodical output (0 to disable)"
 #define HLP_MACRLC_SPATIAL_STREAM_INDEX "Array of RU antenna ports / eAxCIDs to be used by L1. This may only be applicable for MU-MIMO. Value range [0, 15]"
+#define HLP_MACRLC_UL_MU_MIMO "Enable the uplink MU-MIMO scheduler policy instead of the default proportional-fair one"
+#define HLP_MACRLC_UL_MU_MIMO_CORR_THRESHOLD "UL MU-MIMO: maximum SRS channel cross-correlation (0..1) of two UEs to pair them"
+#define HLP_MACRLC_UL_MU_MIMO_PF_BIAS "UL MU-MIMO: factor (>= 1) on the proportional-fair weight of paired UEs"
+#define HLP_MACRLC_UL_MU_MIMO_SRS_MAX_AGE "UL MU-MIMO: maximum age in ms of an SRS channel estimate used for pairing"
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            MacRLC  configuration parameters                                                                           */
@@ -135,6 +143,13 @@
                                                                                0, .uptr=NULL,   .defintarrayval=0,          TYPE_INTARRAY,0}, \
   {MACRLC_ANALOG_BEAMFORMING_REMOVED,  NULL,                     0, .strptr=NULL, .defstrval=NULL,            TYPE_STRING,  0}, \
   {MACRLC_BEAM_WEIGHTS_LIST_REMOVED,   NULL,                     0, .iptr=NULL,   .defintarrayval=0,          TYPE_INTARRAY,0}, \
+  {MACRLC_UL_MU_MIMO,                  HLP_MACRLC_UL_MU_MIMO,   PARAMFLAG_BOOL, .u8ptr=NULL,  .defintval=0,               TYPE_UINT8,   0}, \
+  {MACRLC_UL_MU_MIMO_CORR_THRESHOLD,   HLP_MACRLC_UL_MU_MIMO_CORR_THRESHOLD, \
+                                                                               0, .dblptr=NULL, .defdblval=0.7,             TYPE_DOUBLE,  0}, \
+  {MACRLC_UL_MU_MIMO_PF_BIAS,          HLP_MACRLC_UL_MU_MIMO_PF_BIAS, \
+                                                                               0, .dblptr=NULL, .defdblval=1.5,             TYPE_DOUBLE,  0}, \
+  {MACRLC_UL_MU_MIMO_SRS_MAX_AGE,      HLP_MACRLC_UL_MU_MIMO_SRS_MAX_AGE, \
+                                                                               0, .iptr=NULL,   .defintval=160,             TYPE_INT,     0}, \
 }
 // clang-format off
 
@@ -184,6 +199,10 @@
   { .s2 = { NULL } }, /* Spatial stream index */ \
   { .s5 = { NULL } }, /* removed set_analog_beamforming */ \
   { .s5 = { NULL } }, /* removed beam_weights */ \
+  { .s5 = { NULL } }, /* UL MU-MIMO enable */ \
+  { .s5 = { NULL } }, /* UL MU-MIMO correlation threshold */ \
+  { .s5 = { NULL } }, /* UL MU-MIMO PF bias */ \
+  { .s2 = { config_check_intrange, {1, 10240}} }, /* UL MU-MIMO SRS max age */ \
 }
 
 /*---------------------------------------------------------------------------------------------------------------------------------------------------------*/

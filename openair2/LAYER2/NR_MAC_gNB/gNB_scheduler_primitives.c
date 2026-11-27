@@ -12,6 +12,7 @@
 
 #include "nr_mac_gNB.h"
 #include "mac_proto.h"
+#include "gNB_scheduler_ulsch_MU_MIMO_policies.h"
 #include "common/utils/bits.h"
 #include "common/utils/LOG/log.h"
 #include "UTIL/OPT/opt.h"
@@ -2590,6 +2591,7 @@ void delete_nr_ue_data(void *p)
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; ++i)
     free_transportBlock_buffer(&sched_ctrl->harq_processes[i].transportBlock);
   free_sched_pucch_list(sched_ctrl);
+  nr_srs_sig_free(sched_ctrl->srs_eff_channel_info.sig);
   free_and_zero(UE->ra);
   free(UE);
 }
@@ -3283,7 +3285,9 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
 {
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   NR_UE_info_t *UE = remove_connected_nr_ue(UE_info, rnti);
-  if (!UE)
+  if (UE)
+    nr_mu_invalidate_pair_cache(nr_mac, rnti);
+  else
     UE = remove_ra_ue(UE_info, rnti);
   if (UE)
     release_nr_ue_inst(&nr_mac->UE_info.uid_allocator, UE);
