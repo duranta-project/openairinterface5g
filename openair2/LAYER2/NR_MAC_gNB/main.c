@@ -102,6 +102,15 @@ static char *st_append(char *start, const char *end, const char *format, ...)
     return (char *)end;
 }
 
+static char *dump_pucch_dbg_meas(char *output, const char *end, const char *name, const nr_pucch_dbg_meas_t *m)
+{
+  if (m->cnt == 0 && m->rssi_cnt == 0)
+    return st_append(output, end, " %s 0", name);
+  float snr = m->cnt > 0 ? m->snrx10_sum / (10.0f * m->cnt) : 0.0f;
+  float rssi = m->rssi_cnt > 0 ? m->rssi_sum / (10.0f * m->rssi_cnt) - 128.0f : 0.0f;
+  return st_append(output, end, " %s %u (SNR %.1f RSSI %.1f)", name, m->cnt > m->rssi_cnt ? m->cnt : m->rssi_cnt, snr, rssi);
+}
+
 size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *output, size_t strlen, bool reset_rsrp)
 {
   const char *begin = output;
@@ -182,7 +191,34 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
                        sched_ctrl->dl_bler_stats.mcs,
                        nr_get_Qm_dl(sched_ctrl->dl_bler_stats.mcs, UE->current_DL_BWP.mcsTableIdx),
                        sched_ctrl->dl_cce_fail);
+    const nr_pucch_dbg_stats_t *dbg = &stats->pucch_dbg;
+    output = st_append(output, end, "UE %04x: PUCCH dbg:", UE->rnti);
+    output = dump_pucch_dbg_meas(output, end, "F0", &dbg->f0);
+    output = dump_pucch_dbg_meas(output, end, "F0dtx", &dbg->f0_dtx);
+    output = dump_pucch_dbg_meas(output, end, "F2harq", &dbg->f2_harq);
+    output = dump_pucch_dbg_meas(output, end, "F2noharq", &dbg->f2_noharq);
+    output = st_append(output,
+                       end,
+                       " F2crcfail harq %u csi %u | avgSNR %.1f inflight %+.1f | guard ref %.1f excess %+.1f hits %u"
+                       " | TPC -1:%u 0:%u +1:%u +3:%u | TA %u (sum %+d)\n",
+                       dbg->f2_harq_crc_fail,
+                       dbg->f2_csi_crc_fail,
+                       sched_ctrl->pucch_pc.avg_snr,
+                       sched_ctrl->pucch_pc.tpc_in_flight,
+                       sched_ctrl->pucch_pc.rssi_ref_valid ? sched_ctrl->pucch_pc.rssi_ref / 10.0f - 128.0f : 0.0f,
+                       sched_ctrl->pucch_pc.rssi_ref_valid
+                           ? (sched_ctrl->pucch_pc.avg_rssi + 10.0f * sched_ctrl->pucch_pc.rssi_in_flight - sched_ctrl->pucch_pc.rssi_ref) / 10.0f
+                           : 0.0f,
+                       sched_ctrl->pucch_pc.rssi_guard_hits,
+                       dbg->tpc[0],
+                       dbg->tpc[1],
+                       dbg->tpc[2],
+                       dbg->tpc[3],
+                       dbg->ta_cmd,
+                       dbg->ta_sum);
     if (reset_rsrp) {
+      memset(&stats->pucch_dbg, 0, sizeof(stats->pucch_dbg));
+      sched_ctrl->pucch_pc.rssi_guard_hits = 0;
       stats->num_rsrp_meas = 0;
       stats->cumul_rsrp = 0;
       stats->num_sinr_meas = 0;

@@ -8,6 +8,7 @@
 
 #include "nfapi_nr_interface_scf.h"
 #include <softmodem-common.h>
+#include <math.h>
 #include "assertions.h"
 
 #include "nr_mac_gNB.h"
@@ -1444,12 +1445,6 @@ void config_uldci(const NR_UE_ServingCell_Info_t *sc_info,
         dci_pdu_rel15->rv);
 }
 
-const int default_pucch_fmt[]       = {0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1};
-const int default_pucch_firstsymb[] = {12,12,12,10,10,10,10,4,4,4,4,0,0,0,0,0};
-const int default_pucch_numbsymb[]  = {2,2,2,2,4,4,4,4,10,10,10,10,14,14,14,14,14};
-const int default_pucch_prboffset[] = {0,0,3,0,0,2,4,0,0,2,4,0,0,2,4,-1};
-const int default_pucch_csset[]     = {2,3,3,2,4,4,4,2,4,4,4,2,4,4,4,4};
-
 void nr_configure_pdcch(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu, NR_ControlResourceSet_t *coreset, NR_sched_pdcch_t *pdcch)
 {
   pdcch_pdu->BWPSize = pdcch->BWPSize;
@@ -1480,267 +1475,6 @@ void nr_configure_pdcch(nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu, NR_Control
 
   //precoderGranularity
   pdcch_pdu->precoderGranularity = coreset->precoderGranularity;
-}
-
-int nr_get_pucch_resource(NR_ControlResourceSet_t *coreset,
-                          NR_PUCCH_Config_t *pucch_Config,
-                          int CCEIndex) {
-  int r_pucch = -1;
-  if(pucch_Config == NULL) {
-    int n_rb,rb_offset;
-    get_coreset_rballoc(coreset->frequencyDomainResources.buf,&n_rb,&rb_offset);
-    const uint16_t N_cce = n_rb * coreset->duration / NR_NB_REG_PER_CCE;
-    const int delta_PRI=0;
-    r_pucch = ((CCEIndex<<1)/N_cce)+(delta_PRI<<1);
-  }
-  return r_pucch;
-}
-
-// This function configures pucch pdu fapi structure
-void nr_configure_pucch(nfapi_nr_pucch_pdu_t *pucch_pdu,
-                        NR_ServingCellConfigCommon_t *scc,
-                        NR_UE_info_t *UE,
-                        uint8_t pucch_resource,
-                        uint16_t O_csi,
-                        uint16_t O_ack,
-                        uint8_t O_sr,
-                        int r_pucch,
-                        const NR_beam_info_t *beam_info,
-                        uint16_t ant_port_start,
-                        uint16_t *ssi,
-                        uint16_t num_ant)
-{
-  NR_PUCCH_Resource_t *pucchres;
-  NR_PUCCH_FormatConfig_t *pucchfmt;
-  NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
-
-  int res_found = 0;
-
-  pucch_pdu->bit_len_harq = O_ack;
-  pucch_pdu->bit_len_csi_part1 = O_csi;
-
-  uint16_t O_uci = O_csi + O_ack;
-
-  NR_PUSCH_Config_t *pusch_Config = current_BWP->pusch_Config;
-
-  long *pusch_id = pusch_Config ? pusch_Config->dataScramblingIdentityPUSCH : NULL;
-
-  long *id0 = NULL;
-  if (pusch_Config &&
-      pusch_Config->dmrs_UplinkForPUSCH_MappingTypeA != NULL &&
-      pusch_Config->dmrs_UplinkForPUSCH_MappingTypeA->choice.setup->transformPrecodingDisabled != NULL)
-    id0 = pusch_Config->dmrs_UplinkForPUSCH_MappingTypeA->choice.setup->transformPrecodingDisabled->scramblingID0;
-  else if (pusch_Config && pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB != NULL &&
-           pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB->choice.setup->transformPrecodingDisabled != NULL)
-    id0 = pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB->choice.setup->transformPrecodingDisabled->scramblingID0;
-  else id0 = scc->physCellId;
-
-  NR_PUCCH_ConfigCommon_t *pucch_ConfigCommon = current_BWP->pucch_ConfigCommon;
-
-  // hop flags and hopping id are valid for any BWP
-  switch (pucch_ConfigCommon->pucch_GroupHopping){
-  case 0 :
-    // if neither, both disabled
-    pucch_pdu->group_hop_flag = 0;
-    pucch_pdu->sequence_hop_flag = 0;
-    break;
-  case 1 :
-    // if enable, group enabled
-    pucch_pdu->group_hop_flag = 1;
-    pucch_pdu->sequence_hop_flag = 0;
-    break;
-  case 2 :
-    // if disable, sequence disabled
-    pucch_pdu->group_hop_flag = 0;
-    pucch_pdu->sequence_hop_flag = 1;
-    break;
-  default:
-    AssertFatal(1==0,"Group hopping flag %ld undefined (0,1,2) \n", pucch_ConfigCommon->pucch_GroupHopping);
-  }
-
-  if (pucch_ConfigCommon->hoppingId != NULL)
-    pucch_pdu->hopping_id = *pucch_ConfigCommon->hoppingId;
-  else
-    pucch_pdu->hopping_id = *scc->physCellId;
-
-  pucch_pdu->bwp_size  = current_BWP->BWPSize;
-  pucch_pdu->bwp_start = current_BWP->BWPStart;
-  pucch_pdu->subcarrier_spacing = current_BWP->scs;
-  pucch_pdu->cyclic_prefix = (current_BWP->cyclicprefix==NULL) ? 0 : *current_BWP->cyclicprefix;
-
-  NR_PUCCH_Config_t *pucch_Config = current_BWP->pucch_Config;
-  if (r_pucch < 0 || pucch_Config) {
-    LOG_D(NR_MAC, "pucch_acknak: Filling dedicated configuration for PUCCH\n");
-
-    int resource_id = get_pucch_resourceid(pucch_Config, O_uci, pucch_resource);
-
-    AssertFatal(pucch_Config->resourceToAddModList!=NULL,
-                "PUCCH resourceToAddModList is null\n");
-
-    int n_list = pucch_Config->resourceToAddModList->list.count;
-    AssertFatal(n_list > 0, "PUCCH resourceToAddModList is empty\n");
-
-    // going through the list of PUCCH resources to find the one indexed by resource_id
-    for (int i = 0; i < n_list; i++) {
-      pucchres = pucch_Config->resourceToAddModList->list.array[i];
-      if (pucchres->pucch_ResourceId == resource_id) {
-        res_found = 1;
-        pucch_pdu->prb_start = pucchres->startingPRB;
-        pucch_pdu->rnti = UE->rnti;
-        // FIXME why there is only one frequency hopping flag
-        // what about inter slot frequency hopping?
-        pucch_pdu->freq_hop_flag = pucchres->intraSlotFrequencyHopping ? 1 : 0;
-        pucch_pdu->second_hop_prb = pucchres->secondHopPRB!= NULL ?  *pucchres->secondHopPRB : 0;
-        switch(pucchres->format.present) {
-          case NR_PUCCH_Resource__format_PR_format0 :
-            pucch_pdu->format_type = 0;
-            pucch_pdu->initial_cyclic_shift = pucchres->format.choice.format0->initialCyclicShift;
-            pucch_pdu->nr_of_symbols = pucchres->format.choice.format0->nrofSymbols;
-            pucch_pdu->start_symbol_index = pucchres->format.choice.format0->startingSymbolIndex;
-            pucch_pdu->sr_flag = O_sr;
-            pucch_pdu->prb_size = 1;
-            break;
-          case NR_PUCCH_Resource__format_PR_format1 :
-            pucch_pdu->format_type = 1;
-            pucch_pdu->initial_cyclic_shift = pucchres->format.choice.format1->initialCyclicShift;
-            pucch_pdu->nr_of_symbols = pucchres->format.choice.format1->nrofSymbols;
-            pucch_pdu->start_symbol_index = pucchres->format.choice.format1->startingSymbolIndex;
-            pucch_pdu->time_domain_occ_idx = pucchres->format.choice.format1->timeDomainOCC;
-            pucch_pdu->sr_flag = O_sr;
-            pucch_pdu->prb_size = 1;
-            break;
-          case NR_PUCCH_Resource__format_PR_format2 :
-            pucch_pdu->format_type = 2;
-            pucch_pdu->sr_flag = O_sr;
-            pucch_pdu->nr_of_symbols = pucchres->format.choice.format2->nrofSymbols;
-            pucch_pdu->start_symbol_index = pucchres->format.choice.format2->startingSymbolIndex;
-            pucch_pdu->data_scrambling_id = pusch_id ? *pusch_id : *scc->physCellId;
-            pucch_pdu->dmrs_scrambling_id = id0 ? *id0 : *scc->physCellId;
-            pucch_pdu->prb_size = compute_pucch_prb_size(pucchres->format.choice.format2->nrofPRBs,
-                                                         O_csi,
-                                                         O_ack,
-                                                         O_sr,
-                                                         pucch_Config->format2->choice.setup->maxCodeRate,
-                                                         2,
-                                                         pucchres->format.choice.format2->nrofSymbols,
-                                                         8);
-            pucch_pdu->bit_len_csi_part1 = O_csi;
-            break;
-          case NR_PUCCH_Resource__format_PR_format3 :
-            pucch_pdu->format_type = 3;
-            pucch_pdu->nr_of_symbols = pucchres->format.choice.format3->nrofSymbols;
-            pucch_pdu->start_symbol_index = pucchres->format.choice.format3->startingSymbolIndex;
-            pucch_pdu->data_scrambling_id = pusch_id ? *pusch_id : *scc->physCellId;
-            if (pucch_Config->format3 == NULL) {
-              pucch_pdu->pi_2bpsk = 0;
-              pucch_pdu->add_dmrs_flag = 0;
-            }
-            else {
-              pucchfmt = pucch_Config->format3->choice.setup;
-              pucch_pdu->pi_2bpsk = pucchfmt->pi2BPSK ? 1 : 0;
-              pucch_pdu->add_dmrs_flag = pucchfmt->additionalDMRS ? 1 : 0;
-            }
-            int f3_dmrs_symbols = get_f3_dmrs_symbols(pucchres, pucch_Config);
-            pucch_pdu->prb_size = compute_pucch_prb_size(pucchres->format.choice.format3->nrofPRBs,
-                                                         O_csi,
-                                                         O_ack,
-                                                         O_sr,
-                                                         pucch_Config->format3->choice.setup->maxCodeRate,
-                                                         2 - pucch_pdu->pi_2bpsk,
-                                                         pucchres->format.choice.format3->nrofSymbols - f3_dmrs_symbols,
-                                                         12);
-            pucch_pdu->bit_len_csi_part1 = O_csi;
-            break;
-          case NR_PUCCH_Resource__format_PR_format4 :
-            pucch_pdu->format_type = 4;
-            pucch_pdu->nr_of_symbols = pucchres->format.choice.format4->nrofSymbols;
-            pucch_pdu->start_symbol_index = pucchres->format.choice.format4->startingSymbolIndex;
-            pucch_pdu->pre_dft_occ_len = pucchres->format.choice.format4->occ_Length;
-            pucch_pdu->pre_dft_occ_idx = pucchres->format.choice.format4->occ_Index;
-            pucch_pdu->data_scrambling_id = pusch_id!= NULL ? *pusch_id : *scc->physCellId;
-            if (pucch_Config->format3 == NULL) {
-              pucch_pdu->pi_2bpsk = 0;
-              pucch_pdu->add_dmrs_flag = 0;
-            }
-            else {
-              pucchfmt = pucch_Config->format3->choice.setup;
-              pucch_pdu->pi_2bpsk = pucchfmt->pi2BPSK != NULL;
-              pucch_pdu->add_dmrs_flag = pucchfmt->additionalDMRS != NULL;
-            }
-            pucch_pdu->bit_len_csi_part1 = O_csi;
-            break;
-          default :
-            AssertFatal(1==0,"Undefined PUCCH format \n");
-        }
-      }
-    }
-    AssertFatal(res_found == 1, "No PUCCH resource found corresponding to id %d\n", resource_id);
-    LOG_D(NR_MAC,
-          "Configure pucch: pucch_pdu->format_type %d pucch_pdu->bit_len_harq %d, pucch->pdu->bit_len_csi %d\n",
-          pucch_pdu->format_type,
-          pucch_pdu->bit_len_harq,
-          pucch_pdu->bit_len_csi_part1);
-  } else { // this is the default PUCCH configuration, PUCCH format 0 or 1
-    LOG_D(NR_MAC,
-          "pucch_acknak: Filling default PUCCH configuration from Tables (r_pucch %d, pucch_Config %p)\n",
-          r_pucch,
-          pucch_Config);
-    int rsetindex = *pucch_ConfigCommon->pucch_ResourceCommon;
-    int prb_start, second_hop_prb, nr_of_symb, start_symb;
-    set_r_pucch_parms(rsetindex,
-                      r_pucch,
-                      pucch_pdu->bwp_size,
-                      &prb_start,
-                      &second_hop_prb,
-                      &nr_of_symb,
-                      &start_symb);
-
-    pucch_pdu->prb_start = prb_start;
-    pucch_pdu->rnti = UE->rnti;
-    pucch_pdu->freq_hop_flag = 1;
-    pucch_pdu->second_hop_prb = second_hop_prb;
-    pucch_pdu->format_type = default_pucch_fmt[rsetindex];
-    int initial_cyclic_shift_idx = (r_pucch % 8) % default_pucch_csset[rsetindex];
-    if (rsetindex == 3 || rsetindex == 7 || rsetindex == 11)
-      pucch_pdu->initial_cyclic_shift = initial_cyclic_shift_idx * 6;
-    else if (rsetindex == 1 || rsetindex == 2)
-      pucch_pdu->initial_cyclic_shift = initial_cyclic_shift_idx * 4;
-    else
-      pucch_pdu->initial_cyclic_shift = initial_cyclic_shift_idx * 3;
-    pucch_pdu->nr_of_symbols = nr_of_symb;
-    pucch_pdu->start_symbol_index = start_symb;
-    if (pucch_pdu->format_type == 1)
-      pucch_pdu->time_domain_occ_idx = 0; // check this!!
-    pucch_pdu->sr_flag = O_sr;
-    pucch_pdu->prb_size=1;
-  }
-  // Beamforming
-  pucch_pdu->beamforming.num_prgs = 1;
-  pucch_pdu->beamforming.prg_size = pucch_pdu->prb_size;
-  pucch_pdu->beamforming.dig_bf_interface = 1;
-  const uint16_t fapi_beam = convert_to_fapi_beam(UE->UE_beam_index, beam_info);
-  pucch_pdu->beamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = fapi_beam;
-  pucch_pdu->param_v4.numSpatialStreamIndices = num_ant;
-  for (int i = 0; i < num_ant; i++)
-    pucch_pdu->param_v4.spatialStreamIndices[i] = ssi[ant_port_start + i];
-}
-
-void set_r_pucch_parms(int rsetindex,
-                       int r_pucch,
-                       int bwp_size,
-                       int *prb_start,
-                       int *second_hop_prb,
-                       int *nr_of_symbols,
-                       int *start_symbol_index)
-{
-  // procedure described in 38.213 section 9.2.1
-  int prboffset = (r_pucch % 8) / default_pucch_csset[rsetindex];
-  int offset1 = default_pucch_prboffset[rsetindex] + prboffset;
-  int offset2 = bwp_size - 1 - default_pucch_prboffset[rsetindex] - prboffset;
-  *prb_start = (r_pucch >> 3) == 0 ? offset1 : offset2;
-  *second_hop_prb = (r_pucch >> 3) == 0 ? offset2 : offset1;
-  *nr_of_symbols = default_pucch_numbsymb[rsetindex];
-  *start_symbol_index = default_pucch_firstsymb[rsetindex];
 }
 
 static void prepare_dci_X1(const NR_UE_ServingCell_Info_t *servingCellInfo,
@@ -3141,6 +2875,7 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
   nr_mac_set_target_snrx10(&sched_ctrl->pucch_pc, config->pucch.target_snrx10);
   sched_ctrl->pucch_pc.avg_snr = config->pucch.target_snrx10 / 10.0f; // set initial SNR to what we would expect on average
   nr_mac_set_rssi_threshold(&sched_ctrl->pucch_pc, config->pucch.rssi_threshold);
+  nr_mac_set_rssi_guard(&sched_ctrl->pucch_pc, true);
   nr_mac_set_target_snrx10(&sched_ctrl->pusch_pc, config->pusch.target_snrx10);
   sched_ctrl->pusch_pc.avg_snr = config->pusch.target_snrx10 / 10.0f; // set initial SNR to what we would expect on average
   nr_mac_set_rssi_threshold(&sched_ctrl->pusch_pc, config->pusch.rssi_threshold);
@@ -3338,25 +3073,6 @@ static uint8_t nr_limit_tpc(int tpc, int rssi, int rssi_threshold)
     }
   }
   return tpc;
-}
-
-int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
-                                nr_dci_format_t dci_format,
-                                uint8_t *pdsch_to_harq_feedback) {
-  /* already mutex protected: held in nr_acknack_scheduling() */
-
-  if (dci_format == NR_DL_DCI_FORMAT_1_0) {
-    for (int i = 0; i < 8; i++)
-      pdsch_to_harq_feedback[i] = i + 1;
-    return 8;
-  }
-  else {
-    AssertFatal(pucch_Config != NULL && pucch_Config->dl_DataToUL_ACK != NULL,"dl_DataToUL_ACK shouldn't be null here\n");
-    for (int i = 0; i < pucch_Config->dl_DataToUL_ACK->list.count; i++) {
-      pdsch_to_harq_feedback[i] = *pucch_Config->dl_DataToUL_ACK->list.array[i];
-    }
-    return pucch_Config->dl_DataToUL_ACK->list.count;
-  }
 }
 
 void nr_csirs_scheduling(gNB_MAC_INST *gNB_mac, nr_cell_sched_t *cell, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req)
@@ -4512,6 +4228,15 @@ static float get_snr_diff(const nr_power_control_t *pc)
 
 /// averaging constant for power control (used for SNR, RSSI).
 #define PC_AVG_CNST 0.975f
+/// RSSI guard: maximum power increase (dB) above the reference RSSI at which
+/// the target SNR was last met. Beyond it, more power is not expected to help.
+#define PC_RSSI_GUARD_MARGIN_DB 6.0f
+
+/// estimated current RSSI in FAPI scale (0.1 dB), including TPCs not yet measured
+static float pc_est_rssi(const nr_power_control_t *pc)
+{
+  return pc->avg_rssi + 10.0f * pc->rssi_in_flight;
+}
 /**
  * @brief Enter new SNR and RSSI value for the latest UL transmission, and
  * update the average SNR and average RSSI of the corresponding UE.
@@ -4536,6 +4261,18 @@ void nr_mac_pc_snr(nr_power_control_t *pc, int snrx10, int rssi)
   // this will ensure that on TPC change, avg_snr approximates real SNR as
   // fast as tpc_in_flight returns to 0.
   pc->tpc_in_flight = PC_AVG_CNST * pc->tpc_in_flight; // + (1 - PC_AVG_CNST) * 0.0f
+  pc->rssi_in_flight = PC_AVG_CNST * pc->rssi_in_flight;
+
+  // Track the RSSI at which the target SNR is met. Use the measured SNR only
+  // (no TPC in flight) and only when the loop has settled, so that a ramp of
+  // positive TPCs cannot drag the reference up without an actual SNR gain.
+  if (pc->rssi_guard) {
+    const float meas_diff = pc->avg_snr - pc->target_snrx10 / 10.0f;
+    if (meas_diff >= -1.0f && meas_diff <= 2.0f && fabsf(pc->rssi_in_flight) < 0.5f) {
+      pc->rssi_ref = pc_est_rssi(pc);
+      pc->rssi_ref_valid = true;
+    }
+  }
 }
 
 /**
@@ -4551,6 +4288,8 @@ void nr_mac_pc_reset_snr(nr_power_control_t *pc, int snrx10, int rssi)
   pc->avg_snr = 0.1f * snrx10;
   pc->avg_rssi = rssi;
   pc->tpc_in_flight = 0.0f;
+  pc->rssi_in_flight = 0.0f;
+  pc->rssi_ref_valid = false;
 }
 
 /**
@@ -4576,6 +4315,46 @@ void nr_mac_set_target_snrx10(nr_power_control_t *pc, int target_snrx10)
 void nr_mac_set_rssi_threshold(nr_power_control_t *pc, int rssi_threshold)
 {
   pc->rssi_threshold = rssi_threshold;
+}
+
+/**
+ * @brief Enable or disable the RSSI guard of this power control loop. When
+ * enabled, TPC commands are limited so that the estimated RSSI does not exceed
+ * by more than PC_RSSI_GUARD_MARGIN_DB the RSSI at which the target SNR was
+ * last met: if the SNR does not improve with more power, more power is not
+ * sent. Should only be enabled for loops whose RSSI does not depend on the
+ * allocation size (e.g. PUCCH, not PUSCH).
+ *
+ * @param pc the power control loop
+ * @param enable true to enable the guard
+ */
+void nr_mac_set_rssi_guard(nr_power_control_t *pc, bool enable)
+{
+  pc->rssi_guard = enable;
+  pc->rssi_ref_valid = false;
+  pc->rssi_in_flight = 0.0f;
+}
+
+/**
+ * @brief Apply the RSSI guard to a TPC command, see nr_mac_set_rssi_guard().
+ */
+static int nr_rssi_guard_tpc(nr_power_control_t *pc, int tpc)
+{
+  if (!pc->rssi_guard || !pc->rssi_ref_valid)
+    return tpc;
+  const float excess = (pc_est_rssi(pc) - pc->rssi_ref) / 10.0f; // dB above reference
+  int new_tpc = tpc;
+  if (excess > PC_RSSI_GUARD_MARGIN_DB) {
+    new_tpc = 0; // above the margin: bring the power back down
+  } else if (excess + tpc_to_db(tpc) > PC_RSSI_GUARD_MARGIN_DB) {
+    // requested increase does not fit: try 1 dB, otherwise keep the power
+    new_tpc = (tpc == 3 && excess + 1.0f <= PC_RSSI_GUARD_MARGIN_DB) ? 2 : 1;
+  }
+  if (new_tpc != tpc) {
+    pc->rssi_guard_hits++;
+    LOG_D(NR_MAC, "RSSI guard: excess %.1f dB, tpc %d => %d\n", excess, tpc, new_tpc);
+  }
+  return new_tpc;
 }
 
 /**
@@ -4619,8 +4398,10 @@ int nr_mac_get_tpc(nr_power_control_t *pc)
     tpc = 1; // within -1<=target<=2dB => is ok.
   }
   tpc = nr_limit_tpc(tpc, pc->avg_rssi, pc->rssi_threshold);
+  tpc = nr_rssi_guard_tpc(pc, tpc);
   int change = tpc_to_db(tpc);
   pc->tpc_in_flight += change;
+  pc->rssi_in_flight += change;
   LOG_D(NR_MAC, "tpc %d => %d\n", tpc, change);
   return tpc;
 }

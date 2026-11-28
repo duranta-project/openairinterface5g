@@ -65,7 +65,6 @@
 #include "NR_TAG.h"
 
 /* Defs */
-#define MAX_NUM_BWP 5
 #define MAX_NUM_CORESET 12
 /*!\brief Maximum number of random access process */
 #define NR_NB_RA_PROC_MAX 16 // set to 16 for multiple CFRA at the same time
@@ -241,7 +240,7 @@ typedef struct nr_mac_config_s {
   // BWP information
   int num_additional_bwps;
   int first_active_bwp;
-  nr_bwp_config_t bwp_config[4];
+  nr_bwp_config_t bwp_config[NR_MAX_NUM_BWP];
   /// beam IDs statically allocated to SSB/PRACH, one per transmitted SSB
   int num_ssb_beams;
   int32_t *ssb_beams;
@@ -455,6 +454,7 @@ typedef struct NR_sched_pucch {
   uint8_t dai_c;
   uint8_t timing_indicator;
   uint8_t resource_indicator;
+  int resource_id;
   int r_pucch;
   int prb_start;
   int second_hop_prb;
@@ -673,6 +673,12 @@ typedef struct nr_power_control {
   float avg_rssi; /// average RSSI
   int rssi_threshold; /// UE-specific RSSI threshld in 0.1dBm/dBFS, range -1280 to 0
   float tpc_in_flight; /// TPCs applied by UE but not yet in average SNR
+  /// RSSI guard: block TPC increases that do not improve the SNR
+  bool rssi_guard; /// enable the RSSI guard for this loop
+  bool rssi_ref_valid; /// rssi_ref has been set at least once
+  float rssi_ref; /// estimated RSSI (FAPI scale) when the measured SNR was last within target range
+  float rssi_in_flight; /// TPCs sent (in dB) but not yet reflected in avg_rssi; not touched by DTX handling
+  uint32_t rssi_guard_hits; /// number of TPC commands modified by the RSSI guard
 } nr_power_control_t;
 
 typedef struct {
@@ -797,12 +803,33 @@ typedef struct {
   nr_power_control_t pucch_pc;
 } NR_UE_sched_ctrl_t;
 
+// temporary PUCCH debug statistics, reset at every periodic stats print
+typedef struct nr_pucch_dbg_meas {
+  uint32_t cnt;        // number of PDUs with a valid SNR (ul_cqi != 0xff)
+  int64_t snrx10_sum;  // sum of SNR x10
+  uint32_t rssi_cnt;   // number of PDUs with a valid RSSI
+  int64_t rssi_sum;    // sum of RSSI in FAPI units (0.1 dB, 1280 = 0 dBm)
+} nr_pucch_dbg_meas_t;
+
+typedef struct nr_pucch_dbg_stats {
+  nr_pucch_dbg_meas_t f0;          // F0 with HARQ detected (confidence 0)
+  nr_pucch_dbg_meas_t f0_dtx;      // F0 with HARQ DTX (confidence 1)
+  nr_pucch_dbg_meas_t f2_harq;     // F2 carrying HARQ (HARQ resource from set 1)
+  nr_pucch_dbg_meas_t f2_noharq;   // F2 without HARQ (periodic CSI/RSRP resource)
+  uint32_t f2_harq_crc_fail;
+  uint32_t f2_csi_crc_fail;
+  uint32_t tpc[4];                 // PUCCH TPC commands sent: -1dB, 0dB, +1dB, +3dB
+  uint32_t ta_cmd;                 // TA MAC CEs sent
+  int32_t ta_sum;                  // sum of (TA command - 31)
+} nr_pucch_dbg_stats_t;
+
 typedef struct NR_mac_stats {
   NR_mac_dir_stats_t dl;
   NR_mac_dir_stats_t ul;
   uint32_t ulsch_DTX;
   uint64_t ulsch_total_bytes_scheduled;
   uint32_t pucch0_DTX;
+  nr_pucch_dbg_stats_t pucch_dbg;
   int cumul_rsrp;
   uint32_t num_rsrp_meas;
   int cumul_sinrx10;
@@ -1262,6 +1289,15 @@ typedef struct NR_du_stats {
   uint32_t ss_rsrp_ssb_dist[NR_KPM_NB_SSB][NR_KPM_SS_RSRP_NB_LEVELS];
 } NR_du_stats_t;
 
+typedef struct nr_pucch_radio_res_s {
+  int nb_harq_res;
+  int nb_prb_harq_res;
+  int nb_periodic_res;
+  int nb_prb_periodic_res;
+  int periodicity;
+  int max_served_ues;
+} nr_pucch_radio_res_t;
+
 typedef struct {
   NR_UE_info_t **list;
   int max_period; // common multiple of periodicities sharing the table
@@ -1356,6 +1392,7 @@ typedef struct nr_cell_sched_s {
   /// Per-cell KPI statistics
   NR_du_stats_t du_stats;
   uint64_t num_scheduled_prach_rx;
+  nr_pucch_radio_res_t pucch_res_bwp[NR_MAX_NUM_BWP + 1]; // including initial BWP
 
   // Per-cell MAC function execution performance profiler
   /// processing time of gNB scheduler
