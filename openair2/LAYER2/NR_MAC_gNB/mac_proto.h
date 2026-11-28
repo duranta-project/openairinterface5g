@@ -567,6 +567,7 @@ void nr_mac_pc_snr(nr_power_control_t *pc, int snrx10, int rssi);
 void nr_mac_pc_reset_snr(nr_power_control_t *pc, int snrx10, int rssi);
 void nr_mac_set_target_snrx10(nr_power_control_t *pc, int target_snrx10);
 void nr_mac_set_rssi_threshold(nr_power_control_t *pc, int rssi_threshold);
+void nr_mac_set_rssi_guard(nr_power_control_t *pc, bool enable);
 void nr_mac_signal_dtx(nr_power_control_t *pc);
 int nr_mac_get_tpc(nr_power_control_t *pc);
 

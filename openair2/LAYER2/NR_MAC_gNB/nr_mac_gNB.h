@@ -673,6 +673,12 @@ typedef struct nr_power_control {
   float avg_rssi; /// average RSSI
   int rssi_threshold; /// UE-specific RSSI threshld in 0.1dBm/dBFS, range -1280 to 0
   float tpc_in_flight; /// TPCs applied by UE but not yet in average SNR
+  /// RSSI guard: block TPC increases that do not improve the SNR
+  bool rssi_guard; /// enable the RSSI guard for this loop
+  bool rssi_ref_valid; /// rssi_ref has been set at least once
+  float rssi_ref; /// estimated RSSI (FAPI scale) when the measured SNR was last within target range
+  float rssi_in_flight; /// TPCs sent (in dB) but not yet reflected in avg_rssi; not touched by DTX handling
+  uint32_t rssi_guard_hits; /// number of TPC commands modified by the RSSI guard
 } nr_power_control_t;
 
 typedef struct {

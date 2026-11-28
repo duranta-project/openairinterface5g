@@ -199,11 +199,17 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
     output = dump_pucch_dbg_meas(output, end, "F2noharq", &dbg->f2_noharq);
     output = st_append(output,
                        end,
-                       " F2crcfail harq %u csi %u | avgSNR %.1f inflight %+.1f | TPC -1:%u 0:%u +1:%u +3:%u | TA %u (sum %+d)\n",
+                       " F2crcfail harq %u csi %u | avgSNR %.1f inflight %+.1f | guard ref %.1f excess %+.1f hits %u"
+                       " | TPC -1:%u 0:%u +1:%u +3:%u | TA %u (sum %+d)\n",
                        dbg->f2_harq_crc_fail,
                        dbg->f2_csi_crc_fail,
                        sched_ctrl->pucch_pc.avg_snr,
                        sched_ctrl->pucch_pc.tpc_in_flight,
+                       sched_ctrl->pucch_pc.rssi_ref_valid ? sched_ctrl->pucch_pc.rssi_ref / 10.0f - 128.0f : 0.0f,
+                       sched_ctrl->pucch_pc.rssi_ref_valid
+                           ? (sched_ctrl->pucch_pc.avg_rssi + 10.0f * sched_ctrl->pucch_pc.rssi_in_flight - sched_ctrl->pucch_pc.rssi_ref) / 10.0f
+                           : 0.0f,
+                       sched_ctrl->pucch_pc.rssi_guard_hits,
                        dbg->tpc[0],
                        dbg->tpc[1],
                        dbg->tpc[2],
@@ -212,6 +218,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, const nr_cell_sched_t *cell, char *outp
                        dbg->ta_sum);
     if (reset_rsrp) {
       memset(&stats->pucch_dbg, 0, sizeof(stats->pucch_dbg));
+      sched_ctrl->pucch_pc.rssi_guard_hits = 0;
       stats->num_rsrp_meas = 0;
       stats->cumul_rsrp = 0;
       stats->num_sinr_meas = 0;

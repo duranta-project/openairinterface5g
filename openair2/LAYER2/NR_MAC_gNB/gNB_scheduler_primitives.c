@@ -8,6 +8,7 @@
 
 #include "nfapi_nr_interface_scf.h"
 #include <softmodem-common.h>
+#include <math.h>
 #include "assertions.h"
 
 #include "nr_mac_gNB.h"
@@ -2874,6 +2875,7 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
   nr_mac_set_target_snrx10(&sched_ctrl->pucch_pc, config->pucch.target_snrx10);
   sched_ctrl->pucch_pc.avg_snr = config->pucch.target_snrx10 / 10.0f; // set initial SNR to what we would expect on average
   nr_mac_set_rssi_threshold(&sched_ctrl->pucch_pc, config->pucch.rssi_threshold);
+  nr_mac_set_rssi_guard(&sched_ctrl->pucch_pc, true);
   nr_mac_set_target_snrx10(&sched_ctrl->pusch_pc, config->pusch.target_snrx10);
   sched_ctrl->pusch_pc.avg_snr = config->pusch.target_snrx10 / 10.0f; // set initial SNR to what we would expect on average
   nr_mac_set_rssi_threshold(&sched_ctrl->pusch_pc, config->pusch.rssi_threshold);
@@ -4226,6 +4228,15 @@ static float get_snr_diff(const nr_power_control_t *pc)
 
 /// averaging constant for power control (used for SNR, RSSI).
 #define PC_AVG_CNST 0.975f
+/// RSSI guard: maximum power increase (dB) above the reference RSSI at which
+/// the target SNR was last met. Beyond it, more power is not expected to help.
+#define PC_RSSI_GUARD_MARGIN_DB 6.0f
+
+/// estimated current RSSI in FAPI scale (0.1 dB), including TPCs not yet measured
+static float pc_est_rssi(const nr_power_control_t *pc)
+{
+  return pc->avg_rssi + 10.0f * pc->rssi_in_flight;
+}
 /**
  * @brief Enter new SNR and RSSI value for the latest UL transmission, and
  * update the average SNR and average RSSI of the corresponding UE.
@@ -4250,6 +4261,18 @@ void nr_mac_pc_snr(nr_power_control_t *pc, int snrx10, int rssi)
   // this will ensure that on TPC change, avg_snr approximates real SNR as
   // fast as tpc_in_flight returns to 0.
   pc->tpc_in_flight = PC_AVG_CNST * pc->tpc_in_flight; // + (1 - PC_AVG_CNST) * 0.0f
+  pc->rssi_in_flight = PC_AVG_CNST * pc->rssi_in_flight;
+
+  // Track the RSSI at which the target SNR is met. Use the measured SNR only
+  // (no TPC in flight) and only when the loop has settled, so that a ramp of
+  // positive TPCs cannot drag the reference up without an actual SNR gain.
+  if (pc->rssi_guard) {
+    const float meas_diff = pc->avg_snr - pc->target_snrx10 / 10.0f;
+    if (meas_diff >= -1.0f && meas_diff <= 2.0f && fabsf(pc->rssi_in_flight) < 0.5f) {
+      pc->rssi_ref = pc_est_rssi(pc);
+      pc->rssi_ref_valid = true;
+    }
+  }
 }
 
 /**
@@ -4265,6 +4288,8 @@ void nr_mac_pc_reset_snr(nr_power_control_t *pc, int snrx10, int rssi)
   pc->avg_snr = 0.1f * snrx10;
   pc->avg_rssi = rssi;
   pc->tpc_in_flight = 0.0f;
+  pc->rssi_in_flight = 0.0f;
+  pc->rssi_ref_valid = false;
 }
 
 /**
@@ -4290,6 +4315,46 @@ void nr_mac_set_target_snrx10(nr_power_control_t *pc, int target_snrx10)
 void nr_mac_set_rssi_threshold(nr_power_control_t *pc, int rssi_threshold)
 {
   pc->rssi_threshold = rssi_threshold;
+}
+
+/**
+ * @brief Enable or disable the RSSI guard of this power control loop. When
+ * enabled, TPC commands are limited so that the estimated RSSI does not exceed
+ * by more than PC_RSSI_GUARD_MARGIN_DB the RSSI at which the target SNR was
+ * last met: if the SNR does not improve with more power, more power is not
+ * sent. Should only be enabled for loops whose RSSI does not depend on the
+ * allocation size (e.g. PUCCH, not PUSCH).
+ *
+ * @param pc the power control loop
+ * @param enable true to enable the guard
+ */
+void nr_mac_set_rssi_guard(nr_power_control_t *pc, bool enable)
+{
+  pc->rssi_guard = enable;
+  pc->rssi_ref_valid = false;
+  pc->rssi_in_flight = 0.0f;
+}
+
+/**
+ * @brief Apply the RSSI guard to a TPC command, see nr_mac_set_rssi_guard().
+ */
+static int nr_rssi_guard_tpc(nr_power_control_t *pc, int tpc)
+{
+  if (!pc->rssi_guard || !pc->rssi_ref_valid)
+    return tpc;
+  const float excess = (pc_est_rssi(pc) - pc->rssi_ref) / 10.0f; // dB above reference
+  int new_tpc = tpc;
+  if (excess > PC_RSSI_GUARD_MARGIN_DB) {
+    new_tpc = 0; // above the margin: bring the power back down
+  } else if (excess + tpc_to_db(tpc) > PC_RSSI_GUARD_MARGIN_DB) {
+    // requested increase does not fit: try 1 dB, otherwise keep the power
+    new_tpc = (tpc == 3 && excess + 1.0f <= PC_RSSI_GUARD_MARGIN_DB) ? 2 : 1;
+  }
+  if (new_tpc != tpc) {
+    pc->rssi_guard_hits++;
+    LOG_D(NR_MAC, "RSSI guard: excess %.1f dB, tpc %d => %d\n", excess, tpc, new_tpc);
+  }
+  return new_tpc;
 }
 
 /**
@@ -4333,8 +4398,10 @@ int nr_mac_get_tpc(nr_power_control_t *pc)
     tpc = 1; // within -1<=target<=2dB => is ok.
   }
   tpc = nr_limit_tpc(tpc, pc->avg_rssi, pc->rssi_threshold);
+  tpc = nr_rssi_guard_tpc(pc, tpc);
   int change = tpc_to_db(tpc);
   pc->tpc_in_flight += change;
+  pc->rssi_in_flight += change;
   LOG_D(NR_MAC, "tpc %d => %d\n", tpc, change);
   return tpc;
 }
