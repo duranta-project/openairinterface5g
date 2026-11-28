@@ -10,6 +10,7 @@
 #define __LAYER2_MAC_UE_PROTO_H__
 
 #include "mac_defs.h"
+#include "nr_ue_csi.h"
 #include "oai_asn1.h"
 #include "RRC/NR_UE/rrc_defs.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface.h"
@@ -260,11 +261,6 @@ and fills the PRACH PDU per each FD occasion.
 @param slotP Slot index
 @returns void
 */
-
-void configure_csi_resource_mapping(fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,
-                                    const NR_CSI_RS_ResourceMapping_t *resourceMapping,
-                                    uint32_t bwp_size,
-                                    uint32_t bwp_start);
 
 bool is_lcid_suspended(NR_UE_MAC_INST_t *mac, int lcid);
 void nr_ra_contention_resolution_failed(NR_UE_MAC_INST_t *mac);

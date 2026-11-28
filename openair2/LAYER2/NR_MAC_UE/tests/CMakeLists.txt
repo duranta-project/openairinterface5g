@@ -18,3 +18,8 @@ target_link_libraries(test_nr_sl_slot_bitmap PRIVATE nr_sl_slot_bitmap)
 add_dependencies(tests test_nr_sl_slot_bitmap)
 add_test(NAME test_nr_sl_slot_bitmap
   COMMAND ./test_nr_sl_slot_bitmap)
+
+add_executable(test_nr_ue_csi test_nr_ue_csi.cpp)
+target_link_libraries(test_nr_ue_csi PRIVATE nr_ue_csi GTest::gtest minimal_lib)
+add_dependencies(tests test_nr_ue_csi)
+add_test(NAME test_nr_ue_csi COMMAND test_nr_ue_csi)

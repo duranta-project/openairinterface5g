@@ -235,13 +235,21 @@ static int nr_get_csi_rs_signal(const PHY_VARS_NR_UE *ue,
     }
   }
 
+  const bool needs_noise = (csirs_config_pdu->measurement_bitmap & 8) && !nr_csi_info->csi_im_meas_computed;
+  if (meas_count == 0 || (needs_noise && n_count == 0)) {
+    LOG_W(NR_PHY, "CSI-RS has insufficient samples: signal %u, noise %d\n", meas_count, n_count);
+    return -1;
+  }
+
   *rsrp = rsrp_sum / meas_count;
   *rsrp_dBm = dB_fixed(*rsrp) + 30 - SQ15_SQUARED_NORM_FACTOR_DB
               - ((int)openair0_cfg_g[ue->rf_map.card].rx_gain[0] - (int)openair0_cfg_g[ue->rf_map.card].rx_gain_offset[0])
               - dB_fixed(fp->ofdm_symbol_size);
 
-  *noise_power =
-    sum_nr2 / n_count - (sum_nr / n_count) * (sum_nr / n_count) + sum_ni2 / n_count - (sum_ni / n_count) * (sum_ni / n_count);
+  // Without noise samples, only measurements not using this estimator can proceed.
+  if (n_count > 0)
+    *noise_power =
+        sum_nr2 / n_count - (sum_nr / n_count) * (sum_nr / n_count) + sum_ni2 / n_count - (sum_ni / n_count) * (sum_ni / n_count);
 
 #ifdef NR_CSIRS_DEBUG
   LOG_I(NR_PHY, "RSRP = %i (%i dBm)\n", *rsrp, *rsrp_dBm);
@@ -1164,7 +1172,7 @@ void nr_ue_csi_im_procedures(PHY_VARS_NR_UE *ue,
       nr_csi_im_power_estimation(ue, csiim_config_pdu, &ue->nr_csi_info->interference_plus_noise_power, rxdataF);
 }
 
-void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
+bool nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                              const UE_nr_rxtx_proc_t *proc,
                              const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
                              fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,
@@ -1192,7 +1200,7 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
 
   if(csirs_config_pdu->csi_type == 2) {
     LOG_E(NR_PHY, "Handling of ZP CSI-RS not handled yet at PHY\n");
-    return;
+    return false;
   }
 
   const NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
@@ -1229,17 +1237,19 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
   uint32_t rsrp = 0;
   int rsrp_dBm = 0;
   uint32_t noise_power = 0;
-  nr_get_csi_rs_signal(ue,
-                       proc,
-                       csirs_config_pdu,
-                       csi_info,
-                       &mapping_parms,
-                       CDM_group_size,
-                       csi_rs_received_signal,
-                       &rsrp,
-                       &rsrp_dBm,
-                       &noise_power,
-                       rxdataF);
+  if (nr_get_csi_rs_signal(ue,
+                           proc,
+                           csirs_config_pdu,
+                           csi_info,
+                           &mapping_parms,
+                           CDM_group_size,
+                           csi_rs_received_signal,
+                           &rsrp,
+                           &rsrp_dBm,
+                           &noise_power,
+                           rxdataF)
+      < 0)
+    return false;
 
   int16_t log2_maxh = 0;
   // if we need to measure only RSRP no need to do channel estimation
@@ -1325,11 +1335,11 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
 
   // Send CSI measurements to MAC
   if (!ue->if_inst || !ue->if_inst->dl_indication)
-    return;
+    return true;
 
   // Do not send TRS measurements to MAC
   if (csirs_config_pdu->measurement_bitmap == 0) {
-    return;
+    return true;
   }
 
   fapi_nr_l1_measurements_t l1_measurements = {
@@ -1359,4 +1369,5 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
       .rx_ind = &rx_ind,
   };
   ue->if_inst->dl_indication(&dl_indication);
+  return true;
 }
