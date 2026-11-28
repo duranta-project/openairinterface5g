@@ -267,7 +267,8 @@ In the `MACRLCs` section of the gNB/DU configuration file:
   retransmission over initial transmission) to decrease MCS by 1
 * `dl_bler_target_lower` (default 0.05): lower threshold of BLER (first round
   retransmission over initial transmission) to increase MCS by 1
-* `dl_min_mcs` (default 0): minimum MCS to use for any UE
+* `dl_min_mcs` (default 0): minimum MCS to use for any UE, also if the MCS
+  derived from the CQI or SINR report is lower
 * `dl_max_mcs` (default 28): maximum MCS to use for any UE
 * `ul_bler_target_upper` (default 0.15): as `dl_bler_target_upper`
 * `ul_bler_target_lower` (default 0.05): as `dl_bler_target_lower`
